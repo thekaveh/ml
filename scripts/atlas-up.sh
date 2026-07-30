@@ -170,11 +170,13 @@ run_start() {
     fi
 }
 
-preflight_comfyui_source() {
+preflight_comfyui_override() {
     local source
 
-    source="$(atlas_dotenv_last_value "$ATLAS_ENV" "COMFYUI_SOURCE")" || die \
-        "COMFYUI_SOURCE was not materialized; it must remain disabled or use a host-native source"
+    # The pinned Atlas default is a container source, but --track ml-eng
+    # disables ComfyUI because it is off-track. Only a consumer-local source
+    # declaration survives that track synthesis, so that is the policy seam.
+    source="$(atlas_dotenv_last_value "$USER_ENV" "COMFYUI_SOURCE")" || return 0
     case "$source" in
         disabled | localhost | managed-localhost-mps)
             ;;
@@ -221,7 +223,7 @@ if [[ "$mode" == "validate" ]]; then
 fi
 
 if [[ "$dry_run" == false ]]; then
-    preflight_comfyui_source
+    preflight_comfyui_override
     preflight_native_ollama
 fi
 run_start --consumer "$MANIFEST" --track ml-eng --no-tui --detach

@@ -40,7 +40,7 @@ def atlas_repo(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (infra / ".env.example").write_text(
-        "PROJECT_NAME=atlas\nJUPYTERHUB_PORT=63094\nJUPYTERHUB_TOKEN=\nCOMFYUI_SOURCE=disabled\n",
+        "PROJECT_NAME=atlas\nJUPYTERHUB_PORT=63094\nJUPYTERHUB_TOKEN=\nCOMFYUI_SOURCE=container-cpu\n",
         encoding="utf-8",
     )
     for name in ("start.sh", "stop.sh"):
@@ -103,13 +103,6 @@ def write_preflight_start(atlas_repo: Path) -> Path:
         "#!/usr/bin/env bash\n"
         "printf '%s\\n' \"$*\" >> \"$ATLAS_TEST_COMMAND_LOG\"\n"
         "if [[ \"$*\" == *'compose validate'* ]]; then\n"
-        "    if [[ -n \"${ATLAS_TEST_LOCAL_OVERLAY-}\" ]]; then\n"
-        "        while IFS= read -r line || [[ -n \"$line\" ]]; do\n"
-        "            if [[ \"$line\" == COMFYUI_SOURCE=* ]]; then\n"
-        "                printf '%s\\n' \"$line\" >> .env\n"
-        "            fi\n"
-        "        done < \"$ATLAS_TEST_LOCAL_OVERLAY\"\n"
-        "    fi\n"
         "    if [[ -n \"${ATLAS_TEST_MATERIALIZED_LINES+x}\" ]]; then\n"
         "        printf '%s\\n' \"$ATLAS_TEST_MATERIALIZED_LINES\" >> .env\n"
         "    else\n"
@@ -149,7 +142,7 @@ def test_prepare_creates_local_files_once_without_starting_atlas(
 
     assert first.returncode == 0
     assert (atlas_repo / "infra" / ".env").read_text(encoding="utf-8") == (
-        "PROJECT_NAME=atlas\nJUPYTERHUB_PORT=63094\nJUPYTERHUB_TOKEN=\nCOMFYUI_SOURCE=disabled\n"
+        "PROJECT_NAME=atlas\nJUPYTERHUB_PORT=63094\nJUPYTERHUB_TOKEN=\nCOMFYUI_SOURCE=container-cpu\n"
     )
     assert (atlas_repo / "atlas.env.user").read_text(encoding="utf-8") == (
         "# Copy/create this as atlas.env.user; it is ignored and machine-local.\n"
@@ -366,7 +359,6 @@ def test_up_rejects_non_host_comfyui_source_from_local_overlay_before_detach(
     env = fake_curl_env(tmp_path, {
         **os.environ,
         "ATLAS_TEST_COMMAND_LOG": str(command_log),
-        "ATLAS_TEST_LOCAL_OVERLAY": str(local_overlay),
         "ATLAS_TEST_SOURCE": "ollama-localhost",
     })
 
@@ -392,7 +384,6 @@ def test_up_allows_disabled_or_host_native_comfyui_source(
     env = fake_curl_env(tmp_path, {
         **os.environ,
         "ATLAS_TEST_COMMAND_LOG": str(command_log),
-        "ATLAS_TEST_LOCAL_OVERLAY": str(local_overlay),
         "ATLAS_TEST_SOURCE": "ollama-localhost",
     })
 

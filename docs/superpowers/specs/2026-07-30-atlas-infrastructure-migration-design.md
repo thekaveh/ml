@@ -178,9 +178,10 @@ an absolute manifest path. Its deterministic sequence is:
 3. Run consumer-aware `compose validate`.
 4. Run consumer-aware `doctor --format json`.
 5. Clear inherited AI-source/port variables, confirm the materialized
-   `LLM_PROVIDER_SOURCE` is exactly `ollama-localhost`, and reject any
-   `COMFYUI_SOURCE` other than `disabled`, `localhost`, or
-   `managed-localhost-mps`. Then probe the host daemon at
+   `LLM_PROVIDER_SOURCE` is exactly `ollama-localhost`, and reject an
+   explicitly declared `atlas.env.user` `COMFYUI_SOURCE` unless it is
+   `disabled`, `localhost`, or `managed-localhost-mps`. When absent, the
+   `ml-eng` track disables Atlas's off-track ComfyUI default. Then probe the host daemon at
    `127.0.0.1:${OLLAMA_LOCALHOST_PORT:-11434}/api/version` without proxy or
    curlrc influence.
 6. Start with `--consumer <absolute-manifest> --track ml-eng --no-tui --detach`.

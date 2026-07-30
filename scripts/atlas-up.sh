@@ -165,6 +165,29 @@ run_start() {
     fi
 }
 
+preflight_native_ollama() {
+    local source
+    local port
+    local url
+
+    source="$(atlas_dotenv_last_value "$ATLAS_ENV" "LLM_PROVIDER_SOURCE")" || die \
+        "LLM_PROVIDER_SOURCE was not materialized; start native Ollama (for example, run 'ollama serve') and retry"
+    [[ "$source" == "ollama-localhost" ]] || die \
+        "LLM_PROVIDER_SOURCE must be ollama-localhost; start native Ollama (for example, run 'ollama serve') and retry"
+
+    if ! port="$(atlas_dotenv_last_value "$ATLAS_ENV" "OLLAMA_LOCALHOST_PORT")"; then
+        port=11434
+    fi
+    [[ "$port" =~ ^[0-9]{1,5}$ ]] && ((10#$port >= 1 && 10#$port <= 65535)) || die \
+        "OLLAMA_LOCALHOST_PORT must be an integer from 1 through 65535; start native Ollama (for example, run 'ollama serve') and retry"
+
+    command -v curl >/dev/null 2>&1 || die \
+        "curl is required to check native Ollama; start native Ollama (for example, run 'ollama serve') and retry"
+    url="http://127.0.0.1:$port/api/version"
+    curl --fail --silent --show-error --max-time 2 "$url" >/dev/null || die \
+        "native Ollama did not respond at $url; start native Ollama (for example, run 'ollama serve') and retry"
+}
+
 prepare_local_state
 if [[ "$mode" == "prepare" ]]; then
     exit 0
@@ -177,6 +200,9 @@ if [[ "$mode" == "validate" ]]; then
     exit 0
 fi
 
+if [[ "$dry_run" == false ]]; then
+    preflight_native_ollama
+fi
 run_start --consumer "$MANIFEST" --track ml-eng --no-tui --detach
 
 if [[ "$dry_run" == false ]]; then

@@ -1733,6 +1733,7 @@ def _write_valid_atlas_verifier_fixture(repo: Path) -> None:
         "  values:\n"
         "    BASE_PORT: auto\n"
         "    JUPYTERHUB_SOURCE: container\n"
+        "    LLM_PROVIDER_SOURCE: ollama-localhost\n"
         "compose_overlays:\n"
         "  - ./compose/ml-eng-lab-atlas.yml\n",
         encoding="utf-8",
@@ -1807,6 +1808,38 @@ def test_e15_flags_illegal_manifest_track(tmp_path, monkeypatch):
 
     hits = [finding for finding in result.findings if finding.id == "E15.atlas_manifest"]
     assert any(finding.location == "atlas.consumer.yml" and "track" in finding.message for finding in hits)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "",
+        "    LLM_PROVIDER_SOURCE: auto\n",
+        "    LLM_PROVIDER_SOURCE: ollama-container-cpu\n",
+        "    LLM_PROVIDER_SOURCE: ollama-container-gpu\n",
+        "    COMFYUI_SOURCE: container-cpu\n",
+        "    COMFYUI_SOURCE: container-gpu\n",
+    ],
+)
+def test_e15_rejects_non_native_or_containerized_ai_sources(
+    tmp_path, monkeypatch, mutation
+):
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    manifest = repo / "atlas.consumer.yml"
+    text = manifest.read_text(encoding="utf-8")
+    if mutation:
+        text = text.replace("    LLM_PROVIDER_SOURCE: ollama-localhost\n", mutation)
+    else:
+        text = text.replace("    LLM_PROVIDER_SOURCE: ollama-localhost\n", "")
+    manifest.write_text(text, encoding="utf-8")
+    _prepare_atlas_execution_check(monkeypatch, module, repo)
+
+    result = module.check_execution(repo, fast=True)
+
+    hits = [finding for finding in result.findings if finding.id == "E15.atlas_manifest"]
+    assert any(finding.location == "atlas.consumer.yml" for finding in hits)
 
 
 @pytest.mark.parametrize(

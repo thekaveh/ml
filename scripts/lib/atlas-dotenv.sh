@@ -66,3 +66,21 @@ atlas_dotenv_parse_line() {
     # shellcheck disable=SC2034 # Outputs consumed by the calling wrapper.
     ATLAS_DOTENV_VALUE="$(atlas_dotenv_parse_value "${stripped#*=}")"
 }
+
+atlas_dotenv_last_value() {
+    local path="$1"
+    local key="$2"
+    local line
+    local value=""
+    local found=false
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if atlas_dotenv_parse_line "$line" && [[ "$ATLAS_DOTENV_KEY" == "$key" ]]; then
+            value="$ATLAS_DOTENV_VALUE"
+            found=true
+        fi
+    done < "$path"
+
+    [[ "$found" == true ]] || return 1
+    printf '%s' "$value"
+}

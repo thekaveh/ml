@@ -34,7 +34,9 @@ def atlas_repo(tmp_path: Path) -> Path:
     (repo / "atlas.consumer.yml").write_text("name: ml-eng-lab\n", encoding="utf-8")
     (repo / "atlas.env.user.example").write_text(
         "# Copy/create this as atlas.env.user; it is ignored and machine-local.\n"
-        "ML_ENG_LAB_REPO_PATH=/absolute/path/to/ml-eng-lab\n",
+        "ML_ENG_LAB_REPO_PATH=/absolute/path/to/ml-eng-lab\n"
+        "# Optional: only when the native Ollama daemon uses a non-default port.\n"
+        "# OLLAMA_LOCALHOST_PORT=11434\n",
         encoding="utf-8",
     )
     (infra / ".env.example").write_text(
@@ -70,6 +72,33 @@ def atlas_start_commands(output: str) -> list[str]:
     return [line for line in output.splitlines() if line.startswith("./start.sh")]
 
 
+def fake_curl_env(tmp_path: Path, env: dict[str, str], exit_code: int = 0) -> dict[str, str]:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir(exist_ok=True)
+    curl = fake_bin / "curl"
+    curl.write_text(f"#!/usr/bin/env bash\nexit {exit_code}\n", encoding="utf-8")
+    curl.chmod(0o755)
+    return {**env, "PATH": f"{fake_bin}{os.pathsep}{env['PATH']}"}
+
+
+def write_preflight_start(atlas_repo: Path) -> Path:
+    command_log = atlas_repo / "atlas-commands.log"
+    start = atlas_repo / "infra" / "start.sh"
+    start.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$ATLAS_TEST_COMMAND_LOG\"\n"
+        "if [[ \"$*\" == *'compose validate'* ]]; then\n"
+        "    printf 'LLM_PROVIDER_SOURCE=%s\\n' \"$ATLAS_TEST_SOURCE\" >> .env\n"
+        "    if [[ -n \"${ATLAS_TEST_PORT-}\" ]]; then\n"
+        "        printf 'OLLAMA_LOCALHOST_PORT=%s\\n' \"$ATLAS_TEST_PORT\" >> .env\n"
+        "    fi\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    start.chmod(0o755)
+    return command_log
+
+
 def test_up_dry_run_prepares_missing_state_and_prints_exact_start_order(
     atlas_repo: Path,
 ) -> None:
@@ -99,6 +128,8 @@ def test_prepare_creates_local_files_once_without_starting_atlas(
     assert (atlas_repo / "atlas.env.user").read_text(encoding="utf-8") == (
         "# Copy/create this as atlas.env.user; it is ignored and machine-local.\n"
         f'ML_ENG_LAB_REPO_PATH="{atlas_repo}"\n'
+        "# Optional: only when the native Ollama daemon uses a non-default port.\n"
+        "# OLLAMA_LOCALHOST_PORT=11434\n"
     )
 
     (atlas_repo / "infra" / ".env").write_text("KEEP=infra\n", encoding="utf-8")
@@ -128,6 +159,8 @@ def test_prepare_quotes_parser_significant_repo_path(atlas_repo: Path) -> None:
     assert (special_repo / "atlas.env.user").read_text(encoding="utf-8") == (
         "# Copy/create this as atlas.env.user; it is ignored and machine-local.\n"
         f'ML_ENG_LAB_REPO_PATH="{special_repo}"\n'
+        "# Optional: only when the native Ollama daemon uses a non-default port.\n"
+        "# OLLAMA_LOCALHOST_PORT=11434\n"
     )
 
 
@@ -189,7 +222,9 @@ def initialize_mock_atlas_git_repo(atlas_repo: Path) -> None:
     )
 
 
-def test_up_executes_exact_commands_from_infra(atlas_repo: Path, tmp_path: Path) -> None:
+def test_up_preflights_native_ollama_after_validation_and_before_detach(
+    atlas_repo: Path, tmp_path: Path
+) -> None:
     special_repo = atlas_repo.with_name("ml eng lab")
     atlas_repo.rename(special_repo)
     atlas_repo = special_repo
@@ -197,29 +232,48 @@ def test_up_executes_exact_commands_from_infra(atlas_repo: Path, tmp_path: Path)
     start = atlas_repo / "infra" / "start.sh"
     start.write_text(
         "#!/usr/bin/env bash\n"
-        "printf '%s\\0' \"$PWD\" \"$#\" \"$@\" >> \"$ATLAS_TEST_COMMAND_LOG\"\n",
+        "printf '%s\\0' start \"$PWD\" \"$#\" \"$@\" >> \"$ATLAS_TEST_COMMAND_LOG\"\n"
+        "if [[ \"$*\" == *'compose validate'* ]]; then\n"
+        "    printf 'LLM_PROVIDER_SOURCE=ollama-localhost\\n' >> .env\n"
+        "fi\n",
         encoding="utf-8",
     )
     start.chmod(0o755)
     initialize_mock_atlas_git_repo(atlas_repo)
-    env = {**os.environ, "ATLAS_TEST_COMMAND_LOG": str(command_log)}
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    curl = fake_bin / "curl"
+    curl.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\0' curl \"$#\" \"$@\" >> \"$ATLAS_TEST_COMMAND_LOG\"\n",
+        encoding="utf-8",
+    )
+    curl.chmod(0o755)
+    env = {
+        **os.environ,
+        "ATLAS_TEST_COMMAND_LOG": str(command_log),
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+    }
 
     result = run_script(atlas_repo, "atlas-up.sh", env=env)
 
     assert result.returncode == 0
-    infra = atlas_repo / "infra"
     manifest = atlas_repo / "atlas.consumer.yml"
+    infra = atlas_repo / "infra"
     assert command_log.read_bytes().split(b"\0")[:-1] == [
+        b"start",
         str(infra).encode(),
         b"2",
         b"env",
         b"backfill",
+        b"start",
         str(infra).encode(),
         b"4",
         b"--consumer",
         str(manifest).encode(),
         b"compose",
         b"validate",
+        b"start",
         str(infra).encode(),
         b"5",
         b"--consumer",
@@ -227,6 +281,15 @@ def test_up_executes_exact_commands_from_infra(atlas_repo: Path, tmp_path: Path)
         b"doctor",
         b"--format",
         b"json",
+        b"curl",
+        b"6",
+        b"--fail",
+        b"--silent",
+        b"--show-error",
+        b"--max-time",
+        b"2",
+        b"http://127.0.0.1:11434/api/version",
+        b"start",
         str(infra).encode(),
         b"6",
         b"--consumer",
@@ -238,6 +301,96 @@ def test_up_executes_exact_commands_from_infra(atlas_repo: Path, tmp_path: Path)
     ]
 
 
+@pytest.mark.parametrize("source", ["auto", "ollama-container-cpu", "ollama-container-gpu"])
+def test_up_rejects_non_native_ollama_source_before_detach(
+    atlas_repo: Path, tmp_path: Path, source: str
+) -> None:
+    command_log = write_preflight_start(atlas_repo)
+    initialize_mock_atlas_git_repo(atlas_repo)
+    env = fake_curl_env(tmp_path, {
+        **os.environ,
+        "ATLAS_TEST_COMMAND_LOG": str(command_log),
+        "ATLAS_TEST_SOURCE": source,
+    })
+
+    result = run_script(atlas_repo, "atlas-up.sh", check=False, env=env)
+
+    assert result.returncode != 0
+    assert "start native Ollama" in result.stderr
+    assert "--detach" not in command_log.read_text(encoding="utf-8")
+    assert "ollama serve" in result.stderr
+    assert "docker" not in result.stderr.lower()
+    assert "container-source" not in result.stderr
+
+
+@pytest.mark.parametrize("port", ["", "0", "65536", "not-a-port"])
+def test_up_rejects_invalid_native_ollama_port_before_detach(
+    atlas_repo: Path, tmp_path: Path, port: str
+) -> None:
+    command_log = write_preflight_start(atlas_repo)
+    initialize_mock_atlas_git_repo(atlas_repo)
+    env = fake_curl_env(tmp_path, {
+        **os.environ,
+        "ATLAS_TEST_COMMAND_LOG": str(command_log),
+        "ATLAS_TEST_SOURCE": "ollama-localhost",
+        "ATLAS_TEST_PORT": port,
+    })
+
+    result = run_script(atlas_repo, "atlas-up.sh", check=False, env=env)
+
+    if not port:
+        assert result.returncode == 0
+        return
+    assert result.returncode != 0
+    assert "OLLAMA_LOCALHOST_PORT" in result.stderr
+    assert "start native Ollama" in result.stderr
+    assert "--detach" not in command_log.read_text(encoding="utf-8")
+
+
+def test_up_reports_missing_curl_before_detach(atlas_repo: Path, tmp_path: Path) -> None:
+    command_log = write_preflight_start(atlas_repo)
+    initialize_mock_atlas_git_repo(atlas_repo)
+    empty_bin = tmp_path / "empty-bin"
+    empty_bin.mkdir()
+    dirname = empty_bin / "dirname"
+    dirname.write_text(
+        f"#!/bin/sh\nexec {shutil.which('dirname')} \"$@\"\n", encoding="utf-8"
+    )
+    dirname.chmod(0o755)
+    env = {
+        **os.environ,
+        "ATLAS_TEST_COMMAND_LOG": str(command_log),
+        "ATLAS_TEST_SOURCE": "ollama-localhost",
+        "PATH": f"{empty_bin}{os.pathsep}/bin",
+    }
+
+    result = run_script(atlas_repo, "atlas-up.sh", check=False, env=env)
+
+    assert result.returncode != 0
+    assert "curl is required" in result.stderr
+    assert "start native Ollama" in result.stderr
+    assert "--detach" not in command_log.read_text(encoding="utf-8")
+
+
+def test_up_reports_failed_native_ollama_preflight_before_detach(
+    atlas_repo: Path, tmp_path: Path
+) -> None:
+    command_log = write_preflight_start(atlas_repo)
+    initialize_mock_atlas_git_repo(atlas_repo)
+    env = fake_curl_env(tmp_path, {
+        **os.environ,
+        "ATLAS_TEST_COMMAND_LOG": str(command_log),
+        "ATLAS_TEST_SOURCE": "ollama-localhost",
+    }, exit_code=22)
+
+    result = run_script(atlas_repo, "atlas-up.sh", check=False, env=env)
+
+    assert result.returncode != 0
+    assert "did not respond" in result.stderr
+    assert "start native Ollama" in result.stderr
+    assert "--detach" not in command_log.read_text(encoding="utf-8")
+
+
 def test_up_overrides_conflicting_parent_repo_path_for_every_atlas_command(
     atlas_repo: Path, tmp_path: Path
 ) -> None:
@@ -246,16 +399,19 @@ def test_up_overrides_conflicting_parent_repo_path_for_every_atlas_command(
     start.write_text(
         "#!/usr/bin/env bash\n"
         "printf '%s\\0' \"${ML_ENG_LAB_REPO_PATH-}\" \"$#\" \"$@\" "
-        ">> \"$ATLAS_TEST_ENVIRONMENT_LOG\"\n",
+        ">> \"$ATLAS_TEST_ENVIRONMENT_LOG\"\n"
+        "if [[ \"$*\" == *'compose validate'* ]]; then\n"
+        "    printf 'LLM_PROVIDER_SOURCE=ollama-localhost\\n' >> .env\n"
+        "fi\n",
         encoding="utf-8",
     )
     start.chmod(0o755)
     initialize_mock_atlas_git_repo(atlas_repo)
-    env = {
+    env = fake_curl_env(tmp_path, {
         **os.environ,
         "ATLAS_TEST_ENVIRONMENT_LOG": str(environment_log),
         "ML_ENG_LAB_REPO_PATH": "/tmp/conflicting-checkout",
-    }
+    })
 
     result = run_script(atlas_repo, "atlas-up.sh", env=env)
 
@@ -283,17 +439,18 @@ def test_up_preserves_special_repo_path_through_mocked_normal_start(
         "if [[ \"$*\" == *'compose validate'* ]]; then\n"
         "    printf 'ML_ENG_LAB_REPO_PATH=%s\\n' \"$ATLAS_TEST_EXPECTED_REPO\" "
         "> \"$ATLAS_TEST_USER_ENV\"\n"
+        "    printf 'LLM_PROVIDER_SOURCE=ollama-localhost\\n' >> .env\n"
         "fi\n",
         encoding="utf-8",
     )
     start.chmod(0o755)
     initialize_mock_atlas_git_repo(atlas_repo)
-    env = {
+    env = fake_curl_env(tmp_path, {
         **os.environ,
         "ATLAS_TEST_ENVIRONMENT_LOG": str(environment_log),
         "ATLAS_TEST_EXPECTED_REPO": str(atlas_repo),
         "ATLAS_TEST_USER_ENV": str(atlas_repo / "atlas.env.user"),
-    }
+    })
     env.pop("ML_ENG_LAB_REPO_PATH", None)
 
     result = run_script(atlas_repo, "atlas-up.sh", env=env)
@@ -315,6 +472,9 @@ def test_up_fails_if_normal_start_dirties_atlas_checkout(
     start.write_text(
         "#!/usr/bin/env bash\n"
         "printf '%s|%s\\n' \"$PWD\" \"$*\" >> \"$ATLAS_TEST_COMMAND_LOG\"\n"
+        "if [[ \"$*\" == *'compose validate'* ]]; then\n"
+        "    printf 'LLM_PROVIDER_SOURCE=ollama-localhost\\n' >> .env\n"
+        "fi\n"
         "if [[ \"$*\" == *'--detach'* ]]; then\n"
         "    printf 'dirty\\n' >> tracked.txt\n"
         "fi\n",
@@ -322,7 +482,7 @@ def test_up_fails_if_normal_start_dirties_atlas_checkout(
     )
     start.chmod(0o755)
     initialize_mock_atlas_git_repo(atlas_repo)
-    env = {**os.environ, "ATLAS_TEST_COMMAND_LOG": str(command_log)}
+    env = fake_curl_env(tmp_path, {**os.environ, "ATLAS_TEST_COMMAND_LOG": str(command_log)})
 
     result = run_script(atlas_repo, "atlas-up.sh", check=False, env=env)
 

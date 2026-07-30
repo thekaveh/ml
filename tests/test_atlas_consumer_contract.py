@@ -23,7 +23,11 @@ EXPECTED_MANIFEST = {
     "brand": {"name": "ML Eng Lab"},
     "env": {
         "file": "./atlas.env.user",
-        "values": {"BASE_PORT": "auto", "JUPYTERHUB_SOURCE": "container"},
+        "values": {
+            "BASE_PORT": "auto",
+            "JUPYTERHUB_SOURCE": "container",
+            "LLM_PROVIDER_SOURCE": "ollama-localhost",
+        },
     },
     "compose_overlays": ["./compose/ml-eng-lab-atlas.yml"],
 }
@@ -39,8 +43,9 @@ def validate_manifest(path: Path) -> None:
     assert "track" not in manifest
     assert manifest["env"]["values"]["BASE_PORT"] == "auto"
     assert manifest["env"]["values"]["JUPYTERHUB_SOURCE"] == "container"
+    assert manifest["env"]["values"]["LLM_PROVIDER_SOURCE"] == "ollama-localhost"
     source_keys = [key for key in manifest["env"]["values"] if key.endswith("_SOURCE")]
-    assert source_keys == ["JUPYTERHUB_SOURCE"]
+    assert source_keys == ["JUPYTERHUB_SOURCE", "LLM_PROVIDER_SOURCE"]
 
 
 def validate_overlay(path: Path) -> None:
@@ -78,6 +83,8 @@ def test_real_atlas_consumer_files_match_the_contract():
     assert (REPO / "atlas.env.user.example").read_text(encoding="utf-8") == (
         "# Copy/create this as atlas.env.user; it is ignored and machine-local.\n"
         "ML_ENG_LAB_REPO_PATH=/absolute/path/to/ml-eng-lab\n"
+        "# Optional: only when the native Ollama daemon uses a non-default port.\n"
+        "# OLLAMA_LOCALHOST_PORT=11434\n"
     )
 
 
@@ -97,6 +104,28 @@ def test_real_atlas_consumer_files_match_the_contract():
             lambda manifest: manifest["env"]["values"].update({"OPEN_WEBUI_SOURCE": "container"}),
             "OPEN_WEBUI_SOURCE",
         ),
+        (
+            lambda manifest: manifest["env"]["values"].pop("LLM_PROVIDER_SOURCE"),
+            "LLM_PROVIDER_SOURCE",
+        ),
+        *[
+            (
+                lambda manifest, source=source: manifest["env"]["values"].update(
+                    {"LLM_PROVIDER_SOURCE": source}
+                ),
+                "LLM_PROVIDER_SOURCE",
+            )
+            for source in ("auto", "ollama-container-cpu", "ollama-container-gpu")
+        ],
+        *[
+            (
+                lambda manifest, source=source: manifest["env"]["values"].update(
+                    {"COMFYUI_SOURCE": source}
+                ),
+                "COMFYUI_SOURCE",
+            )
+            for source in ("container-cpu", "container-gpu")
+        ],
         (
             lambda manifest: manifest["compose_overlays"].append("./compose/extra.yml"),
             "compose_overlays",

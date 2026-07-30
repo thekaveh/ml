@@ -1625,6 +1625,7 @@ _ATLAS_MANIFEST_CONTRACT = {
         "values": {
             "BASE_PORT": "auto",
             "JUPYTERHUB_SOURCE": "container",
+            "LLM_PROVIDER_SOURCE": "ollama-localhost",
         },
     },
     "compose_overlays": ["./compose/ml-eng-lab-atlas.yml"],

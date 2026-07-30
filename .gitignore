@@ -181,13 +181,17 @@ cython_debug/
 **/checkpoints/
 
 # Local-only planning / scratch / tool caches — never committed. Approved
-# brainstorming design specifications are the exception: they live in
-# docs/superpowers/specs/ and are reviewed like ordinary documentation.
+# approved design specifications and implementation plans are exceptions: they
+# live under docs/superpowers/ and are reviewed like ordinary documentation.
 .assistant-cache/
 .local-cache/
+docs/superpowers/
+!docs/superpowers/
 docs/superpowers/*
 !docs/superpowers/specs/
 !docs/superpowers/specs/*.md
+!docs/superpowers/plans/
+!docs/superpowers/plans/*.md
 plan-*.md
 notes-*.md
 audit-*.md

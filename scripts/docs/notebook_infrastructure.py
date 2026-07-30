@@ -123,7 +123,7 @@ def render_atlas_task_table(contracts: Sequence[AtlasTaskContract]) -> str:
         "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for contract in contracts:
-        constraints = "<br>".join(contract.constraints) if contract.constraints else "—"
+        constraints = "<br>".join(_markdown_cell(constraint) for constraint in contract.constraints) if contract.constraints else "—"
         rows.append(
             "| "
             + " | ".join(
@@ -140,6 +140,11 @@ def render_atlas_task_table(contracts: Sequence[AtlasTaskContract]) -> str:
             + " |"
         )
     return "\n".join(rows)
+
+
+def _markdown_cell(value: str) -> str:
+    """Keep valid text within one Markdown table cell."""
+    return value.replace("|", r"\|").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
 
 
 def _marker_bounds(text: str, doc_path: Path) -> tuple[int, int]:

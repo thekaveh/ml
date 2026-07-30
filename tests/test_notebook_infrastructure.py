@@ -131,6 +131,26 @@ def test_renders_deterministic_markdown_table():
 | task-a | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | One<br>Two |"""
 
 
+def test_renderer_escapes_constraint_markdown_cell_characters():
+    table = render_atlas_task_table(
+        [
+            AtlasTaskContract(
+                "task",
+                "Task",
+                "A",
+                "jupyterhub",
+                "vscode-remote",
+                ("jupyterhub",),
+                "remote",
+                "atlas-jupyter-volume",
+                ("A | B", "First line\nsecond line"),
+            )
+        ]
+    )
+
+    assert table.endswith("| A \\| B<br>First line<br>second line |")
+
+
 @pytest.mark.parametrize("content", ["# Contracts\n", "<!-- atlas-task-contracts:end -->\n<!-- atlas-task-contracts:start -->\n"])
 def test_verify_rejects_missing_or_reversed_markers(tmp_path, content):
     doc = tmp_path / "contracts.md"

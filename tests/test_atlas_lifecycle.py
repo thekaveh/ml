@@ -14,6 +14,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO_ROOT / "scripts"
+DOTENV_HELPER = SCRIPTS / "lib" / "atlas-dotenv.sh"
 TEST_SUBPROCESS_TIMEOUT = 10
 
 
@@ -24,9 +25,11 @@ def atlas_repo(tmp_path: Path) -> Path:
     infra = repo / "infra"
     scripts.mkdir(parents=True)
     infra.mkdir()
+    (scripts / "lib").mkdir()
 
     for name in ("atlas-up.sh", "atlas-down.sh"):
         shutil.copy2(SCRIPTS / name, scripts / name)
+    shutil.copy2(DOTENV_HELPER, scripts / "lib" / "atlas-dotenv.sh")
 
     (repo / "atlas.consumer.yml").write_text("name: ml-eng-lab\n", encoding="utf-8")
     (repo / "atlas.env.user.example").write_text(
@@ -235,6 +238,75 @@ def test_up_executes_exact_commands_from_infra(atlas_repo: Path, tmp_path: Path)
     ]
 
 
+def test_up_overrides_conflicting_parent_repo_path_for_every_atlas_command(
+    atlas_repo: Path, tmp_path: Path
+) -> None:
+    environment_log = tmp_path / "atlas-environment.log"
+    start = atlas_repo / "infra" / "start.sh"
+    start.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\0' \"${ML_ENG_LAB_REPO_PATH-}\" \"$#\" \"$@\" "
+        ">> \"$ATLAS_TEST_ENVIRONMENT_LOG\"\n",
+        encoding="utf-8",
+    )
+    start.chmod(0o755)
+    initialize_mock_atlas_git_repo(atlas_repo)
+    env = {
+        **os.environ,
+        "ATLAS_TEST_ENVIRONMENT_LOG": str(environment_log),
+        "ML_ENG_LAB_REPO_PATH": "/tmp/conflicting-checkout",
+    }
+
+    result = run_script(atlas_repo, "atlas-up.sh", env=env)
+
+    assert result.returncode == 0
+    fields = environment_log.read_bytes().split(b"\0")[:-1]
+    expected_repo = str(atlas_repo).encode()
+    assert fields[0] == expected_repo
+    assert fields[4] == expected_repo
+    assert fields[10] == expected_repo
+    assert fields[17] == expected_repo
+
+
+def test_up_preserves_special_repo_path_through_mocked_normal_start(
+    atlas_repo: Path, tmp_path: Path
+) -> None:
+    special_repo = atlas_repo.with_name("ml eng #lab")
+    atlas_repo.rename(special_repo)
+    atlas_repo = special_repo
+    environment_log = tmp_path / "atlas-environment.log"
+    start = atlas_repo / "infra" / "start.sh"
+    start.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\0' \"${ML_ENG_LAB_REPO_PATH-}\" "
+        ">> \"$ATLAS_TEST_ENVIRONMENT_LOG\"\n"
+        "if [[ \"$*\" == *'compose validate'* ]]; then\n"
+        "    printf 'ML_ENG_LAB_REPO_PATH=%s\\n' \"$ATLAS_TEST_EXPECTED_REPO\" "
+        "> \"$ATLAS_TEST_USER_ENV\"\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    start.chmod(0o755)
+    initialize_mock_atlas_git_repo(atlas_repo)
+    env = {
+        **os.environ,
+        "ATLAS_TEST_ENVIRONMENT_LOG": str(environment_log),
+        "ATLAS_TEST_EXPECTED_REPO": str(atlas_repo),
+        "ATLAS_TEST_USER_ENV": str(atlas_repo / "atlas.env.user"),
+    }
+    env.pop("ML_ENG_LAB_REPO_PATH", None)
+
+    result = run_script(atlas_repo, "atlas-up.sh", env=env)
+
+    assert result.returncode == 0
+    assert environment_log.read_bytes().split(b"\0")[:-1] == [
+        str(atlas_repo).encode()
+    ] * 4
+    assert (atlas_repo / "atlas.env.user").read_text(encoding="utf-8") == (
+        f"ML_ENG_LAB_REPO_PATH={atlas_repo}\n"
+    )
+
+
 def test_up_fails_if_normal_start_dirties_atlas_checkout(
     atlas_repo: Path, tmp_path: Path
 ) -> None:
@@ -288,7 +360,16 @@ def test_up_reports_how_to_initialize_an_absent_submodule(atlas_repo: Path) -> N
     assert "git submodule update --init --recursive infra" in result.stderr
 
 
-@pytest.mark.parametrize("args", [("--cold",), ("--bogus",), ("--prepare", "--validate")])
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--cold",),
+        ("--bogus",),
+        ("--prepare", "--validate"),
+        ("--prepare", "--prepare"),
+        ("--dry-run", "--dry-run"),
+    ],
+)
 def test_up_rejects_unsupported_or_conflicting_arguments(
     atlas_repo: Path, args: tuple[str, ...]
 ) -> None:
@@ -345,6 +426,36 @@ def test_down_rejects_unknown_arguments_and_describes_cold_data_loss(
     assert "destroys persisted volumes" in result.stderr
 
 
+@pytest.mark.parametrize(
+    "args", [("--cold", "--cold"), ("--dry-run", "--dry-run"), ("--bogus",)]
+)
+def test_down_rejects_duplicate_or_unexpected_arguments(
+    atlas_repo: Path, args: tuple[str, ...]
+) -> None:
+    result = run_script(atlas_repo, "atlas-down.sh", *args, check=False)
+
+    assert result.returncode != 0
+
+
+@pytest.mark.parametrize("local_name", ["infra/.env", "atlas.env.user"])
+def test_up_rejects_symlinked_local_environment_paths(
+    atlas_repo: Path, local_name: str
+) -> None:
+    target = atlas_repo / "outside.env"
+    target.write_text(
+        f"ML_ENG_LAB_REPO_PATH={atlas_repo}\n", encoding="utf-8"
+    )
+    local_path = atlas_repo / local_name
+    if local_path.exists():
+        local_path.unlink()
+    local_path.symlink_to(target)
+
+    result = run_script(atlas_repo, "atlas-up.sh", "--prepare", check=False)
+
+    assert result.returncode != 0
+    assert "refusing" in result.stderr
+
+
 def test_lifecycle_scripts_enable_strict_bash_without_eval() -> None:
     for name in ("atlas-up.sh", "atlas-down.sh"):
         source = (SCRIPTS / name).read_text(encoding="utf-8")
@@ -359,7 +470,9 @@ def connect_repo(tmp_path: Path) -> Path:
     infra = repo / "infra"
     scripts.mkdir(parents=True)
     infra.mkdir()
+    (scripts / "lib").mkdir()
     shutil.copy2(SCRIPTS / "atlas-connect.sh", scripts / "atlas-connect.sh")
+    shutil.copy2(DOTENV_HELPER, scripts / "lib" / "atlas-dotenv.sh")
     return repo
 
 
@@ -535,6 +648,32 @@ def test_connect_refuses_to_print_token_to_a_noninteractive_stream(
     assert "interactive terminal" in result.stderr
 
 
+def test_connect_rejects_unexpected_arguments_without_reading_env(
+    connect_repo: Path,
+) -> None:
+    result = run_script(connect_repo, "atlas-connect.sh", "--bogus", check=False)
+
+    assert result.returncode != 0
+    assert "accepts no arguments" in result.stderr
+
+
+def test_connect_rejects_symlinked_atlas_environment(connect_repo: Path) -> None:
+    target = connect_repo / "outside.env"
+    target.write_text(
+        "PROJECT_NAME=atlas\n"
+        "JUPYTERHUB_PORT=63094\n"
+        "JUPYTERHUB_TOKEN=must-not-leak\n",
+        encoding="utf-8",
+    )
+    (connect_repo / "infra" / ".env").symlink_to(target)
+
+    returncode, output = run_in_pty(connect_repo)
+
+    assert returncode != 0
+    assert "must-not-leak" not in output
+    assert "environment is missing" in output
+
+
 def test_connect_source_has_no_eval_endpoint_dependency_or_secret_file_output() -> None:
     source = (SCRIPTS / "atlas-connect.sh").read_text(encoding="utf-8")
 
@@ -543,3 +682,14 @@ def test_connect_source_has_no_eval_endpoint_dependency_or_secret_file_output() 
     assert not re.search(r"ATLAS_.*JUPYTER.*ENDPOINT", source)
     assert "token.txt" not in source
     assert "url.txt" not in source
+
+
+def test_wrappers_share_parent_owned_non_evaluating_dotenv_parser() -> None:
+    helper_source = DOTENV_HELPER.read_text(encoding="utf-8")
+
+    assert not re.search(r"(^|[\s;&|])eval(?:\s|$)", helper_source, re.MULTILINE)
+    assert not re.search(r"(^|[\s;&|])source(?:\s|$)", helper_source, re.MULTILINE)
+    for name in ("atlas-up.sh", "atlas-connect.sh"):
+        source = (SCRIPTS / name).read_text(encoding="utf-8")
+        assert 'source "$SCRIPT_DIR/lib/atlas-dotenv.sh"' in source
+        assert "parse_atlas_env_value()" not in source

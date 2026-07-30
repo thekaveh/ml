@@ -16,6 +16,8 @@ die() {
 }
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck disable=SC1091 # Path is resolved from this wrapper at runtime.
+source "$SCRIPT_DIR/lib/atlas-dotenv.sh"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
 INFRA="$REPO_ROOT/infra"
 MANIFEST="$REPO_ROOT/atlas.consumer.yml"
@@ -59,52 +61,6 @@ done
 [[ "$REPO_ROOT" != *$'\n'* && "$REPO_ROOT" != *$'\r'* ]] || die \
     "repository path contains an unsupported newline"
 
-trim_env_whitespace() {
-    local value="$1"
-
-    value="${value#"${value%%[![:space:]]*}"}"
-    value="${value%"${value##*[![:space:]]}"}"
-    printf '%s' "$value"
-}
-
-parse_atlas_env_value() {
-    local value
-    local quote
-    local remainder
-    local index
-    local previous
-
-    value="$(trim_env_whitespace "$1")"
-    if [[ "${value:0:1}" == '"' || "${value:0:1}" == "'" ]]; then
-        quote="${value:0:1}"
-        remainder="${value:1}"
-        if [[ "$remainder" == *"$quote"* ]]; then
-            value="${remainder%%"$quote"*}"
-        else
-            while [[ "${value:0:1}" == '"' ]]; do value="${value:1}"; done
-            while [[ "${value: -1}" == '"' ]]; do value="${value:0:${#value}-1}"; done
-            while [[ "${value:0:1}" == "'" ]]; do value="${value:1}"; done
-            while [[ "${value: -1}" == "'" ]]; do value="${value:0:${#value}-1}"; done
-        fi
-    else
-        for ((index = 0; index < ${#value}; index++)); do
-            if [[ "${value:index:1}" == "#" ]]; then
-                if [[ "$index" -eq 0 ]]; then
-                    value=""
-                    break
-                fi
-                previous="${value:index-1:1}"
-                if [[ "$previous" == " " || "$previous" == $'\t' ]]; then
-                    value="${value:0:index}"
-                    break
-                fi
-            fi
-        done
-        value="$(trim_env_whitespace "$value")"
-    fi
-    printf '%s' "$value"
-}
-
 serialize_repo_path() {
     if [[ "$REPO_ROOT" != *'"'* ]]; then
         printf '"%s"' "$REPO_ROOT"
@@ -138,20 +94,13 @@ render_user_env() {
 
 read_repo_path() {
     local line
-    local stripped
-    local key
     local value=""
     local value_count=0
 
     while IFS= read -r line || [[ -n "$line" ]]; do
-        line="${line%$'\r'}"
-        stripped="$(trim_env_whitespace "$line")"
-        if [[ -z "$stripped" || "$stripped" == \#* || "$stripped" != *=* ]]; then
-            continue
-        fi
-        key="$(trim_env_whitespace "${stripped%%=*}")"
-        if [[ "$key" == "ML_ENG_LAB_REPO_PATH" ]]; then
-            value="$(parse_atlas_env_value "${stripped#*=}")"
+        if atlas_dotenv_parse_line "$line" &&
+            [[ "$ATLAS_DOTENV_KEY" == "ML_ENG_LAB_REPO_PATH" ]]; then
+            value="$ATLAS_DOTENV_VALUE"
             value_count=$((value_count + 1))
         fi
     done < "$USER_ENV"
@@ -203,6 +152,7 @@ prepare_local_state() {
         "ML_ENG_LAB_REPO_PATH must be an absolute path matching $REPO_ROOT"
     [[ "$configured_repo_path" == "$REPO_ROOT" ]] || die \
         "ML_ENG_LAB_REPO_PATH must match this checkout exactly: $REPO_ROOT"
+    export ML_ENG_LAB_REPO_PATH="$configured_repo_path"
 }
 
 run_start() {

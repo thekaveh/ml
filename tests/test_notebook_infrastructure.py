@@ -63,6 +63,12 @@ VALID_ATLAS = """  executor: jupyterhub
   artifact_policy: atlas-jupyter-volume
   constraints: [\"Use a dedicated kernel\", \"Keep data private\"]"""
 
+MOUNTED_WORKSPACE_ATLAS = (
+    VALID_ATLAS.replace("default_mode: vscode-remote", "default_mode: mounted-workspace")
+    .replace("workspace_access: remote", "workspace_access: mounted-required")
+    .replace("artifact_policy: atlas-jupyter-volume", "artifact_policy: task-local-ignored-paths")
+)
+
 
 def test_loads_contracts_in_manifest_order(tmp_path):
     _write_spec(tmp_path, "second", VALID_ATLAS)
@@ -83,6 +89,16 @@ def test_loads_contracts_in_manifest_order(tmp_path):
         artifact_policy="atlas-jupyter-volume",
         constraints=("Use a dedicated kernel", "Keep data private"),
     )
+
+
+def test_loads_mounted_workspace_contracts_with_a_matching_default_mode(tmp_path):
+    _write_spec(tmp_path, "task", MOUNTED_WORKSPACE_ATLAS)
+    _write_active_tasks(tmp_path, ["task"])
+
+    contracts = load_atlas_task_contracts(tmp_path, _manifest(["task"]))
+
+    assert contracts[0].default_mode == "mounted-workspace"
+    assert contracts[0].workspace_access == "mounted-required"
 
 
 def test_repository_declares_contracts_for_every_manifest_notebook():
@@ -137,6 +153,8 @@ def test_load_rejects_manifest_tasks_that_drift_from_active_task_config(tmp_path
         (VALID_ATLAS.replace("[jupyterhub, postgres]", "[jupyterhub, jupyterhub]"), "unique"),
         (VALID_ATLAS.replace("[jupyterhub, postgres]", "[jupyterhub, bad service]"), "service ID"),
         (VALID_ATLAS.replace("workspace_access: remote", "workspace_access: local"), "workspace_access"),
+        (MOUNTED_WORKSPACE_ATLAS.replace("workspace_access: mounted-required", "workspace_access: remote"), "mounted-required"),
+        (VALID_ATLAS.replace("workspace_access: remote", "workspace_access: mounted-required"), "mounted-workspace"),
         (VALID_ATLAS.replace("artifact_policy: atlas-jupyter-volume", "artifact_policy: shared"), "artifact_policy"),
         (VALID_ATLAS.replace("constraints: [\"Use a dedicated kernel\", \"Keep data private\"]", "constraints: no"), "constraints"),
         (VALID_ATLAS.replace("constraints: [\"Use a dedicated kernel\", \"Keep data private\"]", "constraints: [\"\"]"), "non-empty"),
@@ -153,14 +171,14 @@ def test_load_rejects_invalid_atlas_fields(tmp_path, atlas, message):
 def test_renders_deterministic_markdown_table():
     table = render_atlas_task_table(
         [
-            AtlasTaskContract("task-b", "Task B", "B", "jupyterhub", "vscode-remote", ("jupyterhub", "mlflow"), "mounted-required", "task-local-ignored-paths", ()),
+            AtlasTaskContract("task-b", "Task B", "B", "jupyterhub", "mounted-workspace", ("jupyterhub", "mlflow"), "mounted-required", "task-local-ignored-paths", ()),
             AtlasTaskContract("task-a", "Task A", "A", "jupyterhub", "vscode-remote", ("jupyterhub",), "remote", "atlas-jupyter-volume", ("One", "Two")),
         ]
     )
 
     assert table == """| Task | Tier | Default mode | Workspace access | Required Atlas services | Artifact policy | Constraints |
 | --- | --- | --- | --- | --- | --- | --- |
-| task-b | B | vscode-remote | mounted-required | jupyterhub, mlflow | task-local-ignored-paths | — |
+| task-b | B | mounted-workspace | mounted-required | jupyterhub, mlflow | task-local-ignored-paths | — |
 | task-a | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | One<br>Two |"""
 
 

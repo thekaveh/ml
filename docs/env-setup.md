@@ -43,9 +43,9 @@ recording the URL in a shell history, issue, or document.
 - **Ports:** `BASE_PORT=auto` avoids collisions with sibling Atlas consumers. Do not hard-code a
   published port in a notebook or docs; use `make atlas-connect` for the current endpoint.
 - **Artifacts:** the default task contract keeps remote-workspace artifacts on the Atlas Jupyter
-  volume. The NumPy MNIST task is explicitly `mounted-required`: use Browser JupyterLab or VS
-  Code attached to the JupyterHub container from `/home/jovyan/work/ml-eng-lab`, so its ignored
-  `data/` and `runs/` directories remain in this checkout.
+  volume. The NumPy MNIST task is explicitly `mounted-workspace` / `mounted-required`: use Browser
+  JupyterLab or VS Code attached to the JupyterHub container from `/home/jovyan/work/ml-eng-lab`,
+  so its ignored `data/` and `runs/` directories remain in this checkout.
 
 ### 1.3. Stop and clean up
 

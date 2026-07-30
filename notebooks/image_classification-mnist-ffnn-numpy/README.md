@@ -34,11 +34,14 @@ Supporting modules in this folder:
 
 ## 4. How to run
 
-In the recommended runtime (local VS Code connected to Atlas JupyterHub; see [../docs/jupyterhub-integration.md](../../docs/jupyterhub-integration.md)):
+This task's Atlas mode is `mounted-workspace`, not the ordinary host-local VS Code/remote-kernel
+path: its sibling Python modules and ignored artifacts require the checkout mounted inside
+JupyterHub. Use Browser JupyterLab or VS Code attached to the JupyterHub container from
+`/home/jovyan/work/ml-eng-lab`; see [JupyterHub integration](../../docs/jupyterhub-integration.md).
 
 ```bash
-# From the Atlas remote kernel (or a fallback attached/browser session):
-# Open notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb, run all cells.
+# From the mounted JupyterHub checkout:
+# Open notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb and run all cells.
 ```
 
 Or use papermill (the Tier-A target in the root Makefile):

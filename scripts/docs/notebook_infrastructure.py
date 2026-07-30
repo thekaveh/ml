@@ -58,8 +58,10 @@ def _parse_contract(task: str, spec_path: Path) -> AtlasTaskContract:
     if executor != "jupyterhub":
         raise NotebookInfrastructureError(f"{task}: atlas.executor must be 'jupyterhub'")
     default_mode = _require_string(atlas.get("default_mode"), "atlas.default_mode", task)
-    if default_mode != "vscode-remote":
-        raise NotebookInfrastructureError(f"{task}: atlas.default_mode must be 'vscode-remote'")
+    if default_mode not in {"vscode-remote", "mounted-workspace"}:
+        raise NotebookInfrastructureError(
+            f"{task}: atlas.default_mode must be 'vscode-remote' or 'mounted-workspace'"
+        )
 
     services = atlas.get("required_services")
     if not isinstance(services, list) or not services:
@@ -74,6 +76,14 @@ def _parse_contract(task: str, spec_path: Path) -> AtlasTaskContract:
     workspace_access = _require_string(atlas.get("workspace_access"), "atlas.workspace_access", task)
     if workspace_access not in {"remote", "mounted-required"}:
         raise NotebookInfrastructureError(f"{task}: atlas.workspace_access must be remote or mounted-required")
+    if default_mode == "mounted-workspace" and workspace_access != "mounted-required":
+        raise NotebookInfrastructureError(
+            f"{task}: atlas.default_mode 'mounted-workspace' requires workspace_access 'mounted-required'"
+        )
+    if workspace_access == "mounted-required" and default_mode != "mounted-workspace":
+        raise NotebookInfrastructureError(
+            f"{task}: atlas.workspace_access 'mounted-required' requires default_mode 'mounted-workspace'"
+        )
     artifact_policy = _require_string(atlas.get("artifact_policy"), "atlas.artifact_policy", task)
     if artifact_policy not in {"atlas-jupyter-volume", "task-local-ignored-paths"}:
         raise NotebookInfrastructureError(

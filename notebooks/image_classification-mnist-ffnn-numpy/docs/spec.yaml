@@ -3,7 +3,7 @@ family: image
 tier: A
 atlas:
   executor: jupyterhub
-  default_mode: vscode-remote
+  default_mode: mounted-workspace
   required_services: [jupyterhub]
   workspace_access: mounted-required
   artifact_policy: task-local-ignored-paths

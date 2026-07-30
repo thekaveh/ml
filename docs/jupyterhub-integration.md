@@ -8,10 +8,10 @@ track and a parent-owned compose overlay to mount this checkout into JupyterHub.
 
 The notebook file remains open on the host in VS Code; computation runs in the Atlas JupyterHub
 kernel. This is the primary path for tasks with `workspace_access: remote`. The NumPy MNIST task
-is `mounted-required`: use Browser JupyterLab or VS Code attached to the JupyterHub container from
-`/home/jovyan/work/ml-eng-lab`. A local notebook connected to a remote kernel does not guarantee
-that mounted working directory, which its sibling Python modules and task-local `data/` and `runs/`
-paths require.
+uses `default_mode: mounted-workspace` with `workspace_access: mounted-required`: use Browser
+JupyterLab or VS Code attached to the JupyterHub container from `/home/jovyan/work/ml-eng-lab`.
+A local notebook connected to a remote kernel does not guarantee that mounted working directory,
+which its sibling Python modules and task-local `data/` and `runs/` paths require.
 
 ```bash
 git submodule update --init --recursive
@@ -66,19 +66,21 @@ documentation. Automatic and containerized ComfyUI sources are rejected.
 The notebook-contract table in [notebook-infrastructure.md](notebook-infrastructure.md) is
 authoritative per task. The normal remote workflow stores runtime artifacts on the Atlas Jupyter
 volume; task source remains local and version controlled. The NumPy MNIST task is explicitly
-`mounted-required`, so use Browser JupyterLab or VS Code attached to the JupyterHub container from
-the mounted checkout; its ignored artifacts are written through that checkout mount instead.
+`mounted-workspace` / `mounted-required`, so use Browser JupyterLab or VS Code attached to the
+JupyterHub container from the mounted checkout; its ignored artifacts are written through that
+checkout mount instead.
 
 Do not copy volume artifacts into the repository without a task-level policy. A task that needs a
 new Atlas service must declare that service in its contract before enabling it; it must not infer
 availability from other services that happen to be in the `ml-eng` track.
 
-## 5. Browser and container-attached fallback
+## 5. Browser and container-attached workspace mode
 
-Browser JupyterLab and VS Code's container-attach mode are fallbacks for normal remote-workspace
-tasks. They are required for the NumPy MNIST `mounted-required` task: open
-`/home/jovyan/work/ml-eng-lab` before running it. They use the same JupyterHub service and mount;
-they do not authorize changing the track, modifying `infra/`, or running containerized Ollama.
+Browser JupyterLab and VS Code's container-attach mode are alternatives for normal
+remote-workspace tasks. They implement the required `mounted-workspace` mode for NumPy MNIST:
+open `/home/jovyan/work/ml-eng-lab` before running it. They use the same JupyterHub service and
+mount; they do not authorize changing the track, modifying `infra/`, or running containerized
+Ollama.
 
 ## 6. Lifecycle troubleshooting
 

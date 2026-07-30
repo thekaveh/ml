@@ -240,17 +240,19 @@ atlas:
   constraints: []
 ```
 
-Allowed `workspace_access` values are `remote` and `mounted-required`. Allowed
-`artifact_policy` values are `atlas-jupyter-volume` and `task-local-ignored-paths`.
+Allowed `default_mode` values are `vscode-remote` and `mounted-workspace`.
+`vscode-remote` pairs with `workspace_access: remote`; `mounted-workspace`
+pairs with `workspace_access: mounted-required`. Allowed `artifact_policy`
+values are `atlas-jupyter-volume` and `task-local-ignored-paths`.
 `constraints` is a non-empty list only for active runtime caveats.
 
 The initial classification is:
 
-| Tasks | Workspace access | Direct Atlas services | Constraints |
-| --- | --- | --- | --- |
-| All active tasks except the NumPy MNIST and quantization tasks | `remote` | `jupyterhub` | Existing tier and platform caveats remain authoritative. |
-| `image_classification-mnist-ffnn-numpy` | `mounted-required` | `jupyterhub` | Sibling Python modules require the mounted checkout. |
-| Quantization task | `remote` | `jupyterhub` | Manual-only until Atlas Jupyter package validation passes. |
+| Tasks | Default mode | Workspace access | Direct Atlas services | Constraints |
+| --- | --- | --- | --- | --- |
+| All active tasks except the NumPy MNIST and quantization tasks | `vscode-remote` | `remote` | `jupyterhub` | Existing tier and platform caveats remain authoritative. |
+| `image_classification-mnist-ffnn-numpy` | `mounted-workspace` | `mounted-required` | `jupyterhub` | Sibling Python modules require the mounted checkout. |
+| Quantization task | `vscode-remote` | `remote` | `jupyterhub` | Manual-only until Atlas Jupyter package validation passes. |
 
 The task metadata drives the generated table block in the canonical
 `docs/notebook-infrastructure.md` page. The documentation check compares the block to the

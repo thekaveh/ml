@@ -2127,16 +2127,20 @@ def test_atlas_docs_preserve_mounted_workspace_and_track_ownership():
         )
     )
     constraint = " ".join(numpy_spec["atlas"]["constraints"])
+    numpy_readme = (REPO / "notebooks/image_classification-mnist-ffnn-numpy/README.md").read_text(
+        encoding="utf-8"
+    )
     jupyterhub = (REPO / "docs/jupyterhub-integration.md").read_text(encoding="utf-8")
     vscode = (REPO / "docs/vscode-remote-access.md").read_text(encoding="utf-8")
     environment = (REPO / "docs/env-setup.md").read_text(encoding="utf-8")
     contributing = (REPO / "CONTRIBUTING.md").read_text(encoding="utf-8")
 
     mounted_editor = "Browser JupyterLab or VS Code attached to the JupyterHub container"
+    assert numpy_spec["atlas"]["default_mode"] == "mounted-workspace"
     assert numpy_spec["atlas"]["workspace_access"] == "mounted-required"
     assert mounted_editor in constraint
-    for document in (jupyterhub, vscode, contributing):
-        assert mounted_editor in document
+    for document in (jupyterhub, vscode, contributing, numpy_readme):
+        assert mounted_editor in " ".join(document.split())
 
     track_owner = "`scripts/atlas-up.sh` supplies `--track ml-eng`"
     assert track_owner in jupyterhub

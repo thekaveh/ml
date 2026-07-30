@@ -16,8 +16,9 @@ a fork. The current reviewed pin is `61c7c5103660e2226bf107c115dae42bf46f8374`.
 - Leave ComfyUI disabled unless a concrete task completes the admission path in §3. If admitted,
   it must use a reviewed host-native source, never an automatic or containerized source.
 - The primary notebook interaction remains local VS Code connected to the running remote JupyterHub
-  kernel for remote-workspace tasks. A `mounted-required` task (currently NumPy MNIST) must use
-  Browser JupyterLab or VS Code attached to the JupyterHub container from the mounted checkout.
+  kernel for remote-workspace tasks. A `mounted-workspace` / `mounted-required` task (currently
+  NumPy MNIST) must use Browser JupyterLab or VS Code attached to the JupyterHub container from
+  the mounted checkout.
 
 ## 2. Atlas pin bump
 

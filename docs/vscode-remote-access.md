@@ -24,18 +24,19 @@ URL like a password: do not save it in settings, commit it, attach it to an issu
 an untrusted application. `BASE_PORT=auto` means the visible port is intentionally not a stable
 contract; the helper is the source of truth for each running instance.
 
-This default applies to tasks with `workspace_access: remote`. The NumPy MNIST task is
-`mounted-required`: use Browser JupyterLab or VS Code attached to the JupyterHub container from
-`/home/jovyan/work/ml-eng-lab`, not a host-local notebook paired with the remote kernel.
+This default applies to tasks with `workspace_access: remote`. The NumPy MNIST task instead uses
+`default_mode: mounted-workspace` with `workspace_access: mounted-required`: use Browser JupyterLab
+or VS Code attached to the JupyterHub container from `/home/jovyan/work/ml-eng-lab`, not a
+host-local notebook paired with the remote kernel.
 
 ## 2. Workspace and artifact semantics
 
 The local editor owns the notebook file. The Atlas container has the repository mounted at
 `/home/jovyan/work/ml-eng-lab`, but a host-local notebook paired with a remote kernel does not
 guarantee that working directory. Most task contracts use a remote workspace and place runtime
-artifacts on the Atlas Jupyter volume. The NumPy MNIST task needs its mounted checkout for sibling
-modules and ignored task-local artifacts, so run it through Browser JupyterLab or VS Code attached
-to the JupyterHub container. The per-task policy is documented in
+artifacts on the Atlas Jupyter volume. The NumPy MNIST task's `mounted-workspace` mode needs its
+mounted checkout for sibling modules and ignored task-local artifacts, so run it through Browser
+JupyterLab or VS Code attached to the JupyterHub container. The per-task policy is documented in
 [notebook-infrastructure.md](notebook-infrastructure.md).
 
 Select the remote kernel after opening the local file, rather than opening the same path twice in
@@ -48,14 +49,14 @@ metadata and outputs.
 
 Use the token URL from `make atlas-connect` in a browser for a quick investigation or notebook
 session. Navigate to `/home/jovyan/work/ml-eng-lab` when you need the mounted checkout. Browser
-mode is required for the NumPy MNIST task unless using the attached-container alternative; local
-VS Code remains the primary authoring surface for ordinary remote-workspace tasks.
+mode implements the NumPy MNIST `mounted-workspace` default unless using the attached-container
+alternative; local VS Code remains the primary authoring surface for ordinary remote-workspace tasks.
 
 ### 3.2. Attach VS Code to the running JupyterHub container
 
 Use VS Code's Dev Containers support when a task needs an integrated shell in the JupyterHub
-container. Open `/home/jovyan/work/ml-eng-lab` after attaching. This is the other required mode
-for the NumPy MNIST `mounted-required` task. It uses the same JupyterHub service and does not
+container. Open `/home/jovyan/work/ml-eng-lab` after attaching. This is the other implementation
+of the NumPy MNIST `mounted-workspace` default. It uses the same JupyterHub service and does not
 change the Atlas consumer or source policy.
 
 ## 4. Troubleshooting

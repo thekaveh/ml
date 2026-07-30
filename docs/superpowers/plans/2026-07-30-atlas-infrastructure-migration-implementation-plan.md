@@ -65,7 +65,7 @@ def write_atlas_task_table(doc_path: Path, expected_table: str) -> None: ...
 ```
 
 - [ ] Add tests first. Use minimal temporary manifests/specs plus the real repository fixture to prove that loading follows `manifest.notebooks` order and that the manifest task set exactly equals `active_task_dirs` in `scripts/verify_repo_config.yaml`.
-- [ ] Add failing tests for each owned `atlas` field: a mapping is required; `executor == "jupyterhub"`; `default_mode == "vscode-remote"`; `required_services` is a non-empty, unique service-ID list containing `jupyterhub`; `workspace_access` is `remote` or `mounted-required`; `artifact_policy` is `atlas-jupyter-volume` or `task-local-ignored-paths`; and `constraints` is a list of non-empty strings.
+- [ ] Add failing tests for each owned `atlas` field: a mapping is required; `executor == "jupyterhub"`; `default_mode` is `vscode-remote` or `mounted-workspace` and pairs respectively with `workspace_access: remote` or `mounted-required`; `required_services` is a non-empty, unique service-ID list containing `jupyterhub`; `artifact_policy` is `atlas-jupyter-volume` or `task-local-ignored-paths`; and `constraints` is a list of non-empty strings.
 - [ ] Keep future service IDs forward-compatible: validate their syntax and uniqueness, not a closed set of today’s services. Require `jupyterhub` only because the current executor is JupyterHub.
 - [ ] Implement the module under `scripts/docs/`, using the existing `scripts.docs.manifest.Manifest` and PyYAML already available to both runtime and docs requirements. Do not put task-spec parsing into `scripts/docs/manifest.py`; that module continues to own only the documentation manifest.
 - [ ] Make the renderer produce exactly one deterministic Markdown table with columns `Task | Tier | Default mode | Workspace access | Required Atlas services | Artifact policy | Constraints`, use `—` for no constraints, and join multiple constraints with `<br>`.
@@ -121,12 +121,12 @@ atlas:
 ```yaml
 atlas:
   executor: jupyterhub
-  default_mode: vscode-remote
+  default_mode: mounted-workspace
   required_services: [jupyterhub]
   workspace_access: mounted-required
   artifact_policy: task-local-ignored-paths
   constraints:
-    - Sibling Python modules require the mounted checkout.
+    - Browser JupyterLab or VS Code attached to the JupyterHub container is required from /home/jovyan/work/ml-eng-lab because sibling Python modules need the mounted checkout.
 ```
 
 - [ ] Replace the default only for `notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml`:

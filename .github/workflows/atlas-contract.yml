@@ -12,6 +12,7 @@ on:
       - 'scripts/docs/notebook_infrastructure.py'
       - 'docs/notebook-infrastructure.md'
       - 'docs/atlas-pin-bump-runbook.md'
+      - 'docs/dependency-contracts.md'
       - 'notebooks/**/docs/spec.yaml'
       - 'scripts/verify_repo.py'
       - 'scripts/verify_repo_config.yaml'

@@ -73,6 +73,9 @@ jobs:
           make install-torch-stack
           pip install -r requirements.txt
 
+      - name: Test Atlas workflow contracts
+        run: pytest tests/test_verify_repo.py -q -k 'atlas_contract_workflow or docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or ci_runs_atlas_workflow_contract_tests'
+
       - name: Run repo verifier
         run: make verify
 

@@ -183,7 +183,17 @@ Expected release-contract state: version `0.2.0` and no editable
 `requirements.txt` before recording exact pinned-contract evidence, or document
 that the run intentionally used a local NNx development checkout.
 
-## 7. genai-vanilla Submodule Contract
+## 7. Atlas Infra Submodule Contract
+
+`.gitmodules` consumes `https://github.com/thekaveh/atlas.git` as the active
+`infra` submodule.
+Current Atlas `infra` gitlink SHA: `61c7c5103660e2226bf107c115dae42bf46f8374`.
+
+This reviewed superproject gitlink is the active Atlas dependency contract.
+The preserved genai-vanilla entry in the next section is a legacy rollback
+record only and must not be used to verify the active `infra` submodule.
+
+## 8. Legacy genai-vanilla Rollback Record
 
 `.gitmodules` consumes `https://github.com/thekaveh/genai-vanilla.git` as the
 `vendor/genai-vanilla` submodule. The repository currently pins tree entry
@@ -252,7 +262,7 @@ Upgrade criteria:
 5. Update this section, README runtime caveats, and `docs/jupyterhub-integration.md`
    if the service names, mount paths, or NNx package layer change.
 
-## 8. GitHub Actions Pins
+## 9. GitHub Actions Pins
 
 Workflow actions are pinned to exact commit SHAs, with an inline version comment
 showing the reviewed upstream major tag. On 2026-07-04, the reviewed tag refs
@@ -273,7 +283,7 @@ Upgrade criteria:
 2. Update the workflow SHA and inline tag comment together.
 3. Parse workflow YAML and run the relevant local contract checks.
 
-## 9. Bootstrap Tooling Gap
+## 10. Bootstrap Tooling Gap
 
 The bootstrap paths still upgrade or install the Python packaging toolchain
 without exact pip/setuptools pins:
@@ -286,7 +296,7 @@ environment creation path and belongs with the coordinated dependency-lock
 work. Until then, maintenance passes should treat unexpected resolver behavior
 or build-isolation changes as dependency-contract findings.
 
-## 10. Deferred Reproducibility Hardening
+## 11. Deferred Reproducibility Hardening
 
 The current manifests still include floating and ranged Python dependencies, and
 the Docker/devcontainer bases are tag-pinned rather than digest-pinned. A full

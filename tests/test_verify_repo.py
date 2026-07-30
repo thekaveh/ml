@@ -145,6 +145,13 @@ def test_structure_s1_notebooks_parse():
     )
 
 
+def test_structure_s3_current_markdown_links_resolve():
+    r = run_verify("--check", "structure", "--fast")
+    data = json.loads(r.stdout) if r.stdout else {"findings": []}
+    s3 = [f for f in data["findings"] if f["id"].startswith("S3")]
+    assert s3 == [], f"S3 found broken current-repository links: {s3}"
+
+
 def test_structure_s1_flags_missing_notebook_cell_id(tmp_path):
     """nbformat currently auto-fills missing cell ids, so check raw JSON too."""
     repo = _temp_repo(tmp_path)
@@ -1105,6 +1112,16 @@ def test_docs_d10_dependency_ledger_counts_match_current_doc():
     assert d10 == [], f"D10 reported dependency-ledger issues: {d10}"
 
 
+def test_docs_d10_current_atlas_infra_gitlink_matches_ledger():
+    r = run_verify("--check", "docs", "--fast")
+    data = json.loads(r.stdout) if r.stdout else {"findings": []}
+    hits = [
+        f for f in data["findings"]
+        if f["id"] == "D10.dependency_ledger_submodule_sha"
+    ]
+    assert hits == [], f"D10 reported Atlas infra ledger issues: {hits}"
+
+
 def test_docs_d10_flags_dependency_ledger_count_drift(tmp_path):
     """The dependency ledger should not collapse duplicated advisory feed records."""
     repo = _temp_repo(tmp_path)
@@ -1131,15 +1148,15 @@ def test_docs_d10_flags_dependency_ledger_count_drift(tmp_path):
 def test_docs_d10_flags_dependency_ledger_submodule_sha_drift(tmp_path, monkeypatch):
     """The Atlas ledger SHA should match the superproject infra gitlink."""
     repo = _temp_repo(tmp_path)
+    (repo / "infra").mkdir()
     docs = repo / "docs"
     docs.mkdir()
     ledger_sha = "b96a2924b5d30aa30eddb2fa43f9b7a47fc81bcb"
     gitlink_sha = "163134451a19d024e0e1c0df51139fd8c0a2ca52"
     (docs / "dependency-contracts.md").write_text(
         "# Dependency Contracts\n\n"
-        "## 7. Atlas Submodule Contract\n\n"
-        "`infra` submodule. The repository currently pins tree entry\n"
-        f"`{ledger_sha}`; a read-only check found upstream `main` at the same SHA.\n",
+        "## 7. Atlas Infra Submodule Contract\n\n"
+        f"Current Atlas `infra` gitlink SHA: `{ledger_sha}`.\n",
         encoding="utf-8",
     )
     verify_repo = _load_verify_module()
@@ -1161,13 +1178,13 @@ def test_docs_d10_flags_dependency_ledger_submodule_sha_drift(tmp_path, monkeypa
 def test_docs_d10_flags_missing_dependency_ledger_submodule_sha(tmp_path, monkeypatch):
     """The Atlas ledger must keep a parseable pinned tree-entry SHA."""
     repo = _temp_repo(tmp_path)
+    (repo / "infra").mkdir()
     docs = repo / "docs"
     docs.mkdir()
     (docs / "dependency-contracts.md").write_text(
         "# Dependency Contracts\n\n"
-        "## 7. Atlas Submodule Contract\n\n"
-        "`infra` submodule. The repository currently pins tree entry\n"
-        "`not-a-sha`; a read-only check found upstream `main` at the same SHA.\n",
+        "## 7. Atlas Infra Submodule Contract\n\n"
+        "Current Atlas `infra` gitlink SHA: `not-a-sha`.\n",
         encoding="utf-8",
     )
     verify_repo = _load_verify_module()
@@ -1189,14 +1206,14 @@ def test_docs_d10_flags_missing_dependency_ledger_submodule_sha(tmp_path, monkey
 def test_docs_d10_flags_missing_dependency_ledger_gitlink(tmp_path, monkeypatch):
     """The Atlas ledger SHA must be checked against a parseable gitlink."""
     repo = _temp_repo(tmp_path)
+    (repo / "infra").mkdir()
     docs = repo / "docs"
     docs.mkdir()
     ledger_sha = "ba21661e8a63b3727b9c4a14eaf5e61262d4b48e"
     (docs / "dependency-contracts.md").write_text(
         "# Dependency Contracts\n\n"
-        "## 7. Atlas Submodule Contract\n\n"
-        "`infra` submodule. The repository currently pins tree entry\n"
-        f"`{ledger_sha}`; a read-only check found upstream `main` at the same SHA.\n",
+        "## 7. Atlas Infra Submodule Contract\n\n"
+        f"Current Atlas `infra` gitlink SHA: `{ledger_sha}`.\n",
         encoding="utf-8",
     )
     verify_repo = _load_verify_module()
@@ -1214,6 +1231,83 @@ def test_docs_d10_flags_missing_dependency_ledger_gitlink(tmp_path, monkeypatch)
     assert hits
     assert "gitlink" in hits[0].message
     assert hits[0].detail == {"ledger_sha": ledger_sha, "gitlink_sha": None}
+
+
+def test_docs_d10_requires_atlas_ledger_entry_when_infra_exists(tmp_path):
+    repo = _temp_repo(tmp_path)
+    (repo / "infra").mkdir()
+    docs = repo / "docs"
+    docs.mkdir()
+    (docs / "dependency-contracts.md").write_text(
+        "# Dependency Contracts\n\n"
+        "## 8. Legacy genai-vanilla Rollback Record\n\n"
+        "The legacy tree entry is `10f840252404eb5399550f96fbb560153f1a47c7`.\n",
+        encoding="utf-8",
+    )
+
+    findings = _load_verify_module()._dependency_ledger_findings(repo)
+
+    hits = [f for f in findings if f.id == "D10.dependency_ledger_submodule_sha"]
+    assert len(hits) == 1
+    assert "Atlas Infra Submodule Contract" in hits[0].message
+
+
+def test_docs_d10_does_not_use_legacy_sha_for_malformed_atlas_entry(tmp_path, monkeypatch):
+    repo = _temp_repo(tmp_path)
+    (repo / "infra").mkdir()
+    docs = repo / "docs"
+    docs.mkdir()
+    legacy_sha = "61c7c5103660e2226bf107c115dae42bf46f8374"
+    (docs / "dependency-contracts.md").write_text(
+        "# Dependency Contracts\n\n"
+        "## 7. Atlas Infra Submodule Contract\n\n"
+        "Current Atlas `infra` gitlink SHA: `not-a-sha`.\n\n"
+        "## 8. Legacy genai-vanilla Rollback Record\n\n"
+        f"The repository currently pins tree entry `{legacy_sha}`.\n",
+        encoding="utf-8",
+    )
+    module = _load_verify_module()
+
+    def fail_if_gitlink_checked(cmd, cwd, timeout=None):
+        assert cmd != ["git", "ls-files", "--stage", "--", "infra"]
+        return 0, "", ""
+
+    monkeypatch.setattr(module, "_run", fail_if_gitlink_checked)
+
+    findings = module._dependency_ledger_findings(repo)
+
+    hits = [f for f in findings if f.id == "D10.dependency_ledger_submodule_sha"]
+    assert len(hits) == 1
+    assert "parseable" in hits[0].message
+
+
+def test_docs_d10_reads_atlas_sha_without_capturing_legacy_rollback_sha(tmp_path, monkeypatch):
+    repo = _temp_repo(tmp_path)
+    (repo / "infra").mkdir()
+    docs = repo / "docs"
+    docs.mkdir()
+    atlas_sha = "61c7c5103660e2226bf107c115dae42bf46f8374"
+    legacy_sha = "10f840252404eb5399550f96fbb560153f1a47c7"
+    (docs / "dependency-contracts.md").write_text(
+        "# Dependency Contracts\n\n"
+        "## 7. Atlas Infra Submodule Contract\n\n"
+        f"Current Atlas `infra` gitlink SHA: `{atlas_sha}`.\n\n"
+        "## 8. Legacy genai-vanilla Rollback Record\n\n"
+        f"The repository currently pins tree entry `{legacy_sha}`.\n",
+        encoding="utf-8",
+    )
+    module = _load_verify_module()
+
+    def fake_run(cmd, cwd, timeout=None):
+        if cmd == ["git", "ls-files", "--stage", "--", "infra"]:
+            return 0, f"160000 {atlas_sha} 0\tinfra\n", ""
+        return 0, "", ""
+
+    monkeypatch.setattr(module, "_run", fake_run)
+
+    findings = module._dependency_ledger_findings(repo)
+
+    assert not [f for f in findings if f.id == "D10.dependency_ledger_submodule_sha"]
 
 
 def test_docs_d10_flags_workflow_action_refs_that_are_not_sha_pinned(tmp_path):
@@ -1810,8 +1904,8 @@ def test_e17_flags_port_literal_in_integration_code_and_notebook_code_cell(
     repo = _temp_repo(tmp_path)
     _write_valid_atlas_verifier_fixture(repo)
     task = "atlas-task"
-    (repo / "scripts/integration.py").write_text(
-        'MLFLOW_HOST = "127.0.0.1:63040"\n',
+    (repo / "scripts/atlas-up.sh").write_text(
+        'MLFLOW_HOST="127.0.0.1:63040"\n',
         encoding="utf-8",
     )
     notebook_path = repo / f"notebooks/{task}/notebook.ipynb"
@@ -1827,7 +1921,7 @@ def test_e17_flags_port_literal_in_integration_code_and_notebook_code_cell(
 
     hits = [finding for finding in result.findings if finding.id == "E17.atlas_hardcoded_endpoint"]
     assert {finding.location for finding in hits} == {
-        "scripts/integration.py:1",
+        "scripts/atlas-up.sh:1",
         "notebooks/atlas-task/notebook.ipynb:cell[0]:line[1]",
     }
     assert {finding.detail["endpoint"] for finding in hits} == {
@@ -1852,7 +1946,13 @@ def test_e17_excludes_docs_tests_history_notebook_prose_and_harmless_examples(
         'EXAMPLE = "http://127.0.0.1:63040"\n',
         encoding="utf-8",
     )
-    (repo / "scripts/integration.py").write_text(
+    (repo / "scripts/docs").mkdir()
+    (repo / "scripts/docs/example.py").write_text(
+        '"""Documentation example: http://localhost:63094."""\n',
+        encoding="utf-8",
+    )
+    (repo / "scripts/atlas-integration.py").write_text(
+        '"""Prose example: http://127.0.0.1:63040."""\n'
         "# Historical example: http://localhost:63094\n"
         'TEMPLATE = "http://localhost:<port>"\n',
         encoding="utf-8",
@@ -1902,6 +2002,7 @@ def test_atlas_contract_workflow_has_recursive_checkout_and_narrow_paths():
         "scripts/docs/notebook_infrastructure.py",
         "docs/notebook-infrastructure.md",
         "docs/atlas-pin-bump-runbook.md",
+        "docs/dependency-contracts.md",
         "notebooks/**/docs/spec.yaml",
         "scripts/verify_repo.py",
         "scripts/verify_repo_config.yaml",
@@ -1915,6 +2016,18 @@ def test_atlas_contract_workflow_has_recursive_checkout_and_narrow_paths():
     checkout = next(step for step in steps if step.get("name") == "Checkout")
     assert checkout["with"]["persist-credentials"] == "false"
     assert checkout["with"]["submodules"] == "recursive"
+
+
+def test_ci_runs_atlas_workflow_contract_tests():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    steps = workflow["jobs"]["verify-repo"]["steps"]
+    contract_tests = next(step for step in steps if step.get("name") == "Test Atlas workflow contracts")
+    assert contract_tests["run"] == (
+        "pytest tests/test_verify_repo.py -q -k "
+        "'atlas_contract_workflow or "
+        "docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or "
+        "ci_runs_atlas_workflow_contract_tests'"
+    )
 
 
 def test_atlas_contract_workflow_runs_exact_non_live_preflight_and_dirty_gate():

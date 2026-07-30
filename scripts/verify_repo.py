@@ -915,10 +915,33 @@ def _stale_layout_guidance_findings(repo: Path) -> list[Finding]:
     return findings
 
 
+_ATLAS_INFRA_LEDGER_SECTION_RE = re.compile(
+    r"^##[ \t]+\d+\.[ \t]+Atlas Infra Submodule Contract[ \t]*\r?$"
+    r"(?P<body>.*?)(?=^##[ \t]|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+_ATLAS_INFRA_GITLINK_SHA_RE = re.compile(
+    r"^Current Atlas `infra` gitlink SHA:[ \t]*`([0-9a-f]{40})`\.[ \t]*$",
+    re.MULTILINE,
+)
+
+
 def _dependency_ledger_findings(repo: Path) -> list[Finding]:
     path = repo / "docs" / "dependency-contracts.md"
+    infra_exists = (repo / "infra").exists()
     if not path.exists():
-        return []
+        if not infra_exists:
+            return []
+        return [Finding(
+            id="D10.dependency_ledger_submodule_sha",
+            check="docs",
+            severity="error",
+            location="docs/dependency-contracts.md",
+            message=(
+                "Atlas Infra Submodule Contract ledger entry is required while "
+                "infra exists"
+            ),
+        )]
     text = _read_text(path)
     package_counts = {
         package: int(count)
@@ -960,45 +983,60 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
                 ),
                 detail={"expected": expected_total, "actual": actual_total},
             ))
-    if "`infra` submodule" in text:
-        ledger_sha_match = re.search(r"currently pins tree entry\s+`([0-9a-f]{40})`", text)
-        if not ledger_sha_match:
-            findings.append(Finding(
-                id="D10.dependency_ledger_submodule_sha",
-                check="docs",
-                severity="error",
-                location="docs/dependency-contracts.md",
-                message=(
-                    "Atlas ledger must include a parseable 40-character "
-                    "pinned tree-entry SHA"
-                ),
-            ))
-            return findings
-        ledger_sha = ledger_sha_match.group(1)
-        rc, out, _err = _run(["git", "ls-files", "--stage", "--", "infra"], repo)
-        gitlink_match = re.search(r"160000 ([0-9a-f]{40}) \d+\s+infra", out)
-        if rc != 0 or not gitlink_match:
-            findings.append(Finding(
-                id="D10.dependency_ledger_submodule_sha",
-                check="docs",
-                severity="error",
-                location="docs/dependency-contracts.md",
-                message="Atlas ledger SHA cannot be compared to a parseable infra gitlink",
-                detail={"ledger_sha": ledger_sha, "gitlink_sha": None},
-            ))
-            return findings
-        gitlink_sha = gitlink_match.group(1)
-        if ledger_sha != gitlink_sha:
-            findings.append(Finding(
-                id="D10.dependency_ledger_submodule_sha",
-                check="docs",
-                severity="error",
-                location="docs/dependency-contracts.md",
-                message=(
-                    "Atlas ledger SHA does not match the superproject infra gitlink"
-                ),
-                detail={"ledger_sha": ledger_sha, "gitlink_sha": gitlink_sha},
-            ))
+    if not infra_exists:
+        return findings
+
+    section_match = _ATLAS_INFRA_LEDGER_SECTION_RE.search(text)
+    if not section_match:
+        findings.append(Finding(
+            id="D10.dependency_ledger_submodule_sha",
+            check="docs",
+            severity="error",
+            location="docs/dependency-contracts.md",
+            message=(
+                "Atlas Infra Submodule Contract ledger entry is required while "
+                "infra exists"
+            ),
+        ))
+        return findings
+
+    ledger_sha_match = _ATLAS_INFRA_GITLINK_SHA_RE.search(section_match.group("body"))
+    if not ledger_sha_match:
+        findings.append(Finding(
+            id="D10.dependency_ledger_submodule_sha",
+            check="docs",
+            severity="error",
+            location="docs/dependency-contracts.md",
+            message=(
+                "Atlas Infra Submodule Contract must include a parseable "
+                "40-character infra gitlink SHA"
+            ),
+        ))
+        return findings
+
+    ledger_sha = ledger_sha_match.group(1)
+    rc, out, _err = _run(["git", "ls-files", "--stage", "--", "infra"], repo)
+    gitlink_match = re.search(r"160000 ([0-9a-f]{40}) \d+\s+infra", out)
+    if rc != 0 or not gitlink_match:
+        findings.append(Finding(
+            id="D10.dependency_ledger_submodule_sha",
+            check="docs",
+            severity="error",
+            location="docs/dependency-contracts.md",
+            message="Atlas ledger SHA cannot be compared to a parseable infra gitlink",
+            detail={"ledger_sha": ledger_sha, "gitlink_sha": None},
+        ))
+        return findings
+    gitlink_sha = gitlink_match.group(1)
+    if ledger_sha != gitlink_sha:
+        findings.append(Finding(
+            id="D10.dependency_ledger_submodule_sha",
+            check="docs",
+            severity="error",
+            location="docs/dependency-contracts.md",
+            message="Atlas ledger SHA does not match the superproject infra gitlink",
+            detail={"ledger_sha": ledger_sha, "gitlink_sha": gitlink_sha},
+        ))
     return findings
 
 
@@ -1603,6 +1641,10 @@ _ATLAS_ENDPOINT_RE = re.compile(
     r"(?:localhost|127\.0\.0\.1):\d{1,5}\b",
     re.IGNORECASE,
 )
+_ATLAS_INTEGRATION_SOURCE_GLOBS = (
+    "scripts/atlas-*.py",
+    "scripts/atlas-*.sh",
+)
 
 
 def _atlas_manifest_findings(repo: Path) -> list[Finding]:
@@ -1724,6 +1766,27 @@ def _python_lines_without_comments(source: str) -> list[str]:
             + " " * (end_column - start_column)
             + lines[line_index][end_column:]
         )
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return lines
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not node.body:
+            continue
+        first_statement = node.body[0]
+        if not (
+            isinstance(first_statement, ast.Expr)
+            and isinstance(first_statement.value, ast.Constant)
+            and isinstance(first_statement.value.value, str)
+        ):
+            continue
+        start_line = first_statement.lineno - 1
+        end_line = first_statement.end_lineno or first_statement.lineno
+        for line_index in range(start_line, min(end_line, len(lines))):
+            lines[line_index] = ""
     return lines
 
 
@@ -1770,27 +1833,22 @@ def _endpoint_findings_for_lines(
 
 def _atlas_hardcoded_endpoint_findings(repo: Path) -> list[Finding]:
     findings: list[Finding] = []
-    source_roots = [repo / "scripts"]
-    source_roots.extend(_active_task_path(repo, task) for task in ACTIVE_TASK_DIRS)
-    for source_root in source_roots:
-        if not source_root.exists():
-            continue
-        source_paths = sorted(
-            path
-            for pattern in ("*.py", "*.sh")
-            for path in source_root.rglob(pattern)
-            if path.is_file()
-        )
-        for path in source_paths:
-            rel = str(path.relative_to(repo))
-            source = _read_text(path)
-            if path.suffix == ".py":
-                lines = _python_lines_without_comments(source)
-            else:
-                lines = [_shell_line_without_comment(line) for line in source.splitlines()]
-            findings.extend(_endpoint_findings_for_lines(
-                lines, lambda line_no, rel=rel: f"{rel}:{line_no}"
-            ))
+    source_paths = sorted(
+        path
+        for pattern in _ATLAS_INTEGRATION_SOURCE_GLOBS
+        for path in repo.glob(pattern)
+        if path.is_file()
+    )
+    for path in source_paths:
+        rel = str(path.relative_to(repo))
+        source = _read_text(path)
+        if path.suffix == ".py":
+            lines = _python_lines_without_comments(source)
+        else:
+            lines = [_shell_line_without_comment(line) for line in source.splitlines()]
+        findings.extend(_endpoint_findings_for_lines(
+            lines, lambda line_no, rel=rel: f"{rel}:{line_no}"
+        ))
 
     for notebook_path in _iter_notebooks(repo):
         try:

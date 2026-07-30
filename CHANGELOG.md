@@ -4,7 +4,15 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **Atlas infrastructure migration:** replaced the legacy `vendor/genai-vanilla` submodule (the
+  former Atlas project name) and wrapper with the pinned `infra/` Atlas submodule at
+  `61c7c5103660e2226bf107c115dae42bf46f8374`. The default notebook path is now local VS Code
+  connected to the running Atlas JupyterHub kernel on the `ml-eng` track. The consumer requires
+  host-native Ollama and disables containerized/automatic AI engine sources; documentation now
+  records the Atlas ownership boundary, package evidence, pin-bump runbook, service-admission
+  path, and normal volume-preserving lifecycle.
 
 ## [0.1.0] - 2026-07-07
 

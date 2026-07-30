@@ -18,6 +18,8 @@ The diagram captures the repository context and primary components: the notebook
 directories, the shared `nnx` library consumed from PyPI, the validation and documentation
 tooling, and the three documentation surfaces.
 
+![ml-eng-lab runtime flow](diagrams/img/runtime-flow.png)
+
 ## 2. Three-surface documentation pipeline
 
 ![Three-surface documentation sync](diagrams/img/docs-sync.png)
@@ -51,11 +53,13 @@ bare text.
 
 ## 3. Runtime entry paths
 
-A contributor opens the repository through one of four supported entry paths — a local venv, the
-Docker image, GitHub Codespaces, or the vendored genai-vanilla JupyterHub stack — and runs or
-edits an experiment under `notebooks/<task>/`. Notebook-local `./data/` and `./runs/` paths
-resolve inside that experiment directory; `Makefile` targets execute notebooks by changing into
-each notebook directory before invoking papermill, so the task-local path invariant holds.
+A contributor opens the repository through one of four supported entry paths — local VS Code with
+the Atlas JupyterHub kernel, a local venv, the Docker image, or GitHub Codespaces — and runs or
+edits an experiment under `notebooks/<task>/`. The Atlas path uses the pinned `infra/` submodule,
+the `ml-eng` track, and a parent-owned checkout mount; local VS Code remains the default editor.
+Notebook-local `./data/` and `./runs/` paths resolve inside each experiment directory; `Makefile`
+targets execute notebooks by changing into each notebook directory before invoking papermill, so
+the task-local path invariant holds.
 
 `scripts/verify_repo.py`, pytest, ruff, and the CI workflows verify structure, documentation,
 and public notebook surfaces before changes are merged.
@@ -68,5 +72,7 @@ and public notebook surfaces before changes are merged.
   `thekaveh/NNx` before this repo bumps the pin.
 - The quantization notebook is active but manual-only until the pinned Torch stack can satisfy
   `torchao>=0.17`.
+- `infra/` is a reviewed Atlas gitlink. Consumer configuration remains outside the submodule, and
+  host-native Ollama is mandatory; a containerized Ollama service is not an approved runtime.
 - The canonical `docs/` tree is the only documentation source of truth; the generated site and
   wiki are never edited by hand.

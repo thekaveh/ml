@@ -34,10 +34,10 @@ Supporting modules in this folder:
 
 ## 4. How to run
 
-In the recommended runtime (genai-vanilla jupyterhub, see [../docs/jupyterhub-integration.md](../../docs/jupyterhub-integration.md)):
+In the recommended runtime (local VS Code connected to Atlas JupyterHub; see [../docs/jupyterhub-integration.md](../../docs/jupyterhub-integration.md)):
 
 ```bash
-# From an attached VS Code or browser jupyter session:
+# From the Atlas remote kernel (or a fallback attached/browser session):
 # Open notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb, run all cells.
 ```
 
@@ -54,7 +54,7 @@ make run-tier-a   # re-runs this notebook in place, alongside the other Tier-A n
 - `numpy` (≥ 1.24)
 - `torchvision` (only for MNIST dataset loading; the model itself is pure NumPy)
 
-All available via the root `requirements.txt` or the genai-vanilla jupyterhub image.
+Available through the root `requirements.txt` or the Atlas JupyterHub runtime.
 
 ## 6. Known issues
 

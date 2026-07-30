@@ -24,12 +24,12 @@
   <div class="wrap">
     <header>
       <h1>ml-eng-lab Runtime Flow</h1>
-      <div class="subtitle">How contributors reach notebook execution while preserving task-local paths.</div>
+      <div class="subtitle">How local VS Code reaches Atlas JupyterHub while preserving task-local paths.</div>
     </header>
     <div class="panel">
       <svg viewBox="0 0 1100 640" role="img" aria-labelledby="title desc">
         <title id="title">Runtime flow from entry shell to notebook-local artifacts</title>
-        <desc id="desc">Diagram showing local virtual environment, Docker, Codespaces, and JupyterHub entry paths feeding active notebook task folders with local data and run directories.</desc>
+        <desc id="desc">Diagram showing local VS Code connected to Atlas JupyterHub, plus venv, Docker, and Codespaces fallback paths feeding active notebook task folders.</desc>
         <defs>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
             <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
@@ -70,9 +70,9 @@
 
         <rect x="52" y="456" width="206" height="96" rx="6" fill="#0f172a"/>
         <rect x="52" y="456" width="206" height="96" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="155" y="488" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">JupyterHub wrapper</text>
-        <text x="155" y="507" fill="#94a3b8" font-size="9" text-anchor="middle">genai-vanilla submodule</text>
-        <text x="155" y="524" fill="#94a3b8" font-size="9" text-anchor="middle">bind-mounted persistence</text>
+        <text x="155" y="488" fill="#fff" font-size="12" font-weight="600" text-anchor="middle">Atlas JupyterHub</text>
+        <text x="155" y="507" fill="#94a3b8" font-size="9" text-anchor="middle">local VS Code remote kernel</text>
+        <text x="155" y="524" fill="#94a3b8" font-size="9" text-anchor="middle">infra/ + mounted checkout</text>
 
         <rect x="394" y="220" width="200" height="176" rx="12" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="8,4"/>
         <text x="494" y="250" fill="#fbbf24" font-size="10" font-weight="600" text-anchor="middle">Runtime contract</text>
@@ -111,11 +111,11 @@
       </svg>
     </div>
     <section class="cards" aria-label="Runtime summary">
-      <div class="card"><h2>Entry Choices</h2><ul><li>Local venv and Docker use the checked-out tree.</li><li>Codespaces provisions the same dependency order.</li></ul></div>
-      <div class="card"><h2>Path Contract</h2><ul><li>Notebook code resolves `./data` and `./runs` from the task folder.</li><li>Make targets preserve that CWD.</li></ul></div>
+      <div class="card"><h2>Entry Choices</h2><ul><li>Local VS Code to Atlas JupyterHub is the default.</li><li>Venv, Docker, and Codespaces are fallbacks.</li></ul></div>
+      <div class="card"><h2>Path Contract</h2><ul><li>Atlas mounts the checkout for explicit notebook dependencies.</li><li>Make targets preserve task CWD semantics.</li></ul></div>
       <div class="card"><h2>Validation</h2><ul><li>Verifier checks active notebook structure and stale output paths.</li><li>Tier targets replay papermill execution.</li></ul></div>
     </section>
-    <footer>Generated for ml-eng-lab maintenance, 2026-07-04.</footer>
+    <footer>Generated for ml-eng-lab Atlas migration, 2026-07-30.</footer>
   </div>
 </body>
 </html>

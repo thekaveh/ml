@@ -23,7 +23,7 @@ accepted package set were unchanged.
 
 | Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |
 | --- | --- | ---: | ---: | --- |
-| `torch` | `torch==2.4.1` | `2.4.1` | 21 | Accepted temporarily for genai-vanilla image parity; upgrade requires a coordinated PyTorch/PyG/torchao compatibility pass. |
+| `torch` | `torch==2.4.1` | `2.4.1` | 21 | Local/CI compatibility baseline; upgrade requires a coordinated PyTorch/PyG/torchao compatibility pass. |
 | `pytorch-lightning` | `pytorch-lightning==2.4.0` | `2.4.0` | 1 | Accepted temporarily because it is pinned to the current Torch stack; revisit with the Torch upgrade. |
 | `nltk` | `nltk>=3.9.3` | `3.9.4` | 1 | Review on the next dependency bump; VADER usage is local/offline and does not deserialize untrusted corpus files. |
 
@@ -85,8 +85,8 @@ Accepted advisory IDs from the 2026-07-04 audit. `pip-audit` currently emits
 - `torch-spline-conv==1.2.2`
 - `torch_geometric==2.6.1`
 
-Reason: these versions match the genai-vanilla JupyterHub image lineage used by
-the documented runtime paths.
+Reason: this is the deliberately stable local/CI compatibility baseline. It is
+not required to match the separately pinned Atlas JupyterHub runtime.
 
 Upgrade criteria:
 
@@ -104,13 +104,14 @@ That torchao API references `torch.int1` at import time, which is unavailable in
 the pinned `torch==2.4.1` environment. The notebook remains an active task but is
 manual-only until the Torch stack is upgraded.
 
-Expected local environment for this notebook:
+Expected local side environment for this notebook:
 
 - `torch>=2.5`
 - `torchao>=0.17`
 
 Do not add the quantization notebook back to `Makefile` Tier-A/B/C until the
-repository-wide Torch stack supports it.
+repository-wide local/CI Torch stack supports it. Atlas has a newer observed
+package surface, but package availability alone is not a full notebook smoke.
 
 ## 4. Papermill CLI Contract
 
@@ -160,7 +161,7 @@ they are only exact release-contract evidence when the environment resolves
 `nnx` from the pinned PyPI wheel.
 
 Editable installs are allowed only for active upstream NNx development, using
-the workflow in README §6 and `docs/jupyterhub-integration.md` §3. When an
+the workflow in README §6. When an
 editable checkout is active, local tests are development-surface evidence, not
 release-contract evidence. Before treating local `tests/nnx_surface` results as
 release evidence, confirm:
@@ -190,79 +191,49 @@ that the run intentionally used a local NNx development checkout.
 Current Atlas `infra` gitlink SHA: `61c7c5103660e2226bf107c115dae42bf46f8374`.
 
 This reviewed superproject gitlink is the active Atlas dependency contract.
-The preserved genai-vanilla entry in the next section is a legacy rollback
-record only and must not be used to verify the active `infra` submodule.
+Consumer configuration is deliberately outside `infra/`: `atlas.consumer.yml`,
+`atlas.env.user.example`, and `compose/ml-eng-lab-atlas.yml` define the track,
+native-source policy, and mount. Pin changes follow
+[atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
 
-## 8. Legacy genai-vanilla Rollback Record
+## 8. Atlas Jupyter Runtime Evidence
 
-`.gitmodules` consumes `https://github.com/thekaveh/genai-vanilla.git` as the
-`vendor/genai-vanilla` submodule. The repository currently pins tree entry
-`10f840252404eb5399550f96fbb560153f1a47c7`; a read-only check on 2026-07-04
-found upstream `main` at the same SHA, so the submodule is current as of this
-ledger entry. The bump from `2bee05134d721a152a6ea579d9a65efd7e080701`
-through `a22b182a0f0cd1bb0be3599a7710d87890491eb8`, `448333d3b1a530fafd76d224ee1066181de8fac4`,
-`0bc3abd3cafb35b340f90c4efa89d64375ac9152`,
-`2997143758f58f4c40ecd6e258fa8422942cb7cd`, and
-`163134451a19d024e0e1c0df51139fd8c0a2ca52`,
-`b96a2924b5d30aa30eddb2fa43f9b7a47fc81bcb`,
-`ba21661e8a63b3727b9c4a14eaf5e61262d4b48e`,
-`329f883139f9b101ef923376b84d5d9199c47b56`,
-`c2ffe8d10f5f21c549b411d87861c83e518073ba`, and
-`10f840252404eb5399550f96fbb560153f1a47c7` contained Browserless, Supabase,
-OpenLIT, live-trading, FinRL FinGPT, heavy 3D infrastructure, voice-stack, Honcho,
-Redis Stack, RedisInsight, Perplexica, and Vane
-research documentation plus bootstrapper tests only;
-the JupyterHub runtime files below were re-verified unchanged for ml-eng-lab.
+Last verified: 2026-07-30 against the pinned `ml-eng` Atlas track. The live
+runtime probe ran inside the JupyterHub container after the consumer mounted
+this checkout and reported zero failed checks. The host-native Ollama probe
+also succeeded; no Ollama or ComfyUI container was running for the consumer.
 
-The consumed contract is:
+| Surface | Observed in Atlas JupyterHub | Contract meaning |
+| --- | --- | --- |
+| Python | CPython 3.11.10 | Remote notebook interpreter |
+| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; `tokenizers` 0.22.2 | Matches notebook imports and the `[lm]` extra |
+| Torch | `torch` 2.11.0+cpu; `torchvision` 0.26.0+cpu; `torchaudio` 2.11.0+cpu | Atlas runtime is newer than local/CI; do not infer a local pin bump |
+| Torch extensions | `torchao` 0.17.0; `torch-geometric` 2.6.1; `python-louvain` 0.16 | Required import surfaces are present |
+| NLP | spaCy 3.8.14, `en_core_web_sm` 3.8.0; NLTK 3.10.0 with VADER | Both task assets resolve |
+| Notebook imports | 62 imports across active notebooks; zero failures | Import-level compatibility evidence |
 
-- `vendor/genai-vanilla/start.sh` exists after `git submodule update --init --recursive`.
-- `vendor/genai-vanilla/docker-compose.yml` includes
-  `services/jupyterhub/compose.yml`, which defines the `jupyterhub` service.
-- `vendor/genai-vanilla/services/jupyterhub/build/requirements.txt` includes
-  `thekaveh-nnx[lm]==0.2.0`, `python-louvain`, `nltk`, `spacy`,
-  `torchao>=0.17`, and `prettytable` for ml-eng-lab runtime coverage.
-- `vendor/genai-vanilla/services/jupyterhub/build/Dockerfile` downloads the
-  `en_core_web_sm` spaCy model and the `vader_lexicon` NLTK corpus at image
-  build time.
-- `vendor/genai-vanilla/services/jupyterhub/build/scripts/startup.sh` is the
-  JupyterHub image entrypoint copied by that Dockerfile.
-- The current upstream pin still has comments in the JupyterHub
-  `requirements.txt` and `Dockerfile` that use the old `ml-lab` repository
-  name and URL. The URL redirects to `ml-eng-lab`, and the runtime contract is
-  otherwise correct, so this is tracked as an upstream documentation cleanup
-  rather than patched directly from this maintenance branch.
-- `scripts/start-jupyterhub.sh` exports `ML_REPO_PATH`, exports
-  `ML_SSH_MOUNT_DIR`, layers `deploy/genai-vanilla-jupyterhub.override.yml`
-  through `COMPOSE_FILE`, changes into the submodule directory, and execs
-  `./start.sh`.
-- The override bind-mounts ml-eng-lab at `/home/jovyan/work/ml-eng-lab` and
-  mounts SSH keys only through the wrapper-controlled `ML_SSH_MOUNT_DIR`.
+The same live check imported the NumPy MNIST sibling modules from the mounted
+checkout. This validates the consumer mount separately from package metadata.
+It does not turn a successful import into a completed training or performance
+smoke.
 
-Upgrade criteria:
+## 9. Atlas Versus Local/CI Dependency Boundaries
 
-1. Update the submodule to the intended upstream SHA.
-2. Confirm `start.sh`, `docker-compose.yml`, and the `jupyterhub` service still
-   exist at that SHA.
-3. Run `shellcheck scripts/start-jupyterhub.sh vendor/genai-vanilla/start.sh
-   vendor/genai-vanilla/stop.sh vendor/genai-vanilla/bootstrapper/_run.sh
-   vendor/genai-vanilla/services/jupyterhub/build/scripts/startup.sh`,
-   run `bash -n scripts/start-jupyterhub.sh`, and parse
-   `deploy/genai-vanilla-jupyterhub.override.yml`.
-4. In a Docker-capable environment, run `git submodule update --init --recursive`
-   followed by this command from the repository root:
+Atlas's runtime image is infrastructure-owned and may advance independently of
+the checked-in local/CI manifests. The local/CI Torch 2.4.1 contract remains the
+source of truth for `make test`, papermill CI, Dockerfile, and Codespaces.
+Conversely, notebooks using the remote kernel rely on the observed Atlas package
+surface recorded above. Any change that makes a notebook depend on a version
+only Atlas provides must add an explicit task contract and update both this
+ledger and the relevant runbook.
 
-   ```bash
-   ML_REPO_PATH="$PWD" ML_SSH_MOUNT_DIR="$HOME/.ssh" docker compose --env-file \
-     vendor/genai-vanilla/.env.example \
-     -f vendor/genai-vanilla/docker-compose.yml \
-     -f deploy/genai-vanilla-jupyterhub.override.yml \
-     config
-   ```
-5. Update this section, README runtime caveats, and `docs/jupyterhub-integration.md`
-   if the service names, mount paths, or NNx package layer change.
+The quantization notebook is still manual-only. Atlas now imports the needed
+package layer, but its complete PTQ/QAT execution has not been run there. A
+future reclassification requires a targeted Atlas notebook smoke as well as the
+local/CI compatibility decision; do not promote it based only on `torchao`
+metadata.
 
-## 9. GitHub Actions Pins
+## 10. GitHub Actions Pins
 
 Workflow actions are pinned to exact commit SHAs, with an inline version comment
 showing the reviewed upstream major tag. On 2026-07-04, the reviewed tag refs
@@ -283,7 +254,7 @@ Upgrade criteria:
 2. Update the workflow SHA and inline tag comment together.
 3. Parse workflow YAML and run the relevant local contract checks.
 
-## 10. Bootstrap Tooling Gap
+## 11. Bootstrap Tooling Gap
 
 The bootstrap paths still upgrade or install the Python packaging toolchain
 without exact pip/setuptools pins:
@@ -296,7 +267,7 @@ environment creation path and belongs with the coordinated dependency-lock
 work. Until then, maintenance passes should treat unexpected resolver behavior
 or build-isolation changes as dependency-contract findings.
 
-## 11. Deferred Reproducibility Hardening
+## 12. Deferred Reproducibility Hardening
 
 The current manifests still include floating and ranged Python dependencies, and
 the Docker/devcontainer bases are tag-pinned rather than digest-pinned. A full

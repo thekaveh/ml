@@ -71,7 +71,7 @@ Also verified via [`tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py
 - `networkx`, `community` (python-louvain), `pandas`, `seaborn`, `matplotlib`
 - `numpy`, `scikit-learn`
 
-All available via the genai-vanilla jupyterhub image or via the root `requirements.txt` + `torch-requirements.txt`.
+Available via the Atlas JupyterHub runtime or the root `requirements.txt` + `torch-requirements.txt`.
 
 ## 6. Known issues
 

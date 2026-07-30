@@ -107,7 +107,6 @@ ROOT_README_REQUIRED_H2 = (
 )
 
 TERMINOLOGY_CANONICALS = {
-    "genai-vanilla": ("Genai-Vanilla", "GenAI-Vanilla", "GenAI Vanilla", "genai vanilla"),
     "JupyterHub": ("Jupyterhub", "Jupyter Hub", "jupyter hub"),
     "NumPy": ("Numpy", "NUMPY"),
     "PyTorch": ("Pytorch", "PYTORCH", "Py-Torch"),
@@ -172,7 +171,7 @@ _BLOAT_PATTERNS = (
 # Top-level dirs that should not exist at all (either tracked or untracked).
 _FORBIDDEN_TOPLEVEL_DIRS = ("common",)
 
-# Modules expected to be available in the genai-vanilla jupyterhub runtime but
+# Modules expected to be available in the Atlas JupyterHub runtime but
 # not necessarily in the verifier's lightweight venv. S2 reports these as
 # warnings rather than errors when missing locally.
 _RUNTIME_ONLY_MODULES = frozenset({
@@ -687,7 +686,7 @@ def check_structure(repo: Path) -> CheckResult:
                 ))
 
     for path in tracked:
-        if path.startswith(("tests/", "notebooks/archive/", "vendor/")):
+        if path.startswith(("tests/", "notebooks/archive/")):
             continue
         full = repo / path
         if not full.is_file():
@@ -846,8 +845,9 @@ def _iter_numbered_doc_files(repo: Path) -> Iterator[Path]:
         "architecture.md",
         "diagrams/README.md",
         "FINDINGS-NNX.md",
-        "FINDINGS-VENDOR.md",
+        "FINDINGS-ATLAS.md",
         "dependency-contracts.md",
+        "atlas-pin-bump-runbook.md",
         "env-setup.md",
         "jupyterhub-integration.md",
         "vscode-remote-access.md",
@@ -1976,7 +1976,7 @@ def _runtime_available() -> bool:
     missing, running the make targets fails with environment errors that have
     nothing to do with the notebooks' correctness — so we downgrade E1-E3 to
     env-limited skips (warning), not errors. The full execution check is
-    meaningful only in the genai-vanilla container or an equivalent
+    meaningful only in the Atlas JupyterHub runtime or an equivalent
     fully-provisioned env.
     """
     for canary in (
@@ -2051,7 +2051,7 @@ def check_execution(repo: Path, fast: bool) -> CheckResult:
                 message=(
                     "torch / torch_geometric not importable in verifier env; "
                     "Tier-A/B/C papermill targets skipped. Run verify inside "
-                    "the genai-vanilla container for full execution coverage."
+                    "the Atlas JupyterHub runtime for full execution coverage."
                 ),
             ))
         else:

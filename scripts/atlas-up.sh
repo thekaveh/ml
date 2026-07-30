@@ -190,6 +190,7 @@ preflight_comfyui_override() {
 preflight_native_ollama() {
     local source
     local port
+    local port_number
     local url
 
     source="$(atlas_dotenv_last_value "$ATLAS_ENV" "LLM_PROVIDER_SOURCE")" || die \
@@ -200,7 +201,10 @@ preflight_native_ollama() {
     if ! port="$(atlas_dotenv_last_value "$ATLAS_ENV" "OLLAMA_LOCALHOST_PORT")"; then
         port=11434
     fi
-    [[ "$port" =~ ^[0-9]{1,5}$ ]] && ((10#$port >= 1 && 10#$port <= 65535)) || die \
+    [[ "$port" =~ ^[0-9]{1,5}$ ]] || die \
+        "OLLAMA_LOCALHOST_PORT must be an integer from 1 through 65535; start native Ollama (for example, run 'ollama serve') and retry"
+    port_number=$((10#$port))
+    ((port_number >= 1 && port_number <= 65535)) || die \
         "OLLAMA_LOCALHOST_PORT must be an integer from 1 through 65535; start native Ollama (for example, run 'ollama serve') and retry"
 
     command -v curl >/dev/null 2>&1 || die \

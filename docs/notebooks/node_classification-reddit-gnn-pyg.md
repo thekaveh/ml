@@ -11,7 +11,7 @@ graph-structural learning at scale.
 The task is **Tier-B/C** — Phase 1 and Phase 2 smoke-run to `/tmp` under `make smoke-tier-b`,
 but Phase 3's full training runs are multi-day CPU jobs whose August-2023 outputs are preserved
 in place (Tier-C, do not re-execute). The `torch_sparse` dependency is Linux-only, so the task
-cannot run on macOS; it executes on the CI Linux runner and the genai-vanilla JupyterHub image.
+cannot run on macOS; it executes on the CI Linux runner and the Atlas JupyterHub runtime.
 
 ## 8.13.1 Problem & motivation
 
@@ -362,7 +362,7 @@ August-2023 cell outputs.
   (markdown and outputs are not compared, so markdown edits are safe).
 - **macOS cannot run this task.** `torch_sparse` is Linux-only, so the GNN forward passes skip
   cleanly under `make test-nnx-surface` on macOS and only execute under the CI Linux runner or the
-  genai-vanilla JupyterHub image. Local macOS development of this task is not supported.
+  Atlas JupyterHub runtime. Local macOS development of this task is not supported.
 - **Use a small enough learning rate for GraphSAGE.** Phase-2 pilots at `lr=1e-2` diverged for the
   deeper SAGE stacks; all Phase-3 SAGE runs use `1e-4`. GAT tolerates `1e-2` because its attention
   softmax keeps gradient magnitudes controlled — do not assume the two architectures share an

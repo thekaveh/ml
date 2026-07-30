@@ -1030,7 +1030,7 @@ def test_docs_d1_unconfigured_active_notebook_is_error(tmp_path):
 def test_docs_d8_terminology_consistency_known_canonicals():
     """The check should mention canonical spellings in its allow-list logic."""
     SCRIPT_TEXT = SCRIPT.read_text()
-    for token in ("genai-vanilla", "JupyterHub", "NumPy", "PyTorch"):
+    for token in ("JupyterHub", "NumPy", "PyTorch"):
         assert token in SCRIPT_TEXT, f"D8 missing canonical {token!r}"
 
 
@@ -1240,8 +1240,8 @@ def test_docs_d10_requires_atlas_ledger_entry_when_infra_exists(tmp_path):
     docs.mkdir()
     (docs / "dependency-contracts.md").write_text(
         "# Dependency Contracts\n\n"
-        "## 8. Legacy genai-vanilla Rollback Record\n\n"
-        "The legacy tree entry is `10f840252404eb5399550f96fbb560153f1a47c7`.\n",
+        "## 8. Other dependency record\n\n"
+        "The unrelated tree entry is `10f840252404eb5399550f96fbb560153f1a47c7`.\n",
         encoding="utf-8",
     )
 
@@ -1262,7 +1262,7 @@ def test_docs_d10_does_not_use_legacy_sha_for_malformed_atlas_entry(tmp_path, mo
         "# Dependency Contracts\n\n"
         "## 7. Atlas Infra Submodule Contract\n\n"
         "Current Atlas `infra` gitlink SHA: `not-a-sha`.\n\n"
-        "## 8. Legacy genai-vanilla Rollback Record\n\n"
+        "## 8. Other dependency record\n\n"
         f"The repository currently pins tree entry `{legacy_sha}`.\n",
         encoding="utf-8",
     )
@@ -1292,7 +1292,7 @@ def test_docs_d10_reads_atlas_sha_without_capturing_legacy_rollback_sha(tmp_path
         "# Dependency Contracts\n\n"
         "## 7. Atlas Infra Submodule Contract\n\n"
         f"Current Atlas `infra` gitlink SHA: `{atlas_sha}`.\n\n"
-        "## 8. Legacy genai-vanilla Rollback Record\n\n"
+        "## 8. Other dependency record\n\n"
         f"The repository currently pins tree entry `{legacy_sha}`.\n",
         encoding="utf-8",
     )
@@ -2168,7 +2168,6 @@ def test_e6_shellcheck_targets_include_only_parent_owned_scripts():
         for path in verify_repo._shellcheck_targets(REPO)
     }
 
-    assert "scripts/start-jupyterhub.sh" in targets
     assert "scripts/atlas-up.sh" in targets
     assert "scripts/atlas-down.sh" in targets
     assert "scripts/atlas-connect.sh" in targets
@@ -2200,7 +2199,6 @@ def test_e6_flags_missing_required_parent_shellcheck_targets(tmp_path, monkeypat
     repo = _temp_repo(tmp_path)
     scripts = repo / "scripts"
     scripts.mkdir()
-    (scripts / "start-jupyterhub.sh").write_text("#!/bin/sh\ntrue\n", encoding="utf-8")
 
     monkeypatch.setattr(verify_repo, "ACTIVE_TASK_DIRS", ())
     monkeypatch.setattr(verify_repo, "TIER_A_NOTEBOOKS", ())
@@ -2233,7 +2231,6 @@ def test_e6_flags_missing_required_parent_shellcheck_targets_without_shellcheck(
     repo = _temp_repo(tmp_path)
     scripts = repo / "scripts"
     scripts.mkdir()
-    (scripts / "start-jupyterhub.sh").write_text("#!/bin/sh\ntrue\n", encoding="utf-8")
 
     monkeypatch.setattr(verify_repo, "ACTIVE_TASK_DIRS", ())
     monkeypatch.setattr(verify_repo, "TIER_A_NOTEBOOKS", ())

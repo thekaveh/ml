@@ -3,7 +3,10 @@
 Atlas tasks use a remote JupyterHub kernel from VS Code by default. Open the
 repository in VS Code, connect to the Atlas JupyterHub server, and select the
 remote kernel for the task. This keeps the compute environment remote while
-the editor remains local.
+the editor remains local. The runtime is the pinned `infra/` Atlas submodule
+on the `ml-eng` track, launched through `make atlas-up`; `make atlas-connect`
+is the sole source of the token-bearing VS Code URL. The consumer requires
+host-native Ollama and does not allow a containerized Ollama or ComfyUI source.
 
 Most tasks use `remote` workspace access and keep notebooks, checkpoints, and
 other run artifacts on the Atlas Jupyter volume. The NumPy MNIST fallback is
@@ -13,7 +16,8 @@ mounted checkout; its task-local ignored paths hold its artifacts.
 Every contract currently requires JupyterHub. Additional Atlas services stay
 inactive until a task declares them in its contract and their package and
 service validation has passed. Do not copy artifacts from Atlas volumes into
-the repository unless a task explicitly documents that policy.
+the repository unless a task explicitly documents that policy. The full
+admission sequence is [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
 
 ## 1. Active task contracts
 

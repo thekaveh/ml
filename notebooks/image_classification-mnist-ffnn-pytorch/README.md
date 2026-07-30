@@ -50,12 +50,12 @@ Also verified via [`tests/nnx_surface/test_image_classification_mnist_ffnn_pytor
 - `torchvision`
 - `matplotlib` (via `nnx.vis_utils` — loss curves, confusion matrices)
 
-All installed by the genai-vanilla jupyterhub image or via the root `requirements.txt` + `torch-requirements.txt`.
+Installed by the Atlas JupyterHub runtime or via the root `requirements.txt` + `torch-requirements.txt`.
 
 ## 6. Known issues
 
 - `./data/` and `./runs/` are gitignored; first run downloads MNIST and creates a fresh runs directory.
-- If you see `ModuleNotFoundError: No module named 'nnx'`, your jupyterhub image is older than the genai-vanilla `10f8402` runtime pin or was built against the defunct `nnx-pytorch[lm]` distribution name. Pull current genai-vanilla `main`, rebuild the `jupyterhub` image, and confirm `services/jupyterhub/build/requirements.txt` contains `thekaveh-nnx[lm]==0.2.0`. See [`../../docs/jupyterhub-integration.md`](../../docs/jupyterhub-integration.md) §6.
+- If you see `ModuleNotFoundError: No module named 'nnx'`, confirm that VS Code selected the active Atlas JupyterHub kernel, then run the Atlas runtime probe before changing dependency manifests. The reviewed Atlas runtime exposes `thekaveh-nnx[lm]==0.2.0`; see [`../../docs/jupyterhub-integration.md`](../../docs/jupyterhub-integration.md) §6.
 
 ## 7. Future work
 

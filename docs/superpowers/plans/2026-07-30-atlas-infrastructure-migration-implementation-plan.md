@@ -564,3 +564,57 @@ rg -n "JUPYTERHUB_TOKEN|token=" README.md CONTRIBUTING.md CHANGELOG.md docs Make
 Expected: only intentional parent-owned changes are staged, the Atlas gitlink is clean and pinned, all documented workflows have evidence, and no secret-bearing runtime artifact is tracked.
 
 - [ ] Create the final implementation commit(s) and open review with the static and live evidence attached. Do not advance the Atlas SHA as part of review cleanup; pin bumps follow the new runbook.
+
+## Task 10: Enforce the native-host AI service policy
+
+**Files:**
+
+- Modify: `atlas.consumer.yml`
+- Modify: `atlas.env.user.example`
+- Modify: `scripts/atlas-up.sh`
+- Modify: `scripts/lib/atlas-dotenv.sh` only if the existing parser lacks a safe last-value lookup
+- Modify: `scripts/verify_repo.py`
+- Modify: `tests/test_atlas_consumer_contract.py`
+- Modify: `tests/test_atlas_lifecycle.py`
+- Modify: `tests/test_verify_repo.py`
+
+**Interfaces:**
+
+- The manifest must materialize `LLM_PROVIDER_SOURCE=ollama-localhost` before every Atlas start.
+- `scripts/atlas-up.sh` may call a single internal host preflight only for an ordinary start. It probes `http://127.0.0.1:<OLLAMA_LOCALHOST_PORT>/api/version`; `<OLLAMA_LOCALHOST_PORT>` defaults to `11434` and must be an integer from `1` through `65535`.
+- `--prepare`, `--validate`, and `--dry-run` remain non-live and must not require, start, or contact a host Ollama daemon.
+
+- [ ] Add failing manifest/verification tests that reject an omitted or non-`ollama-localhost` `LLM_PROVIDER_SOURCE`, including `auto`, `ollama-container-cpu`, and `ollama-container-gpu`. Reject `COMFYUI_SOURCE=container-cpu` and `COMFYUI_SOURCE=container-gpu`; do not require a ComfyUI source while the ml-eng track keeps it disabled.
+- [ ] Update the exact committed manifest contract:
+
+```yaml
+env:
+  file: ./atlas.env.user
+  values:
+    BASE_PORT: auto
+    JUPYTERHUB_SOURCE: container
+    LLM_PROVIDER_SOURCE: ollama-localhost
+```
+
+  Keep `COMFYUI_SOURCE` absent. Add only a commented `OLLAMA_LOCALHOST_PORT=11434` example to `atlas.env.user.example`, explaining that an operator sets it only for a non-default native-daemon port.
+- [ ] Add lifecycle tests with fake `start.sh` and `curl` executables. The ordinary-start test must record the ordered Atlas calls, show that `compose validate` materializes `LLM_PROVIDER_SOURCE=ollama-localhost`, and require the preflight before the detach call. Add failures for a changed source, a malformed/out-of-range port, missing `curl`, and a failed `/api/version` response. Assert that the diagnostics tell the operator to start native Ollama and that none invokes `ollama serve`, `docker`, or a container-source flag.
+- [ ] Implement the smallest non-evaluating helper needed to read the final materialized `.env` values. In `atlas-up.sh`, run the host check only after `env backfill`, consumer compose validation, and doctor pass, and only in ordinary start mode. Do not add a source flag to Atlas’s command line. Use a loopback URL for the host-side check; Atlas itself routes its containers through `host.docker.internal`.
+- [ ] Extend repository verification with a stable Atlas-manifest finding that enforces the same source policy without requiring Docker, curl, a host Ollama installation, or local runtime state.
+
+Run:
+
+```bash
+uv run pytest tests/test_atlas_consumer_contract.py tests/test_atlas_lifecycle.py tests/test_verify_repo.py -q
+bash -n scripts/atlas-up.sh scripts/lib/atlas-dotenv.sh
+make atlas-contract
+git diff --check
+```
+
+Expected: static CI remains non-live; a normal local start cannot reach detach unless the manifest resolves to native host Ollama and the daemon answers on loopback; no consumer source can select a containerized Ollama or ComfyUI.
+
+- [ ] Commit the policy enforcement slice.
+
+```bash
+git add atlas.consumer.yml atlas.env.user.example scripts/atlas-up.sh scripts/lib/atlas-dotenv.sh scripts/verify_repo.py tests/test_atlas_consumer_contract.py tests/test_atlas_lifecycle.py tests/test_verify_repo.py
+git commit -m "feat: require native Ollama for Atlas"
+```

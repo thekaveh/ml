@@ -54,6 +54,11 @@ for arg in "$@"; do
     esac
 done
 
+# The Atlas child process and Docker Compose inherit this shell environment.
+# Policy-critical values must therefore come only from the materialized
+# consumer configuration, never an ambient export from the invoking terminal.
+unset LLM_PROVIDER_SOURCE COMFYUI_SOURCE OLLAMA_LOCALHOST_PORT
+
 [[ -f "$INFRA/start.sh" && -f "$ATLAS_ENV_EXAMPLE" ]] || die \
     "Atlas submodule is not initialized. Run: git submodule update --init --recursive infra"
 [[ -f "$MANIFEST" ]] || die "consumer manifest is missing: $MANIFEST"
@@ -165,6 +170,21 @@ run_start() {
     fi
 }
 
+preflight_comfyui_source() {
+    local source
+
+    source="$(atlas_dotenv_last_value "$ATLAS_ENV" "COMFYUI_SOURCE")" || die \
+        "COMFYUI_SOURCE was not materialized; it must remain disabled or use a host-native source"
+    case "$source" in
+        disabled | localhost | managed-localhost-mps)
+            ;;
+        *)
+            die \
+                "COMFYUI_SOURCE must be disabled, localhost, or managed-localhost-mps; auto and containerized sources are prohibited for this consumer"
+            ;;
+    esac
+}
+
 preflight_native_ollama() {
     local source
     local port
@@ -184,7 +204,7 @@ preflight_native_ollama() {
     command -v curl >/dev/null 2>&1 || die \
         "curl is required to check native Ollama; start native Ollama (for example, run 'ollama serve') and retry"
     url="http://127.0.0.1:$port/api/version"
-    curl --fail --silent --show-error --max-time 2 "$url" >/dev/null || die \
+    curl --disable --noproxy '*' --fail --silent --show-error --max-time 2 "$url" >/dev/null || die \
         "native Ollama did not respond at $url; start native Ollama (for example, run 'ollama serve') and retry"
 }
 
@@ -201,6 +221,7 @@ if [[ "$mode" == "validate" ]]; then
 fi
 
 if [[ "$dry_run" == false ]]; then
+    preflight_comfyui_source
     preflight_native_ollama
 fi
 run_start --consumer "$MANIFEST" --track ml-eng --no-tui --detach

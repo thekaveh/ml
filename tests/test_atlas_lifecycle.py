@@ -40,7 +40,7 @@ def atlas_repo(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (infra / ".env.example").write_text(
-        "PROJECT_NAME=atlas\nJUPYTERHUB_PORT=63094\nJUPYTERHUB_TOKEN=\n",
+        "PROJECT_NAME=atlas\nJUPYTERHUB_PORT=63094\nJUPYTERHUB_TOKEN=\nCOMFYUI_SOURCE=disabled\n",
         encoding="utf-8",
     )
     for name in ("start.sh", "stop.sh"):
@@ -72,13 +72,28 @@ def atlas_start_commands(output: str) -> list[str]:
     return [line for line in output.splitlines() if line.startswith("./start.sh")]
 
 
-def fake_curl_env(tmp_path: Path, env: dict[str, str], exit_code: int = 0) -> dict[str, str]:
+def fake_curl_env(
+    tmp_path: Path,
+    env: dict[str, str],
+    exit_code: int = 0,
+    command_log: Path | None = None,
+) -> dict[str, str]:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir(exist_ok=True)
     curl = fake_bin / "curl"
-    curl.write_text(f"#!/usr/bin/env bash\nexit {exit_code}\n", encoding="utf-8")
+    curl.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [[ -n \"${ATLAS_TEST_CURL_LOG-}\" ]]; then\n"
+        "    printf '%s\\0' \"$#\" \"$@\" >> \"$ATLAS_TEST_CURL_LOG\"\n"
+        "fi\n"
+        f"exit {exit_code}\n",
+        encoding="utf-8",
+    )
     curl.chmod(0o755)
-    return {**env, "PATH": f"{fake_bin}{os.pathsep}{env['PATH']}"}
+    updated = {**env, "PATH": f"{fake_bin}{os.pathsep}{env['PATH']}"}
+    if command_log is not None:
+        updated["ATLAS_TEST_CURL_LOG"] = str(command_log)
+    return updated
 
 
 def write_preflight_start(atlas_repo: Path) -> Path:
@@ -88,9 +103,20 @@ def write_preflight_start(atlas_repo: Path) -> Path:
         "#!/usr/bin/env bash\n"
         "printf '%s\\n' \"$*\" >> \"$ATLAS_TEST_COMMAND_LOG\"\n"
         "if [[ \"$*\" == *'compose validate'* ]]; then\n"
-        "    printf 'LLM_PROVIDER_SOURCE=%s\\n' \"$ATLAS_TEST_SOURCE\" >> .env\n"
-        "    if [[ -n \"${ATLAS_TEST_PORT-}\" ]]; then\n"
-        "        printf 'OLLAMA_LOCALHOST_PORT=%s\\n' \"$ATLAS_TEST_PORT\" >> .env\n"
+        "    if [[ -n \"${ATLAS_TEST_LOCAL_OVERLAY-}\" ]]; then\n"
+        "        while IFS= read -r line || [[ -n \"$line\" ]]; do\n"
+        "            if [[ \"$line\" == COMFYUI_SOURCE=* ]]; then\n"
+        "                printf '%s\\n' \"$line\" >> .env\n"
+        "            fi\n"
+        "        done < \"$ATLAS_TEST_LOCAL_OVERLAY\"\n"
+        "    fi\n"
+        "    if [[ -n \"${ATLAS_TEST_MATERIALIZED_LINES+x}\" ]]; then\n"
+        "        printf '%s\\n' \"$ATLAS_TEST_MATERIALIZED_LINES\" >> .env\n"
+        "    else\n"
+        "        printf 'LLM_PROVIDER_SOURCE=%s\\n' \"$ATLAS_TEST_SOURCE\" >> .env\n"
+        "        if [[ -n \"${ATLAS_TEST_PORT-}\" ]]; then\n"
+        "            printf 'OLLAMA_LOCALHOST_PORT=%s\\n' \"$ATLAS_TEST_PORT\" >> .env\n"
+        "        fi\n"
         "    fi\n"
         "fi\n",
         encoding="utf-8",
@@ -123,7 +149,7 @@ def test_prepare_creates_local_files_once_without_starting_atlas(
 
     assert first.returncode == 0
     assert (atlas_repo / "infra" / ".env").read_text(encoding="utf-8") == (
-        "PROJECT_NAME=atlas\nJUPYTERHUB_PORT=63094\nJUPYTERHUB_TOKEN=\n"
+        "PROJECT_NAME=atlas\nJUPYTERHUB_PORT=63094\nJUPYTERHUB_TOKEN=\nCOMFYUI_SOURCE=disabled\n"
     )
     assert (atlas_repo / "atlas.env.user").read_text(encoding="utf-8") == (
         "# Copy/create this as atlas.env.user; it is ignored and machine-local.\n"
@@ -282,7 +308,10 @@ def test_up_preflights_native_ollama_after_validation_and_before_detach(
         b"--format",
         b"json",
         b"curl",
-        b"6",
+        b"9",
+        b"--disable",
+        b"--noproxy",
+        b"*",
         b"--fail",
         b"--silent",
         b"--show-error",
@@ -321,6 +350,124 @@ def test_up_rejects_non_native_ollama_source_before_detach(
     assert "ollama serve" in result.stderr
     assert "docker" not in result.stderr.lower()
     assert "container-source" not in result.stderr
+
+
+@pytest.mark.parametrize("source", ["auto", "container-cpu", "container-gpu"])
+def test_up_rejects_non_host_comfyui_source_from_local_overlay_before_detach(
+    atlas_repo: Path, tmp_path: Path, source: str
+) -> None:
+    local_overlay = atlas_repo / "atlas.env.user"
+    local_overlay.write_text(
+        f"ML_ENG_LAB_REPO_PATH={atlas_repo}\nCOMFYUI_SOURCE={source}\n",
+        encoding="utf-8",
+    )
+    command_log = write_preflight_start(atlas_repo)
+    initialize_mock_atlas_git_repo(atlas_repo)
+    env = fake_curl_env(tmp_path, {
+        **os.environ,
+        "ATLAS_TEST_COMMAND_LOG": str(command_log),
+        "ATLAS_TEST_LOCAL_OVERLAY": str(local_overlay),
+        "ATLAS_TEST_SOURCE": "ollama-localhost",
+    })
+
+    result = run_script(atlas_repo, "atlas-up.sh", check=False, env=env)
+
+    assert result.returncode != 0
+    assert "COMFYUI_SOURCE" in result.stderr
+    assert "--detach" not in command_log.read_text(encoding="utf-8")
+    assert "docker" not in result.stderr.lower()
+
+
+@pytest.mark.parametrize("source", ["disabled", "localhost", "managed-localhost-mps"])
+def test_up_allows_disabled_or_host_native_comfyui_source(
+    atlas_repo: Path, tmp_path: Path, source: str
+) -> None:
+    local_overlay = atlas_repo / "atlas.env.user"
+    local_overlay.write_text(
+        f"ML_ENG_LAB_REPO_PATH={atlas_repo}\nCOMFYUI_SOURCE={source}\n",
+        encoding="utf-8",
+    )
+    command_log = write_preflight_start(atlas_repo)
+    initialize_mock_atlas_git_repo(atlas_repo)
+    env = fake_curl_env(tmp_path, {
+        **os.environ,
+        "ATLAS_TEST_COMMAND_LOG": str(command_log),
+        "ATLAS_TEST_LOCAL_OVERLAY": str(local_overlay),
+        "ATLAS_TEST_SOURCE": "ollama-localhost",
+    })
+
+    result = run_script(atlas_repo, "atlas-up.sh", env=env)
+
+    assert result.returncode == 0
+    assert "--detach" in command_log.read_text(encoding="utf-8")
+
+
+def test_up_uses_last_quoted_materialized_policy_values(
+    atlas_repo: Path, tmp_path: Path
+) -> None:
+    command_log = write_preflight_start(atlas_repo)
+    curl_log = tmp_path / "curl-commands.log"
+    initialize_mock_atlas_git_repo(atlas_repo)
+    env = fake_curl_env(
+        tmp_path,
+        {
+            **os.environ,
+            "ATLAS_TEST_COMMAND_LOG": str(command_log),
+            "ATLAS_TEST_MATERIALIZED_LINES": (
+                "LLM_PROVIDER_SOURCE=ollama-container-cpu\n"
+                'LLM_PROVIDER_SOURCE = "ollama-localhost" # final source\n'
+                "OLLAMA_LOCALHOST_PORT=9999\n"
+                "OLLAMA_LOCALHOST_PORT='12345' # final port"
+            ),
+        },
+        command_log=curl_log,
+    )
+
+    result = run_script(atlas_repo, "atlas-up.sh", env=env)
+
+    assert result.returncode == 0
+    assert curl_log.read_bytes().split(b"\0")[:-1] == [
+        b"9",
+        b"--disable",
+        b"--noproxy",
+        b"*",
+        b"--fail",
+        b"--silent",
+        b"--show-error",
+        b"--max-time",
+        b"2",
+        b"http://127.0.0.1:12345/api/version",
+    ]
+
+
+def test_up_clears_inherited_ai_policy_variables_for_every_atlas_command(
+    atlas_repo: Path, tmp_path: Path
+) -> None:
+    environment_log = tmp_path / "atlas-environment.log"
+    start = atlas_repo / "infra" / "start.sh"
+    start.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\0' \"${LLM_PROVIDER_SOURCE-}\" \"${COMFYUI_SOURCE-}\" "
+        "\"${OLLAMA_LOCALHOST_PORT-}\" >> \"$ATLAS_TEST_ENVIRONMENT_LOG\"\n"
+        "if [[ \"$*\" == *'compose validate'* ]]; then\n"
+        "    printf 'LLM_PROVIDER_SOURCE=ollama-localhost\\n' >> .env\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    start.chmod(0o755)
+    initialize_mock_atlas_git_repo(atlas_repo)
+    env = fake_curl_env(tmp_path, {
+        **os.environ,
+        "ATLAS_TEST_ENVIRONMENT_LOG": str(environment_log),
+        "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
+        "COMFYUI_SOURCE": "container-cpu",
+        "OLLAMA_LOCALHOST_PORT": "9999",
+    })
+
+    result = run_script(atlas_repo, "atlas-up.sh", env=env)
+
+    assert result.returncode == 0
+    assert environment_log.read_bytes().split(b"\0")[:-1] == [b"", b"", b""] * 4
 
 
 @pytest.mark.parametrize("port", ["", "0", "65536", "not-a-port"])

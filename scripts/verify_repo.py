@@ -521,10 +521,9 @@ def _iter_in_scope_markdown_documents(repo: Path) -> Iterator[tuple[Path, Path, 
 
 def _required_shellcheck_targets(repo: Path) -> tuple[Path, ...]:
     return (
-        repo / "vendor" / "genai-vanilla" / "start.sh",
-        repo / "vendor" / "genai-vanilla" / "stop.sh",
-        repo / "vendor" / "genai-vanilla" / "bootstrapper" / "_run.sh",
-        repo / "vendor" / "genai-vanilla" / "services" / "jupyterhub" / "build" / "scripts" / "startup.sh",
+        repo / "scripts" / "atlas-up.sh",
+        repo / "scripts" / "atlas-down.sh",
+        repo / "scripts" / "atlas-connect.sh",
     )
 
 
@@ -534,7 +533,7 @@ def _shellcheck_targets(repo: Path) -> tuple[Path, ...]:
 
 
 def _required_submodule_paths() -> tuple[str, ...]:
-    return ("vendor/genai-vanilla",)
+    return ("infra",)
 
 
 def check_structure(repo: Path) -> CheckResult:
@@ -961,7 +960,7 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
                 ),
                 detail={"expected": expected_total, "actual": actual_total},
             ))
-    if "vendor/genai-vanilla" in text:
+    if "`infra` submodule" in text:
         ledger_sha_match = re.search(r"currently pins tree entry\s+`([0-9a-f]{40})`", text)
         if not ledger_sha_match:
             findings.append(Finding(
@@ -970,21 +969,21 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
                 severity="error",
                 location="docs/dependency-contracts.md",
                 message=(
-                    "genai-vanilla ledger must include a parseable 40-character "
+                    "Atlas ledger must include a parseable 40-character "
                     "pinned tree-entry SHA"
                 ),
             ))
             return findings
         ledger_sha = ledger_sha_match.group(1)
-        rc, out, _err = _run(["git", "ls-files", "--stage", "--", "vendor/genai-vanilla"], repo)
-        gitlink_match = re.search(r"160000 ([0-9a-f]{40}) \d+\s+vendor/genai-vanilla", out)
+        rc, out, _err = _run(["git", "ls-files", "--stage", "--", "infra"], repo)
+        gitlink_match = re.search(r"160000 ([0-9a-f]{40}) \d+\s+infra", out)
         if rc != 0 or not gitlink_match:
             findings.append(Finding(
                 id="D10.dependency_ledger_submodule_sha",
                 check="docs",
                 severity="error",
                 location="docs/dependency-contracts.md",
-                message="genai-vanilla ledger SHA cannot be compared to a parseable superproject gitlink",
+                message="Atlas ledger SHA cannot be compared to a parseable infra gitlink",
                 detail={"ledger_sha": ledger_sha, "gitlink_sha": None},
             ))
             return findings
@@ -996,8 +995,7 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
                 severity="error",
                 location="docs/dependency-contracts.md",
                 message=(
-                    "genai-vanilla ledger SHA does not match the superproject "
-                    "gitlink"
+                    "Atlas ledger SHA does not match the superproject infra gitlink"
                 ),
                 detail={"ledger_sha": ledger_sha, "gitlink_sha": gitlink_sha},
             ))
@@ -1579,6 +1577,239 @@ def _run(
     return proc.returncode, proc.stdout, proc.stderr
 
 
+_ATLAS_MANIFEST_CONTRACT = {
+    "name": "ml-eng-lab",
+    "project_name": "ml-eng-lab",
+    "profile": "dev",
+    "brand": {"name": "ML Eng Lab"},
+    "env": {
+        "file": "./atlas.env.user",
+        "values": {
+            "BASE_PORT": "auto",
+            "JUPYTERHUB_SOURCE": "container",
+        },
+    },
+    "compose_overlays": ["./compose/ml-eng-lab-atlas.yml"],
+}
+_ATLAS_REQUIRED_PARENT_FILES = (
+    "atlas.env.user.example",
+    "compose/ml-eng-lab-atlas.yml",
+    "scripts/atlas-up.sh",
+    "scripts/atlas-down.sh",
+    "scripts/atlas-connect.sh",
+)
+_ATLAS_ENDPOINT_RE = re.compile(
+    r"(?<![\w.-])(?:(?:[a-z][a-z0-9+.-]*)://)?"
+    r"(?:localhost|127\.0\.0\.1):\d{1,5}\b",
+    re.IGNORECASE,
+)
+
+
+def _atlas_manifest_findings(repo: Path) -> list[Finding]:
+    manifest_path = repo / "atlas.consumer.yml"
+    findings: list[Finding] = []
+    if not manifest_path.exists():
+        findings.append(Finding(
+            id="E15.atlas_manifest",
+            check="execution",
+            severity="error",
+            location="atlas.consumer.yml",
+            message="required Atlas consumer manifest is missing",
+        ))
+    else:
+        try:
+            manifest = _yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        except _yaml.YAMLError as error:
+            findings.append(Finding(
+                id="E15.atlas_manifest",
+                check="execution",
+                severity="error",
+                location="atlas.consumer.yml",
+                message=f"Atlas consumer manifest is not valid YAML: {error}",
+            ))
+        else:
+            if not isinstance(manifest, dict):
+                findings.append(Finding(
+                    id="E15.atlas_manifest",
+                    check="execution",
+                    severity="error",
+                    location="atlas.consumer.yml",
+                    message="Atlas consumer manifest must be a YAML mapping",
+                ))
+            elif "track" in manifest:
+                findings.append(Finding(
+                    id="E15.atlas_manifest",
+                    check="execution",
+                    severity="error",
+                    location="atlas.consumer.yml",
+                    message=(
+                        "Atlas consumer manifest must not contain track; "
+                        "the lifecycle wrapper owns --track ml-eng"
+                    ),
+                ))
+            elif manifest != _ATLAS_MANIFEST_CONTRACT:
+                findings.append(Finding(
+                    id="E15.atlas_manifest",
+                    check="execution",
+                    severity="error",
+                    location="atlas.consumer.yml",
+                    message="Atlas consumer manifest drifted from the parent repository contract",
+                ))
+
+    lifecycle_scripts = set(_required_shellcheck_targets(repo))
+    for rel in _ATLAS_REQUIRED_PARENT_FILES:
+        path = repo / rel
+        if not path.exists():
+            findings.append(Finding(
+                id="E15.atlas_manifest",
+                check="execution",
+                severity="error",
+                location=rel,
+                message="required Atlas parent contract file is missing",
+            ))
+        elif path in lifecycle_scripts and not path.stat().st_mode & 0o111:
+            findings.append(Finding(
+                id="E15.atlas_manifest",
+                check="execution",
+                severity="error",
+                location=rel,
+                message="required Atlas lifecycle script is not executable",
+            ))
+    return findings
+
+
+def _atlas_task_metadata_findings(repo: Path) -> list[Finding]:
+    manifest_path = repo / "docs" / "manifest.yaml"
+    if not manifest_path.exists():
+        return []
+
+    from scripts.docs.manifest import ManifestError, load_manifest
+    from scripts.docs.notebook_infrastructure import (
+        NotebookInfrastructureError,
+        load_atlas_task_contracts,
+    )
+
+    try:
+        manifest = load_manifest(manifest_path, repo)
+        load_atlas_task_contracts(repo, manifest)
+    except (ManifestError, NotebookInfrastructureError, OSError) as error:
+        return [Finding(
+            id="E16.atlas_task_metadata",
+            check="execution",
+            severity="error",
+            location="notebooks/**/docs/spec.yaml",
+            message=f"invalid Atlas active-task metadata: {error}",
+        )]
+    return []
+
+
+def _python_lines_without_comments(source: str) -> list[str]:
+    lines = source.splitlines()
+    try:
+        comments = [
+            token
+            for token in tokenize.generate_tokens(io.StringIO(source).readline)
+            if token.type == tokenize.COMMENT
+        ]
+    except (IndentationError, tokenize.TokenError):
+        return ["" if line.lstrip().startswith("#") else line for line in lines]
+    for token in reversed(comments):
+        line_index = token.start[0] - 1
+        if line_index >= len(lines):
+            continue
+        start_column = token.start[1]
+        end_column = token.end[1]
+        lines[line_index] = (
+            lines[line_index][:start_column]
+            + " " * (end_column - start_column)
+            + lines[line_index][end_column:]
+        )
+    return lines
+
+
+def _shell_line_without_comment(line: str) -> str:
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char == "#":
+            return line[:index]
+    return line
+
+
+def _endpoint_findings_for_lines(
+    lines: list[str], location: Callable[[int], str]
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for line_no, line in enumerate(lines, start=1):
+        for match in _ATLAS_ENDPOINT_RE.finditer(line):
+            findings.append(Finding(
+                id="E17.atlas_hardcoded_endpoint",
+                check="execution",
+                severity="error",
+                location=location(line_no),
+                message=(
+                    "executable Atlas integration code must use an injected "
+                    "service endpoint instead of a hard-coded host port"
+                ),
+                detail={"endpoint": match.group(0)},
+            ))
+    return findings
+
+
+def _atlas_hardcoded_endpoint_findings(repo: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    source_roots = [repo / "scripts"]
+    source_roots.extend(_active_task_path(repo, task) for task in ACTIVE_TASK_DIRS)
+    for source_root in source_roots:
+        if not source_root.exists():
+            continue
+        source_paths = sorted(
+            path
+            for pattern in ("*.py", "*.sh")
+            for path in source_root.rglob(pattern)
+            if path.is_file()
+        )
+        for path in source_paths:
+            rel = str(path.relative_to(repo))
+            source = _read_text(path)
+            if path.suffix == ".py":
+                lines = _python_lines_without_comments(source)
+            else:
+                lines = [_shell_line_without_comment(line) for line in source.splitlines()]
+            findings.extend(_endpoint_findings_for_lines(
+                lines, lambda line_no, rel=rel: f"{rel}:{line_no}"
+            ))
+
+    for notebook_path in _iter_notebooks(repo):
+        try:
+            notebook = nbformat.read(notebook_path, as_version=4)
+        except Exception:
+            continue
+        rel = _notebook_rel(notebook_path, repo)
+        for cell_index, cell in enumerate(notebook.cells):
+            if cell.cell_type != "code":
+                continue
+            findings.extend(_endpoint_findings_for_lines(
+                _python_lines_without_comments(cell.source),
+                lambda line_no, rel=rel, cell_index=cell_index: (
+                    f"{rel}:cell[{cell_index}]:line[{line_no}]"
+                ),
+            ))
+    return findings
+
+
 def _phase3_code_cells_unchanged(repo: Path) -> list[Finding]:
     findings: list[Finding] = []
     rc, _, _ = _run(["git", "rev-parse", "--verify", "pre-cleanup-baseline"], repo)
@@ -1660,6 +1891,9 @@ def _runtime_available() -> bool:
 
 def check_execution(repo: Path, fast: bool) -> CheckResult:
     result = CheckResult(name="execution")
+    result.findings.extend(_atlas_manifest_findings(repo))
+    result.findings.extend(_atlas_task_metadata_findings(repo))
+    result.findings.extend(_atlas_hardcoded_endpoint_findings(repo))
 
     make_tier_a = _makefile_variable_items(repo, "TIER_A")
     if not make_tier_a:
@@ -1935,9 +2169,16 @@ def check_execution(repo: Path, fast: bool) -> CheckResult:
                 severity="error",
                 location=str(sh.relative_to(repo)),
                 message=(
-                    "required consumed shellcheck target is missing; "
-                    "initialize submodules or update the consumed contract"
+                    "required parent-owned Atlas shellcheck target is missing"
                 ),
+            ))
+        elif not sh.stat().st_mode & 0o111:
+            result.findings.append(Finding(
+                id="E6.shellcheck_target_not_executable",
+                check="execution",
+                severity="error",
+                location=str(sh.relative_to(repo)),
+                message="required parent-owned Atlas shellcheck target is not executable",
             ))
 
     rc_shellcheck, _, _ = _run(["which", "shellcheck"], repo)

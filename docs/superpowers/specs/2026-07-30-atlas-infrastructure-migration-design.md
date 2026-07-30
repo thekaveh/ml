@@ -154,14 +154,19 @@ The manifest uses only Atlas-supported keys. Its durable contract is:
 - `env.file`: `./atlas.env.user`.
 - `env.values.BASE_PORT`: `auto`, allowing coexistence with the other Atlas consumers.
 - `env.values.JUPYTERHUB_SOURCE`: `container`.
+- `env.values.LLM_PROVIDER_SOURCE`: `ollama-localhost`. This is a concrete source, not
+  `auto`: the lab must never fall back to a containerized Ollama runtime.
 - `compose_overlays`: `./compose/ml-eng-lab-atlas.yml`.
 
 The manifest intentionally has no `track` key. The valid manifest schema does not provide one;
 the lifecycle wrapper passes `--track ml-eng`. It also deliberately does not set sources for
-future services. Their Atlas defaults remain in force until a concrete notebook declares one.
+future services. The `ml-eng` track leaves ComfyUI disabled today. A future task that genuinely
+requires it may select only an existing host `COMFYUI_SOURCE=localhost` (or the documented native
+managed-MPS mode where applicable), never a ComfyUI container source.
 
 `atlas.env.user` contains only operator-specific values such as `ML_ENG_LAB_REPO_PATH`, not
-committed configuration, credentials, dynamic ports, or model choices.
+committed configuration, credentials, dynamic ports, or model choices. An operator may set a
+non-default `OLLAMA_LOCALHOST_PORT` there; the default is `11434`.
 
 ### 5.3 Lifecycle commands
 
@@ -172,11 +177,16 @@ an absolute manifest path. Its deterministic sequence is:
 2. Run `env backfill`.
 3. Run consumer-aware `compose validate`.
 4. Run consumer-aware `doctor --format json`.
-5. Start with `--consumer <absolute-manifest> --track ml-eng --no-tui --detach`.
-6. Confirm the `infra/` worktree remains clean.
+5. Confirm the materialized `LLM_PROVIDER_SOURCE` is exactly `ollama-localhost`, then probe the
+   host daemon at `127.0.0.1:${OLLAMA_LOCALHOST_PORT:-11434}/api/version`.
+6. Start with `--consumer <absolute-manifest> --track ml-eng --no-tui --detach`.
+7. Confirm the `infra/` worktree remains clean.
 
-No source flags are baked into the wrapper: explicit source flags are persistent Atlas overrides
-and would compete with the manifest or future operator intent.
+The host-Ollama preflight runs only for a real start. `--prepare` and `--validate` remain
+non-live so static CI does not need a host daemon. The wrapper never launches Ollama and never
+falls back to a container; it fails with an instruction to start the operator-owned daemon. No
+source flags are baked into the wrapper: explicit source flags are persistent Atlas overrides and
+would compete with the manifest or future operator intent.
 
 `make atlas-down` uses a project-scoped Atlas stop command and never uses a cold stop by default.
 A cold stop removes volumes and is documented as an explicit data-loss action.
@@ -312,6 +322,8 @@ A manual or scheduled Docker-backed job starts Atlas and confirms:
 - a local VS Code-compatible remote-kernel connection is obtainable;
 - the mounted-workspace fallback can import the NumPy task's sibling modules;
 - `infra/` remains clean after startup and shutdown.
+- the resolved source is `ollama-localhost`, no Atlas `ollama` or `ollama-pull` container is
+  created, and LiteLLM can reach the host daemon;
 
 The live smoke is not an every-PR service start. It provides release evidence for Atlas pin bumps
 and runtime changes without making ordinary PR CI costly or secret-dependent.
@@ -327,7 +339,7 @@ pipeline. The migration changes:
   service activation workflow.
 - `docs/env-setup.md`: Atlas as primary Jupyter runtime, with Docker/venv/Codespaces retained.
 - `docs/jupyterhub-integration.md`: Atlas startup, mode choice, persistence, credentials, and
-  failure modes.
+  failure modes, including the required native-Ollama preflight and future host-ComfyUI policy.
 - `docs/vscode-remote-access.md`: the default remote-kernel instructions plus mounted fallback.
 - `docs/architecture.md` and `docs/diagrams/ml-eng-lab-system.html`: Atlas ownership and both
   notebook execution modes.
@@ -346,6 +358,10 @@ uneditable outputs.
 - Startup fails early with a clear `git submodule update --init --recursive` instruction when
   `infra/` is absent or uninitialized.
 - The wrapper refuses to start after failed backfill, compose validation, or doctor checks.
+- A real start also refuses an unresolved/non-localhost LLM source or an unreachable host Ollama
+  daemon. It does not launch a host process or select a container fallback.
+- Containerized Ollama and ComfyUI are prohibited for this local consumer. Static contract tests
+  and repository verification reject a manifest that regresses to either source family.
 - `BASE_PORT: auto` avoids predictable collisions across local Atlas consumers; doctor reports
   remaining port conflicts before services start.
 - Jupyter tokens, `atlas.env.user`, `infra/.env`, `infra/.env.user`, endpoint artifacts,

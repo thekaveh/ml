@@ -6,11 +6,12 @@ running JupyterHub kernel while retaining the checked-out notebooks on the host.
 ## 1. Atlas JupyterHub + local VS Code (recommended)
 
 Atlas is the direct successor to the previous infrastructure seam. This repository
-pins Atlas as `infra/` at `61c7c5103660e2226bf107c115dae42bf46f8374`; its committed
-`atlas.consumer.yml` selects the `ml-eng` track, `BASE_PORT=auto`, a container JupyterHub, and
-native host Ollama. The parent-owned overlay bind-mounts this checkout at
-`/home/jovyan/work/ml-eng-lab`, so relative task paths and the NumPy MNIST notebook's sibling
-Python imports work inside the kernel.
+pins Atlas as `infra/` at `61c7c5103660e2226bf107c115dae42bf46f8374`; the lifecycle wrapper
+`scripts/atlas-up.sh` supplies `--track ml-eng`, while `atlas.consumer.yml` declares
+`BASE_PORT=auto`, a container JupyterHub, and native host Ollama. The parent-owned overlay
+bind-mounts this checkout at `/home/jovyan/work/ml-eng-lab`. That mounted path is available to
+Browser JupyterLab or an attached JupyterHub container; it is not assumed by every host-local
+notebook paired with a remote kernel.
 
 ### 1.1. Start the runtime
 
@@ -42,8 +43,9 @@ recording the URL in a shell history, issue, or document.
 - **Ports:** `BASE_PORT=auto` avoids collisions with sibling Atlas consumers. Do not hard-code a
   published port in a notebook or docs; use `make atlas-connect` for the current endpoint.
 - **Artifacts:** the default task contract keeps remote-workspace artifacts on the Atlas Jupyter
-  volume. The NumPy MNIST task is explicitly `mounted-required`, so its ignored `data/` and
-  `runs/` directories remain in this checkout.
+  volume. The NumPy MNIST task is explicitly `mounted-required`: use Browser JupyterLab or VS
+  Code attached to the JupyterHub container from `/home/jovyan/work/ml-eng-lab`, so its ignored
+  `data/` and `runs/` directories remain in this checkout.
 
 ### 1.3. Stop and clean up
 

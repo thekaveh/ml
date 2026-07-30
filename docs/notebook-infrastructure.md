@@ -11,7 +11,9 @@ host-native Ollama and does not allow a containerized Ollama or ComfyUI source.
 Most tasks use `remote` workspace access and keep notebooks, checkpoints, and
 other run artifacts on the Atlas Jupyter volume. The NumPy MNIST fallback is
 the exception: it imports sibling Python modules and therefore requires a
-mounted checkout; its task-local ignored paths hold its artifacts.
+mounted checkout. Run it from Browser JupyterLab or VS Code attached to the
+JupyterHub container at `/home/jovyan/work/ml-eng-lab`; its task-local ignored
+paths hold its artifacts.
 
 Every contract currently requires JupyterHub. Additional Atlas services stay
 inactive until a task declares them in its contract and their package and
@@ -26,7 +28,7 @@ admission sequence is [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
 | --- | --- | --- | --- | --- | --- | --- |
 | tabular_classification-iris-mlp-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | tabular_regression-diabetes-mlp-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
-| image_classification-mnist-ffnn-numpy | A | vscode-remote | mounted-required | jupyterhub | task-local-ignored-paths | Sibling Python modules require the mounted checkout. |
+| image_classification-mnist-ffnn-numpy | A | vscode-remote | mounted-required | jupyterhub | task-local-ignored-paths | Browser JupyterLab or VS Code attached to the JupyterHub container is required from /home/jovyan/work/ml-eng-lab because sibling Python modules need the mounted checkout. |
 | image_classification-mnist-ffnn-pytorch | B | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | model_surgery-mnist-ffnn-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | knowledge_distillation-mnist-ffnn-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |

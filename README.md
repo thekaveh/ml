@@ -46,8 +46,9 @@ Four ways to run these notebooks, ordered from managed runtime to local executio
 Atlas is the direct successor to the previous infrastructure seam. This repository
 pins it as the `infra/` submodule at `61c7c5103660e2226bf107c115dae42bf46f8374` and starts the
 `ml-eng` track. The default workflow keeps notebooks and VS Code on the host while execution uses
-the running Atlas JupyterHub kernel; the repository is bind-mounted into the kernel for sibling
-imports and task-local paths.
+the running Atlas JupyterHub kernel. The NumPy MNIST task is `mounted-required`, so run it from
+Browser JupyterLab or VS Code attached to the JupyterHub container at
+`/home/jovyan/work/ml-eng-lab` rather than relying on a host-local notebook's remote-kernel CWD.
 
 ```bash
 git submodule update --init --recursive  # one-time after clone or a pin update

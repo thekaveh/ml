@@ -7,9 +7,11 @@ track and a parent-owned compose overlay to mount this checkout into JupyterHub.
 ## 1. Default path: local VS Code, remote Atlas kernel
 
 The notebook file remains open on the host in VS Code; computation runs in the Atlas JupyterHub
-kernel. This is the primary path for every task, including the NumPy MNIST notebook: the overlay
-mounts the checkout at `/home/jovyan/work/ml-eng-lab`, so the kernel can import its sibling Python
-modules and read task-local `data/` and `runs/` paths.
+kernel. This is the primary path for tasks with `workspace_access: remote`. The NumPy MNIST task
+is `mounted-required`: use Browser JupyterLab or VS Code attached to the JupyterHub container from
+`/home/jovyan/work/ml-eng-lab`. A local notebook connected to a remote kernel does not guarantee
+that mounted working directory, which its sibling Python modules and task-local `data/` and `runs/`
+paths require.
 
 ```bash
 git submodule update --init --recursive
@@ -24,9 +26,10 @@ See [vscode-remote-access.md](vscode-remote-access.md) for the exact editor flow
 
 ## 2. Consumer contract and ownership
 
-`atlas.consumer.yml` is the committed contract:
+`atlas.consumer.yml` is the committed source-policy contract. The lifecycle wrapper
+`scripts/atlas-up.sh` supplies `--track ml-eng`; the manifest deliberately has no `track` key:
 
-- It selects the `ml-eng` track and `JUPYTERHUB_SOURCE=container`.
+- It sets `JUPYTERHUB_SOURCE=container`.
 - It delegates port selection to Atlas with `BASE_PORT=auto`.
 - It requires `LLM_PROVIDER_SOURCE=ollama-localhost`.
 - `compose/ml-eng-lab-atlas.yml` is the only parent-owned compose overlay and mounts
@@ -63,7 +66,8 @@ documentation. Automatic and containerized ComfyUI sources are rejected.
 The notebook-contract table in [notebook-infrastructure.md](notebook-infrastructure.md) is
 authoritative per task. The normal remote workflow stores runtime artifacts on the Atlas Jupyter
 volume; task source remains local and version controlled. The NumPy MNIST task is explicitly
-`mounted-required`, so its ignored artifacts are written through the checkout mount instead.
+`mounted-required`, so use Browser JupyterLab or VS Code attached to the JupyterHub container from
+the mounted checkout; its ignored artifacts are written through that checkout mount instead.
 
 Do not copy volume artifacts into the repository without a task-level policy. A task that needs a
 new Atlas service must declare that service in its contract before enabling it; it must not infer
@@ -71,10 +75,10 @@ availability from other services that happen to be in the `ml-eng` track.
 
 ## 5. Browser and container-attached fallback
 
-Browser JupyterLab and VS Code's container-attach mode are supported fallbacks, not the default.
-Use them for quick diagnostics or when a task needs an interactive container shell. They use the
-same JupyterHub service and mount; they do not authorize changing the track, modifying `infra/`,
-or running containerized Ollama.
+Browser JupyterLab and VS Code's container-attach mode are fallbacks for normal remote-workspace
+tasks. They are required for the NumPy MNIST `mounted-required` task: open
+`/home/jovyan/work/ml-eng-lab` before running it. They use the same JupyterHub service and mount;
+they do not authorize changing the track, modifying `infra/`, or running containerized Ollama.
 
 ## 6. Lifecycle troubleshooting
 
@@ -83,7 +87,9 @@ or running containerized Ollama.
   option), then re-run `make atlas-up`. Do not substitute a Dockerized daemon.
 - **Connection URL missing:** Atlas must be running, and `make atlas-connect` must be invoked in
   an interactive terminal so a token is not written to automation logs.
-- **Wrong notebook paths:** use the remote kernel after opening the local repository in VS Code;
-  use `/home/jovyan/work/ml-eng-lab` only from browser or attached-container mode.
+- **Wrong notebook paths:** for normal tasks, use the remote kernel after opening the local
+  repository in VS Code. For NumPy MNIST, use Browser JupyterLab or VS Code attached to the
+  JupyterHub container and open `/home/jovyan/work/ml-eng-lab`; selecting a remote kernel for the
+  local file is not a substitute for its mounted-workspace requirement.
 - **Need a clean service reset:** use `make atlas-down` first. `COLD=1 make atlas-down` destroys
   persisted volumes and is deliberately not the normal reset command.

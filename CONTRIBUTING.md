@@ -31,11 +31,13 @@ Convention: active experiment directory named `notebooks/[task]-[dataset]-[model
    ```
 
    For folders with multiple notebooks, link to the folder view at `https://nbviewer.org/github/thekaveh/ml-eng-lab/tree/main/notebooks/<folder>/` instead.
-4. Add every active notebook to `required_sections` in [`scripts/verify_repo_config.yaml`](scripts/verify_repo_config.yaml); ordinary task notebooks should copy the canonical six-section block.
-5. If Tier-A, add the notebook path to `tier_a_notebooks` in the same YAML and to `TIER_A` in [`Makefile`](Makefile).
-6. Update the root README's task table.
-7. Tick the box on the root README roadmap.
-8. YAGNI: don't add abstractions to `nnx` speculatively. Only land features when a concrete task needs them.
+4. Add `docs/spec.yaml` with the required `atlas:` mapping: `executor: jupyterhub`, `default_mode: vscode-remote`, `required_services`, `workspace_access`, `artifact_policy`, and constraints. Start with `required_services: [jupyterhub]`; only add a service after the future-service admission sequence below.
+5. Add every active notebook to `required_sections` in [`scripts/verify_repo_config.yaml`](scripts/verify_repo_config.yaml); ordinary task notebooks should copy the canonical six-section block.
+6. Run `make docs-sync-notebook-infrastructure`, then keep the generated task-contract table in [`docs/notebook-infrastructure.md`](docs/notebook-infrastructure.md) in the same commit. If Tier-A, add the notebook path to `tier_a_notebooks` in the same YAML and to `TIER_A` in [`Makefile`](Makefile).
+7. For a service beyond JupyterHub, follow future-service admission: declare the need in the task spec, wire only consumer-owned in-network configuration, add contract coverage and a targeted JupyterHub smoke, then update the task docs, dependency ledger, and diagrams as needed. See [docs/atlas-pin-bump-runbook.md](docs/atlas-pin-bump-runbook.md#3-future-service-admission).
+8. Update the root README's task table.
+9. Tick the box on the root README roadmap.
+10. YAGNI: don't add abstractions to `nnx` speculatively. Only land features when a concrete task needs them.
 
 ## 4. Modifying shared code
 
@@ -50,7 +52,7 @@ Found an issue in the `thekaveh-nnx` library? Append to [docs/FINDINGS-NNX.md](d
 
 ## 5. Running notebooks
 
-Primary runtime: the `ml-eng` Atlas track, accessed from local VS Code through the running Atlas JupyterHub server. Set it up with `git submodule update --init --recursive`, `make atlas-setup`, `make atlas-up`, and `make atlas-connect`; see [docs/jupyterhub-integration.md](docs/jupyterhub-integration.md). The repository is mounted at `/home/jovyan/work/ml-eng-lab`, so the from-scratch NumPy notebook's sibling imports work. The local/CI quantization path remains manual-only; Atlas package availability alone is not a full notebook validation.
+Primary runtime: the `ml-eng` Atlas track, accessed from local VS Code through the running Atlas JupyterHub server. Set it up with `git submodule update --init --recursive`, `make atlas-setup`, `make atlas-up`, and `make atlas-connect`; see [docs/jupyterhub-integration.md](docs/jupyterhub-integration.md). Most tasks use the local-editor/remote-kernel path. The NumPy MNIST task is `mounted-required`: use Browser JupyterLab or VS Code attached to the JupyterHub container from `/home/jovyan/work/ml-eng-lab`, rather than a local notebook paired with the remote kernel. The local/CI quantization path remains manual-only; Atlas package availability alone is not a full notebook validation.
 
 - **Native Ollama only** — Atlas is fixed to `LLM_PROVIDER_SOURCE=ollama-localhost`. Start or manage `ollama serve` on the host; never add or start an Ollama container for this consumer.
 - **ComfyUI deferred** — `ml-eng` disables it by default. A future task may request only a reviewed host-native source (`localhost` or managed MPS); container and automatic sources are prohibited.

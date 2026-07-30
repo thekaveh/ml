@@ -8,7 +8,7 @@ atlas:
   workspace_access: mounted-required
   artifact_policy: task-local-ignored-paths
   constraints:
-    - Sibling Python modules require the mounted checkout.
+    - Browser JupyterLab or VS Code attached to the JupyterHub container is required from /home/jovyan/work/ml-eng-lab because sibling Python modules need the mounted checkout.
 dataset: MNIST
 model: Feed-forward NN (single linear layer + PReLU, from scratch)
 framework: "NumPy (torchvision for dataset loading only)"

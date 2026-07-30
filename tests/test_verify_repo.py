@@ -2107,9 +2107,43 @@ def test_ci_runs_atlas_workflow_contract_tests():
     assert contract_tests["run"] == (
         "pytest tests/test_verify_repo.py -q -k "
         "'atlas_contract_workflow or "
+        "atlas_docs_preserve_mounted_workspace_and_track_ownership or "
+        "ci_covers_gitflow_pr_targets or "
         "docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or "
         "ci_runs_atlas_workflow_contract_tests'"
     )
+
+
+def test_ci_covers_gitflow_pr_targets():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+
+    assert set(workflow["on"]["pull_request"]["branches"]) == {"develop", "main"}
+
+
+def test_atlas_docs_preserve_mounted_workspace_and_track_ownership():
+    numpy_spec = yaml.safe_load(
+        (REPO / "notebooks/image_classification-mnist-ffnn-numpy/docs/spec.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    constraint = " ".join(numpy_spec["atlas"]["constraints"])
+    jupyterhub = (REPO / "docs/jupyterhub-integration.md").read_text(encoding="utf-8")
+    vscode = (REPO / "docs/vscode-remote-access.md").read_text(encoding="utf-8")
+    environment = (REPO / "docs/env-setup.md").read_text(encoding="utf-8")
+    contributing = (REPO / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+    mounted_editor = "Browser JupyterLab or VS Code attached to the JupyterHub container"
+    assert numpy_spec["atlas"]["workspace_access"] == "mounted-required"
+    assert mounted_editor in constraint
+    for document in (jupyterhub, vscode, contributing):
+        assert mounted_editor in document
+
+    track_owner = "`scripts/atlas-up.sh` supplies `--track ml-eng`"
+    assert track_owner in jupyterhub
+    assert track_owner in environment
+    assert "`atlas:` mapping" in contributing
+    assert "`make docs-sync-notebook-infrastructure`" in contributing
+    assert "future-service admission" in contributing
 
 
 def test_atlas_contract_workflow_runs_exact_non_live_preflight_and_dirty_gate():

@@ -1,6 +1,14 @@
 title: "Image classification — MNIST FFNN (NumPy)"
 family: image
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: mounted-required
+  artifact_policy: task-local-ignored-paths
+  constraints:
+    - Sibling Python modules require the mounted checkout.
 dataset: MNIST
 model: Feed-forward NN (single linear layer + PReLU, from scratch)
 framework: "NumPy (torchvision for dataset loading only)"

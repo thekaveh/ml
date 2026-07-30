@@ -22,6 +22,19 @@ sections:
     number: "4"
     title: Environment & runtimes
     source: docs/env-setup.md
+    children:
+      - id: jupyterhub-integration
+        number: "4.1"
+        title: JupyterHub integration
+        source: docs/jupyterhub-integration.md
+      - id: vscode-remote-access
+        number: "4.2"
+        title: VS Code remote access
+        source: docs/vscode-remote-access.md
+      - id: notebook-infrastructure
+        number: "4.3"
+        title: Notebook infrastructure
+        source: docs/notebook-infrastructure.md
   - id: conventions
     number: "5"
     title: Repository conventions

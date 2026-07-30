@@ -73,7 +73,7 @@ TIER_C := \
 
 SMOKE_OUT := /tmp/ml-smoke
 
-.PHONY: help run-tier-a check-tier-a-clean smoke-tier-b smoke-tier-c test test-nnx-surface lint docs-build docs-serve docs-check docs-wiki nlp-assets verify install-torch-stack codespace-setup
+.PHONY: help run-tier-a check-tier-a-clean smoke-tier-b smoke-tier-c test test-nnx-surface lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup
 
 help:
 	@echo "Targets:"
@@ -87,6 +87,7 @@ help:
 	@echo "  docs-build        Build the MkDocs site: render diagrams, generate the site input, then mkdocs build --strict."
 	@echo "  docs-serve        Render diagrams + generate the site input, then mkdocs serve for live preview."
 	@echo "  docs-check        Render diagrams, run the docs gate (check_docs), then mkdocs build --strict."
+	@echo "  docs-sync-notebook-infrastructure Render the canonical Atlas task-contract table explicitly."
 	@echo "  docs-wiki         Generate the wiki Markdown (build_docs --wiki), then push_wiki --check (dry-run)."
 	@echo "  nlp-assets        Download spaCy en_core_web_sm + NLTK vader_lexicon (needed by the 2 NLP Tier-A notebooks)."
 	@echo "  verify            Run repo verifier (scripts/verify_repo.py --check all --fast)."
@@ -144,6 +145,9 @@ docs-check:
 	$(PYTHON) -m scripts.docs.render_diagrams
 	$(PYTHON) -m scripts.docs.check_docs
 	mkdocs build --strict
+
+docs-sync-notebook-infrastructure:
+	$(PYTHON) -m scripts.docs.notebook_infrastructure --write
 
 docs-wiki:
 	$(PYTHON) -m scripts.docs.build_docs --wiki

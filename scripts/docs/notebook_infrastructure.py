@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import argparse
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
 import yaml
 
-from scripts.docs.manifest import Manifest
+from scripts.docs.manifest import Manifest, load_manifest
 
 
 _START_MARKER = "<!-- atlas-task-contracts:start -->"
@@ -175,3 +177,30 @@ def write_atlas_task_table(doc_path: Path, expected_table: str) -> None:
     start, end = _marker_bounds(text, doc_path)
     replacement = f"{_START_MARKER}\n{expected_table.strip()}\n{_END_MARKER}"
     doc_path.write_text(text[:start] + replacement + text[end + len(_END_MARKER):], encoding="utf-8")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--write", action="store_true")
+    mode.add_argument("--check", action="store_true")
+    args = parser.parse_args(argv)
+    repo_root = Path(__file__).resolve().parents[2]
+    try:
+        contracts = load_atlas_task_contracts(
+            repo_root, load_manifest(repo_root / "docs/manifest.yaml", repo_root)
+        )
+        table = render_atlas_task_table(contracts)
+        doc_path = repo_root / "docs/notebook-infrastructure.md"
+        if args.write:
+            write_atlas_task_table(doc_path, table)
+        else:
+            verify_atlas_task_table(doc_path, table)
+    except NotebookInfrastructureError as error:
+        print(error, file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

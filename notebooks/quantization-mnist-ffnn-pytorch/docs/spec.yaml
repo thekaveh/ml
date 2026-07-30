@@ -1,6 +1,14 @@
 title: "Quantization — MNIST FFN (PTQ + QAT via torchao)"
 family: mlp-compression
 tier: manual
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints:
+    - Manual-only until Atlas Jupyter package validation passes.
 dataset: MNIST
 model: Feed-forward NN ([128,64]); PTQ int8 + QAT 8da4w
 framework: "PyTorch (via nnx) + torchao"

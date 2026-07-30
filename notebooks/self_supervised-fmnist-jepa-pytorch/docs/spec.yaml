@@ -1,6 +1,13 @@
 title: "Self-supervised — I-JEPA on Fashion-MNIST"
 family: self_supervised
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: Fashion-MNIST
 model: "I-JEPA: ViTNN context encoder + EMA target encoder + JEPAPredictor + linear probe"
 framework: "PyTorch (via nnx)"

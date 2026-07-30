@@ -1,6 +1,13 @@
 title: "PEFT — LoRA vs DoRA cross-task adaptation (MNIST -> Fashion-MNIST)"
 family: peft
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: "MNIST (pretrain) -> Fashion-MNIST (adapt)"
 model: "FeedFwdNN [128, 64] with LoRA / DoRA adapters at r=8, alpha=16"
 framework: "PyTorch (via nnx)"

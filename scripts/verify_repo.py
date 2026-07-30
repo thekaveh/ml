@@ -31,6 +31,8 @@ except ImportError:
     _yaml = None
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 CONFIG_PATH = Path(__file__).resolve().parent / "verify_repo_config.yaml"
 _HELP_REQUESTED = any(arg in ("-h", "--help") for arg in sys.argv[1:])
 
@@ -850,6 +852,7 @@ def _iter_numbered_doc_files(repo: Path) -> Iterator[Path]:
         "env-setup.md",
         "jupyterhub-integration.md",
         "vscode-remote-access.md",
+        "notebook-infrastructure.md",
     ):
         path = repo / "docs" / rel
         if path.exists():
@@ -1104,6 +1107,21 @@ def _ordered_contains(required: tuple[str, ...], actual: list[str]) -> tuple[boo
 
 def check_docs(repo: Path) -> CheckResult:
     result = CheckResult(name="docs")
+
+    manifest_path = repo / "docs" / "manifest.yaml"
+    if manifest_path.exists():
+        from scripts.docs.check_docs import check_notebook_infrastructure
+        from scripts.docs.manifest import load_manifest
+
+        manifest = load_manifest(manifest_path, repo)
+        for finding in check_notebook_infrastructure(manifest, repo):
+            result.findings.append(Finding(
+                id="D10.notebook_infrastructure",
+                check="docs",
+                severity=finding.severity,
+                location="docs/notebook-infrastructure.md",
+                message=finding.message,
+            ))
 
     configured_notebooks = set(REQUIRED_SECTIONS)
     for nb in _iter_notebooks(repo):

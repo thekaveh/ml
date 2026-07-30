@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.docs.manifest import parse_manifest
+from scripts.docs.manifest import load_manifest, parse_manifest
 from scripts.docs.notebook_infrastructure import (
     AtlasTaskContract,
     NotebookInfrastructureError,
@@ -83,6 +83,39 @@ def test_loads_contracts_in_manifest_order(tmp_path):
         artifact_policy="atlas-jupyter-volume",
         constraints=("Use a dedicated kernel", "Keep data private"),
     )
+
+
+def test_repository_declares_contracts_for_every_manifest_notebook():
+    repo_root = Path(__file__).resolve().parent.parent
+
+    contracts = load_atlas_task_contracts(
+        repo_root, load_manifest(repo_root / "docs/manifest.yaml", repo_root)
+    )
+
+    assert len(contracts) == 21
+    assert [contract.task for contract in contracts] == [
+        "tabular_classification-iris-mlp-pytorch",
+        "tabular_regression-diabetes-mlp-pytorch",
+        "image_classification-mnist-ffnn-numpy",
+        "image_classification-mnist-ffnn-pytorch",
+        "model_surgery-mnist-ffnn-pytorch",
+        "knowledge_distillation-mnist-ffnn-pytorch",
+        "pruning-mnist-ffnn-pytorch",
+        "quantization-mnist-ffnn-pytorch",
+        "moe-fmnist-mixture-of-experts-pytorch",
+        "diffusion-mnist-ddpm-pytorch",
+        "self_supervised-fmnist-jepa-pytorch",
+        "peft-mnist-to-fmnist-dora-vs-lora-pytorch",
+        "node_classification-reddit-gnn-pyg",
+        "link_prediction-karate-graphsage-pyg",
+        "community_detection-karate-louvain-vs-gnn-pyg",
+        "text_generation-tinyshakespeare-transformer-pytorch",
+        "text_classification-agnews-spacy-mlp-pytorch",
+        "sentiment_classification-vader-mlp-pytorch",
+        "preference_alignment-toy-dpo-pytorch",
+        "dim_reduction-iris-autoencoder-pytorch",
+        "clustering-iris-kmeans-vs-ae-pytorch",
+    ]
 
 
 def test_load_rejects_manifest_tasks_that_drift_from_active_task_config(tmp_path):

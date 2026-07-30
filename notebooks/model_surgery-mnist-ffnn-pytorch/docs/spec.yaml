@@ -1,8 +1,15 @@
 title: "Model surgery — MNIST FFN (Net2Net)"
 family: mlp-compression
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: MNIST
-model: Feed-forward NN (surgery substrate: [64,64] -> [128,64])
+model: "Feed-forward NN (surgery substrate: [64,64] -> [128,64])"
 framework: "PyTorch (via nnx)"
 concepts:
   - function-preserving transform

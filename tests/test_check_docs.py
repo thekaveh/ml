@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from scripts.docs.check_docs import (
+    check_notebook_infrastructure,
     check_completeness,
     check_placeholders,
     check_self_containment,
@@ -53,4 +54,12 @@ def test_placeholders_flag_tbd(tmp_path):
     (tmp_path / "site").mkdir()
     (tmp_path / "site/p.md").write_text("## TODO fill this in\nTBD\n", encoding="utf-8")
     findings = check_placeholders(tmp_path)
+    assert findings and findings[0].severity == "error"
+
+
+def test_notebook_infrastructure_flags_a_missing_canonical_document(tmp_path):
+    manifest = parse_manifest(MANIFEST_YAML)
+    _ = manifest
+    findings = check_notebook_infrastructure(manifest, tmp_path)
+
     assert findings and findings[0].severity == "error"

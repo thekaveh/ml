@@ -1985,6 +1985,55 @@ def test_e17_excludes_docs_tests_history_notebook_prose_and_harmless_examples(
     ]
 
 
+def test_e17_ignores_docstring_after_ipython_magic_in_active_notebook(
+    tmp_path, monkeypatch
+):
+    import nbformat
+
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    task = "atlas-task"
+    notebook_path = repo / f"notebooks/{task}/notebook.ipynb"
+    notebook_path.parent.mkdir(parents=True)
+    notebook = nbformat.v4.new_notebook()
+    notebook.cells = [
+        nbformat.v4.new_code_cell(
+            "%matplotlib inline\n"
+            '"""Prose example: http://localhost:63094."""\n'
+        ),
+    ]
+    nbformat.write(notebook, notebook_path)
+    _prepare_atlas_execution_check(monkeypatch, module, repo, active_tasks=(task,))
+
+    result = module.check_execution(repo, fast=True)
+
+    assert not [
+        finding for finding in result.findings if finding.id == "E17.atlas_hardcoded_endpoint"
+    ]
+
+
+def test_e17_checks_endpoint_after_same_line_docstring(tmp_path, monkeypatch):
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    (repo / "scripts/atlas-integration.py").write_text(
+        '"""Prose."""; endpoint = "http://127.0.0.1:63040"\n',
+        encoding="utf-8",
+    )
+    _prepare_atlas_execution_check(monkeypatch, module, repo, active_tasks=())
+
+    result = module.check_execution(repo, fast=True)
+
+    hits = [
+        finding for finding in result.findings
+        if finding.id == "E17.atlas_hardcoded_endpoint"
+    ]
+    assert [(finding.location, finding.detail["endpoint"]) for finding in hits] == [
+        ("scripts/atlas-integration.py:1", "http://127.0.0.1:63040"),
+    ]
+
+
 def _load_workflow(path: Path) -> dict:
     return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 

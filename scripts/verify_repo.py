@@ -1745,31 +1745,79 @@ def _atlas_task_metadata_findings(repo: Path) -> list[Finding]:
     return []
 
 
+def _is_ipython_magic_or_help_line(line: str) -> bool:
+    stripped = line.lstrip()
+    return (
+        stripped.startswith(("%", "!", "?"))
+        or (bool(stripped) and stripped.rstrip().endswith("?"))
+    )
+
+
+def _blank_source_span(
+    lines: list[str],
+    start_line: int,
+    start_column: int,
+    end_line: int,
+    end_column: int,
+) -> None:
+    for line_index in range(max(start_line, 0), min(end_line + 1, len(lines))):
+        line = lines[line_index]
+        first = start_column if line_index == start_line else 0
+        last = end_column if line_index == end_line else len(line)
+        first = max(0, min(first, len(line)))
+        last = max(first, min(last, len(line)))
+        lines[line_index] = line[:first] + " " * (last - first) + line[last:]
+
+
+def _ast_column_to_character_index(line: str, byte_offset: int) -> int:
+    return len(line.encode("utf-8")[:byte_offset].decode("utf-8"))
+
+
+def _blank_ast_span(lines: list[str], node: ast.Expr) -> None:
+    start_line = node.lineno - 1
+    end_line = (node.end_lineno or node.lineno) - 1
+    _blank_source_span(
+        lines,
+        start_line,
+        _ast_column_to_character_index(lines[start_line], node.col_offset),
+        end_line,
+        _ast_column_to_character_index(lines[end_line], node.end_col_offset),
+    )
+
+
 def _python_lines_without_comments(source: str) -> list[str]:
-    lines = source.splitlines()
+    lines = [
+        " " * len(line) if _is_ipython_magic_or_help_line(line) else line
+        for line in source.splitlines()
+    ]
+    parse_source = "\n".join(lines)
     try:
-        comments = [
-            token
-            for token in tokenize.generate_tokens(io.StringIO(source).readline)
-            if token.type == tokenize.COMMENT
-        ]
+        tokens = list(tokenize.generate_tokens(io.StringIO(parse_source).readline))
     except (IndentationError, tokenize.TokenError):
-        return ["" if line.lstrip().startswith("#") else line for line in lines]
-    for token in reversed(comments):
-        line_index = token.start[0] - 1
-        if line_index >= len(lines):
+        return ["" for _line in lines]
+    for token in reversed(tokens):
+        if token.type != tokenize.COMMENT:
             continue
-        start_column = token.start[1]
-        end_column = token.end[1]
-        lines[line_index] = (
-            lines[line_index][:start_column]
-            + " " * (end_column - start_column)
-            + lines[line_index][end_column:]
+        _blank_source_span(
+            lines,
+            token.start[0] - 1,
+            token.start[1],
+            token.end[0] - 1,
+            token.end[1],
         )
 
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(parse_source)
     except SyntaxError:
+        for token in reversed(tokens):
+            if token.type == tokenize.STRING:
+                _blank_source_span(
+                    lines,
+                    token.start[0] - 1,
+                    token.start[1],
+                    token.end[0] - 1,
+                    token.end[1],
+                )
         return lines
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -1783,10 +1831,7 @@ def _python_lines_without_comments(source: str) -> list[str]:
             and isinstance(first_statement.value.value, str)
         ):
             continue
-        start_line = first_statement.lineno - 1
-        end_line = first_statement.end_lineno or first_statement.lineno
-        for line_index in range(start_line, min(end_line, len(lines))):
-            lines[line_index] = ""
+        _blank_ast_span(lines, first_statement)
     return lines
 
 

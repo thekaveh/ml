@@ -73,7 +73,7 @@ TIER_C := \
 
 SMOKE_OUT := /tmp/ml-smoke
 
-.PHONY: help run-tier-a check-tier-a-clean smoke-tier-b smoke-tier-c test test-nnx-surface lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup
+.PHONY: help run-tier-a check-tier-a-clean smoke-tier-b smoke-tier-c test test-nnx-surface lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
 
 help:
 	@echo "Targets:"
@@ -93,6 +93,27 @@ help:
 	@echo "  verify            Run repo verifier (scripts/verify_repo.py --check all --fast)."
 	@echo "  install-torch-stack Install pinned Torch core first, then PyG/runtime deps."
 	@echo "  codespace-setup   Full dep install + NLP assets. Invoked by .devcontainer/devcontainer.json's postCreateCommand."
+	@echo "  atlas-setup       Initialize Atlas and prepare machine-local environment files."
+	@echo "  atlas-up          Prepare, validate, and start the Atlas ml-eng track."
+	@echo "  atlas-down        Stop Atlas while preserving volumes (set COLD=1 to destroy them)."
+	@echo "  atlas-connect     Print interactive VS Code remote-Jupyter connection steps."
+	@echo "  atlas-contract    Run Atlas preparation and non-live contract validation."
+
+atlas-setup:
+	git submodule update --init --recursive infra
+	./scripts/atlas-up.sh --prepare
+
+atlas-up:
+	./scripts/atlas-up.sh
+
+atlas-down:
+	./scripts/atlas-down.sh $(if $(COLD),--cold,)
+
+atlas-connect:
+	./scripts/atlas-connect.sh
+
+atlas-contract:
+	./scripts/atlas-up.sh --validate
 
 run-tier-a:
 	@for nb in $(TIER_A); do \

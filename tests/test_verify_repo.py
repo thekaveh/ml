@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from scripts import verify_repo
+
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "verify_repo.py"
 ACTIVE_FIXTURE_DIR = "notebooks/image_classification-mnist-ffnn-numpy"
@@ -33,6 +35,45 @@ def _temp_repo(tmp_path: Path) -> Path:
         timeout=TEST_SUBPROCESS_TIMEOUT,
     )
     return tmp_path
+
+
+def test_docs_adapter_skips_synthetic_fixture_without_manifest(tmp_path, monkeypatch):
+    monkeypatch.setattr(verify_repo, "REQUIRED_SECTIONS", {})
+
+    result = verify_repo.check_docs(tmp_path)
+
+    assert not [finding for finding in result.findings if finding.id == "D10.notebook_infrastructure"]
+
+
+def test_docs_adapter_reports_drift_for_a_real_manifest(tmp_path, monkeypatch):
+    monkeypatch.setattr(verify_repo, "REQUIRED_SECTIONS", {})
+    (tmp_path / "docs/notebooks").mkdir(parents=True)
+    (tmp_path / "docs/manifest.yaml").write_text(
+        "surfaces: [repo, site, wiki]\nnumbering: baked\nsections:\n  - id: overview\n"
+        "    number: '1'\n    title: Overview\n    source: docs/index.md\nnotebooks:\n"
+        "  - task: task\n    number: '8.1'\n    family: test\n    depth: full\n"
+        "    doc: docs/notebooks/task.md\n    spec: notebooks/task/docs/spec.yaml\ndiagrams: []\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docs/index.md").write_text("# 1. Overview\n", encoding="utf-8")
+    (tmp_path / "docs/notebooks/task.md").write_text("# 8.1 Task\n", encoding="utf-8")
+    (tmp_path / "docs/notebook-infrastructure.md").write_text(
+        "<!-- atlas-task-contracts:start -->\n| stale |\n<!-- atlas-task-contracts:end -->\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "notebooks/task/docs").mkdir(parents=True)
+    (tmp_path / "notebooks/task/docs/spec.yaml").write_text(
+        "title: Task\ntier: A\natlas:\n  executor: jupyterhub\n  default_mode: vscode-remote\n"
+        "  required_services: [jupyterhub]\n  workspace_access: remote\n"
+        "  artifact_policy: atlas-jupyter-volume\n  constraints: []\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts/verify_repo_config.yaml").write_text("active_task_dirs: [task]\n", encoding="utf-8")
+
+    result = verify_repo.check_docs(tmp_path)
+
+    assert [finding.id for finding in result.findings if finding.id == "D10.notebook_infrastructure"] == ["D10.notebook_infrastructure"]
 
 
 def test_help_lists_all_checks():

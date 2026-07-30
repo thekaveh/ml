@@ -77,11 +77,15 @@ def check(repo_root: Path, generated_root: Path) -> int:
     from scripts.docs.build_docs import build
 
     manifest = load_manifest(repo_root / "docs/manifest.yaml", repo_root)
+    findings = check_notebook_infrastructure(manifest, repo_root)
+    if findings:
+        for finding in findings:
+            print(f"[{finding.severity.upper()}] {finding.message}", file=sys.stderr)
+        return 1 if any(finding.severity == "error" for finding in findings) else 0
     rc = build(repo_root / "docs/manifest.yaml", repo_root, check=True)
     if rc != 0:
         return rc
-    findings: list[Finding] = []
-    findings += check_notebook_infrastructure(manifest, repo_root)
+    findings = []
     findings += check_self_containment(generated_root)
     findings += check_completeness(manifest, repo_root)
     findings += check_placeholders(generated_root)

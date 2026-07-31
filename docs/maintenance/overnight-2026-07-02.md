@@ -1,11 +1,11 @@
-# Overnight Maintenance Log - 2026-07-02
+# 11.3 Overnight Maintenance Log - 2026-07-02
 
 Branch: `codex/overnight-maintenance`
 Upstream: `origin/codex/overnight-maintenance`
 Spec: external `overnight-maintenance/maintenance-spec.md` skill spec
 Parameters: `PASSES=25`, `MAX_PASSES=75`, `PUSH=yes`, `NUMBERED_DOCS=yes`
 
-## 1. Coverage Decisions
+## 11.3.1 Coverage Decisions
 
 Applied checks:
 - Baseline repository scan: Python code, notebooks, tests, docs, scripts, CI, Docker, devcontainer, dependency manifests.
@@ -21,7 +21,7 @@ Skipped checks:
 - Multi-language parity for active surfaces: N/A for active notebooks and Python helpers; archived CodexGLUE material is reviewed as archive hygiene, not an active supported surface.
 - Performance budget benchmarking: N/A unless a repository-declared performance budget is found during pass review.
 
-## 2. Pass History
+## 11.3.2 Pass History
 
 | Pass | Type | Issues | Coverage Evidence | Result |
 | --- | --- | ---: | --- | --- |
@@ -101,7 +101,7 @@ Skipped checks:
 | 74 | local genuine | 0 | Local audit covered post-pass-73 branch/upstream parity, script shebang/executable metadata, helper CLI/help behavior, Makefile documented target availability, and standard validation. Validation: branch/upstream SHA parity at `56745f8`; entrypoint metadata probe (`5` scripts checked, `0` shebang/executable mismatches); helper CLI probe (`verify_repo.py --help`, `rewrite_imports.py --help`, `inject_smoke_test_cell.py` no-args usage); `make help` lists `11` documented targets; `python scripts/verify_repo.py --check docs --fast` (`0 findings`); `python scripts/verify_repo.py --check all --fast` (`0 errors, 5 warnings`); `ruff check . --no-cache`; `make check-tier-a-clean`; `pytest tests/ -v` (`368 passed, 3 skipped, 17 warnings`); workflow/config/override YAML parse; `bash -n scripts/start-jupyterhub.sh`; `git diff --check`; `pip-audit -r requirements.txt -r torch-requirements.txt` still reports the documented 23 known vulnerabilities. | Zero-issue pass; zero-issue streak 6/25 |
 | 75 | local genuine | 0 | Local audit covered post-pass-74 branch/upstream parity, final hard-cap pass/log sequencing, issue sequencing through OM-087, streak-marker coherence after the pass-68 reset, latest commit/log correspondence, and standard validation. Validation: branch/upstream SHA parity at `9b4fcfc`; pass sequence `1..74`; issue sequence `OM-001..OM-087`; final pre-row streak `6/25`; `python scripts/verify_repo.py --check docs --fast` (`0 findings`); `python scripts/verify_repo.py --check all --fast` (`0 errors, 5 warnings`); `ruff check . --no-cache`; `make check-tier-a-clean`; `pytest tests/ -v` (`368 passed, 3 skipped, 17 warnings`); workflow/config/override YAML parse; `bash -n scripts/start-jupyterhub.sh`; `git diff --check`; `pip-audit -r requirements.txt -r torch-requirements.txt` still reports the documented 23 known vulnerabilities. | Zero-issue pass; zero-issue streak 7/25; reached `MAX_PASSES=75` |
 
-## 3. Validation Log
+## 11.3.3 Validation Log
 
 - `ruff check .` passed before and after the pass-1 fix batch.
 - Baseline `pytest tests/ -v` passed with `291 passed, 3 skipped`; post-fix full suite passed with `325 passed, 3 skipped, 19 warnings`.
@@ -196,7 +196,7 @@ Skipped checks:
 - Pass-41 local audit found no new actionable findings; archived notebooks remain intentionally tracked and excluded from active notebook expectations, ruff excludes archive/vendor/venv, ignored local artifacts were limited to expected data/runs/scratch paths, and no tracked generated caches or active data/run artifacts appeared.
 - Pass-41 full validation passed: archive inventory (`22` archived notebooks); `git status --ignored --short`; tracked cache/data/run pattern scan; `python scripts/verify_repo.py --check docs --fast` (`0 findings`); `python scripts/verify_repo.py --check all --fast` (`0 errors, 5 warnings`); `ruff check . --no-cache`; `make check-tier-a-clean`; `pytest tests/ -v` (`361 passed, 3 skipped, 19 warnings`); workflow/config/override YAML parse; `bash -n scripts/start-jupyterhub.sh`; `git diff --check`. `pip-audit -r requirements.txt -r torch-requirements.txt` still reports the documented 23 known vulnerabilities.
 
-## 4. Issue Log
+## 11.3.4 Issue Log
 
 | ID | Severity | Category | Location | Description | Status | Validation |
 | --- | --- | --- | --- | --- | --- | --- |

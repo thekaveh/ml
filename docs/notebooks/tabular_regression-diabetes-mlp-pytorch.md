@@ -146,7 +146,7 @@ results section either confirms or refutes this.
 
 ## 8.2.5 Code walkthrough
 
-### Data loading
+### 8.2.5.1 Data loading
 
 ```python
 diabetes = load_diabetes()
@@ -157,7 +157,7 @@ Features are already mean-centered and unit-variance-normalized in the sklearn v
 (per-feature std ≈ \(1/\sqrt{442} \approx 0.048\)). The cast to `float32` matters — MSE between
 `float64` features and a `float32` network output silently promotes and wastes memory.
 
-### Splits and scaling
+### 8.2.5.2 Splits and scaling
 
 ```python
 X_trainval, X_test, y_trainval, y_test = train_test_split(X, y, test_size=0.15, random_state=0)
@@ -174,7 +174,7 @@ The split is 70/15/15: train=308, val=67, test=67. `StandardScaler` is fit on th
 split here is **not stratified**: regression targets are continuous, so stratification is
 inapplicable. The `random_state=0` pin is what makes the recorded numbers reproducible.
 
-### Manual DataLoader construction (the regression workaround)
+### 8.2.5.3 Manual DataLoader construction (the regression workaround)
 
 ```python
 def make_loader(X, y, batch_size, shuffle):
@@ -197,7 +197,7 @@ output of shape `(B, 1)` and a target of shape `(B,)` would broadcast and produc
 reduction than intended. The notebook's docstring even records the workaround: *"For regression,
 prefer to construct the DataLoaders yourself and pass them through `NNTrainParams`."*
 
-### MLP construction
+### 8.2.5.4 MLP construction
 
 ```python
 def make_mlp(hidden_dims):
@@ -221,7 +221,7 @@ def make_mlp(hidden_dims):
 classification recipe. Everything else — `input_dim`, `hidden_dims`, `dropout_prob`,
 `activation`, the `Nets.FEED_FWD` selection — is identical to the Iris classification notebook.
 
-### Training loop
+### 8.2.5.5 Training loop
 
 ```python
 def train_mlp(hidden_dims):
@@ -249,7 +249,7 @@ The seed is re-pinned inside `train_mlp` so identical seeds produce identical we
 `train_loader` and `val_loader` directly as constructor arguments (the classification recipe
 uses a fluent `.with_train_loader(...)` pattern; both are valid).
 
-### Evaluation
+### 8.2.5.6 Evaluation
 
 ```python
 preds_lr  = linreg.predict(X_test_s)

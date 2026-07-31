@@ -10,6 +10,21 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_SUBPROCESS_TIMEOUT = 30
 
 
+def test_mkdocs_commands_suppress_only_the_upstream_material_banner():
+    result = subprocess.run(
+        ["make", "-n", "docs-build", "docs-serve", "docs-check"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+    mkdocs_lines = [line for line in result.stdout.splitlines() if "mkdocs " in line]
+
+    assert mkdocs_lines
+    assert all(line.startswith("NO_MKDOCS_2_WARNING=1 mkdocs ") for line in mkdocs_lines)
+
+
 def test_setup_targets_use_selected_python_interpreter():
     custom_python = "/opt/custom/bin/python"
     result = subprocess.run(

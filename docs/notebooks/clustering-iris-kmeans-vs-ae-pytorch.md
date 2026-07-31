@@ -68,7 +68,7 @@ The `nnx` flat re-exports consumed are: `NNModel`, `NNParams`, `NNModelParams`, 
 
 ## 8.21.3 Mathematical formulation
 
-### KMeans objective
+### 8.21.3.1 KMeans objective
 
 KMeans seeks the centroid assignment that minimizes the within-cluster sum of squares:
 
@@ -82,7 +82,7 @@ each point to its nearest centroid and recomputing each centroid as the mean of 
 points; convergence is to a local minimum, which is why `n_init=10` (10 random restarts) is
 pinned in the notebook.
 
-### Adjusted Rand Index
+### 8.21.3.2 Adjusted Rand Index
 
 Given the true labeling \(U\) and the predicted clustering \(V\), the Rand Index is the fraction
 of point pairs on which \(U\) and \(V\) agree (both in the same cluster, or both in different
@@ -97,7 +97,7 @@ clusters). The ARI corrects for chance:
 mean "worse than chance." ARI is symmetric in \(U\) and \(V\) and invariant under permutations
 of cluster labels — both essential properties for a clustering metric.
 
-### Normalized Mutual Information
+### 8.21.3.3 Normalized Mutual Information
 
 \[
 \mathrm{NMI}(U, V) = \frac{2 \, I(U; V)}{H(U) + H(V)},
@@ -108,7 +108,7 @@ where \(I(U; V)\) is the mutual information between the true and predicted label
 independence. NMI is normalized to \([0, 1]\) regardless of the number of clusters, which makes
 it comparable across cluster counts.
 
-### Autoencoder reconstruction (recap)
+### 8.21.3.4 Autoencoder reconstruction (recap)
 
 The AE latent is trained on the same reconstruction objective as in §8.20:
 
@@ -159,7 +159,7 @@ inputs. The results section either confirms or refutes this.
 
 ## 8.21.5 Code walkthrough
 
-### Data — single loader, no split
+### 8.21.5.1 Data — single loader, no split
 
 ```python
 scaler = MinMaxScaler()
@@ -179,7 +179,7 @@ magnitude, and petal-length (range 1–7) would dominate petal-width (range 0–
 scaling. The dummy `Y` (species label) is carried only so the AE's batch contract `(X, y)`
 is satisfied; the labels never enter the training signal.
 
-### AE construction (same trick as §8.20)
+### 8.21.5.2 AE construction (same trick as §8.20)
 
 ```python
 nnx.set_seed(0)
@@ -203,7 +203,7 @@ Identical to the sibling's `make_autoencoder(...)` for the shallow variant. The 
 is the same cosmetic placeholder — it is never invoked because the custom step computes its own
 MSE.
 
-### The `train_step_fn` and encoder extraction
+### 8.21.5.3 The `train_step_fn` and encoder extraction
 
 ```python
 def autoencoder_step(ctx):
@@ -236,7 +236,7 @@ The full contract is identical to §8.20's. The bottleneck is identified by
 `L.out_features == LATENT_DIM`, the encoder is the prefix up to and including the bottleneck,
 with `F.relu` applied *between* Linears and the bottleneck activation itself left linear.
 
-### KMeans + scoring
+### 8.21.5.4 KMeans + scoring
 
 ```python
 def cluster_and_score(X_in, y_true):
@@ -253,7 +253,7 @@ win over raw features looks smaller or noisier. `random_state=0` makes the KMean
 deterministic on top of the AE's deterministic training. The same `cluster_and_score` runs on
 both feature spaces, so the only varying axis is the input.
 
-### Side-by-side scatter
+### 8.21.5.5 Side-by-side scatter
 
 ```python
 # Top row: 2-D AE latent

@@ -1,0 +1,6 @@
+# Direct dependencies for documentation generation, validation, and tests.
+mkdocs-material==9.7.7
+pyyaml==6.0.3
+cairosvg==2.9.0
+ruff==0.9.10
+pytest==9.0.3

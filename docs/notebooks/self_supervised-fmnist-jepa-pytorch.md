@@ -181,7 +181,7 @@ for short-budget SSL.
 
 ## 8.11.5 Code walkthrough
 
-### Encoder + target + predictor wiring
+### 8.11.5.1 Encoder + target + predictor wiring
 
 ```python
 model.net = ViTNN(image_size=IMAGE_SIZE, patch_size=PATCH_SIZE,
@@ -199,7 +199,7 @@ predictor there means a single `.train()` call updates both the context encoder 
 predictor jointly. The EMA update is name-keyed against the target encoder's parameters, so
 the extra predictor parameters are skipped automatically.
 
-### Mask sampler
+### 8.11.5.2 Mask sampler
 
 ```python
 grid_size = IMAGE_SIZE // PATCH_SIZE   # 7 for 28×28 + patch_size=4
@@ -211,7 +211,7 @@ def mask_fn(n_p, device):
 context/target split. The notebook samples one target block per step (the paper uses four);
 this is a tuning knob, not a correctness constraint.
 
-### Custom pretrain step with EMA
+### 8.11.5.3 Custom pretrain step with EMA
 
 ```python
 step_fn = jepa_train_step_factory(
@@ -231,7 +231,7 @@ run the (frozen) target encoder on target patches, run the predictor, compute th
 loss against stopped-gradient targets, backprop into context encoder + predictor, then EMA the
 target encoder.
 
-### Frozen-encoder linear probe
+### 8.11.5.4 Frozen-encoder linear probe
 
 ```python
 def _precompute_embeddings(encoder, loader, device):

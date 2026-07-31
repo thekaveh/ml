@@ -1,10 +1,10 @@
-# VS Code remote access to Atlas JupyterHub
+# 4.3 VS Code remote access to Atlas JupyterHub
 
 The default notebook experience is deliberately split: VS Code and `.ipynb` files stay local; the
 kernel runs in the active Atlas JupyterHub service. That preserves familiar local editing while
 making the Atlas dependency contract explicit.
 
-## 1. Default mode: connect a local notebook to the remote kernel
+## 4.3.1 Default mode: connect a local notebook to the remote kernel
 
 1. Start the runtime from the repository root:
 
@@ -29,7 +29,7 @@ This default applies to tasks with `workspace_access: remote`. The NumPy MNIST t
 or VS Code attached to the JupyterHub container from `/home/jovyan/work/ml-eng-lab`, not a
 host-local notebook paired with the remote kernel.
 
-## 2. Workspace and artifact semantics
+## 4.3.2 Workspace and artifact semantics
 
 The local editor owns the notebook file. The Atlas container has the repository mounted at
 `/home/jovyan/work/ml-eng-lab`, but a host-local notebook paired with a remote kernel does not
@@ -43,23 +43,23 @@ Select the remote kernel after opening the local file, rather than opening the s
 both host and browser clients. It prevents accidental disagreement about which copy owns notebook
 metadata and outputs.
 
-## 3. Fallback modes
+## 4.3.3 Fallback modes
 
-### 3.1. Browser JupyterLab
+### 4.3.3.1 Browser JupyterLab
 
 Use the token URL from `make atlas-connect` in a browser for a quick investigation or notebook
 session. Navigate to `/home/jovyan/work/ml-eng-lab` when you need the mounted checkout. Browser
 mode implements the NumPy MNIST `mounted-workspace` default unless using the attached-container
 alternative; local VS Code remains the primary authoring surface for ordinary remote-workspace tasks.
 
-### 3.2. Attach VS Code to the running JupyterHub container
+### 4.3.3.2 Attach VS Code to the running JupyterHub container
 
 Use VS Code's Dev Containers support when a task needs an integrated shell in the JupyterHub
 container. Open `/home/jovyan/work/ml-eng-lab` after attaching. This is the other implementation
 of the NumPy MNIST `mounted-workspace` default. It uses the same JupyterHub service and does not
 change the Atlas consumer or source policy.
 
-## 4. Troubleshooting
+## 4.3.4 Troubleshooting
 
 - **No remote server option:** ensure `make atlas-up` completed and use `make atlas-connect` in an
   interactive terminal.
@@ -67,7 +67,8 @@ change the Atlas consumer or source policy.
   VS Code attached to the JupyterHub container with `/home/jovyan/work/ml-eng-lab` open. Do not
   rely on a local notebook plus remote kernel to establish that mounted workspace.
 - **Token rejected after a restart:** run `make atlas-connect` again. Connection URLs are
-  short-lived and should not be reused from notes or editor history.
+  token-bearing and should not be reused from notes or editor history. Reconnect after an Atlas or
+  JupyterHub restart.
 - **Ollama startup error:** Atlas requires the host-native daemon. Start or repair it locally and
   retry; never substitute an Ollama container.
 - **Need a Jupyter shell:** use the attached-container fallback rather than changing the default

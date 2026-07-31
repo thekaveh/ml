@@ -158,7 +158,7 @@ epochs = **48 iterations**.
 
 ## 8.19.5 Code walkthrough
 
-### Reference and policy construction
+### 8.19.5.1 Reference and policy construction
 
 ```python
 def make_lm():
@@ -183,7 +183,7 @@ bit-identical to `ref_model`. This matters because DPO's initialization-sanity c
 at step 0) only holds when the two models are identical; any drift would surface as a wrong
 first-iteration loss and invalidate the §8.19.3 reasoning.
 
-### Preference dataset
+### 8.19.5.2 Preference dataset
 
 ```python
 ds = NNPreferenceDataset(
@@ -202,7 +202,7 @@ pairs per triplet, with `prompt` and `response` truncated/padded to their respec
 bounds. The `batch_sizes` triple sets train/val/test batch sizes; with `val_proportion=0` and
 `test_proportion=0`, all 16 triplets go to the train loader → 4 batches of 4.
 
-### The DPO train step (factory)
+### 8.19.5.3 The DPO train step (factory)
 
 ```python
 step_fn = dpo_train_step_factory(ref_model, beta=BETA, pad_token_id=PAD_TOKEN_ID)
@@ -214,7 +214,7 @@ returns a `train_step_fn` that computes the DPO loss above for each batch. The f
 verified by the nnx test suite (bit-for-bit reference invariance after training); the notebook
 never calls `requires_grad_` or `.eval()` itself — that is the factory's contract.
 
-### Training
+### 8.19.5.4 Training
 
 ```python
 run = policy.train(
@@ -231,7 +231,7 @@ The `train_step_fn=step_fn` seam swaps the default classification step for the D
 step — the same hook §8.16 uses for `lm_train_step`. Training runs 4 batches × 12 epochs = **48
 iterations**; the resulting `NNRun` is checkpointed to `./runs/<run-id>`.
 
-### The before/after gap measurement
+### 8.19.5.5 The before/after gap measurement
 
 ```python
 def _lp(seq):

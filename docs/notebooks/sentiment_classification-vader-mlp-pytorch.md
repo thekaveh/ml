@@ -144,7 +144,7 @@ opening hours) are the neutral class and the weak spot for both recipes.
 
 ## 8.18.5 Code walkthrough
 
-### VADER setup with lazy lexicon download
+### 8.18.5.1 VADER setup with lazy lexicon download
 
 ```python
 try:
@@ -160,7 +160,7 @@ The throwaway `_sia_probe = SentimentIntensityAnalyzer()` construction forces th
 rather than failing later at predict time. CI pre-downloads the lexicon (~125 KB) in the
 `tier-a-papermill` job; this block is the fresh-local-install fallback.
 
-### VADER prediction
+### 8.18.5.2 VADER prediction
 
 ```python
 sia = SentimentIntensityAnalyzer()
@@ -175,7 +175,7 @@ def vader_predict(text):
 One call per document, no batching, no training. The `compound` score is the normalized summary
 valence; the two thresholds map it to the three labels. This is the entire VADER pipeline.
 
-### Neural half (spaCy BoW + MLP)
+### 8.18.5.3 Neural half (spaCy BoW + MLP)
 
 ```python
 def tokenize(text):
@@ -208,7 +208,7 @@ This is line-for-line the §8.17 recipe with `VOCAB_SIZE=100`, `HIDDEN_DIMS=[32]
 classes. The train-only vocabulary and L2-normalized BoW carry over verbatim — the pitfalls
 discussed in §8.17.7 (train-only vocab, `en_core_web_sm` install) apply here unchanged.
 
-### Head-to-head comparison
+### 8.18.5.4 Head-to-head comparison
 
 ```python
 vader_acc  = accuracy_score(y_test, [vader_predict(t) for t in X_test_text])

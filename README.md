@@ -23,7 +23,6 @@ ml-eng-lab/
 ├── CHANGELOG.md                               (release notes)
 ├── Makefile                                   (papermill tier targets)
 ├── docs/                                      (env/runtime docs, dependency contracts, findings, maintenance log)
-├── mkdocs.yml                                 (generated documentation site)
 ├── requirements.txt + torch-*.txt             (pip deps; thekaveh-nnx[lm]==0.2.0)
 ├── infra/                                     (Atlas git submodule; pinned infrastructure)
 ├── atlas.consumer.yml                         (ml-eng Atlas consumer contract)
@@ -34,8 +33,6 @@ ml-eng-lab/
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for release history; per-task folders are linked from [§4.1 Active](#41-active), and secondary docs are linked from [§10 Other documentation](#10-other-documentation).
-This branch configures a generated MkDocs site for `https://thekaveh.github.io/ml-eng-lab/`;
-the GitHub Pages workflow will publish it after the workflow lands on `main`.
 
 ## 3. Quick start
 
@@ -63,10 +60,11 @@ make atlas-up
 make atlas-connect
 ```
 
-`make atlas-connect` prints a short-lived, token-bearing local URL only to an interactive
+`make atlas-connect` prints a token-bearing local URL only to an interactive
 terminal. In VS Code: open a local notebook, run **Jupyter: Specify Jupyter Server for
 Connections**, choose **Existing Jupyter Server**, paste that URL, then choose the remote kernel.
-Treat the URL as a password; do not commit or paste it into documentation.
+Treat the URL as a password; do not commit or paste it into documentation, and reconnect after
+Atlas or JupyterHub restarts instead of relying on a saved URL.
 
 Atlas is intentionally configured with `LLM_PROVIDER_SOURCE=ollama-localhost`: use the native
 host Ollama daemon, never an Ollama Docker container. ComfyUI is off for this `ml-eng` consumer
@@ -126,7 +124,7 @@ container.
    - **Stay in VS Code (browser)** — the Jupyter / Python extensions are preinstalled per the devcontainer config; works for the 28 tier-covered active notebooks. The quantization notebook is manual-only under `torch>=2.5`.
    - **Switch to JupyterLab** — click the dropdown next to "Open" on github.com → choose JupyterLab. To make JupyterLab the single-click default for all your codespaces, go to [github.com/settings/codespaces → Editor preference → JupyterLab](https://github.com/settings/codespaces).
 
-See [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) for the exact image + extension set, and [`Makefile`](Makefile) `codespace-setup` target for the Codespaces/venv install recipe. The §3.2 Docker path bakes the same Torch-first dependency order into [`Dockerfile`](Dockerfile). Free-tier Codespaces (60 core-hours/month on personal accounts, 90 on Pro) is enough for typical solo-maintainer usage.
+See [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) for the exact image + extension set, and [`Makefile`](Makefile) `codespace-setup` target for the Codespaces/venv install recipe. The §3.2 Docker path bakes the same Torch-first dependency order into [`Dockerfile`](Dockerfile). GitHub currently includes 120 Codespaces compute hours per month for Free accounts and 180 for Pro; on the default two-core machine, that corresponds to 60 or 90 machine-hours.
 
 ## 4. Tasks
 
@@ -243,7 +241,7 @@ The README is the entry point; the items below are the hub's index of secondary 
 - [docs/vscode-remote-access.md](docs/vscode-remote-access.md) — local VS Code remote-kernel path and browser fallback.
 - [docs/atlas-pin-bump-runbook.md](docs/atlas-pin-bump-runbook.md) — reviewed Atlas pin-bump and future-service admission runbook.
 - [docs/dependency-contracts.md](docs/dependency-contracts.md) — dependency audit ledger, local/CI Torch contract, Atlas runtime evidence, and manual-only quantization contract.
-- [docs/architecture.md](docs/architecture.md) — system/context view for the notebook lab, verifier, CI, runtime environments, and documentation site.
+- [docs/architecture.md](docs/architecture.md) — system/context view for the notebook lab, verifier, CI, runtime environments, and documentation delivery.
 - [docs/diagrams/README.md](docs/diagrams/README.md) — provenance and regeneration contract for embedded architecture diagrams.
 - [docs/maintenance/overnight-2026-07-04.md](docs/maintenance/overnight-2026-07-04.md) — current overnight maintenance pass log and issue tracker.
 - [docs/maintenance/overnight-2026-07-02.md](docs/maintenance/overnight-2026-07-02.md) — historical overnight maintenance run that reached its hard cap.
@@ -258,7 +256,3 @@ The README is the entry point; the items below are the hub's index of secondary 
 ### 10.4. Archive
 
 - [notebooks/archive/README.md](notebooks/archive/README.md) — preserved Aug-2023 codexglue summarization experiments (22 runs); read-only.
-
-### 10.5. Documentation surfaces
-
-The canonical documentation source under `docs/` (driven by `docs/manifest.yaml`) is projected into two additional, self-contained surfaces by the pipeline in `scripts/docs/`: a generated MkDocs site (built locally by `make docs-build`, published by the Pages workflow) and a native GitHub wiki (pushed by `scripts/docs/push_wiki.py`). The generated trees — `generated/`, the root `mkdocs.yml`, `site/` — are gitignored and rebuilt on every change; never edit them by hand. The three surfaces are deliberately independent: this README links only to in-repo files. See [docs/architecture.md](docs/architecture.md) §2 for the full pipeline and [docs/diagrams/README.md](docs/diagrams/README.md) for the diagram provenance contract.

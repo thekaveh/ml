@@ -153,7 +153,7 @@ accuracy cost since 4-bit is aggressive, with recovery partial at 3 epochs.
 
 ## 8.8.5 Code walkthrough
 
-### PTQ — one-shot `quantize_int8`
+### 8.8.5.1 PTQ — one-shot `quantize_int8`
 
 ```python
 fp32_model = make_model()
@@ -168,7 +168,7 @@ are packed int8 with per-channel scales; activations stay FP. The contract is "s
 possibly different output values within a quantization tolerance." No extra training is involved —
 this is the cheap, one-shot path.
 
-### QAT — lifecycle callback + step factory
+### 8.8.5.2 QAT — lifecycle callback + step factory
 
 ```python
 qat_model = make_model()
@@ -192,7 +192,7 @@ post-call assertions — `is_prepared=True`, `is_converted=True`, and the presen
 `Int8DynActInt4WeightLinear` modules in `qat_model.net.modules()` — verify the lifecycle ran to
 completion.
 
-### The size + latency measurement
+### 8.8.5.3 The size + latency measurement
 
 ```python
 def state_size_bytes(model):
@@ -210,7 +210,7 @@ validation loader in `eval()` mode, returning the mean per-batch latency in micr
 CPU measurements; the latency number is honest about the CPU context (see pitfalls — torchao
 dispatch overhead can dominate at this scale).
 
-### The comparison table
+### 8.8.5.4 The comparison table
 
 ```python
 rows = [
@@ -320,6 +320,6 @@ and accelerator hardware.
   straight-through estimator. The `torchao` library documentation covers the `8da4w` recipe
   (`Int8DynActInt4WeightLinear`) and the `Int8WeightOnlyConfig` PTQ path. See also the task
   [`README.md`](../../notebooks/quantization-mnist-ffnn-pytorch/README.md) §4 and
-  [`docs/env-setup.md`](../env-setup.md) §6 for the manual-only execution path and the torch/torchao
+  [`docs/env-setup.md`](../env-setup.md) §4.1.6 for the manual-only execution path and the torch/torchao
   pin rationale, and [issue #10](https://github.com/thekaveh/ml-eng-lab/issues/10) for the
   CI-exclusion decision.

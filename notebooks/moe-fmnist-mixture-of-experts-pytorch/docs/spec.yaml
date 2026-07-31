@@ -1,6 +1,13 @@
 title: "Mixture-of-Experts — Fashion-MNIST MoE classifier"
 family: image
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: Fashion-MNIST
 model: MoE classifier (FeedFwdNN subclass with MoELinear first hidden)
 framework: "PyTorch (via nnx)"

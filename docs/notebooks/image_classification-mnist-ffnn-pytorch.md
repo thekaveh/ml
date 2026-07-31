@@ -369,11 +369,12 @@ framework buys.
   not read the resulting loss curve as representative of the architecture
   comparison; it is a "does the pipeline run" check, not a model-selection
   result.
-- **Committed outputs can drift from committed source.** Papermill re-execution
-  dirties Tier-A/B notebooks with smoke-test metadata between automation runs;
-  the safe wrapper is `git checkout -- '*.ipynb'` before any commit. If a
-  recorded cell output reflects the smoke run (2 epochs) while another reflects
-  the full run (500 epochs), you are looking at this drift, not a bug.
+- **Committed outputs can drift from committed source.** An intentional
+  in-place Tier-A refresh (`make run-tier-a`) rewrites execution metadata and
+  outputs. CI instead uses `make smoke-tier-a` and writes generated copies to
+  `/tmp/ml-tier-a`, leaving the committed notebook unchanged. If a recorded
+  cell output reflects the smoke run (2 epochs) while another reflects the full
+  run (500 epochs), you are looking at this drift, not a bug.
 - **The framework defaults are load-bearing.** The notebook never names Adam,
   ReduceLROnPlateau, or `max_lr=0.01` — they come from `NNTrainParams` /
   `NNModelParams` defaults. A `thekaveh-nnx` release that changes optimizer or

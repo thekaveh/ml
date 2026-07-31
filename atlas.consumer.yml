@@ -1,0 +1,16 @@
+name: ml-eng-lab
+project_name: ml-eng-lab
+profile: dev
+
+brand:
+  name: ML Eng Lab
+
+env:
+  file: ./atlas.env.user
+  values:
+    BASE_PORT: auto
+    JUPYTERHUB_SOURCE: container
+    LLM_PROVIDER_SOURCE: ollama-localhost
+
+compose_overlays:
+  - ./compose/ml-eng-lab-atlas.yml

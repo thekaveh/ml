@@ -5,7 +5,7 @@
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-norecursedirs = ["vendor", "notebooks/archive", ".venv"]
+norecursedirs = ["infra", "notebooks/archive", ".venv"]
 pythonpath = ["."]
 
 [tool.ruff]
@@ -14,7 +14,7 @@ target-version = "py311"
 exclude = [
     "notebooks/archive/",                   # preserved as-is
     ".venv/",
-    "vendor/",
+    "infra/",
 ]
 
 [tool.ruff.lint]

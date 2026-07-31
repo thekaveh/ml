@@ -11,11 +11,11 @@ A short guide for adding new notebook experiment folders and modifying shared co
 
 ## 2. Workflow
 
-1. Open a feature branch off `main`.
+1. Open a feature branch off `develop`; merge it there first, then promote `develop` to `main` in a separate PR.
 2. Make your change.
 3. Run `make verify` (wraps `python scripts/verify_repo.py --check all --fast`) — must exit 0 (no error-severity findings; warnings are OK).
 4. Run `make test` (wraps `pytest tests/`) locally. CI also runs `pytest tests/nnx_surface` as the per-PR `pytest-nnx-surface` gate.
-5. If you touched a notebook, re-run it (Tier-A: `make run-tier-a`; Tier-B: `make smoke-tier-b`; Tier-C: `make smoke-tier-c`). Tier-C **code cells** must remain identical to the `pre-cleanup-baseline` tag — verify check E5 enforces this (markdown and embedded outputs are not compared).
+5. If you touched a notebook, re-run it at its tier (Tier-A: `make run-tier-a` only when deliberately refreshing a committed snapshot; `make smoke-tier-a` is the non-mutating CI-equivalent target; Tier-B: `make smoke-tier-b`; Tier-C: `make smoke-tier-c`). Tier-C **code cells** must remain identical to the `pre-cleanup-baseline` tag — verify check E5 enforces this (markdown and embedded outputs are not compared).
 6. Open a PR. CI runs Tier-A automatically; Tier-B runs on schedule, on `workflow_dispatch`, and on PRs labeled `tier-b-smoke`; Tier-C runs on schedule and on `workflow_dispatch`.
 
 ## 3. Adding a new task folder
@@ -31,11 +31,13 @@ Convention: active experiment directory named `notebooks/[task]-[dataset]-[model
    ```
 
    For folders with multiple notebooks, link to the folder view at `https://nbviewer.org/github/thekaveh/ml-eng-lab/tree/main/notebooks/<folder>/` instead.
-4. Add every active notebook to `required_sections` in [`scripts/verify_repo_config.yaml`](scripts/verify_repo_config.yaml); ordinary task notebooks should copy the canonical six-section block.
-5. If Tier-A, add the notebook path to `tier_a_notebooks` in the same YAML and to `TIER_A` in [`Makefile`](Makefile).
-6. Update the root README's task table.
-7. Tick the box on the root README roadmap.
-8. YAGNI: don't add abstractions to `nnx` speculatively. Only land features when a concrete task needs them.
+4. Add `docs/spec.yaml` with the required `atlas:` mapping: `executor: jupyterhub`, `default_mode`, `required_services`, `workspace_access`, `artifact_policy`, and constraints. Use `default_mode: vscode-remote` with `workspace_access: remote` for the normal local-editor/remote-kernel path. Use `default_mode: mounted-workspace` only with `workspace_access: mounted-required`, then direct the task to Browser JupyterLab or VS Code attached to the JupyterHub container. Start with `required_services: [jupyterhub]`; only add a service after the future-service admission sequence below.
+5. Add every active notebook to `required_sections` in [`scripts/verify_repo_config.yaml`](scripts/verify_repo_config.yaml); ordinary task notebooks should copy the canonical six-section block.
+6. Run `make docs-sync-notebook-infrastructure`, then keep the generated task-contract table in [`docs/notebook-infrastructure.md`](docs/notebook-infrastructure.md) in the same commit. If Tier-A, add the notebook path to `tier_a_notebooks` in the same YAML and to `TIER_A` in [`Makefile`](Makefile).
+7. For a service beyond JupyterHub, follow future-service admission: declare the need in the task spec, wire only consumer-owned in-network configuration, add contract coverage and a targeted JupyterHub smoke, then update the task docs, dependency ledger, and diagrams as needed. See [docs/atlas-pin-bump-runbook.md](docs/atlas-pin-bump-runbook.md#3-future-service-admission).
+8. Update the root README's task table.
+9. Tick the box on the root README roadmap.
+10. YAGNI: don't add abstractions to `nnx` speculatively. Only land features when a concrete task needs them.
 
 ## 4. Modifying shared code
 
@@ -43,20 +45,21 @@ Convention: active experiment directory named `notebooks/[task]-[dataset]-[model
   1. Open a PR against `thekaveh/NNx` with the new feature + a smoke test.
   2. After merge, wait for the next NNx PyPI release (or, for editable iteration: clone `thekaveh/NNx` outside the ml-eng-lab tree and `pip install -e <path>[lm]` into your venv).
   3. Bump `thekaveh-nnx[lm]==X.Y.Z` in ml-eng-lab's `requirements.txt` to the new version; open a PR here. Tier-A papermill CI re-runs the Tier-A list against the new version; run `make smoke-tier-b`, `make smoke-tier-c`, and manual quantization validation when the NNx change touches those surfaces.
-- **`vendor/genai-vanilla/` is vendored.** Don't edit it directly. The ml-specific compose override lives in [`deploy/`](deploy/) — never commit override files inside `vendor/genai-vanilla/`.
+- **`infra/` is the pinned Atlas submodule.** Do not edit it from this repository. Consumer-owned behavior belongs in `atlas.consumer.yml`, `atlas.env.user.example`, and `compose/ml-eng-lab-atlas.yml`; runbook changes belong under `docs/`. Update the gitlink only through [docs/atlas-pin-bump-runbook.md](docs/atlas-pin-bump-runbook.md).
 - **`notebooks/archive/` is read-only.** Preserved Aug-2023 work.
 
-Found an issue in the `thekaveh-nnx` library? Append to [docs/FINDINGS-NNX.md](docs/FINDINGS-NNX.md) (and open an upstream issue at [`thekaveh/NNx`](https://github.com/thekaveh/NNx/issues)). Same for `vendor/genai-vanilla`: [docs/FINDINGS-VENDOR.md](docs/FINDINGS-VENDOR.md).
+Found an issue in the `thekaveh-nnx` library? Append to [docs/FINDINGS-NNX.md](docs/FINDINGS-NNX.md) (and open an upstream issue at [`thekaveh/NNx`](https://github.com/thekaveh/NNx/issues)). For Atlas-consumer behavior, append to [docs/FINDINGS-ATLAS.md](docs/FINDINGS-ATLAS.md); fixes in Atlas itself belong upstream.
 
 ## 5. Running notebooks
 
-Primary runtime: the `genai-vanilla` stack. As of genai-vanilla `10f8402`, the image natively ships the ml-eng-lab dependency set, `thekaveh-nnx[lm]==0.2.0`, and the two NLP model assets. Pull and rebuild older genai-vanilla images if they still reference the defunct `nnx-pytorch[lm]` distribution name. The wrapper-and-bind-mount is required for the from-scratch `image_classification-mnist-ffnn-numpy` notebook and for host-side data/runs persistence; the quantization notebook remains manual-only under `torch>=2.5` + `torchao>=0.17`.
+Primary runtime: the `ml-eng` Atlas track, accessed from local VS Code through the running Atlas JupyterHub server. Set it up with `git submodule update --init --recursive`, `make atlas-setup`, `make atlas-up`, and `make atlas-connect`; see [docs/jupyterhub-integration.md](docs/jupyterhub-integration.md). Most tasks use the local-editor/remote-kernel path. The NumPy MNIST task is `mounted-required`: use Browser JupyterLab or VS Code attached to the JupyterHub container from `/home/jovyan/work/ml-eng-lab`, rather than a local notebook paired with the remote kernel. The local/CI quantization path remains manual-only; Atlas package availability alone is not a full notebook validation.
 
-- **Default (standalone genai-vanilla)** — `cd ~/repos/genai-vanilla && ./start.sh`, then point VS Code Mode 2 at the token URL.
-- **Persistence variant (wrapper + bind-mount)** — `scripts/start-jupyterhub.sh` from the ml-eng-lab repo root (NOT `cd vendor/genai-vanilla && ./start.sh` directly — the wrapper sets `ML_REPO_PATH` and `COMPOSE_FILE` to layer the override).
+- **Native Ollama only** — Atlas is fixed to `LLM_PROVIDER_SOURCE=ollama-localhost`. Start or manage `ollama serve` on the host; never add or start an Ollama container for this consumer.
+- **ComfyUI deferred** — `ml-eng` disables it by default. A future task may request only a reviewed host-native source (`localhost` or managed MPS); container and automatic sources are prohibited.
+- **Fallback runtime** — attach VS Code to the running JupyterHub container or use browser JupyterLab only when remote-kernel editing cannot meet the task's needs. Keep the default local-editor / remote-kernel workflow.
 - **Editable-iteration on NNx itself** — clone `thekaveh/NNx` outside the ml-eng-lab tree, then `pip install -e <path>[lm]` into your venv to override the PyPI install. No in-repo override script.
 - **Zero-click cloud dev (GitHub Codespaces)** — `Code → Codespaces → Create codespace on main` on github.com/thekaveh/ml-eng-lab. `.devcontainer/devcontainer.json`'s `postCreateCommand` runs `make codespace-setup` (full pip install + NLP assets, ~2-3 min one-time). See [README.md §3.4](README.md#34-github-codespaces-zero-click-cloud-dev) for the motivation + scenario list (and the GPU + persistence caveats).
-- Full two-path walkthrough: [docs/jupyterhub-integration.md](docs/jupyterhub-integration.md).
+- Atlas operations, pin bumps, and future-service admission: [docs/atlas-pin-bump-runbook.md](docs/atlas-pin-bump-runbook.md).
 
 ### 5.1. One-time NLP-task setup
 
@@ -78,7 +81,7 @@ python -c "import nltk; nltk.download('vader_lexicon', quiet=True)"
 `scripts/verify_repo.py` is the repo's four-check oracle. Run before commits / PRs:
 
 - `python scripts/verify_repo.py --check all --fast` — structure, docs, comments, env-limited execution. Fast (<30s).
-- `python scripts/verify_repo.py --check all` — adds the full Tier-A/B/C papermill smoke. Requires the genai-vanilla container or an equivalent fully-provisioned env.
+- `python scripts/verify_repo.py --check all` — adds the full Tier-A/B/C papermill smoke. Requires the Atlas JupyterHub runtime or an equivalent fully-provisioned environment.
 
 Exit code 0 iff zero error-severity findings; warnings are informational. Tier-C **code-cell source** equality with the `pre-cleanup-baseline` git tag is enforced by check E5 (markdown / outputs are not compared). Edits to phase3 markdown cells should still use `scripts/edit_notebook_markdown.py` for safety.
 

@@ -80,12 +80,12 @@
   <div class="wrap">
     <header>
       <h1>ml-eng-lab System Architecture</h1>
-      <div class="subtitle">Notebook experiments, local runtimes, verification, and published documentation surfaces.</div>
+      <div class="subtitle">Notebook experiments, local VS Code + Atlas JupyterHub, verification, and published documentation surfaces.</div>
     </header>
     <div class="panel">
       <svg viewBox="0 0 1100 760" role="img" aria-labelledby="title desc">
         <title id="title">ml-eng-lab system architecture</title>
-        <desc id="desc">Architecture diagram showing contributors, runtime environments, notebook tasks, validation, CI, dependencies, and documentation publishing.</desc>
+        <desc id="desc">Architecture diagram showing local VS Code reaching Atlas JupyterHub, the pinned Atlas submodule, notebook tasks, validation, CI, dependencies, and documentation publishing.</desc>
         <defs>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
             <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
@@ -120,8 +120,8 @@
         <rect x="310" y="100" width="150" height="70" rx="6" fill="#0f172a"/>
         <rect x="310" y="100" width="150" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
         <text x="385" y="123" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Execution Shells</text>
-        <text x="385" y="140" fill="#94a3b8" font-size="8" text-anchor="middle">venv, Docker, Codespaces</text>
-        <text x="385" y="154" fill="#94a3b8" font-size="8" text-anchor="middle">genai-vanilla JupyterHub</text>
+        <text x="385" y="140" fill="#94a3b8" font-size="8" text-anchor="middle">local VS Code → Atlas JupyterHub</text>
+        <text x="385" y="154" fill="#94a3b8" font-size="8" text-anchor="middle">venv, Docker, Codespaces fallback</text>
 
         <rect x="592" y="56" width="204" height="152" rx="12" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="8,4"/>
         <text x="694" y="80" fill="#fbbf24" font-size="10" font-weight="600" text-anchor="middle">Repository core</text>
@@ -170,9 +170,9 @@
 
         <rect x="86" y="580" width="188" height="68" rx="6" fill="#0f172a"/>
         <rect x="86" y="580" width="188" height="68" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-        <text x="180" y="603" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">External Dependencies</text>
-        <text x="180" y="621" fill="#94a3b8" font-size="8" text-anchor="middle">thekaveh-nnx, Torch, PyG</text>
-        <text x="180" y="635" fill="#94a3b8" font-size="8" text-anchor="middle">spaCy + NLTK assets</text>
+        <text x="180" y="603" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Pinned Dependencies</text>
+        <text x="180" y="621" fill="#94a3b8" font-size="8" text-anchor="middle">infra/ Atlas + NNx, Torch, PyG</text>
+        <text x="180" y="635" fill="#94a3b8" font-size="8" text-anchor="middle">native Ollama + NLP assets</text>
 
         <path d="M 274 614 H 385 V 488" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"/>
         <path d="M 274 614 H 695 V 488" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"/>
@@ -191,15 +191,15 @@
       <div class="card">
         <h2>Notebook Boundary</h2>
         <ul>
-          <li>Active work runs from `notebooks/&lt;task&gt;/`.</li>
-          <li>`./data` and `./runs` stay notebook-local.</li>
+          <li>Local VS Code connects to the Atlas JupyterHub kernel.</li>
+          <li>Atlas mounts the checkout for explicit task dependencies.</li>
           <li>Archive content remains read-only.</li>
         </ul>
       </div>
       <div class="card">
         <h2>Validation Boundary</h2>
         <ul>
-          <li>Make targets preserve notebook CWD semantics.</li>
+          <li>Atlas uses the `ml-eng` track and native host Ollama.</li>
           <li>Verifier, pytest, and ruff cover local gates.</li>
           <li>CI replays the same command surfaces.</li>
         </ul>
@@ -213,7 +213,7 @@
         </ul>
       </div>
     </section>
-    <footer>Generated for ml-eng-lab maintenance, 2026-07-04.</footer>
+    <footer>Generated for ml-eng-lab Atlas migration, 2026-07-30.</footer>
   </div>
 </body>
 </html>

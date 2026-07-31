@@ -1,6 +1,13 @@
 title: "Preference alignment — toy DPO"
 family: language
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: 16 hand-written (prompt, chosen, rejected) triplets
 model: Tiny TransformerNN (ref frozen + policy trained)
 framework: "PyTorch (via nnx [lm])"

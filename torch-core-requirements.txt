@@ -1,4 +1,4 @@
-# Core PyTorch stack matched to genai-vanilla image versions.
+# Core PyTorch stack for the intentionally stable local/CI compatibility baseline.
 # Install these before PyG extension packages so source-build fallback can
 # import torch during setup.
 

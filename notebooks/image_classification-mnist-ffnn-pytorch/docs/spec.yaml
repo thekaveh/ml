@@ -1,6 +1,13 @@
 title: "Image classification — MNIST FFNN (PyTorch via nnx)"
 family: image
 tier: B
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: MNIST
 model: Feed-forward NN (nnx.FeedFwdNN, LeakyReLU + dropout, swept over 9 topologies)
 framework: "PyTorch (via nnx / thekaveh-nnx)"

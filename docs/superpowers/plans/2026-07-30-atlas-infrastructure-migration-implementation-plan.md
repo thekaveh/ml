@@ -13,6 +13,8 @@
 - Pin `infra/` to the detached Atlas SHA `61c7c5103660e2226bf107c115dae42bf46f8374`. `.gitmodules` contains only the Atlas URL and `infra` path—never a moving `branch` entry.
 - Treat `infra/` as read-only implementation owned by Atlas. Do not add consumer symlinks under it, alter its compose files, patch its Dockerfiles, or write parent-specific scripts inside it.
 - The consumer manifest is the committed source of infrastructure intent. It uses `profile: dev`, `BASE_PORT: auto`, `JUPYTERHUB_SOURCE: container`, one parent-owned compose overlay, and no `track:` key. Only the start wrapper selects `--track ml-eng`.
+- Pin `LLM_PROVIDER_SOURCE: ollama-localhost` in the committed manifest. Do not use `auto` because it can resolve to `ollama-container-cpu`; this consumer must never launch containerized Ollama. A normal `atlas-up` must fail fast if the operator-owned daemon is unavailable at `127.0.0.1:${OLLAMA_LOCALHOST_PORT:-11434}` and must not attempt to start it or fall back to a container.
+- Keep ComfyUI disabled for the current Jupyter-only scope. A future task may explicitly opt into only `COMFYUI_SOURCE=localhost` (or the documented native managed-MPS mode), never `container-cpu` or `container-gpu`.
 - The initial runtime is JupyterHub only. Do not enable Spark, Ray, MinIO, MLflow, Label Studio, Airflow, Iceberg, Trino, Redpanda, endpoint exports, domain bootstrap, or data-eng-lab profile overrides.
 - Treat `atlas.env.user` and `infra/.env` as required local runtime inputs, not optional conveniences. On a fresh clone the wrappers/CI must create them from secret-free templates without overwriting an existing local file. Neither file nor a Jupyter token may be committed.
 - Do not hard-code a Jupyter or future service port in source. `atlas-connect` reads the current Jupyter port/token from Atlas-managed local state and prints it only interactively; it must not use the stable endpoint-export contract, write a token-bearing file, or `source infra/.env`.
@@ -63,7 +65,7 @@ def write_atlas_task_table(doc_path: Path, expected_table: str) -> None: ...
 ```
 
 - [ ] Add tests first. Use minimal temporary manifests/specs plus the real repository fixture to prove that loading follows `manifest.notebooks` order and that the manifest task set exactly equals `active_task_dirs` in `scripts/verify_repo_config.yaml`.
-- [ ] Add failing tests for each owned `atlas` field: a mapping is required; `executor == "jupyterhub"`; `default_mode == "vscode-remote"`; `required_services` is a non-empty, unique service-ID list containing `jupyterhub`; `workspace_access` is `remote` or `mounted-required`; `artifact_policy` is `atlas-jupyter-volume` or `task-local-ignored-paths`; and `constraints` is a list of non-empty strings.
+- [ ] Add failing tests for each owned `atlas` field: a mapping is required; `executor == "jupyterhub"`; `default_mode` is `vscode-remote` or `mounted-workspace` and pairs respectively with `workspace_access: remote` or `mounted-required`; `required_services` is a non-empty, unique service-ID list containing `jupyterhub`; `artifact_policy` is `atlas-jupyter-volume` or `task-local-ignored-paths`; and `constraints` is a list of non-empty strings.
 - [ ] Keep future service IDs forward-compatible: validate their syntax and uniqueness, not a closed set of today’s services. Require `jupyterhub` only because the current executor is JupyterHub.
 - [ ] Implement the module under `scripts/docs/`, using the existing `scripts.docs.manifest.Manifest` and PyYAML already available to both runtime and docs requirements. Do not put task-spec parsing into `scripts/docs/manifest.py`; that module continues to own only the documentation manifest.
 - [ ] Make the renderer produce exactly one deterministic Markdown table with columns `Task | Tier | Default mode | Workspace access | Required Atlas services | Artifact policy | Constraints`, use `—` for no constraints, and join multiple constraints with `<br>`.
@@ -119,12 +121,12 @@ atlas:
 ```yaml
 atlas:
   executor: jupyterhub
-  default_mode: vscode-remote
+  default_mode: mounted-workspace
   required_services: [jupyterhub]
   workspace_access: mounted-required
   artifact_policy: task-local-ignored-paths
   constraints:
-    - Sibling Python modules require the mounted checkout.
+    - Browser JupyterLab or VS Code attached to the JupyterHub container is required from /home/jovyan/work/ml-eng-lab because sibling Python modules need the mounted checkout.
 ```
 
 - [ ] Replace the default only for `notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml`:
@@ -199,7 +201,7 @@ git commit -m "docs: declare notebook Atlas runtime contracts"
 - Create: `tests/test_atlas_consumer_contract.py`
 - Modify: `pyproject.toml`
 
-- [ ] Start with tests that parse the new manifest/overlay and reject a moving branch, a `track:` manifest key, a non-`auto` base port, non-container JupyterHub source, optional-service source selection, any SSH mount, a relative workspace path, or an overlay that mounts over `/home/jovyan/work` itself.
+- [ ] Start with tests that parse the new manifest/overlay and reject a moving branch, a `track:` manifest key, a non-`auto` base port, non-container JupyterHub source, a missing/non-`ollama-localhost` LLM source, any containerized/`auto` Ollama source, a containerized ComfyUI source, any SSH mount, a relative workspace path, or an overlay that mounts over `/home/jovyan/work` itself.
 - [ ] Add the Atlas submodule without deleting `vendor/genai-vanilla` yet; it remains a rollback reference only until Task 6’s live acceptance gate. Use the exact upstream and detached revision:
 
 ```bash
@@ -231,6 +233,7 @@ env:
   values:
     BASE_PORT: auto
     JUPYTERHUB_SOURCE: container
+    LLM_PROVIDER_SOURCE: ollama-localhost
 
 compose_overlays:
   - ./compose/ml-eng-lab-atlas.yml
@@ -241,6 +244,8 @@ compose_overlays:
 ```dotenv
 # Copy/create this as atlas.env.user; it is ignored and machine-local.
 ML_ENG_LAB_REPO_PATH=/absolute/path/to/ml-eng-lab
+# Optional: only when the native Ollama daemon uses a non-default port.
+# OLLAMA_LOCALHOST_PORT=11434
 ```
 
 ```yaml
@@ -282,7 +287,7 @@ git commit -m "feat: add pinned Atlas consumer configuration"
 - Create: `tests/test_atlas_lifecycle.py`
 - Modify: `tests/test_makefile_contract.py`
 
-- [ ] Write dry-run tests before the scripts. Require `set -euo pipefail`, absolute root/manifest resolution, actionable uninitialized-submodule errors, and no `eval` or secret-bearing artifact writes.
+- [ ] Write dry-run tests before the scripts. Require `set -euo pipefail`, absolute root/manifest resolution, actionable uninitialized-submodule errors, and no `eval` or secret-bearing artifact writes. Add normal-start tests that require the materialized source to be exactly `ollama-localhost`, probe only `127.0.0.1:<validated-port>/api/version`, fail clearly when it is unavailable, and never execute that probe in `--prepare`, `--validate`, or `--dry-run` mode.
 - [ ] Add `make atlas-setup`, `make atlas-up`, `make atlas-down`, `make atlas-connect`, and `make atlas-contract` help/`.PHONY` entries. `atlas-setup` must initialize the exact submodule and then invoke `atlas-up.sh --prepare`; ordinary `atlas-up` also performs preparation idempotently so a fresh clone cannot reach a confusing missing-env validation failure.
 
 ```make
@@ -313,10 +318,10 @@ atlas-contract:
 ./start.sh --consumer "$MANIFEST" --track ml-eng --no-tui --detach
 ```
 
-  `--validate` first calls the same idempotent preparation routine, then runs the first three commands and exits without starting services; `--prepare` creates/verifies only local state. After a normal final command, fail clearly if `git -C "$INFRA" status --porcelain` reports a non-ignored change. Do not add source flags, a `start` subcommand, `endpoints export`, a Docker command, or a service assertion to this wrapper.
+  `--validate` first calls the same idempotent preparation routine, then runs the first three commands and exits without starting services; `--prepare` creates/verifies only local state. After the doctor succeeds during a normal start, read the materialized `.env` using the shared non-evaluating dotenv parser: reject any `LLM_PROVIDER_SOURCE` other than `ollama-localhost`, validate `OLLAMA_LOCALHOST_PORT` (default `11434`), and require `curl --fail --silent --show-error --max-time 2 http://127.0.0.1:<port>/api/version` to succeed before detach. On failure, tell the operator to start native Ollama; do not run `ollama serve`, pass a source flag, or fallback to a container. After a normal final command, fail clearly if `git -C "$INFRA" status --porcelain` reports a non-ignored change. Do not add a `start` subcommand, `endpoints export`, a Docker command, or a service assertion to this wrapper.
 - [ ] In `atlas-down.sh`, permit only `--cold` and `--dry-run`, construct an argument array, and run `(cd "$INFRA" && ./stop.sh "${stop_args[@]}")`. Default shutdown must preserve volumes; `--cold` is opt-in and its help text says it destroys persisted volumes.
 - [ ] In `atlas-connect.sh`, provide an interactive-only read-only adapter for the Atlas pin: parse only needed dotenv values from `infra/.env` without sourcing it, use `JUPYTERHUB_PORT` and `PROJECT_NAME`, prefer a configured `JUPYTERHUB_TOKEN` if present, otherwise obtain the one-time token from the running `${PROJECT_NAME}-jupyterhub` container log. Validate every parsed value, avoid shell evaluation, never write a URL, and print the VS Code command-palette steps plus the current `http://localhost:<resolved-port>/?token=<resolved-token>` connection URL to the terminal.
-- [ ] Test the precise dry-run command order; that `--prepare` and `--validate` do not start services; that `--cold` never appears unless requested; that a missing local env produces a preparation path rather than validation; and that the connection helper neither relies on `ATLAS_*JUPYTER*ENDPOINT` nor writes token files.
+- [ ] Test the precise dry-run command order; that `--prepare` and `--validate` do not start services or probe host Ollama; that a normal start rejects a non-localhost resolved source and an unavailable/malformed host port before detach; that `--cold` never appears unless requested; that a missing local env produces a preparation path rather than validation; and that the connection helper neither relies on `ATLAS_*JUPYTER*ENDPOINT` nor writes token files.
 
 Run:
 
@@ -345,7 +350,7 @@ git commit -m "feat: add Atlas notebook lifecycle wrappers"
 - Modify: `.github/workflows/docs.yml`
 - Modify: `Makefile`
 
-- [ ] Add failing verifier tests first for a missing/malformed `atlas.consumer.yml`, illegal `track`, missing overlay/template/lifecycle script, invalid active-task metadata, hard-coded executable `localhost:<port>` or `127.0.0.1:<port>` Atlas service URLs, and a dirty `infra` worktree.
+- [ ] Add failing verifier tests first for a missing/malformed `atlas.consumer.yml`, illegal `track`, missing overlay/template/lifecycle script, an Ollama source other than `ollama-localhost`, containerized ComfyUI, invalid active-task metadata, hard-coded executable `localhost:<port>` or `127.0.0.1:<port>` Atlas service URLs, and a dirty `infra` worktree.
 - [ ] Retarget `_required_submodule_paths()` from `vendor/genai-vanilla` to `infra`, preserving existing E6 clean-gitlink/worktree behavior. Retarget the three legacy D10 dependency-ledger fixtures and git index lookup to `git ls-files --stage -- infra`; retain the stable `D10.dependency_ledger_submodule_sha` finding identity.
 - [ ] Remove Atlas implementation files from `_required_shellcheck_targets()`: the parent owns only its local wrappers. Add explicit required/executable coverage for `scripts/atlas-up.sh`, `scripts/atlas-down.sh`, and `scripts/atlas-connect.sh` so their absence cannot be hidden by glob discovery.
 - [ ] Add focused `E15.atlas_manifest`, `E16.atlas_task_metadata`, and `E17.atlas_hardcoded_endpoint` findings. Reuse the shared notebook-infrastructure parser rather than copying its schema. Exclude documentation, tests, and historical records from the endpoint literal scan; scope it to executable integration code and notebook code cells.
@@ -448,10 +453,10 @@ git commit -m "test: establish Atlas Jupyter runtime compatibility"
 
 - [ ] Register `docs/atlas-pin-bump-runbook.md` as child `6.1` of the existing Dependency contracts manifest section, preserving current notebook numbers. Update the doc’s H1/H2 numbering and add it to the numbered-doc verifier list.
 - [ ] Rewrite the README quick start and layout to make Atlas local VS Code remote-kernel mode the recommended path. Show `git submodule update --init --recursive`, `make atlas-setup`, `make atlas-up`, `make atlas-connect`, and the VS Code server-selection step. Explain the mounted fallback for NumPy MNIST and host-visible `data/`/`runs/`; retain Docker, venv, and Codespaces as supported non-Atlas modes.
-- [ ] Make `docs/jupyterhub-integration.md` the authoritative lifecycle guide: parent/Atlas ownership boundary, prepare/backfill/validate/doctor/start ordering, `BASE_PORT: auto`, local state, normal versus `COLD=1` stop, token safety, troubleshooting, persistence semantics, and the `infra` clean-worktree check.
+- [ ] Make `docs/jupyterhub-integration.md` the authoritative lifecycle guide: parent/Atlas ownership boundary, prepare/backfill/validate/doctor/start ordering, `BASE_PORT: auto`, required native Ollama (`LLM_PROVIDER_SOURCE=ollama-localhost`) and its fail-fast preflight, no-container guarantee, local state, normal versus `COLD=1` stop, token safety, troubleshooting, persistence semantics, and the `infra` clean-worktree check.
 - [ ] Make `docs/vscode-remote-access.md` lead with remote VS Code to running JupyterLab. Include the exact visual workflow, a warning that notebook-relative writes in this mode land in the Atlas Jupyter volume, and the mounted-workspace fallback for sibling imports/host artifacts. Do not document an invented exported Jupyter endpoint or a fixed port.
 - [ ] Update `CONTRIBUTING.md` with the notebook `atlas:` metadata requirement, generator/check command, the future-service activation sequence (spec first, central enablement, injected in-network variable, targeted runtime smoke, docs), and the rule against changes inside `infra/`.
-- [ ] State in the future-service guide that an injected variable alone is not availability evidence: for example, `SPARK_REMOTE` may have a default value while Spark remains disabled. A task may rely on a future service only after its manifest source is explicitly enabled, doctor confirms the consumer configuration, and its targeted runtime smoke succeeds.
+- [ ] State in the future-service guide that an injected variable alone is not availability evidence: for example, `SPARK_REMOTE` may have a default value while Spark remains disabled. A task may rely on a future service only after its manifest source is explicitly enabled, doctor confirms the consumer configuration, and its targeted runtime smoke succeeds. For future image generation, the only permissible sources are host `localhost` or native managed-MPS; containerized ComfyUI is prohibited for this consumer.
 - [ ] Update environment/dependency docs to distinguish Atlas’s observed Jupyter package contract from separate local installs, describe the manual-only quantization evidence, and remove all instructions to invoke `vendor/genai-vanilla` or `scripts/start-jupyterhub.sh`.
 - [ ] Update the system and runtime-flow diagram source to show: local VS Code → Atlas Jupyter kernel as default; browser/container-attached mode → mounted checkout as fallback; parent manifest/overlay/wrappers/specs around a pinned `infra` gitlink; future services disabled until a task declares them. Regenerate PNG/SVG only through the existing diagram tooling.
 - [ ] Write the pin-bump runbook with the immutable procedure: choose/review target SHA; update only the gitlink; provision local state; run backfill/compose validate/doctor; execute static suite; run `make atlas-up`, package probe, remote connection, mounted NumPy smoke, normal stop, and `infra` clean check; then update ledger/docs/changelog and stage only the reviewed gitlink and parent-owned changes. Explain that Atlas automatically adds `--build` after a committed Atlas SHA change through `.atlas-build-state`; an ordinary pin bump does not require `--cold`. Require an explicit rebuild only for documented uncommitted Dockerfile/context changes, and reserve `--cold` for the separate destructive volume-reset path.
@@ -541,7 +546,7 @@ make docs-check
 git diff --check
 ```
 
-- [ ] Run the manual live release smoke in a Docker-capable environment: `make atlas-up`; `make atlas-connect`; attach local VS Code to the returned Jupyter server; execute a representative remote-mode notebook; open a running-Jupyter terminal for the mounted-mode NumPy sibling-import command and runtime probe; run `make atlas-down`; verify `git -C infra status --short` is empty.
+- [ ] Run the manual live release smoke in a Docker-capable environment with a running native Ollama daemon: `make atlas-up`; assert `docker compose ps` has neither `ollama` nor `ollama-pull` for the `ml-eng-lab` project; `make atlas-connect`; attach local VS Code to the returned Jupyter server; execute a representative remote-mode notebook; open a running-Jupyter terminal for the mounted-mode NumPy sibling-import command and runtime probe; run `make atlas-down`; verify `git -C infra status --short` is empty.
 - [ ] Verify `COLD=1 make atlas-down` is documented but is not exercised in routine validation because it removes persistent volumes. If it must be tested, use disposable state and record that scope in the runbook evidence.
 - [ ] Confirm the GitHub static Atlas job starts no services by reviewing its logged command sequence, and schedule/dispatch the opt-in live smoke only after the static workflow is green. The live smoke must cover Jupyter health, package probe, connection guidance, mounted NumPy import, and clean `infra` state without becoming a default PR job.
 - [ ] Update the ledger/runbook/changelog only with facts proven by these commands. Confirm no token URL, local absolute path, `atlas.env.user`, `infra/.env`, `.atlas-build-state`, data, runs, or generated docs entered Git.
@@ -559,3 +564,57 @@ rg -n "JUPYTERHUB_TOKEN|token=" README.md CONTRIBUTING.md CHANGELOG.md docs Make
 Expected: only intentional parent-owned changes are staged, the Atlas gitlink is clean and pinned, all documented workflows have evidence, and no secret-bearing runtime artifact is tracked.
 
 - [ ] Create the final implementation commit(s) and open review with the static and live evidence attached. Do not advance the Atlas SHA as part of review cleanup; pin bumps follow the new runbook.
+
+## Task 10: Enforce the native-host AI service policy
+
+**Files:**
+
+- Modify: `atlas.consumer.yml`
+- Modify: `atlas.env.user.example`
+- Modify: `scripts/atlas-up.sh`
+- Modify: `scripts/lib/atlas-dotenv.sh` only if the existing parser lacks a safe last-value lookup
+- Modify: `scripts/verify_repo.py`
+- Modify: `tests/test_atlas_consumer_contract.py`
+- Modify: `tests/test_atlas_lifecycle.py`
+- Modify: `tests/test_verify_repo.py`
+
+**Interfaces:**
+
+- The manifest must materialize `LLM_PROVIDER_SOURCE=ollama-localhost` before every Atlas start.
+- `scripts/atlas-up.sh` may call a single internal host preflight only for an ordinary start. It clears inherited `LLM_PROVIDER_SOURCE`, `COMFYUI_SOURCE`, and `OLLAMA_LOCALHOST_PORT` values, rejects an explicitly declared `atlas.env.user` ComfyUI source unless it is host-native (or disabled), then probes `http://127.0.0.1:<OLLAMA_LOCALHOST_PORT>/api/version` with proxy and curlrc configuration disabled; `<OLLAMA_LOCALHOST_PORT>` defaults to `11434` and must be an integer from `1` through `65535`.
+- `--prepare`, `--validate`, and `--dry-run` remain non-live and must not require, start, or contact a host Ollama daemon.
+
+- [ ] Add failing manifest/verification tests that reject an omitted or non-`ollama-localhost` `LLM_PROVIDER_SOURCE`, including `auto`, `ollama-container-cpu`, and `ollama-container-gpu`. Reject `COMFYUI_SOURCE=container-cpu` and `COMFYUI_SOURCE=container-gpu`; do not require a ComfyUI source while the ml-eng track keeps it disabled.
+- [ ] Update the exact committed manifest contract:
+
+```yaml
+env:
+  file: ./atlas.env.user
+  values:
+    BASE_PORT: auto
+    JUPYTERHUB_SOURCE: container
+    LLM_PROVIDER_SOURCE: ollama-localhost
+```
+
+  Keep `COMFYUI_SOURCE` absent. Add only a commented `OLLAMA_LOCALHOST_PORT=11434` example to `atlas.env.user.example`, explaining that an operator sets it only for a non-default native-daemon port.
+- [ ] Add lifecycle tests with fake `start.sh` and `curl` executables. The ordinary-start test must record the ordered Atlas calls, show that `compose validate` materializes `LLM_PROVIDER_SOURCE=ollama-localhost`, and require the preflight before the detach call. Add failures for a changed source, a malformed/out-of-range port, missing `curl`, and a failed `/api/version` response. Exercise `atlas.env.user` values that attempt `COMFYUI_SOURCE=auto`, `container-cpu`, or `container-gpu`, and conflicting parent-shell exports. Assert that the diagnostics tell the operator to start native Ollama and that none invokes `ollama serve`, `docker`, or a container-source flag.
+- [ ] Implement the smallest non-evaluating helper needed to read the final materialized `.env` values and any explicit consumer-local ComfyUI override. In `atlas-up.sh`, clear inherited policy variables and run the host check only after `env backfill`, consumer compose validation, and doctor pass, and only in ordinary start mode. When `atlas.env.user` explicitly declares `COMFYUI_SOURCE`, permit only `disabled`, `localhost`, or `managed-localhost-mps`; reject `auto` and every containerized source. When it is absent, leave the pinned default for the final `ml-eng` track to disable. Do not add a source flag to Atlas’s command line. Use a loopback URL plus `curl --disable --noproxy '*'` for the host-side check; Atlas itself routes its containers through `host.docker.internal`.
+- [ ] Extend repository verification with a stable Atlas-manifest finding that enforces the same source policy without requiring Docker, curl, a host Ollama installation, or local runtime state.
+
+Run:
+
+```bash
+uv run pytest tests/test_atlas_consumer_contract.py tests/test_atlas_lifecycle.py tests/test_verify_repo.py -q
+bash -n scripts/atlas-up.sh scripts/lib/atlas-dotenv.sh
+make atlas-contract
+git diff --check
+```
+
+Expected: static CI remains non-live; a normal local start cannot reach detach unless the manifest resolves to native host Ollama and the daemon answers on loopback; no consumer source can select a containerized Ollama or ComfyUI.
+
+- [ ] Commit the policy enforcement slice.
+
+```bash
+git add atlas.consumer.yml atlas.env.user.example scripts/atlas-up.sh scripts/lib/atlas-dotenv.sh scripts/verify_repo.py tests/test_atlas_consumer_contract.py tests/test_atlas_lifecycle.py tests/test_verify_repo.py
+git commit -m "feat: require native Ollama for Atlas"
+```

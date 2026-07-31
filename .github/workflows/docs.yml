@@ -4,10 +4,13 @@ on:
   pull_request:
     paths:
       - 'docs/**'
+      - 'docs/manifest.yaml'
       - 'notebooks/**/README.md'
       - 'notebooks/**/docs/spec.yaml'
       - 'mkdocs.yml'
       - 'scripts/docs/**'
+      - 'scripts/docs/notebook_infrastructure.py'
+      - 'tests/test_notebook_infrastructure.py'
       - 'docs-requirements.txt'
       - 'Makefile'
       - '.github/workflows/docs.yml'
@@ -45,4 +48,4 @@ jobs:
         run: ruff check scripts/docs/
 
       - name: Unit tests (docs scripts)
-        run: pytest tests/test_manifest.py tests/test_links.py tests/test_transforms.py tests/test_render_diagrams.py tests/test_build_docs.py tests/test_wiki.py tests/test_check_docs.py tests/test_push_wiki.py -v
+        run: pytest tests/test_manifest.py tests/test_notebook_infrastructure.py tests/test_links.py tests/test_transforms.py tests/test_render_diagrams.py tests/test_build_docs.py tests/test_wiki.py tests/test_check_docs.py tests/test_push_wiki.py -v

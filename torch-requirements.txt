@@ -1,4 +1,4 @@
-# Matched to genai-vanilla jupyterhub image versions (Phase 1).
+# PyG extensions matched to the local/CI Torch compatibility baseline.
 # Install torch-core-requirements.txt first when source builds are possible;
 # this include keeps audit/install commands that reference only this file
 # complete.

@@ -70,8 +70,9 @@ The recipe (condensed from `CONTRIBUTING.md` §3) is:
    `scripts/verify_repo_config.yaml` (copy the canonical six-section block for
    a standard task).
 5. If the notebook is Tier-A, also add its path to `tier_a_notebooks` in the
-   same YAML **and** to the `TIER_A` list in `Makefile` (the CI workflow
-   uploads the same list as an artifact — keep them in sync).
+   same YAML **and** to the `TIER_A` list in `Makefile`. CI mirrors that list
+   under `/tmp/ml-tier-a/` before upload; keep the transformed workflow list
+   in sync as well.
 6. Add the task to the root README's active task table (§4.1).
 7. Tick the matching roadmap entry in README §8.
 8. YAGNI on nnx: only land a library feature when a concrete task needs it.
@@ -84,7 +85,7 @@ per-tier notebook lists (`TIER_A`, `TIER_B`, `TIER_C`).
 
 | Tier | Cost | Re-run policy | Local target |
 |---|---|---|---|
-| **A** | Cheap (<5 min) | Re-executed in place; outputs refreshed and committed. | `make run-tier-a` |
+| **A** | Cheap (<5 min) | `make run-tier-a` deliberately refreshes a committed snapshot; CI smoke-runs to `/tmp/ml-tier-a` without rewriting it. | `make run-tier-a` / `make smoke-tier-a` |
 | **B** | Moderate (model-selection sweeps) | Original outputs preserved. Smoke-run with `SMOKE_TEST=1` to `/tmp/`. | `make smoke-tier-b` |
 | **C** | Expensive (main GPU training) | Historical Aug-2023 GPU outputs preserved as artifact. Smoke-run with `SMOKE_TEST=1` to `/tmp/`. | `make smoke-tier-c` |
 
@@ -103,17 +104,19 @@ injected shape against papermill parser drift.
 ### What CI runs
 
 - **Tier-A, every PR and every push to `main`:** the `tier-a-papermill` job
-  runs `make run-tier-a`, then `make check-tier-a-clean` to fail if execution
-  changed any tracked output. Refreshed outputs are uploaded as a 7-day
-  artifact so a maintainer can recover them without a local re-run. The job
-  has a 90-minute cap: Linux GH runners are roughly 3–4× slower than a macOS
+  runs `make smoke-tier-a`, writes fresh copies under `/tmp/ml-tier-a`, then
+  runs `make check-tier-a-artifacts` and `make check-tier-a-clean` to prove
+  every output exists and execution did not rewrite tracked source notebooks.
+  Those fresh copies are uploaded as a 7-day artifact; committed notebook
+  outputs are refreshed only deliberately with `make run-tier-a`. The job has
+  a 90-minute cap: Linux GH runners are roughly 3–4× slower than a macOS
   M-series CPU for the hand-coded numpy training loop in
   `image_classification-mnist-ffnn-numpy`.
 - **Tier-B:** runs on the weekly schedule, on `workflow_dispatch`, and on PRs
   labeled `tier-b-smoke`. Writes to `/tmp/ml-smoke`; never touches committed
   outputs.
 - **Tier-C:** runs on the weekly schedule and on `workflow_dispatch` only.
-- **Both smoke tiers** execute each notebook from its own task directory
+- **All smoke targets** execute each notebook from its own task directory
   (papermill `cwd` = the notebook's folder), so relative paths behave like an
   interactive run. Training/evaluation may therefore create ignored
   task-local `./data/` or `./runs/` artifacts even when source outputs are
@@ -216,9 +219,12 @@ pages before they reach the published site.
 1. `make verify` (fast, <30 s) — must exit 0.
 2. `make test` locally; CI additionally runs `make test-nnx-surface`.
 3. `make lint`.
-4. If you touched a notebook: re-run it at the right tier (`make run-tier-a`,
-   `make smoke-tier-b`, `make smoke-tier-c`). For Tier-A, also run
-   `make check-tier-a-clean` to confirm outputs are committed.
+4. If you touched a notebook: re-run it at the right tier (`make run-tier-a`
+   for an intentional Tier-A snapshot refresh, `make smoke-tier-a` for a
+   non-mutating Tier-A execution, `make smoke-tier-b`, `make smoke-tier-c`).
+   After `make smoke-tier-a`, run `make check-tier-a-artifacts` and
+   `make check-tier-a-clean` to confirm the generated copies exist and sources
+   remained unchanged.
 5. If you touched docs: `make docs-check`.
 
 ## 5.5. Documentation convention

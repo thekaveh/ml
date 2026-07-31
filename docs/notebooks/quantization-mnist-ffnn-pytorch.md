@@ -8,13 +8,14 @@ dissects the PTQ vs QAT contracts, reads the code top to bottom, reports the mea
 accuracy / size / latency comparison, and catalogues the pitfalls and extensions.
 
 The notebook is **manual-only** — it is *not* in the Tier-A/B/C papermill targets and is not
-re-executed in CI. The reason is an upstream dependency pin: `torchao`'s `Int8WeightOnlyConfig`
-references `torch.int1`, which only exists in `torch >= 2.5`, while ml-eng-lab pins
-`torch==2.4.1` for genai-vanilla image parity. No `torchao` version satisfies both `nnx`'s API
-requirement and the torch-2.4.1 import surface; the 2026-06-15 weekly `smoke-tier-b` cron confirmed
-this (`AttributeError: module 'torch' has no attribute 'int1'`). See `README.md` §4 and issue #10
-for the full rationale. The committed notebook outputs were produced in a side environment with
-`torch >= 2.5` + `torchao >= 0.17`.
+re-executed in CI. `torchao`'s `Int8WeightOnlyConfig` references `torch.int1`, which only exists
+in `torch >= 2.5`, while the local/CI contract pins `torch==2.4.1`. No `torchao` version satisfies
+both `nnx`'s API requirement and that local/CI import surface; the 2026-06-15 weekly
+`smoke-tier-b` cron confirmed this (`AttributeError: module 'torch' has no attribute 'int1'`).
+Atlas JupyterHub has a newer observed package surface, but the complete PTQ/QAT notebook has not
+yet been smoked there, so package availability does not change the manual-only classification.
+See `README.md` §4 and issue #10 for the full rationale. The committed notebook outputs were
+produced in a side environment with `torch >= 2.5` + `torchao >= 0.17`.
 
 This notebook belongs to the "efficient/compressed MLP" family: where §8.5 edits the architecture
 and §8.7 drives the weights sparse, quantization keeps the architecture and sparsity fixed and
@@ -62,7 +63,7 @@ smallest size at a measurable accuracy cost that a longer training budget would 
 | Per-channel scales | One scale per output channel; finer than per-tensor quantization |
 | int4 groupsize 32 | 4-bit weights grouped in blocks of 32; hidden widths must divide 32 |
 | `QATLifecycleCallback` | `on_train_begin` inserts fake-quant; `on_train_end` converts to truly-quantized |
-| Manual-only (CI-excluded) | torchao requires torch>=2.5; repo pins torch==2.4.1 |
+| Manual-only (CI-excluded) | local/CI Torch 2.4.1 cannot import the required torchao path; Atlas smoke pending |
 
 The `nnx` surface consumed is: `NNModel`, `NNParams`, `NNModelParams`, `NNTrainParams`,
 `NNOptimParams`, `NNDataset`, `Activations`, `Devices`, `Losses`, `Nets`, `Optims`, `set_seed`, and
@@ -260,16 +261,15 @@ and accelerator hardware.
 
 ## 8.8.7 Pitfalls & edge cases
 
-- **Manual-only — does not run in CI or the recommended genai-vanilla runtime.** This is the
-  load-bearing pitfall. `torchao >= 0.9.0` (the earliest version exposing the
-  `Int8WeightOnlyConfig` API `nnx.quantize_int8` calls) references `torch.int1` at import time.
-  `torch.int1` was added in `torch 2.5`; ml-eng-lab pins `torch==2.4.1` for genai-vanilla image
-  parity. **No torchao version satisfies both nnx's API requirement and the torch-2.4.1 import
-  surface**, so the notebook cannot execute under CI's pinned environment. The 2026-06-15 weekly
-  `smoke-tier-b` cron confirmed this (`AttributeError: module 'torch' has no attribute 'int1'`).
-  To run locally, use a side environment with `torch >= 2.5` and `torchao >= 0.17`. See
-  [issue #10](https://github.com/thekaveh/ml-eng-lab/issues/10) for full context. The committed
-  notebook outputs were produced under `torch 2.8.0`.
+- **Manual-only — does not run in CI.** This is the load-bearing pitfall. `torchao >= 0.9.0`
+  (the earliest version exposing the `Int8WeightOnlyConfig` API `nnx.quantize_int8` calls)
+  references `torch.int1` at import time. `torch.int1` was added in Torch 2.5, while local/CI
+  pins `torch==2.4.1`. **No torchao version satisfies both nnx's API requirement and the local/CI
+  Torch 2.4.1 import surface**, so the notebook cannot execute under CI's pinned environment.
+  Atlas has a newer package layer, but needs a complete PTQ/QAT smoke before this task can use it
+  as runtime evidence. To run locally, use a side environment with `torch >= 2.5` and
+  `torchao >= 0.17`. See [issue #10](https://github.com/thekaveh/ml-eng-lab/issues/10) for full
+  context. The committed notebook outputs were produced under `torch 2.8.0`.
 - **8da4w is aggressive (4-bit weights).** At the short training budget used here for CPU
   feasibility (3 epochs), QAT recovery is partial (44.53% vs FP32's 53.48%). Longer schedules
   typically close most of the gap; do not read the recorded QAT accuracy as the achievable 8da4w

@@ -18,6 +18,7 @@ tree under `docs/` by the pipeline in `scripts/docs/`. Section 2 below describes
 - `scripts/docs/` owns the three-surface documentation pipeline (manifest, transforms,
   renderers, checker).
 - `Makefile` owns notebook execution tiers and local validation targets.
+- `infra/` pins Atlas; its `ml-eng` JupyterHub runtime is the default remote notebook kernel.
 - `docs/` holds the canonical documentation sources plus maintenance logs and findings.
 - `.github/workflows/` contains CI and documentation publishing workflows.
 
@@ -45,6 +46,8 @@ and determinism. The canonical sources are written once; every surface is a tran
 
 - [System & context view](architecture.md) for the repository context, the system diagram,
   and the three-surface pipeline.
+- [Atlas pin-bump and service-admission runbook](atlas-pin-bump-runbook.md) for the infrastructure
+  ownership boundary, native Ollama rule, and future service workflow.
 - [Tabular classification — Iris MLP](notebooks/tabular_classification-iris-mlp-pytorch.md)
   for the exemplar comprehensive deep-dive — the canonical walk-through of one notebook end to
   end (problem, math, architecture, code, results, pitfalls, extensions).

@@ -108,8 +108,9 @@ access; service admission is a separate reviewed change.
 The authoritative lists are `Makefile` (`TIER_A`, `TIER_B`, and `TIER_C`) and
 `scripts/verify_repo_config.yaml` (`tier_a_notebooks`).
 
-- **Tier A:** `make run-tier-a` executes the cheap notebooks in place; CI checks the resulting
-  tracked outputs.
+- **Tier A:** `make run-tier-a` intentionally refreshes an in-place snapshot. CI instead runs
+  `make smoke-tier-a`, writes generated copies to `/tmp/ml-tier-a`, verifies every expected copy,
+  checks that tracked source notebooks remain unchanged, and uploads those copies as an artifact.
 - **Tier B:** `make smoke-tier-b` writes parameterized smoke outputs to `/tmp/ml-smoke`.
 - **Tier C:** `make smoke-tier-c` runs the expensive Reddit training pipelines in smoke mode;
   preserved code cells remain guarded by the baseline verifier.

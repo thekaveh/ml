@@ -1531,6 +1531,32 @@ def test_runtime_available_requires_pyg_extension_stack(monkeypatch):
     assert verify_repo._runtime_available() is False
 
 
+def test_full_execution_uses_temporary_tier_a_outputs(tmp_path, monkeypatch):
+    verify_repo = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(verify_repo, "ACTIVE_TASK_DIRS", ())
+    monkeypatch.setattr(verify_repo, "REQUIRED_SECTIONS", {})
+    monkeypatch.setattr(verify_repo, "TIER_A_NOTEBOOKS", ())
+    monkeypatch.setattr(verify_repo, "_phase3_code_cells_unchanged", lambda _repo: [])
+    monkeypatch.setattr(verify_repo, "_runtime_available", lambda: True)
+
+    def fake_run(cmd, cwd, timeout=None):
+        del cwd, timeout
+        calls.append(cmd)
+        return 0, "", ""
+
+    monkeypatch.setattr(verify_repo, "_run", fake_run)
+
+    verify_repo.check_execution(repo, fast=False)
+
+    assert ["make", "smoke-tier-a"] in calls
+    assert ["make", "check-tier-a-artifacts"] in calls
+    assert ["make", "check-tier-a-clean"] in calls
+    assert ["make", "run-tier-a"] not in calls
+
+
 def test_required_sections_loaded_from_yaml_config():
     """The verify_repo_config.yaml should be the source of truth for the
     REQUIRED_SECTIONS table."""
@@ -2109,6 +2135,7 @@ def test_ci_runs_atlas_workflow_contract_tests():
         "'atlas_contract_workflow or "
         "atlas_docs_preserve_mounted_workspace_and_track_ownership or "
         "ci_covers_gitflow_pr_targets or "
+        "ci_tier_a_uses_temporary_outputs_and_preserves_sources or "
         "docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or "
         "ci_runs_atlas_workflow_contract_tests'"
     )
@@ -2118,6 +2145,33 @@ def test_ci_covers_gitflow_pr_targets():
     workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
 
     assert set(workflow["on"]["pull_request"]["branches"]) == {"develop", "main"}
+
+
+def test_ci_tier_a_uses_temporary_outputs_and_preserves_sources():
+    verify_repo = _load_verify_module()
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    steps = workflow["jobs"]["tier-a-papermill"]["steps"]
+
+    execute = next(step for step in steps if step.get("name") == "Run Tier-A notebooks (papermill)")
+    artifacts = next(
+        step for step in steps if step.get("name") == "Check Tier-A temporary notebook outputs"
+    )
+    clean = next(step for step in steps if step.get("name") == "Check Tier-A source notebooks are unchanged")
+    artifact = next(step for step in steps if step.get("name") == "Upload refreshed notebook outputs as artifact")
+    artifact_paths = tuple(
+        line.strip()
+        for line in artifact["with"]["path"].splitlines()
+        if line.strip()
+    )
+
+    assert execute["run"] == "make smoke-tier-a"
+    assert artifacts["run"] == "make check-tier-a-artifacts"
+    assert clean["run"] == "make check-tier-a-clean"
+    assert artifact["with"]["if-no-files-found"] == "error"
+    assert artifact_paths == tuple(
+        f"/tmp/ml-tier-a/{notebook}" for notebook in verify_repo.TIER_A_NOTEBOOKS
+    )
+    assert "TIER_A_OUT ?= /tmp/ml-tier-a" in (REPO / "Makefile").read_text(encoding="utf-8")
 
 
 def test_atlas_docs_preserve_mounted_workspace_and_track_ownership():
@@ -2508,7 +2562,7 @@ def test_ci_tier_a_artifact_paths_parse_workflow(tmp_path):
 def test_e12_tier_a_artifact_paths_match_config():
     verify_repo = _load_verify_module()
     assert verify_repo._ci_tier_a_artifact_paths(REPO) == tuple(
-        verify_repo.TIER_A_NOTEBOOKS
+        f"/tmp/ml-tier-a/{notebook}" for notebook in verify_repo.TIER_A_NOTEBOOKS
     )
     r = run_verify("--check", "execution", "--fast")
     data = json.loads(r.stdout) if r.stdout else {"findings": []}

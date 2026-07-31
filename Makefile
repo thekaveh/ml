@@ -1,12 +1,13 @@
 # Notebook re-execution targets, organized by execution-cost tier.
 #
-# Tier A: cheap (<5 min), re-executed in place (refreshes outputs).
+# Tier A: cheap (<5 min), re-executed in place only when deliberately refreshing
+# committed snapshots; CI writes generated copies to a temporary output tree.
 # Tier B: moderate, smoke-runs to /tmp (preserves original outputs).
 # Tier C: expensive, smoke-runs via SMOKE_TEST parameter to /tmp.
 #
-# Tier A is what CI runs on every PR. B/C smoke targets can run locally or via
-# workflow_dispatch; CI also runs both on the weekly schedule and Tier B on PRs
-# labeled `tier-b-smoke`.
+# Tier A's temporary-output smoke target runs on every PR. B/C smoke targets can
+# run locally or via workflow_dispatch; CI also runs both on the weekly schedule
+# and Tier B on PRs labeled `tier-b-smoke`.
 #
 # All targets assume the selected Python can run papermill and the notebooks'
 # kernel can import nnx. nnx is consumed from PyPI via the `thekaveh-nnx[lm]==0.2.0`
@@ -72,13 +73,17 @@ TIER_C := \
     notebooks/node_classification-reddit-gnn-pyg/phase3-main-model-training-and-eval-notebook4.ipynb
 
 SMOKE_OUT := /tmp/ml-smoke
+TIER_A_OUT ?= /tmp/ml-tier-a
+TIER_A_OUT_ABS := $(abspath $(TIER_A_OUT))
 
-.PHONY: help run-tier-a check-tier-a-clean smoke-tier-b smoke-tier-c test test-nnx-surface lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
+.PHONY: help run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test test-nnx-surface lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
 
 help:
 	@echo "Targets:"
-	@echo "  run-tier-a        Re-execute Tier-A notebooks in place. CI runs this on every PR."
-	@echo "  check-tier-a-clean Fail if Tier-A notebook execution changed tracked outputs."
+	@echo "  run-tier-a        Re-execute Tier-A notebooks in place to deliberately refresh snapshots."
+	@echo "  smoke-tier-a      Execute Tier-A notebooks into $(TIER_A_OUT_ABS)/ without changing source notebooks."
+	@echo "  check-tier-a-artifacts Fail if a Tier-A temporary notebook output is missing or empty."
+	@echo "  check-tier-a-clean Fail if Tier-A execution changed tracked source notebooks."
 	@echo "  smoke-tier-b      Papermill Tier-B notebooks with SMOKE_TEST=1 to $(SMOKE_OUT)/ (preserves source outputs)."
 	@echo "  smoke-tier-c      Papermill Tier-C notebooks with SMOKE_TEST=1 to $(SMOKE_OUT)/."
 	@echo "  test              Run pytest on tests/ directory."
@@ -120,6 +125,24 @@ run-tier-a:
 		echo "==> $$nb"; \
 		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
 		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 "$$base" "$$base") || exit 1; \
+	done
+
+smoke-tier-a:
+	@for nb in $(TIER_A); do \
+		out="$(TIER_A_OUT_ABS)/$$nb"; \
+		echo "==> $$nb -> $$out"; \
+		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
+		mkdir -p "$$(dirname "$$out")"; \
+		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 "$$base" "$$out") || exit 1; \
+	done
+
+check-tier-a-artifacts:
+	@for nb in $(TIER_A); do \
+		out="$(TIER_A_OUT_ABS)/$$nb"; \
+		if [ ! -s "$$out" ]; then \
+			printf 'missing expected Tier-A notebook output: %s\n' "$$out" >&2; \
+			exit 1; \
+		fi; \
 	done
 
 check-tier-a-clean:

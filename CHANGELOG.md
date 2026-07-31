@@ -13,6 +13,11 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
   host-native Ollama and disables containerized/automatic AI engine sources; documentation now
   records the Atlas ownership boundary, package evidence, pin-bump runbook, service-admission
   path, and normal volume-preserving lifecycle.
+- **Tier-A papermill CI:** execution now writes each generated notebook to a mirrored
+  `/tmp/ml-tier-a/notebooks/...` artifact tree, verifies every expected output exists, and checks
+  that tracked source notebooks remain untouched. `make run-tier-a` remains the explicit local
+  command for intentionally refreshing committed snapshots; this replaces the unreliable
+  output-diff gate affected by timestamps, runner paths, progress output, and rendered figures.
 
 ## [0.1.0] - 2026-07-07
 

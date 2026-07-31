@@ -143,9 +143,9 @@ NNx is not extended inside this repo. The workflow is always:
 3. **Bump the pin in `requirements.txt`** (e.g.
    `thekaveh-nnx[lm]==0.2.0` → `thekaveh-nnx[lm]==0.2.1`) and open a PR here. CI
    re-runs automatically:
-   - **Tier-A papermill** (`make run-tier-a` in CI) re-executes every Tier-A
-     notebook against the new version. This is the primary regression gate for
-     API-surface changes (constructor signatures, enum values, default
+   - **Tier-A papermill** (`make smoke-tier-a` in CI) re-executes every Tier-A
+     notebook against the new version into temporary artifacts. This is the
+     primary regression gate for API-surface changes (constructor signatures, enum values, default
      arguments). PRs #15 through #20 established that a clean Tier-A run takes
      ~50-55 minutes on the Linux GH runner.
    - **`pytest-nnx-surface`** runs the static guards that catch constructor-call

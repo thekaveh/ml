@@ -93,6 +93,7 @@ DEFAULT_SUBPROCESS_TIMEOUT = 120
 ACTIVE_TASK_DIRS: tuple[str, ...] = ()
 REQUIRED_SECTIONS: dict[str, tuple[str, ...]] = {}
 TIER_A_NOTEBOOKS: tuple[str, ...] = ()
+TIER_A_CI_OUTPUT_ROOT = "/tmp/ml-tier-a"
 _apply_config(_load_config())
 
 README_REQUIRED_H2 = (
@@ -2030,16 +2031,24 @@ def check_execution(repo: Path, fast: bool) -> CheckResult:
             location=".github/workflows/ci.yml:tier-a-papermill",
             message="Tier-A artifact upload paths are missing or empty",
         ))
-    elif ci_tier_a_artifacts != TIER_A_NOTEBOOKS:
+    elif ci_tier_a_artifacts != tuple(
+        f"{TIER_A_CI_OUTPUT_ROOT}/{notebook}" for notebook in TIER_A_NOTEBOOKS
+    ):
         result.findings.append(Finding(
             id="E12.tier_a_artifact_paths_drift",
             check="execution",
             severity="error",
             location=".github/workflows/ci.yml:tier-a-papermill",
-            message="Tier-A artifact upload paths drifted from verifier config",
+            message="Tier-A temporary artifact paths drifted from verifier config",
             detail={
-                "artifact_only": sorted(set(ci_tier_a_artifacts) - set(TIER_A_NOTEBOOKS)),
-                "config_only": sorted(set(TIER_A_NOTEBOOKS) - set(ci_tier_a_artifacts)),
+                "artifact_only": sorted(
+                    set(ci_tier_a_artifacts)
+                    - {f"{TIER_A_CI_OUTPUT_ROOT}/{notebook}" for notebook in TIER_A_NOTEBOOKS}
+                ),
+                "config_only": sorted(
+                    {f"{TIER_A_CI_OUTPUT_ROOT}/{notebook}" for notebook in TIER_A_NOTEBOOKS}
+                    - set(ci_tier_a_artifacts)
+                ),
             },
         ))
 
@@ -2058,13 +2067,29 @@ def check_execution(repo: Path, fast: bool) -> CheckResult:
             # Timeouts mirror the CI caps in .github/workflows/ci.yml
             # (tier-a-papermill 90 min, smoke-tier-b/c 180 min each). Without
             # local caps a hung papermill cell blocks the verifier indefinitely.
-            rc, _, err = _run(["make", "run-tier-a"], repo, timeout=5400)
+            rc, _, err = _run(["make", "smoke-tier-a"], repo, timeout=5400)
             if rc != 0:
                 result.findings.append(Finding(
                     id="E1.tier_a_failed", check="execution", severity="error",
-                    location="Makefile:run-tier-a",
+                    location="Makefile:smoke-tier-a",
                     message=f"failed: {err.strip()[-300:]}",
                 ))
+            else:
+                rc, _, err = _run(["make", "check-tier-a-artifacts"], repo)
+                if rc != 0:
+                    result.findings.append(Finding(
+                        id="E1.tier_a_failed", check="execution", severity="error",
+                        location="Makefile:check-tier-a-artifacts",
+                        message=f"output check failed: {err.strip()[-300:]}",
+                    ))
+                else:
+                    rc, _, err = _run(["make", "check-tier-a-clean"], repo)
+                    if rc != 0:
+                        result.findings.append(Finding(
+                            id="E1.tier_a_failed", check="execution", severity="error",
+                            location="Makefile:check-tier-a-clean",
+                            message=f"source clean check failed: {err.strip()[-300:]}",
+                        ))
             rc, _, err = _run(["make", "smoke-tier-b"], repo, timeout=10800)
             if rc != 0:
                 result.findings.append(Finding(

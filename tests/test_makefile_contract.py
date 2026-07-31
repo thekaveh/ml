@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_SUBPROCESS_TIMEOUT = 30
@@ -84,6 +86,117 @@ def test_atlas_down_only_requests_cold_shutdown_when_explicit():
 
     assert "--cold" not in warm.stdout
     assert cold.stdout.splitlines() == ["./scripts/atlas-down.sh --cold"]
+
+
+def test_smoke_tier_a_writes_to_temporary_outputs_without_mutating_sources(
+    tmp_path: Path,
+) -> None:
+    sources = (
+        tmp_path / "notebooks" / "first" / "notebook.ipynb",
+        tmp_path / "notebooks" / "second" / "notebook.ipynb",
+    )
+    for index, source in enumerate(sources, start=1):
+        source.parent.mkdir(parents=True)
+        source.write_text(f"source notebook {index}\n", encoding="utf-8")
+    output_root = tmp_path / "tier-a-output"
+    fake_papermill = tmp_path / "papermill"
+    fake_papermill.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'input="${@: -2:1}"\n'
+        'output="${@: -1}"\n'
+        'mkdir -p "$(dirname "$output")"\n'
+        'printf "rendered:%s\\n" "$input" > "$output"\n',
+        encoding="utf-8",
+    )
+    fake_papermill.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "make",
+            "-f",
+            str(REPO_ROOT / "Makefile"),
+            "smoke-tier-a",
+            "TIER_A=notebooks/first/notebook.ipynb notebooks/second/notebook.ipynb",
+            f"TIER_A_OUT={output_root}",
+            f"PAPERMILL={fake_papermill}",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert tuple(source.read_text(encoding="utf-8") for source in sources) == (
+        "source notebook 1\n",
+        "source notebook 2\n",
+    )
+    assert tuple(
+        (output_root / "notebooks" / task / "notebook.ipynb").read_text(encoding="utf-8")
+        for task in ("first", "second")
+    ) == ("rendered:notebook.ipynb\n", "rendered:notebook.ipynb\n")
+
+
+def test_check_tier_a_artifacts_accepts_every_nonempty_mirrored_output(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "tier-a-output"
+    tier_a = "notebooks/first/notebook.ipynb notebooks/second/notebook.ipynb"
+    for task in ("first", "second"):
+        output = output_root / "notebooks" / task / "notebook.ipynb"
+        output.parent.mkdir(parents=True)
+        output.write_text(f"{task} output\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "make",
+            "-f",
+            str(REPO_ROOT / "Makefile"),
+            "check-tier-a-artifacts",
+            f"TIER_A={tier_a}",
+            f"TIER_A_OUT={output_root}",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("empty_output", (False, True))
+def test_check_tier_a_artifacts_reports_a_missing_or_empty_mirrored_output(
+    tmp_path: Path, empty_output: bool
+) -> None:
+    output_root = tmp_path / "tier-a-output"
+    existing = output_root / "notebooks" / "first" / "notebook.ipynb"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("first output\n", encoding="utf-8")
+    if empty_output:
+        empty = output_root / "notebooks" / "second" / "notebook.ipynb"
+        empty.parent.mkdir(parents=True)
+        empty.write_text("", encoding="utf-8")
+    tier_a = "notebooks/first/notebook.ipynb notebooks/second/notebook.ipynb"
+
+    result = subprocess.run(
+        [
+            "make",
+            "-f",
+            str(REPO_ROOT / "Makefile"),
+            "check-tier-a-artifacts",
+            f"TIER_A={tier_a}",
+            f"TIER_A_OUT={output_root}",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode != 0
+    assert "missing expected Tier-A notebook output" in result.stderr
 
 
 def test_atlas_targets_are_documented_and_phony():

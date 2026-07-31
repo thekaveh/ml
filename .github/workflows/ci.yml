@@ -74,7 +74,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Test Atlas workflow contracts
-        run: pytest tests/test_verify_repo.py -q -k 'atlas_contract_workflow or atlas_docs_preserve_mounted_workspace_and_track_ownership or ci_covers_gitflow_pr_targets or docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or ci_runs_atlas_workflow_contract_tests'
+        run: pytest tests/test_verify_repo.py -q -k 'atlas_contract_workflow or atlas_docs_preserve_mounted_workspace_and_track_ownership or ci_covers_gitflow_pr_targets or ci_tier_a_uses_temporary_outputs_and_preserves_sources or docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or ci_runs_atlas_workflow_contract_tests'
 
       - name: Run repo verifier
         run: make verify
@@ -163,9 +163,12 @@ jobs:
         run: python -c "import nnx; print(nnx.__file__)"
 
       - name: Run Tier-A notebooks (papermill)
-        run: make run-tier-a
+        run: make smoke-tier-a
 
-      - name: Check Tier-A notebook outputs are committed
+      - name: Check Tier-A temporary notebook outputs
+        run: make check-tier-a-artifacts
+
+      - name: Check Tier-A source notebooks are unchanged
         run: make check-tier-a-clean
 
       - name: Upload refreshed notebook outputs as artifact
@@ -183,25 +186,26 @@ jobs:
           # Makefile TIER_B on 2026-06-16 and is now a manual-only task. See
           # Makefile TIER_B section for full rationale.)
           path: |
-            notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb
-            notebooks/tabular_classification-iris-mlp-pytorch/notebook.ipynb
-            notebooks/model_surgery-mnist-ffnn-pytorch/notebook.ipynb
-            notebooks/pruning-mnist-ffnn-pytorch/notebook.ipynb
-            notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb
-            notebooks/text_generation-tinyshakespeare-transformer-pytorch/notebook.ipynb
-            notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/notebook.ipynb
-            notebooks/dim_reduction-iris-autoencoder-pytorch/notebook.ipynb
-            notebooks/tabular_regression-diabetes-mlp-pytorch/notebook.ipynb
-            notebooks/diffusion-mnist-ddpm-pytorch/notebook.ipynb
-            notebooks/moe-fmnist-mixture-of-experts-pytorch/notebook.ipynb
-            notebooks/clustering-iris-kmeans-vs-ae-pytorch/notebook.ipynb
-            notebooks/link_prediction-karate-graphsage-pyg/notebook.ipynb
-            notebooks/community_detection-karate-louvain-vs-gnn-pyg/notebook.ipynb
-            notebooks/text_classification-agnews-spacy-mlp-pytorch/notebook.ipynb
-            notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb
-            notebooks/preference_alignment-toy-dpo-pytorch/notebook.ipynb
-            notebooks/self_supervised-fmnist-jepa-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/tabular_classification-iris-mlp-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/model_surgery-mnist-ffnn-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/pruning-mnist-ffnn-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/text_generation-tinyshakespeare-transformer-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/dim_reduction-iris-autoencoder-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/tabular_regression-diabetes-mlp-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/diffusion-mnist-ddpm-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/moe-fmnist-mixture-of-experts-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/clustering-iris-kmeans-vs-ae-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/link_prediction-karate-graphsage-pyg/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/community_detection-karate-louvain-vs-gnn-pyg/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/text_classification-agnews-spacy-mlp-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/preference_alignment-toy-dpo-pytorch/notebook.ipynb
+            /tmp/ml-tier-a/notebooks/self_supervised-fmnist-jepa-pytorch/notebook.ipynb
           retention-days: 7
+          if-no-files-found: error
 
   smoke-tier-b:
     runs-on: ubuntu-24.04

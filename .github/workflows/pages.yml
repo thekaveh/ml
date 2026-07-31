@@ -37,14 +37,8 @@ jobs:
       - name: Install documentation dependencies
         run: pip install -r docs-requirements.txt
 
-      - name: Render diagrams
-        run: python -m scripts.docs.render_diagrams
-
-      - name: Generate site input
-        run: python -m scripts.docs.build_docs --site
-
-      - name: Build documentation site
-        run: mkdocs build --strict
+      - name: Render, validate, and build documentation
+        run: make docs-check
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6

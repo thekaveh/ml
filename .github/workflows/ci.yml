@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [develop, main]
   pull_request:
     branches: [develop, main]
   workflow_dispatch:
@@ -74,7 +74,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Test Atlas workflow contracts
-        run: pytest tests/test_verify_repo.py -q -k 'atlas_contract_workflow or atlas_docs_preserve_mounted_workspace_and_track_ownership or ci_covers_gitflow_pr_targets or ci_tier_a_uses_temporary_outputs_and_preserves_sources or docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or ci_runs_atlas_workflow_contract_tests'
+        run: pytest tests/test_verify_repo.py -q -k 'atlas_contract_workflow or atlas_docs_preserve_mounted_workspace_and_track_ownership or ci_covers_gitflow_pr_targets or ci_tier_a_uses_temporary_outputs_and_preserves_sources or documentation_workflows_install_cairo_and_gate_pages_inputs or documentation_direct_dependencies_are_exactly_pinned or docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or ci_runs_atlas_workflow_contract_tests'
 
       - name: Run repo verifier
         run: make verify
@@ -87,6 +87,9 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
+
+      - name: Install system dependencies for cairosvg
+        run: sudo apt-get update && sudo apt-get install -y libcairo2
 
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6

@@ -2136,6 +2136,8 @@ def test_ci_runs_atlas_workflow_contract_tests():
         "atlas_docs_preserve_mounted_workspace_and_track_ownership or "
         "ci_covers_gitflow_pr_targets or "
         "ci_tier_a_uses_temporary_outputs_and_preserves_sources or "
+        "documentation_workflows_install_cairo_and_gate_pages_inputs or "
+        "documentation_direct_dependencies_are_exactly_pinned or "
         "docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or "
         "ci_runs_atlas_workflow_contract_tests'"
     )
@@ -2144,7 +2146,56 @@ def test_ci_runs_atlas_workflow_contract_tests():
 def test_ci_covers_gitflow_pr_targets():
     workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
 
+    assert set(workflow["on"]["push"]["branches"]) == {"develop", "main"}
     assert set(workflow["on"]["pull_request"]["branches"]) == {"develop", "main"}
+
+
+def test_documentation_workflows_install_cairo_and_gate_pages_inputs():
+    ci = _load_workflow(REPO / ".github/workflows/ci.yml")
+    docs = _load_workflow(REPO / ".github/workflows/docs.yml")
+    pages = _load_workflow(REPO / ".github/workflows/pages.yml")
+
+    for steps in (
+        ci["jobs"]["docs-build"]["steps"],
+        docs["jobs"]["check"]["steps"],
+        pages["jobs"]["build"]["steps"],
+        pages["jobs"]["wiki"]["steps"],
+    ):
+        assert any("libcairo2" in step.get("run", "") for step in steps)
+
+    required_paths = {
+        "README.md",
+        ".gitmodules",
+        "infra",
+        "atlas.consumer.yml",
+        "atlas.env.user.example",
+        "compose/**",
+        "scripts/atlas-*.sh",
+        "scripts/lib/atlas-dotenv.sh",
+        "docs-requirements.in",
+        ".github/workflows/pages.yml",
+    }
+    assert required_paths <= set(docs["on"]["pull_request"]["paths"])
+    assert any(
+        step.get("run") == "make docs-check"
+        for step in pages["jobs"]["build"]["steps"]
+    )
+
+
+def test_documentation_direct_dependencies_are_exactly_pinned():
+    requirements = {
+        line
+        for line in (REPO / "docs-requirements.in").read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    }
+
+    assert requirements == {
+        "mkdocs-material==9.7.7",
+        "pyyaml==6.0.3",
+        "cairosvg==2.9.0",
+        "ruff==0.9.10",
+        "pytest==9.0.3",
+    }
 
 
 def test_ci_tier_a_uses_temporary_outputs_and_preserves_sources():

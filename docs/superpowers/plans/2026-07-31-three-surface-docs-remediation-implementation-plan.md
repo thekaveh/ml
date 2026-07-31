@@ -263,17 +263,17 @@ git commit -m "docs: correct Atlas and publishing guidance"
 - Produces: hashed universal documentation lock installed by every docs workflow.
 - Produces: warning-free `docs-build`/`docs-check` commands and complete Gitflow trigger coverage.
 
-- [ ] **Step 1: Add failing workflow and Makefile contract tests**
+- [x] **Step 1: Add failing workflow and Makefile contract tests**
 
 Assert CI push and PR branches both equal `{develop, main}`, every diagram-rendering Ubuntu job installs `libcairo2`, docs path filters include README/Atlas/Pages inputs, Pages runs `python -m scripts.docs.check_docs`, and MkDocs commands receive `NO_MKDOCS_2_WARNING=1`.
 
-- [ ] **Step 2: Run tests and confirm RED**
+- [x] **Step 2: Run tests and confirm RED**
 
 Run: `pytest tests/test_verify_repo.py tests/test_makefile_contract.py -q -k 'docs or gitflow or cairo or mkdocs'`
 
 Expected: failures for missing develop push, Cairo, path inputs, Pages gate, and warning suppression.
 
-- [ ] **Step 3: Create and compile the documentation lock**
+- [x] **Step 3: Create and compile the documentation lock**
 
 Create `docs-requirements.in` with these exact direct requirements, selected to preserve the tested local toolchain while matching the current live Material release:
 
@@ -295,17 +295,17 @@ uv pip compile docs-requirements.in --universal --generate-hashes \
 
 The generated file must include exact versions and hashes for all transitive dependencies.
 
-- [ ] **Step 4: Harden Make and workflows**
+- [x] **Step 4: Harden Make and workflows**
 
 Add `NO_MKDOCS_2_WARNING=1` to MkDocs build/serve commands. Add `develop` to CI pushes; install `libcairo2` in CI docs-build; expand docs path filters; run the comprehensive checker in Pages before strict build; and ensure the wiki uses the same locked requirements.
 
-- [ ] **Step 5: Run focused tests and confirm GREEN**
+- [x] **Step 5: Run focused tests and confirm GREEN**
 
 Run: `pytest tests/test_verify_repo.py tests/test_makefile_contract.py -q`
 
 Expected: all workflow and Makefile contracts pass.
 
-- [ ] **Step 6: Commit the tooling slice**
+- [x] **Step 6: Commit the tooling slice**
 
 ```bash
 git add docs-requirements.in docs-requirements.txt Makefile .github/workflows tests

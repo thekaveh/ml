@@ -3,17 +3,33 @@ name: Docs gate
 on:
   pull_request:
     paths:
+      - 'README.md'
       - 'docs/**'
       - 'docs/manifest.yaml'
       - 'notebooks/**/README.md'
       - 'notebooks/**/docs/spec.yaml'
       - 'mkdocs.yml'
+      - '.gitmodules'
+      - 'infra'
+      - 'atlas.consumer.yml'
+      - 'atlas.env.user.example'
+      - 'compose/**'
+      - 'scripts/atlas-*.sh'
+      - 'scripts/lib/atlas-dotenv.sh'
       - 'scripts/docs/**'
       - 'scripts/docs/notebook_infrastructure.py'
       - 'tests/test_notebook_infrastructure.py'
+      - 'tests/test_build_docs.py'
+      - 'tests/test_check_docs.py'
+      - 'tests/test_manifest.py'
+      - 'tests/test_render_diagrams.py'
+      - 'tests/test_transforms.py'
+      - 'tests/test_wiki.py'
+      - 'docs-requirements.in'
       - 'docs-requirements.txt'
       - 'Makefile'
       - '.github/workflows/docs.yml'
+      - '.github/workflows/pages.yml'
 
 permissions:
   contents: read

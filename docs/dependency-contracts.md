@@ -3,7 +3,7 @@
 This ledger records consumed dependency contracts that are intentionally pinned,
 manual-only, or known to carry security/tooling constraints. It complements
 `requirements.txt`, `torch-core-requirements.txt`, `torch-requirements.txt`,
-`docs-requirements.txt`, and the CI workflow; the manifests remain the source
+`docs-requirements.in`, its compiled `docs-requirements.txt` lock, and the CI workflow; the manifests remain the source
 of truth for installation.
 
 ## 6.1.1 Audit Snapshot
@@ -36,6 +36,9 @@ just the package-level counts.
 Documentation-only CI jobs intentionally install `docs-requirements.txt` rather
 than the full ML runtime stack. This keeps MkDocs and GitHub Pages builds from
 resolving Torch, PyG, or NNx dependencies that are unrelated to rendered docs.
+The five direct documentation tools are exactly pinned in `docs-requirements.in`;
+`uv pip compile --universal --generate-hashes` locks their transitive dependencies
+in `docs-requirements.txt`, which CI installs without re-resolving an open range.
 The broader local development manifest still includes `mkdocs-material` so an
 existing full-dev install can run `make docs-build` without a second setup step.
 

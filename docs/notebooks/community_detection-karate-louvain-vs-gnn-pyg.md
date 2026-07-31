@@ -128,7 +128,7 @@ which does not explicitly separate within-community from between-community conne
 
 ## 8.15.5 Code walkthrough
 
-### Graph load and NetworkX conversion
+### 8.15.5.1 Graph load and NetworkX conversion
 
 ```python
 karate = KarateClub()
@@ -143,7 +143,7 @@ they are held back for evaluation only. `to_networkx(..., to_undirected=True)` c
 doubled directed edge storage (156 entries) into the 78 undirected edges that
 `python-louvain` expects.
 
-### Louvain (single call, no training)
+### 8.15.5.2 Louvain (single call, no training)
 
 ```python
 partition_louvain = community_louvain.best_partition(G_nx, random_state=0)
@@ -155,7 +155,7 @@ n_communities_louvain = len(set(pred_louvain))
 algorithm — Louvain does not need \(k\) handed to it, which is one of its operational advantages
 over KMeans.
 
-### GraphSAGE encoder training (link-prediction proxy)
+### 8.15.5.3 GraphSAGE encoder training (link-prediction proxy)
 
 ```python
 encoder = GraphSageNN(
@@ -186,7 +186,7 @@ This is the same encoder + dot-product + BCE recipe as §8.14.5, with two differ
 embedding for clustering, not held-out edge prediction), and the positive set is the full
 `data.edge_index` rather than a train-split `edge_label_index`.
 
-### KMeans on the trained embeddings
+### 8.15.5.4 KMeans on the trained embeddings
 
 ```python
 encoder.eval()
@@ -201,7 +201,7 @@ pred_gnn = km.predict(embeddings)
 Louvain has to discover \(k\) on its own. `n_init=10` reruns KMeans from ten random inits and
 keeps the best, which removes one source of clustering noise.
 
-### Agreement metrics
+### 8.15.5.5 Agreement metrics
 
 ```python
 ari_louvain = adjusted_rand_score(y_true, pred_louvain)

@@ -1,11 +1,11 @@
-# Diagram Provenance
+# 10 Diagram Provenance
 
 This directory holds the diagram **masters**: standalone, dark, HTML/SVG architecture
 artifacts produced by the architecture-diagram skill. Each master is the single source
 for one diagram; the docs pipeline derives per-surface artifacts from it so all three
 documentation surfaces embed the same geometry.
 
-## 1. Pipeline
+## 10.1 Pipeline
 
 Each diagram declared in `docs/manifest.yaml` (`diagrams[].master` → a file in this
 directory) is rendered once into two artifacts by `scripts/docs/render_diagrams.py` and
@@ -20,7 +20,7 @@ directory) is rendered once into two artifacts by `scripts/docs/render_diagrams.
 Because the same master feeds all three surfaces, diagrams never drift: updating a master
 and re-running the pipeline refreshes every surface.
 
-## 2. Current Artifacts
+## 10.2 Current Artifacts
 
 - `ml-eng-lab-system.html` — repository context and primary components (declared as
   `system` in the manifest; embedded by `docs/architecture.md`).
@@ -33,7 +33,7 @@ and re-running the pipeline refreshes every surface.
 - `ml-eng-lab-docs-sync.html` — the three-surface documentation sync pipeline (added with
   the docs-overhaul foundation).
 
-## 3. Generation Contract
+## 10.3 Generation Contract
 
 The checked-in HTML masters are the source of truth. Do not hand-edit generated geometry
 without updating this provenance note in the same change. When a diagram needs to change:
@@ -47,7 +47,7 @@ without updating this provenance note in the same change. When a diagram needs t
 4. Inspect the rendered diagram at normal browser zoom for overlapping labels, boxes,
    legends, or arrows before committing.
 
-## 4. Review Rules
+## 10.4 Review Rules
 
 - Diagram content must describe current repository behavior, not aspirational design.
 - Arrows and labels should remain readable on desktop and narrow screens.

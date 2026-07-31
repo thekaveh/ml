@@ -1,10 +1,10 @@
-# Atlas infrastructure migration design
+# 12.1 Atlas infrastructure migration design
 
 **Status:** Approved design
 **Date:** 2026-07-30
 **Decision:** Directly replace the legacy `vendor/genai-vanilla` runtime with Atlas, consumed as a pinned `infra/` Git submodule.
 
-## 1. Purpose
+## 12.1.1 Purpose
 
 `ml-eng-lab` is a notebook-first ML repository. Its existing JupyterHub path consumes a pinned
 `vendor/genai-vanilla` submodule plus a parent compose override and wrapper. That repository was
@@ -16,9 +16,9 @@ The result makes infrastructure ownership, notebook runtime dependencies, upgrad
 future ML-service expansion explicit and verifiable. It does not turn every future Atlas service
 on now.
 
-## 2. Researched constraints and decisions
+## 12.1.2 Researched constraints and decisions
 
-### 2.1 Consumer precedent
+### 12.1.2.1 Consumer precedent
 
 The current Atlas consumer model used by Tableau, RAG Showcase, Daydreams, and data-eng-lab is:
 
@@ -42,7 +42,7 @@ the newer reviewed Atlas `origin/main` revision observed during research:
 `61c7c5103660e2226bf107c115dae42bf46f8374` (2026-07-29). The implementation records that exact
 SHA as the `infra/` gitlink and does not add a `branch` field to `.gitmodules`.
 
-### 2.2 Atlas behavior that affects this repository
+### 12.1.2.2 Atlas behavior that affects this repository
 
 - `ml-eng` is the appropriate track. It contains JupyterHub and the future-facing ML services
   (including Spark, Ray, MinIO, MLflow, and Label Studio).
@@ -58,7 +58,7 @@ SHA as the `infra/` gitlink and does not add a `branch` field to `.gitmodules`.
   generated environment files, and local endpoint artifacts are never committed or embedded in
   notebook outputs.
 
-### 2.3 Existing lab constraints
+### 12.1.2.3 Existing lab constraints
 
 - There are 21 active task directories and 29 active Python 3.11 notebooks.
 - The normal user workflow is VS Code connecting to a remote Jupyter server while the `.ipynb`
@@ -72,9 +72,9 @@ SHA as the `infra/` gitlink and does not add a `branch` field to `.gitmodules`.
   repository dependency manifests against the chosen Atlas image before calling the runtime
   compatible. Quantization remains manual-only unless that validation proves otherwise.
 
-## 3. Scope and non-goals
+## 12.1.3 Scope and non-goals
 
-### In scope
+### 12.1.3.1 In scope
 
 - Replace the legacy submodule, compose override, launcher, verifier contract, and documentation
   with Atlas equivalents.
@@ -86,7 +86,7 @@ SHA as the `infra/` gitlink and does not add a `branch` field to `.gitmodules`.
 - Establish static CI, manual/scheduled live smoke coverage, and an Atlas pin-bump runbook.
 - Preserve local Docker, local venv, and Codespaces as supported non-Atlas execution paths.
 
-### Explicit non-goals
+### 12.1.3.2 Explicit non-goals
 
 - Enabling Spark, Ray, MinIO, MLflow, Label Studio, or other optional services merely because
   they belong to `ml-eng`.
@@ -95,7 +95,7 @@ SHA as the `infra/` gitlink and does not add a `branch` field to `.gitmodules`.
 - Editing files inside `infra/`.
 - Treating browser JupyterLab or container-attached VS Code as the primary workflow.
 
-## 4. Target architecture
+## 12.1.4 Target architecture
 
 ```mermaid
 flowchart LR
@@ -122,9 +122,9 @@ flowchart LR
 The parent repository owns intent and integration. Atlas owns infrastructure implementation and
 runtime state. Neither side duplicates the other's configuration.
 
-## 5. Repository shape and ownership
+## 12.1.5 Repository shape and ownership
 
-### 5.1 Add or replace
+### 12.1.5.1 Add or replace
 
 | Path | Owner | Responsibility |
 | --- | --- | --- |
@@ -144,7 +144,7 @@ The existing `vendor/genai-vanilla/`, `deploy/genai-vanilla-jupyterhub.override.
 `scripts/start-jupyterhub.sh` are removed only after their Atlas replacements pass the defined
 static and runtime gates. The final tree contains `infra/` and no legacy vendor seam.
 
-### 5.2 `atlas.consumer.yml`
+### 12.1.5.2 `atlas.consumer.yml`
 
 The manifest uses only Atlas-supported keys. Its durable contract is:
 
@@ -168,7 +168,7 @@ managed-MPS mode where applicable), never a ComfyUI container source.
 committed configuration, credentials, dynamic ports, or model choices. An operator may set a
 non-default `OLLAMA_LOCALHOST_PORT` there; the default is `11434`.
 
-### 5.3 Lifecycle commands
+### 12.1.5.3 Lifecycle commands
 
 `make atlas-up` delegates to `scripts/atlas-up.sh`, which resolves the repository root and uses
 an absolute manifest path. Its deterministic sequence is:
@@ -200,9 +200,9 @@ A cold stop removes volumes and is documented as an explicit data-loss action.
 local Atlas state and prints the VS Code connection workflow. It neither stores the token in the
 repository nor expects an unsupported Jupyter endpoint-export variable.
 
-## 6. Notebook execution contract
+## 12.1.6 Notebook execution contract
 
-### 6.1 Default: VS Code remote kernel
+### 12.1.6.1 Default: VS Code remote kernel
 
 The default mode is:
 
@@ -216,7 +216,7 @@ truth for committed notebooks. Relative runtime paths in this mode resolve in th
 work volume, so new task-local data and run artifacts are persistent in Atlas but not visible in
 the host checkout.
 
-### 6.2 Fallback: mounted workspace
+### 12.1.6.2 Fallback: mounted workspace
 
 The parent compose overlay mounts the local checkout at
 `/home/jovyan/work/ml-eng-lab`. Users select this mode by attaching VS Code to the Jupyter
@@ -226,7 +226,7 @@ This mode is required for the NumPy MNIST task, whose notebook imports sibling f
 `utils.py` and `feed_fwd_nn.py`. It is also the documented choice when task-local `data/` or
 `runs/` must be persisted on the host. Those paths remain ignored by Git.
 
-### 6.3 Per-task machine-readable metadata
+### 12.1.6.3 Per-task machine-readable metadata
 
 Each active task's existing `notebooks/<task>/docs/spec.yaml` gains:
 
@@ -258,7 +258,7 @@ The task metadata drives the generated table block in the canonical
 `docs/notebook-infrastructure.md` page. The documentation check compares the block to the
 metadata, and a validator prevents an active task from omitting or misspelling the contract.
 
-### 6.4 Future Atlas services
+### 12.1.6.4 Future Atlas services
 
 When a new or changed task needs Spark, Ray, MinIO, MLflow, Label Studio, or another Atlas
 service, its task spec is changed first. The same change then:
@@ -274,7 +274,7 @@ Notebook code uses only Atlas-provided in-network names and variables such as `S
 `localhost:<port>` fallbacks. A service's absence is an actionable configuration error, not an
 implicit optional code path.
 
-## 7. Dependency compatibility policy
+## 12.1.7 Dependency compatibility policy
 
 Atlas JupyterHub becomes the authoritative primary-runtime package contract. The repository's
 `requirements.txt`, `torch-core-requirements.txt`, `torch-requirements.txt`, Dockerfile, devcontainer
@@ -294,9 +294,9 @@ Tier A is re-executed only after this contract is confirmed. Tier B/C keep their
 preserved-output rules. The manual-only quantization designation changes only when its explicit
 Atlas runtime smoke succeeds; it is not inferred from a version number.
 
-## 8. Verification and CI
+## 12.1.8 Verification and CI
 
-### 8.1 Static Atlas contract job
+### 12.1.8.1 Static Atlas contract job
 
 An `atlas-contract` CI job is added for changes touching Atlas configuration, wrappers, docs, or
 the `infra` pointer. It:
@@ -310,7 +310,7 @@ the `infra` pointer. It:
 
 It does not start Docker services, expose ports, or need user credentials.
 
-### 8.2 Parent-repository checks
+### 12.1.8.2 Parent-repository checks
 
 - Update `scripts/verify_repo.py` from the hard-coded legacy submodule path to `infra/` and
   validate its clean gitlink/worktree state.
@@ -320,7 +320,7 @@ It does not start Docker services, expose ports, or need user credentials.
   no hard-coded host service endpoints in executable integration code, and the new verifier rules.
 - Keep existing `make verify`, `make test`, `make lint`, docs, NNx-surface, and papermill gates.
 
-### 8.3 Opt-in live runtime smoke
+### 12.1.8.3 Opt-in live runtime smoke
 
 A manual or scheduled Docker-backed job starts Atlas and confirms:
 
@@ -335,7 +335,7 @@ A manual or scheduled Docker-backed job starts Atlas and confirms:
 The live smoke is not an every-PR service start. It provides release evidence for Atlas pin bumps
 and runtime changes without making ordinary PR CI costly or secret-dependent.
 
-## 9. Documentation changes
+## 12.1.9 Documentation changes
 
 Canonical documentation is updated once and projected through the existing repository/site/wiki
 pipeline. The migration changes:
@@ -360,7 +360,7 @@ pipeline. The migration changes:
 The migration regenerates and validates all three documentation surfaces. Generated files remain
 uneditable outputs.
 
-## 10. Error handling and security
+## 12.1.10 Error handling and security
 
 - Startup fails early with a clear `git submodule update --init --recursive` instruction when
   `infra/` is absent or uninitialized.
@@ -381,9 +381,9 @@ uneditable outputs.
 - `atlas-down` is safe and project-scoped; `--cold` is documented separately because it destroys
   persisted volumes.
 
-## 11. Migration sequence and acceptance criteria
+## 12.1.11 Migration sequence and acceptance criteria
 
-### 11.1 Ordered migration
+### 12.1.11.1 Ordered migration
 
 1. Add the Atlas `infra/` gitlink, consumer manifest, ignored local-env template, overlay, and
    lifecycle helpers.
@@ -397,7 +397,7 @@ uneditable outputs.
 7. Run the full repository, documentation, and Atlas-contract checks; commit the exact `infra`
    gitlink with the final documentation changes.
 
-### 11.2 Definition of done
+### 12.1.11.2 Definition of done
 
 The migration is complete only when all of the following are true:
 

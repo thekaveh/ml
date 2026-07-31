@@ -1,6 +1,8 @@
 # tests/test_check_docs.py
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from scripts.docs.check_docs import (
@@ -12,7 +14,9 @@ from scripts.docs.check_docs import (
     check_self_containment,
     manifest_markdown_sources,
 )
-from scripts.docs.manifest import parse_manifest
+from scripts.docs.manifest import load_manifest, parse_manifest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 MANIFEST_YAML = """
 surfaces: [repo, site, wiki]
@@ -95,6 +99,22 @@ def test_manifest_markdown_sources_contains_sections_and_notebooks():
         "docs/index.md",
         "docs/notebooks/t.md",
     }
+
+
+def test_real_manifest_declares_every_canonical_markdown_file():
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    actual = {
+        str(path.relative_to(REPO_ROOT))
+        for path in (REPO_ROOT / "docs").rglob("*.md")
+    }
+
+    assert manifest_markdown_sources(manifest) == actual
+
+
+def test_real_manifest_sections_are_source_leaves_or_children_groups():
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+
+    assert all(bool(section.source) ^ bool(section.children) for section in manifest.sections)
 
 
 def test_numbering_requires_manifest_h1_and_hierarchical_children(tmp_path):

@@ -156,7 +156,7 @@ capacity bottleneck.
 
 ## 8.10.5 Code walkthrough
 
-### Denoiser construction and `.net` substitution
+### 8.10.5.1 Denoiser construction and `.net` substitution
 
 ```python
 model = NNModel(
@@ -175,7 +175,7 @@ scaffolding (optimizer wiring, learning-rate scheduler, the `NNRun` history obje
 denoiser replaces `.net`. Note `input_dim == output_dim == 784` for diffusion: the denoiser
 predicts a noise vector the same shape as the image.
 
-### Schedule + custom train step
+### 8.10.5.2 Schedule + custom train step
 
 ```python
 schedule = NoiseSchedulers.LINEAR(T=T)
@@ -196,7 +196,7 @@ The factory wires the schedule into a `train_step_fn(ctx)` that (1) samples a ra
 \(\text{MSE}(\hat{\varepsilon}, \varepsilon)\). The loop is otherwise identical to a
 supervised classifier's — only the train step differs.
 
-### Sampling and display un-normalization
+### 8.10.5.3 Sampling and display un-normalization
 
 ```python
 samples = sample(model, schedule, shape=(N_SAMPLES_GRID, IMG_DIM))

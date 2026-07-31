@@ -1,4 +1,4 @@
-# Dependency Contracts
+# 6.1 Dependency Contracts
 
 This ledger records consumed dependency contracts that are intentionally pinned,
 manual-only, or known to carry security/tooling constraints. It complements
@@ -6,7 +6,7 @@ manual-only, or known to carry security/tooling constraints. It complements
 `docs-requirements.txt`, and the CI workflow; the manifests remain the source
 of truth for installation.
 
-## 1. Audit Snapshot
+## 6.1.1 Audit Snapshot
 
 Last reviewed: 2026-07-04, on branch `codex/overnight-maintenance`.
 
@@ -66,7 +66,7 @@ Accepted advisory IDs from the 2026-07-04 audit. `pip-audit` currently emits
 | `pytorch-lightning` | `CVE-2026-31221` | 1 | none listed |
 | `nltk` | `PYSEC-2026-597` | 1 | none listed |
 
-## 2. Torch Stack Pin
+## 6.1.2 Torch Stack Pin
 
 `torch-core-requirements.txt` pins the core Torch stack:
 
@@ -97,7 +97,7 @@ Upgrade criteria:
    smoke Tier-B/Tier-C notebooks on Linux.
 4. Update README, environment docs, and this ledger in the same change.
 
-## 3. Manual-Only Quantization Notebook
+## 6.1.3 Manual-Only Quantization Notebook
 
 `notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb` depends on `torchao>=0.17`.
 That torchao API references `torch.int1` at import time, which is unavailable in
@@ -113,7 +113,7 @@ Do not add the quantization notebook back to `Makefile` Tier-A/B/C until the
 repository-wide local/CI Torch stack supports it. Atlas has a newer observed
 package surface, but package availability alone is not a full notebook smoke.
 
-## 4. Papermill CLI Contract
+## 6.1.4 Papermill CLI Contract
 
 `requirements.txt` pins `papermill==2.7.0` because notebook re-execution is a
 consumed CLI contract, not just a Python import. The Makefile invokes it as
@@ -140,7 +140,7 @@ Upgrade criteria:
 4. Run at least one cheap notebook target through `make run-tier-a` or a
    targeted papermill command from the notebook directory.
 
-## 5. External Assets
+## 6.1.5 External Assets
 
 `make nlp-assets` downloads:
 
@@ -152,7 +152,7 @@ They are not locked by checksum today. If reproducibility becomes stricter than
 the current educational-notebook standard, add a lock/verification mechanism and
 update this section.
 
-## 6. NNx PyPI Pin and Editable Override Boundary
+## 6.1.6 NNx PyPI Pin and Editable Override Boundary
 
 `requirements.txt` pins `thekaveh-nnx[lm]==0.2.0`. That PyPI distribution is
 the canonical contract for ml-eng-lab notebook verification and CI. The static
@@ -184,7 +184,7 @@ Expected release-contract state: version `0.2.0` and no editable
 `requirements.txt` before recording exact pinned-contract evidence, or document
 that the run intentionally used a local NNx development checkout.
 
-## 7. Atlas Infra Submodule Contract
+## 6.1.7 Atlas Infra Submodule Contract
 
 `.gitmodules` consumes `https://github.com/thekaveh/atlas.git` as the active
 `infra` submodule.
@@ -196,7 +196,7 @@ Consumer configuration is deliberately outside `infra/`: `atlas.consumer.yml`,
 native-source policy, and mount. Pin changes follow
 [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
 
-## 8. Atlas Jupyter Runtime Evidence
+## 6.1.8 Atlas Jupyter Runtime Evidence
 
 Last verified: 2026-07-30 against the pinned `ml-eng` Atlas track. The live
 runtime probe ran inside the JupyterHub container after the consumer mounted
@@ -217,7 +217,7 @@ checkout. This validates the consumer mount separately from package metadata.
 It does not turn a successful import into a completed training or performance
 smoke.
 
-## 9. Atlas Versus Local/CI Dependency Boundaries
+## 6.1.9 Atlas Versus Local/CI Dependency Boundaries
 
 Atlas's runtime image is infrastructure-owned and may advance independently of
 the checked-in local/CI manifests. The local/CI Torch 2.4.1 contract remains the
@@ -233,7 +233,7 @@ future reclassification requires a targeted Atlas notebook smoke as well as the
 local/CI compatibility decision; do not promote it based only on `torchao`
 metadata.
 
-## 10. GitHub Actions Pins
+## 6.1.10 GitHub Actions Pins
 
 Workflow actions are pinned to exact commit SHAs, with an inline version comment
 showing the reviewed upstream major tag. On 2026-07-04, the reviewed tag refs
@@ -254,7 +254,7 @@ Upgrade criteria:
 2. Update the workflow SHA and inline tag comment together.
 3. Parse workflow YAML and run the relevant local contract checks.
 
-## 11. Bootstrap Tooling Gap
+## 6.1.11 Bootstrap Tooling Gap
 
 The bootstrap paths still upgrade or install the Python packaging toolchain
 without exact pip/setuptools pins:
@@ -267,7 +267,7 @@ environment creation path and belongs with the coordinated dependency-lock
 work. Until then, maintenance passes should treat unexpected resolver behavior
 or build-isolation changes as dependency-contract findings.
 
-## 12. Deferred Reproducibility Hardening
+## 6.1.12 Deferred Reproducibility Hardening
 
 The current manifests still include floating and ranged Python dependencies, and
 the Docker/devcontainer bases are tag-pinned rather than digest-pinned. A full

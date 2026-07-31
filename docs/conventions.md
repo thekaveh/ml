@@ -1,4 +1,4 @@
-# 5. Repository conventions
+# 5 Repository conventions
 
 This page is the canonical reference for how the ml-eng-lab repository is
 organized, how its notebooks are kept runnable, which gates a change must pass,
@@ -10,7 +10,7 @@ dependency ledger behind the pins referenced here see
 [dependency-contracts.md](dependency-contracts.md); for the system view of the
 documentation pipeline see [architecture.md](architecture.md).
 
-## 5.1. Task-folder layout & naming
+## 5.1 Task-folder layout & naming
 
 Every active experiment lives in its own self-contained directory directly
 under `notebooks/`, named with the four-segment convention:
@@ -32,7 +32,7 @@ The layout rules that follow from this:
   explicitly forbidden — the task name itself carries the family.
 - **No local shared-code directory.** Shared library code lives in the
   `thekaveh-nnx` package installed from PyPI (see §5.5 of the README and
-  [dependency-contracts.md](dependency-contracts.md) §6). A former in-repo
+  [dependency-contracts.md](dependency-contracts.md) §6.1.6). A former in-repo
   `common/` was removed during the 2026-06-14 PyPI migration;
   `scripts/verify_repo.py` enforces its absence via the `S7.forbidden_toplevel`
   structure check. Notebooks import via `from nnx.X import Y`.
@@ -53,7 +53,7 @@ The layout rules that follow from this:
 - **`notebooks/archive/` is read-only.** It holds preserved Aug-2023
   codexglue summarization experiments. Never edit or re-execute its notebooks.
 
-### Adding a new task folder
+### 5.1.1 Adding a new task folder
 
 The recipe (condensed from `CONTRIBUTING.md` §3) is:
 
@@ -77,7 +77,7 @@ The recipe (condensed from `CONTRIBUTING.md` §3) is:
 7. Tick the matching roadmap entry in README §8.
 8. YAGNI on nnx: only land a library feature when a concrete task needs it.
 
-## 5.2. Notebook execution tiers
+## 5.2 Notebook execution tiers
 
 Notebooks are tiered by execution cost, and the tier decides both the local
 re-run command and what CI exercises. The Makefile owns the authoritative
@@ -89,7 +89,7 @@ per-tier notebook lists (`TIER_A`, `TIER_B`, `TIER_C`).
 | **B** | Moderate (model-selection sweeps) | Original outputs preserved. Smoke-run with `SMOKE_TEST=1` to `/tmp/`. | `make smoke-tier-b` |
 | **C** | Expensive (main GPU training) | Historical Aug-2023 GPU outputs preserved as artifact. Smoke-run with `SMOKE_TEST=1` to `/tmp/`. | `make smoke-tier-c` |
 
-### The `SMOKE_TEST` papermill parameter
+### 5.2.1 The `SMOKE_TEST` papermill parameter
 
 Tier-B and Tier-C notebooks are gated by an injected papermill `parameters`
 cell that defines `SMOKE_TEST = 0` (full run). The smoke targets pass
@@ -101,7 +101,7 @@ CPU path. `scripts/inject_smoke_test_cell.py` adds this cell when promoting a
 notebook to Tier-B/C, and `tests/test_inject_smoke_test_cell.py` guards the
 injected shape against papermill parser drift.
 
-### What CI runs
+### 5.2.2 What CI runs
 
 - **Tier-A, every PR and every push to `main`:** the `tier-a-papermill` job
   runs `make smoke-tier-a`, writes fresh copies under `/tmp/ml-tier-a`, then
@@ -122,7 +122,7 @@ injected shape against papermill parser drift.
   task-local `./data/` or `./runs/` artifacts even when source outputs are
   preserved.
 
-### Tier-C output preservation
+### 5.2.3 Tier-C output preservation
 
 Tier-C phase3 notebooks are locked to the `pre-cleanup-baseline` git tag for
 their **code-cell source**. The execution check `E5` diffs each Tier-C
@@ -131,13 +131,13 @@ cells and embedded outputs are deliberately **not** compared, so wording fixes
 are safe. Edit phase3 markdown via `scripts/edit_notebook_markdown.py` rather
 than by hand. Force-tagging `pre-cleanup-baseline` requires explicit approval.
 
-## 5.3. Validation gates
+## 5.3 Validation gates
 
 A change is not ready until four independent gates pass. Each catches a
 different class of regression, and CI runs them as separate jobs so a failure
 is attributable.
 
-### Repo verifier — `make verify`
+### 5.3.1 Repo verifier — `make verify`
 
 `scripts/verify_repo.py --check all --fast` runs four checks (the `--fast`
 flag only affects the execution check):
@@ -157,7 +157,7 @@ Exit code 0 means zero **error**-severity findings; warnings are
 informational. The verifier is the source of truth for "is the repo
 internally consistent" and runs in CI as the `verify-repo` job.
 
-### Pytest — `make test`
+### 5.3.2 Pytest — `make test`
 
 Runs `pytest tests/ -v`. The test tree covers the docs pipeline
 (`test_manifest`, `test_links`, `test_transforms`, `test_render_diagrams`,
@@ -172,7 +172,7 @@ release-contract evidence only when `nnx` resolves from the pinned PyPI wheel,
 not from an editable checkout (see [dependency-contracts.md](dependency-contracts.md)
 §6).
 
-### Lint — `make lint`
+### 5.3.3 Lint — `make lint`
 
 `ruff check .` using the `[tool.ruff]` config in `pyproject.toml`: line length
 120, target py311, rules `E`/`F`/`W` selected, `E501` (line too long) ignored
@@ -180,7 +180,7 @@ because much of the code is notebook-derived and under gradual cleanup.
 Tier-C phase3 notebooks carry per-file ignores because their source is locked
 to the baseline tag.
 
-### Docs gate — `make docs-check`
+### 5.3.4 Docs gate — `make docs-check`
 
 Render diagrams (`scripts/docs.render_diagrams`) → run `check_docs` →
 `mkdocs build --strict`. The dedicated `.github/workflows/docs.yml` workflow
@@ -190,7 +190,7 @@ any PR touching `docs/`, notebook READMEs, `mkdocs.yml`, `scripts/docs/`,
 broken manifest entries, leaked placeholders, and non-self-contained generated
 pages before they reach the published site.
 
-## 5.4. Commit & PR workflow
+## 5.4 Commit & PR workflow
 
 - **Branch off `main`.** Open a feature branch off the current `main` HEAD.
   An `origin/develop` integration branch exists for batching larger
@@ -214,7 +214,7 @@ pages before they reach the published site.
   Wrap one workstream per branch and keep going on the same branch; record
   the outcome in the CHANGELOG rather than editing old PR bodies.
 
-### Pre-PR checklist
+### 5.4.1 Pre-PR checklist
 
 1. `make verify` (fast, <30 s) — must exit 0.
 2. `make test` locally; CI additionally runs `make test-nnx-surface`.
@@ -227,7 +227,7 @@ pages before they reach the published site.
    remained unchanged.
 5. If you touched docs: `make docs-check`.
 
-## 5.5. Documentation convention
+## 5.5 Documentation convention
 
 ml-eng-lab projects one canonical documentation source into two additional,
 derived surfaces. The canonical source is the only one a human edits.

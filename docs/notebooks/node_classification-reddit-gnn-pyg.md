@@ -164,7 +164,7 @@ Phase-2 pilot runs, hence the drop to `1e-4`. The depth-3 notebook uses a *narro
 
 ## 8.13.5 Code walkthrough
 
-### Phase 1 — loading and exploring the graph
+### 8.13.5.1 Phase 1 — loading and exploring the graph
 
 ```python
 dataset = pyg.datasets.Reddit2(
@@ -182,7 +182,7 @@ then converts a prefix slice to NetworkX and compares ground-truth labels agains
 communities — the qualitative read on whether the graph alone (ignoring features) recovers the 41
 subreddits.
 
-### Phase 2/3 — graph dataset plumbing
+### 8.13.5.2 Phase 2/3 — graph dataset plumbing
 
 ```python
 ds = NNGraphDataset(
@@ -203,7 +203,7 @@ first-hop neighbors, 15 second-hop, and 10 third-hop, which bounds the receptive
 full-Reddit training fits in memory on one CPU. `ds.input_dim` is 602 and `ds.output_dim` is 41,
 sourced from the dataset object.
 
-### Phase 2 — the candidate grid
+### 8.13.5.3 Phase 2 — the candidate grid
 
 ```python
 net_specs = [
@@ -252,7 +252,7 @@ top_model_names = sorted(
 Each `idp` exposes `.iter_idx`, `.train_edp` (`.loss`, `.error`), `.val_edp` (`.loss`, `.error`),
 and (in Notebook 4) `.lr` for learning-rate plots.
 
-### Phase 3 — long-horizon training and seed-node evaluation
+### 8.13.5.4 Phase 3 — long-horizon training and seed-node evaluation
 
 ```python
 set_seed(0)
@@ -280,7 +280,7 @@ for an earlier `unpack_batch` path that did exactly that. Second, the metrics
 (`accuracy`, `f1`, `recall`, `precision`) come back identical because `evaluate` reports
 micro-averages over the 41-class seed-node test set, where micro-f1 reduces to accuracy.
 
-### Convergence and checkpoint visualization
+### 8.13.5.5 Convergence and checkpoint visualization
 
 ```python
 VisUtils.multi_line_plot(
@@ -300,7 +300,7 @@ separability evolves over training.
 
 ## 8.13.6 Results
 
-### Phase 2 — model selection winners (best validation error)
+### 8.13.6.1 Phase 2 — model selection winners (best validation error)
 
 | Notebook | Sweep | Winner | Best val error |
 |---|---|---|---|
@@ -313,7 +313,7 @@ The Phase-2 verdict: GAT dominates on narrow architectures given enough epochs, 
 cost rules it out at width ≥ 256; GraphSAGE is the only architecture that benefits from depth,
 which sets up the Phase-3 depth sweep.
 
-### Phase 3 — final training and evaluation (recorded outputs)
+### 8.13.6.2 Phase 3 — final training and evaluation (recorded outputs)
 
 | Notebook | Model | Final train error | Best val error | Test accuracy |
 |---|---|---|---|---|

@@ -5,7 +5,7 @@ service. The primary runtime objects are experiment directories under `notebooks
 execution tiers owned by the `Makefile`, the validation scripts under `scripts/`, and the three
 documentation surfaces derived from the canonical `docs/` tree.
 
-## 1. System architecture
+## 2.1.1 System architecture
 
 The diagram below is rendered from the `system` diagram master declared in
 `docs/manifest.yaml` (`docs/diagrams/ml-eng-lab-system.html`). The build pipeline rasterizes the
@@ -20,7 +20,7 @@ tooling, and the three documentation surfaces.
 
 ![ml-eng-lab runtime flow](diagrams/img/runtime-flow.png)
 
-## 2. Three-surface documentation pipeline
+## 2.1.2 Three-surface documentation pipeline
 
 ![Three-surface documentation sync](diagrams/img/docs-sync.png)
 
@@ -51,7 +51,7 @@ references are rewritten to the surface-appropriate asset format, and any link t
 a surface boundary (a site page linking to a GitHub source view, for example) is stripped to
 bare text.
 
-## 3. Runtime entry paths
+## 2.1.3 Runtime entry paths
 
 A contributor opens the repository through one of four supported entry paths — local VS Code with
 the Atlas JupyterHub kernel, a local venv, the Docker image, or GitHub Codespaces — and runs or
@@ -64,7 +64,7 @@ the task-local path invariant holds.
 `scripts/verify_repo.py`, pytest, ruff, and the CI workflows verify structure, documentation,
 and public notebook surfaces before changes are merged.
 
-## 4. Boundary decisions
+## 2.1.4 Boundary decisions
 
 - `notebooks/archive/` is preserved as read-only historical material and excluded from active
   notebook validation.

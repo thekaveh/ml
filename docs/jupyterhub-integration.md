@@ -1,10 +1,10 @@
-# JupyterHub integration
+# 4.2 JupyterHub integration
 
 Atlas supplies the notebook infrastructure for this repository. It is consumed as the pinned
 `infra/` submodule, not as a vendored application tree. The active consumer uses the `ml-eng`
 track and a parent-owned compose overlay to mount this checkout into JupyterHub.
 
-## 1. Default path: local VS Code, remote Atlas kernel
+## 4.2.1 Default path: local VS Code, remote Atlas kernel
 
 The notebook file remains open on the host in VS Code; computation runs in the Atlas JupyterHub
 kernel. This is the primary path for tasks with `workspace_access: remote`. The NumPy MNIST task
@@ -24,7 +24,7 @@ Use the connection URL that the last command prints in the VS Code Jupyter serve
 URL contains a short-lived credential. It must stay out of the repository, tickets, and docs.
 See [vscode-remote-access.md](vscode-remote-access.md) for the exact editor flow.
 
-## 2. Consumer contract and ownership
+## 4.2.2 Consumer contract and ownership
 
 `atlas.consumer.yml` is the committed source-policy contract. The lifecycle wrapper
 `scripts/atlas-up.sh` supplies `--track ml-eng`; the manifest deliberately has no `track` key:
@@ -42,7 +42,7 @@ repository. Consumer behavior belongs in the files above; changes to Atlas itsel
 upstream project. The exact gitlink and bump procedure are recorded in
 [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
 
-## 3. Native AI-service policy
+## 4.2.3 Native AI-service policy
 
 Before `make atlas-up`, the host-native Ollama daemon must answer on loopback. The lifecycle
 wrapper checks `http://127.0.0.1:<port>/api/version` and refuses a different source.
@@ -61,7 +61,7 @@ needs it, it must first have an approved consumer specification, an explicit hos
 (`localhost` or managed MPS), an in-network configuration, a targeted runtime smoke, and matching
 documentation. Automatic and containerized ComfyUI sources are rejected.
 
-## 4. Artifact and workspace behavior
+## 4.2.4 Artifact and workspace behavior
 
 The notebook-contract table in [notebook-infrastructure.md](notebook-infrastructure.md) is
 authoritative per task. The normal remote workflow stores runtime artifacts on the Atlas Jupyter
@@ -74,7 +74,7 @@ Do not copy volume artifacts into the repository without a task-level policy. A 
 new Atlas service must declare that service in its contract before enabling it; it must not infer
 availability from other services that happen to be in the `ml-eng` track.
 
-## 5. Browser and container-attached workspace mode
+## 4.2.5 Browser and container-attached workspace mode
 
 Browser JupyterLab and VS Code's container-attach mode are alternatives for normal
 remote-workspace tasks. They implement the required `mounted-workspace` mode for NumPy MNIST:
@@ -82,7 +82,7 @@ open `/home/jovyan/work/ml-eng-lab` before running it. They use the same Jupyter
 mount; they do not authorize changing the track, modifying `infra/`, or running containerized
 Ollama.
 
-## 6. Lifecycle troubleshooting
+## 4.2.6 Lifecycle troubleshooting
 
 - **Submodule missing:** run `git submodule update --init --recursive` from the repository root.
 - **Native Ollama check failed:** start or repair the host-native daemon (`ollama serve` is one

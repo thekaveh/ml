@@ -48,7 +48,18 @@ def render_wiki(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
 
     # Sidebar (numbered nav) + footer.
     sidebar = ["# ml-eng-lab wiki", ""]
-    for s in manifest.sections:
+    navigation = [(int(section.number.split(".")[0]), "section", section) for section in manifest.sections]
+    if manifest.notebooks:
+        notebook_number = int(manifest.notebooks[0].number.split(".")[0])
+        navigation.append((notebook_number, "notebooks", None))
+    for _, kind, s in sorted(navigation, key=lambda item: item[0]):
+        if kind == "notebooks":
+            prefix = manifest.notebooks[0].number.split(".")[0]
+            sidebar.append(f"- {prefix}. Notebooks")
+            for n in manifest.notebooks:
+                sidebar.append(f"  - [{n.number}. {n.task}]({Path(source_map[n.doc]).stem})")
+            continue
+        assert s is not None
         label = f"{s.number}. {s.title}"
         if s.source and s.id != "overview":
             sidebar.append(f"- [{label}]({Path(source_map[s.source]).stem})")
@@ -57,11 +68,6 @@ def render_wiki(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
         for c in s.children:
             if c.source:
                 sidebar.append(f"  - [{c.number}. {c.title}]({Path(source_map[c.source]).stem})")
-    if manifest.notebooks:
-        prefix = manifest.notebooks[0].number.split(".")[0]
-        sidebar.append(f"- {prefix}. Notebooks")
-        for n in manifest.notebooks:
-            sidebar.append(f"  - [{n.number}. {n.task}]({Path(source_map[n.doc]).stem})")
     (out_dir / "_Sidebar.md").write_text("\n".join(sidebar) + "\n", encoding="utf-8")
     (out_dir / "_Footer.md").write_text("Self-contained ml-eng-lab wiki.\n", encoding="utf-8")
 

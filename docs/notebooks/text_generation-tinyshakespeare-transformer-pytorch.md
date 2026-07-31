@@ -149,7 +149,7 @@ canonical next-token-shift trick. This yields 175 windows, batched 4-at-a-time �
 
 ## 8.16.5 Code walkthrough
 
-### Tokenizer training
+### 8.16.5.1 Tokenizer training
 
 ```python
 tk = train_bpe(
@@ -165,7 +165,7 @@ The four special tokens reserve ids 0–3; the remaining 252 ids are byte-pair m
 frequency over the tiled corpus. `NNTokenizerParams.of(...)` binds the trained tokenizer to a
 on-disk path so it can round-trip through a checkpoint.
 
-### Model construction
+### 8.16.5.2 Model construction
 
 ```python
 net_params = NNTransformerParams(
@@ -182,7 +182,7 @@ model = GenerativeNNModel(net_params=net_params, params=model_params, tokenizer=
 and output projection stay in lockstep. `GenerativeNNModel` (not the plain `NNModel`) is the
 generative subclass — it carries the tokenizer and exposes `model.generate(...)`.
 
-### The custom LM train step
+### 8.16.5.3 The custom LM train step
 
 ```python
 def lm_train_step(ctx):
@@ -209,7 +209,7 @@ built-in cross-entropy applies along the vocab dimension directly. The returned
 convergence plot; the classification metrics (accuracy/f1/…) are set to zero because they are
 meaningless for next-token prediction.
 
-### Training
+### 8.16.5.4 Training
 
 ```python
 run = model.train(
@@ -229,7 +229,7 @@ notebook swaps in `lm_train_step` for the LM objective. The same seam is what th
 (§8.19) uses to inject a contrastive loss. The run executes 43 batches/epoch × 5 epochs = **215
 iterations** and the resulting `NNRun` is checkpointed to `./runs/<run-id>`.
 
-### Sampling
+### 8.16.5.5 Sampling
 
 ```python
 prompts = ["To be", "Friends", "All the world"]

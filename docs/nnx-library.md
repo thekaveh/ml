@@ -1,4 +1,4 @@
-# 7. The NNx library
+# 7 The NNx library
 
 Almost every notebook in this repo trains, evaluates, or visualizes a model through
 the same PyTorch toolkit: **NNx**. This page is the canonical in-repo reference for
@@ -8,7 +8,7 @@ companion to the per-task deep-dives (e.g. `docs/notebooks/tabular_classificatio
 which exercise the API surface end-to-end; read this page first when you need the
 shape of the contract rather than the worked example.
 
-## 7.1. What NNx is
+## 7.1 What NNx is
 
 NNx is a small PyTorch toolkit that factor out the boilerplate every notebook in
 this lab would otherwise reinvent: dataset wrapping, model construction, training
@@ -60,7 +60,7 @@ make the contract self-describing (see
 `docs/notebooks/tabular_classification-iris-mlp-pytorch.md` §8.1.5 for the canonical
 example).
 
-## 7.2. Consumption
+## 7.2 Consumption
 
 NNx is consumed as an ordinary pinned PyPI dependency. The pin lives in
 `requirements.txt`:
@@ -93,7 +93,7 @@ Three consequences worth keeping in mind:
    Bumping the pin is a deliberate act that triggers Tier-A papermill re-execution
    (see §7.4).
 
-## 7.3. The 2026-06-14 PyPI migration
+## 7.3 The 2026-06-14 PyPI migration
 
 Before 2026-06-14, ml-eng-lab consumed NNx as a git submodule at `./nnx` with an
 editable install (`-e ./nnx[lm]`). PR #19 swapped that for the PyPI wheel. The
@@ -122,7 +122,7 @@ maintainer memory as `reference-nnx-bump-caller-fixups`) is that a wide upstream
 window requires the same post-bump audit as a submodule-pointer bump, just
 substituting release notes for diffed pointers.
 
-## 7.4. Extending NNx
+## 7.4 Extending NNx
 
 NNx is not extended inside this repo. The workflow is always:
 
@@ -176,7 +176,7 @@ The two non-negotiables, both learned the hard way:
   lands upstream between bumps; Tier-A papermill re-execution surfaces
   contract-fix breakage that the fast lane misses.
 
-## 7.5. Findings & upstream
+## 7.5 Findings & upstream
 
 NNx is not edited from this repo. Fixes land upstream in
 [`thekaveh/NNx`](https://github.com/thekaveh/NNx); ml-eng-lab records the known
@@ -193,20 +193,20 @@ not a local submodule.
 The current findings, summarized — see `docs/FINDINGS-NNX.md` for the full text
 and the suggested upstream fixes:
 
-- **§1.1 — `NNDataset` default `batch_size` packs the whole train set into one
+- **§9.1.1.1 — `NNDataset` default `batch_size` packs the whole train set into one
   batch.** Surprising for diffusion / MoE / transformer / JEPA tasks; the
   upstream `batch_sizes=` constructor arg (partial fix landed) gives a cleaner
   workaround than bypassing the wrapper with `DataLoader(...dataset, batch_size=N)`.
-- **§1.2 — `nnx.deepen` is function-preserving only for `Activations.RELU`.**
+- **§9.1.1.2 — `nnx.deepen` is function-preserving only for `Activations.RELU`.**
   Identity-init insertion only preserves the forward for ReLU; the construction-
   time `ValueError` is clear, the constraint just isn't a one-liner to discover.
-- **§1.3 — `NNTabularDataset` coerces targets to `torch.long` (classification-
+- **§9.1.1.3 — `NNTabularDataset` coerces targets to `torch.long` (classification-
   only).** Documented in the docstring; regression notebooks build the DataLoaders
   manually.
-- **§1.4 — `EarlyStopping(monitor=...)` default is `"val_edp.error"`, which does
+- **§9.1.1.4 — `EarlyStopping(monitor=...)` default is `"val_edp.error"`, which does
   not exist for regression EDPs.** Regression callers must pass
   `monitor="val_edp.loss"` explicitly.
-- **§1.5 — `NNRun.save()` prints an absolute path, leaking the execution
+- **§9.1.1.5 — `NNRun.save()` prints an absolute path, leaking the execution
   environment layout.** Active notebook outputs can carry machine-local paths;
   the `E13.stale_active_notebook_path` verifier rule keeps them clean in-repo, and
   the upstream fix is to print a `cwd`-relative run path.

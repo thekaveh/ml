@@ -1,11 +1,11 @@
-# Overnight Maintenance Log - 2026-07-04
+# 11.4 Overnight Maintenance Log - 2026-07-04
 
 Branch: `codex/overnight-maintenance`
 Upstream: `origin/codex/overnight-maintenance`
 Spec: external `overnight-maintenance/maintenance-spec.md` skill spec
 Parameters: `PASSES=20`, `MAX_PASSES=50`, `PUSH=yes`, `NUMBERED_DOCS=yes`
 
-## 1. Coverage Decisions
+## 11.4.1 Coverage Decisions
 
 Applied checks:
 - Baseline repository scan: Python code, notebooks, tests, docs, scripts, CI, Docker, devcontainer, dependency manifests.
@@ -21,7 +21,7 @@ Skipped checks:
 - Multi-language parity for active surfaces: N/A for active notebooks and Python helpers; archived CodexGLUE material is reviewed as archive hygiene, not an active supported surface.
 - Performance budget benchmarking: N/A unless a repository-declared performance budget is found during pass review.
 
-## 2. Pass History
+## 11.4.2 Pass History
 
 | Pass | Type | Issues | Coverage Evidence | Result |
 | --- | --- | ---: | --- | --- |
@@ -76,7 +76,7 @@ Skipped checks:
 | 49 | genuine | 0 | Local pass reviewed notebook/runtime contracts: branch/upstream parity, execution/full verifier output, active/archive notebook API surface tests, Reddit and quantization notebook guards, nbformat schema validation, committed error outputs, transient path leaks, archive task shape, ruff, docs build, compileall, compose config, whitespace, and full tests. Validation: branch/upstream returned `0 0`; `python scripts/verify_repo.py --check execution --fast` and `--check all --fast` reported 0 findings; focused notebook/runtime suite passed (`302 passed, 3 skipped, 3 warnings`); all 51 notebooks validated with `nbformat.validate`; direct scans found 0 committed error outputs and 0 transient path leaks; `notebooks/archive/codexglue_summarization/src` was the only archive child without a notebook and is the shared helper snapshot; `ruff`, `make docs-build`, `compileall`, compose config, `git diff --check`, and full `pytest -q` passed. | Zero-issue pass; notebook/runtime contracts remain clean; zero-issue streak 7/20 |
 | 50 | genuine | 0 | Final hard-cap pass reviewed branch/upstream parity, genai-vanilla upstream/submodule parity, full verifier output, nbformat schema validation, ruff, strict docs build, compileall, whitespace, shell entrypoints, docs and runtime audits, compose config, and full tests. Validation: branch/upstream returned `0 0`; genai-vanilla local and upstream both resolved to `10f8402`; `python scripts/verify_repo.py --check all --fast` reported 0 findings; all 51 notebooks validated with `nbformat.validate`; `ruff check . --no-cache`, `make docs-build`, `python -m compileall scripts tests notebooks -q`, `git diff --check`, shellcheck/syntax, `pip-audit -r docs-requirements.txt`, compose config, and full `pytest -q` passed; runtime `pip-audit` still reported the ledgered 23 accepted findings. | Zero-issue pass; zero-issue streak 8/20; hard cap `MAX_PASSES=50` reached before the requested 20 consecutive zero-issue passes |
 
-## 3. Validation Log
+## 11.4.3 Validation Log
 
 - `pytest tests/test_verify_repo.py::test_structure_s3_checks_nested_docs_markdown_links -q` failed before the docs-iterator fix and passed after it.
 - `pytest tests/test_verify_repo.py::test_run_helper_supplies_default_timeout -q` failed before adding the default timeout and passed after it.
@@ -570,7 +570,7 @@ Skipped checks:
 - Pass 50 capstone validation: all 51 notebooks validated with `nbformat.validate`; `ruff check . --no-cache`, `make docs-build`, `python -m compileall scripts tests notebooks -q`, `git diff --check`, shellcheck/syntax for local and consumed vendor entrypoints, `pip-audit -r docs-requirements.txt`, compose config, and `pytest -q` passed (`464 passed, 3 skipped, 17 warnings`).
 - Pass 50 audit/cap disposition: `pip-audit -r requirements.txt -r torch-requirements.txt` still reported the ledgered 23 accepted findings; pass 50 was a zero-issue pass, bringing the post-pass-42 streak to 8/20, and the maintenance loop stopped because `MAX_PASSES=50` was reached.
 
-## 4. Issue Log
+## 11.4.4 Issue Log
 
 | ID | Severity | Category | Location | Description | Status | Validation |
 | --- | --- | --- | --- | --- | --- | --- |

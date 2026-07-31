@@ -78,7 +78,7 @@ The `nnx` surface consumed is `apply_lora_to`, `apply_dora_to`, `save_lora_weigh
 
 ## 8.12.3 Mathematical formulation
 
-### LoRA
+### 8.12.3.1 LoRA
 
 Each frozen base weight \(W_0 \in \mathbb{R}^{d \times k}\) is augmented with a rank-\(r\)
 update. With scaling factor \(s = \alpha/r\):
@@ -100,7 +100,7 @@ The augmented forward is
 y = W_0 x + \frac{\alpha}{r} B (A x).
 \]
 
-### DoRA
+### 8.12.3.2 DoRA
 
 DoRA decomposes the effective weight into a per-output-row magnitude \(m\) and a direction
 matrix \(V\):
@@ -117,7 +117,7 @@ where \(\lVert V \rVert_c\) is the per-column (per-output-row) L2 norm and
 base forward exactly. Trainable parameters per layer: \(r(d + k) + d\) — LoRA's count plus the
 \(d\)-dimensional magnitude vector.
 
-### Parameter accounting for `hidden_dims=[128, 64]`, `r=8`
+### 8.12.3.3 Parameter accounting for `hidden_dims=[128, 64]`, `r=8`
 
 The three `Linear` layers are \(784 \to 128\), \(128 \to 64\), \(64 \to 10\). The per-layer
 trainable counts are:
@@ -169,7 +169,7 @@ adapter's accuracy exactly.
 
 ## 8.12.5 Code walkthrough
 
-### Pretrain + snapshot
+### 8.12.5.1 Pretrain + snapshot
 
 ```python
 pretrained = make_model()
@@ -188,7 +188,7 @@ Deep-copying the `state_dict` and reloading it into a fresh `NNModel` per adapta
 guarantees every adapter starts from the *same* pretrained init. Without this, each path would
 inherit a different RNG state and the controlled comparison breaks.
 
-### Apply adapter
+### 8.12.5.2 Apply adapter
 
 ```python
 nnx.set_seed(0)
@@ -207,7 +207,7 @@ base weights, sets `requires_grad=True` on `A` and `B`, and returns the wrap cou
 can assert the adapter actually attached — `assert any(isinstance(m, LoRALinear) for m in
 lora_model.net.modules())` is the belt-and-suspenders check.
 
-### Save/load round-trip
+### 8.12.5.3 Save/load round-trip
 
 ```python
 lora_ckpt_path = os.path.join(tempfile.mkdtemp(prefix="lora_ckpt_"), "lora.pt")
@@ -224,7 +224,7 @@ per layer × three layers), versus the ~440 KB a full `state_dict` would occupy.
 a fresh adapter built from the same pretrained base should reproduce the trained adapter's
 accuracy exactly.
 
-### Comparison table
+### 8.12.5.4 Comparison table
 
 ```python
 acc_full = full_ft.evaluate(fmnist_ds.val_loader).accuracy

@@ -1,14 +1,14 @@
-# Three-surface documentation remediation design
+# 12.3 Three-surface documentation remediation design
 
 **Status:** Approved for implementation
 **Date:** 2026-07-31
 **Decision:** Resolve every finding from the 2026-07-31 three-surface documentation audit in one Gitflow feature.
 
-## 1. Goal
+## 12.3.1 Goal
 
 Restore the repository, generated MkDocs site, and GitHub wiki to a single explicit documentation contract. Every meaningful document under `docs/` must be declared by the manifest, every declared page must use baked hierarchical numbering, every user-facing claim must match the repository, and CI must reject the classes of drift found by the audit.
 
-## 2. Chosen approach
+## 12.3.2 Chosen approach
 
 Three approaches were considered:
 
@@ -18,7 +18,7 @@ Three approaches were considered:
 
 Use approach 3. Historical maintenance and implementation records remain available, but their status and headings become explicit and they are generated into the site and wiki like every other canonical page. No historical document is deleted.
 
-## 3. Manifest and numbering architecture
+## 12.3.3 Manifest and numbering architecture
 
 `docs/manifest.yaml` remains the source of truth. A section is either a source leaf or a children group; no section combines both. The Environment and Dependency sections become children groups with overview pages as their first children. Findings, diagram provenance, maintenance records, and design/implementation records receive explicit numbered sections after the notebook catalog.
 
@@ -33,7 +33,7 @@ The existing notebook page numbers remain `8.1` through `8.21`. Cross-references
 
 The two existing planned diagram masters are retained, corrected to describe current behavior, declared in the manifest, embedded in the appropriate canonical pages, and rendered into repository, site, and wiki assets.
 
-## 4. Gate behavior
+## 12.3.4 Gate behavior
 
 `scripts.docs.check_docs` gains explicit probes for:
 
@@ -45,7 +45,7 @@ The two existing planned diagram masters are retained, corrected to describe cur
 
 The checker reports normal `Finding` values and exits non-zero without rewriting canonical files. Tests must demonstrate each new failure before implementation.
 
-## 5. Content corrections
+## 12.3.5 Content corrections
 
 The README describes only the project and supported user workflows. It removes the `.io` URL, publication status, generated-file tree entries, and documentation-pipeline implementation details. Codespaces quota language uses GitHub's current compute-hour terminology.
 
@@ -60,13 +60,13 @@ The completed Atlas design and implementation records receive completed status. 
 
 Diagram-adjacent prose explains constraints and consequences, not rasterization, styling, or obvious visual contents. Diagram regeneration instructions explicitly cover repository PNGs, site SVGs, and wiki PNGs.
 
-## 6. Reproducible documentation toolchain
+## 12.3.6 Reproducible documentation toolchain
 
 Create a human-edited `docs-requirements.in` and compile the complete, hashed, cross-platform lock into `docs-requirements.txt` with `uv pip compile --universal --generate-hashes`. CI continues installing `docs-requirements.txt`, so all direct and transitive documentation dependencies resolve identically.
 
 Set `NO_MKDOCS_2_WARNING=1` only for documentation build commands. This suppresses Material's upstream policy banner while preserving `mkdocs build --strict` for actual project warnings.
 
-## 7. CI and publishing
+## 12.3.7 CI and publishing
 
 - General CI runs on pushes to both `develop` and `main` and on PRs to both branches.
 - The general docs-build job installs `libcairo2` before Python packages.
@@ -74,7 +74,7 @@ Set `NO_MKDOCS_2_WARNING=1` only for documentation build commands. This suppress
 - Pages runs the comprehensive documentation checker before uploading its artifact. The wiki is generated from the same checked commit after deployment.
 - Publishing remains main-triggered; feature work still merges to `develop` first and then to `main` through a second PR.
 
-## 8. Verification and success criteria
+## 12.3.8 Verification and success criteria
 
 The change is complete only when:
 

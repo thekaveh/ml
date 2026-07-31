@@ -1,4 +1,4 @@
-# 4.3 Notebook infrastructure
+# 4.4 Notebook infrastructure
 
 Atlas tasks use a remote JupyterHub kernel from VS Code by default. Open the
 repository in VS Code, connect to the Atlas JupyterHub server, and select the
@@ -21,7 +21,7 @@ service validation has passed. Do not copy artifacts from Atlas volumes into
 the repository unless a task explicitly documents that policy. The full
 admission sequence is [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
 
-## 1. Active task contracts
+## 4.4.1 Active task contracts
 
 <!-- atlas-task-contracts:start -->
 | Task | Tier | Default mode | Workspace access | Required Atlas services | Artifact policy | Constraints |

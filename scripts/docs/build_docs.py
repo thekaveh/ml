@@ -70,7 +70,17 @@ def render_site(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
 
 def _nav_lines(manifest: Manifest) -> list[str]:
     lines: list[str] = ["nav:"]
-    for s in manifest.sections:
+    navigation = [(int(section.number.split(".")[0]), "section", section) for section in manifest.sections]
+    if manifest.notebooks:
+        notebook_number = int(manifest.notebooks[0].number.split(".")[0])
+        navigation.append((notebook_number, "notebooks", None))
+    for _, kind, s in sorted(navigation, key=lambda item: item[0]):
+        if kind == "notebooks":
+            lines.append('  - "8. Notebooks":')
+            for n in manifest.notebooks:
+                lines.append(f'      - "{n.number}. {n.task}": {n.doc.removeprefix("docs/")}')
+            continue
+        assert s is not None
         if s.source and s.children:
             lines.append(f'  - "{s.number}. {s.title}":')
             lines.append(f'      - "{s.number}. {s.title}": {s.source.removeprefix("docs/")}')
@@ -84,10 +94,6 @@ def _nav_lines(manifest: Manifest) -> list[str]:
             for c in s.children:
                 if c.source:
                     lines.append(f'      - "{c.number}. {c.title}": {c.source.removeprefix("docs/")}')
-    if manifest.notebooks:
-        lines.append('  - "8. Notebooks":')
-        for n in manifest.notebooks:
-            lines.append(f'      - "{n.number}. {n.task}": {n.doc.removeprefix("docs/")}')
     return lines
 
 
@@ -98,8 +104,6 @@ site_url: https://thekaveh.github.io/ml-eng-lab/
 docs_dir: generated/site
 site_dir: site
 use_directory_urls: true
-exclude_docs: |
-  superpowers/**
 # No repository URL / name / edit URI keys — surfaces are fully self-contained (spec D2).
 theme:
   name: material

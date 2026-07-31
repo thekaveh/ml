@@ -92,3 +92,20 @@ def test_sidebar_lists_a_parent_page_and_children(tmp_path):
     sidebar = (tmp_path / "generated/wiki/_Sidebar.md").read_text(encoding="utf-8")
     assert "[2. Architecture](2-Architecture)" in sidebar
     assert "[2.1. System view](2-1-System-view)" in sidebar
+
+
+def test_sidebar_places_notebooks_before_later_numbered_sections(tmp_path):
+    _seed(tmp_path)
+    (tmp_path / "docs/findings.md").write_text("# 9 Findings\n", encoding="utf-8")
+    manifest = parse_manifest(
+        MANIFEST_YAML.replace(
+            "notebooks:",
+            "  - id: findings\n    number: \"9\"\n    title: Findings\n"
+            "    source: docs/findings.md\nnotebooks:",
+        )
+    )
+
+    render_wiki(manifest, tmp_path, tmp_path / "generated/wiki")
+
+    sidebar = (tmp_path / "generated/wiki/_Sidebar.md").read_text(encoding="utf-8")
+    assert sidebar.index("- 8. Notebooks") < sidebar.index("[9. Findings]")

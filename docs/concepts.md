@@ -1,4 +1,4 @@
-# 3. Concepts
+# 3 Concepts
 
 This page is the cross-cutting foundations reference for the notebook collection: the training,
 evaluation, and generalization machinery that *every* task composes, regardless of paradigm. Each
@@ -12,9 +12,9 @@ the MNIST FFNN sweep
 and the TinyShakespeare transformer
 ([notebooks/text_generation-tinyshakespeare-transformer-pytorch.md](notebooks/text_generation-tinyshakespeare-transformer-pytorch.md)).
 
-## 3.1. Training & optimization
+## 3.1 Training & optimization
 
-### 3.1.1. The training loop
+### 3.1.1 The training loop
 
 Training a neural network is the iterative application of one rule: measure the disagreement
 between prediction and target with a *loss*, compute the gradient of the loss with respect to each
@@ -34,7 +34,7 @@ history — a list of iteration data points (`run.idps`), each carrying `train_e
 same `NNRun` is the serialization surface: `NNRun.load("best")` restores the best checkpoint from
 disk in a fresh session.
 
-### 3.1.2. Loss functions
+### 3.1.2 Loss functions
 
 The **loss** is the scalar the optimizer minimizes. Three losses cover every supervised task; a
 fourth (smooth-L1 reconstruction) covers the self-supervised case.
@@ -87,7 +87,7 @@ objective — `F.mse_loss(net(X), X)` — trains the autoencoders used for dimen
 clustering, where the input *is* the target. MSE expects float targets shaped \((N, 1)\) to match
 the network output; passing \((N,)\) broadcasts and silently produces a different reduction.
 
-### 3.1.3. Gradient descent → SGD → Adam
+### 3.1.3 Gradient descent → SGD → Adam
 
 **Vanilla gradient descent** updates each parameter \(\theta\) by stepping against the gradient,
 \(\theta_{t+1} = \theta_t - \eta \, \nabla_\theta \mathcal{L}(\theta_t)\), where \(\eta\) is the
@@ -114,7 +114,7 @@ second-moment estimate faster and is more forgiving on early-step loss spikes); 
 transformer also sets `grad_clip_norm=1.0` to clip the global gradient norm — a stabilization that
 tames the early-step spikes.
 
-### 3.1.4. Learning-rate schedules
+### 3.1.4 Learning-rate schedules
 
 The MNIST FFNN notebook uses `ReduceLROnPlateau` as its default scheduler — it watches validation
 error and multiplies the learning rate by `factor = 0.95` after `patience = 8` iterations of
@@ -127,7 +127,7 @@ runs at the same iteration range, the visible signature of the scheduler doing i
 notebooks mostly pin a flat LR — appropriate for the short Tier-A budgets where the scheduler's
 overhead would not pay back.
 
-### 3.1.5. The `nnx` training-loop shape
+### 3.1.5 The `nnx` training-loop shape
 
 The shape the notebooks converge on, repeatedly:
 
@@ -149,14 +149,14 @@ computing `F.mse_loss(net(X), X)`; the I-JEPA notebook passes the factory-built
 `jepa_train_step_factory(...)`. The framework still owns the scheduler, the checkpoint cadence, and
 the per-iteration bookkeeping — only the loss computation is swapped.
 
-## 3.2. Evaluation & metrics
+## 3.2 Evaluation & metrics
 
 Training loss going down proves the optimizer is working; *held-out* metrics prove the model is
 learning something that generalizes. The collection's evaluation surface splits along two axes:
 *what kind of curve* to plot, and *which metric* summarizes the held-out score for a given task
 family.
 
-### 3.2.1. Curves and confusion matrices
+### 3.2.1 Curves and confusion matrices
 
 The canonical training diagnostic is the **per-iteration loss (or error) curve**, overlaid for
 training and validation. `NNRun.idps` is the data source; `VisUtils.multi_line_plot` is the
@@ -171,7 +171,7 @@ the true class, each column the predicted class, and the diagonal-to-off-diagona
 `VisUtils.confusion_matrix` is the renderer (`normalize=False` for raw counts, `normalize=True`
 for row-normalized recalls).
 
-### 3.2.2. Per-family metrics
+### 3.2.2 Per-family metrics
 
 Each task family has its own metric. The collection deliberately does *not* flatten everything to
 accuracy — the right metric for a regression is \(R^2\), for a clustering is ARI, for a link
@@ -246,7 +246,7 @@ patch embeddings is the simplest probe input and a *lower bound* on representati
 expressive probe (attention pooling, fine-tuned head) would report higher accuracy from the same
 frozen features.
 
-### 3.2.3. Model selection
+### 3.2.3 Model selection
 
 For sweep-shaped notebooks (MNIST's 18 candidates, Iris's 3, Diabetes's 2 MLPs), the selection
 metric is **best-iteration validation error** — the lowest validation error a run ever achieved,
@@ -262,14 +262,14 @@ comparing against papers that report final-epoch numbers — best-iteration is a
 estimate of generalization, and a stricter regime (k-fold cross-validation, explicit early
 stopping) tightens the variance estimate at the cost of compute.
 
-## 3.3. Generalization & regularization
+## 3.3 Generalization & regularization
 
 The training loss going to zero is *not* the goal — a model that fits the training set perfectly
 often generalizes poorly. The collection's generalization regime is a small set of disciplines:
 hold out data the model never sees, regularize the parameters, and seed everything so the result is
 reproducible.
 
-### 3.3.1. Overfitting and the train/val/test split
+### 3.3.1 Overfitting and the train/val/test split
 
 **Overfitting** is the gap between train and validation performance — the model fitting noise in
 the training set as if it were signal. The Diabetes notebook is the cleanest example: the deeper
@@ -287,7 +287,7 @@ split can plausibly miss a whole class, so `stratify=` on `train_test_split` is 
 is *inapplicable* for regression (continuous targets) and *unnecessary* for unsupervised
 clustering (no split at all — all 150 Iris samples are seen by both KMeans and the AE).
 
-### 3.3.2. Leakage footguns
+### 3.3.2 Leakage footguns
 
 The collection documents four leakage patterns that silently inflate metrics if missed:
 
@@ -309,7 +309,7 @@ The collection documents four leakage patterns that silently inflate metrics if 
   model see the token it is supposed to predict. The TinyShakespeare notebook uses the canonical
   left-shift; the same trick recurs in every autoregressive LM.
 
-### 3.3.3. Dropout, weight decay, and early stopping
+### 3.3.3 Dropout, weight decay, and early stopping
 
 **Dropout** zeros each hidden unit with probability \(p\) (`dropout_prob`) per forward pass and
 scales the survivors by \(1/(1-p)\) to keep the expected activation constant; at test time it is
@@ -334,7 +334,7 @@ a fixed `n_epochs` for budget predictability in CI and rely on **best-iteration 
 ranking** (§3.2.3) as the implicit early-stopping signal — the selected checkpoint is the one at
 the best-iteration moment, not the final epoch.
 
-### 3.3.4. Seeding and reproducibility
+### 3.3.4 Seeding and reproducibility
 
 Reproducibility is the discipline that makes a recorded number *mean something* — without it, the
 headline metric is a single draw from a wide distribution. The collection's convention is

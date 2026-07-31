@@ -1,4 +1,4 @@
-# Three-surface documentation remediation implementation plan
+# 12.4 Three-surface documentation remediation implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -10,7 +10,7 @@
 
 **Status:** Approved for inline execution
 
-## Global constraints
+## 12.4.1 Global constraints
 
 - Preserve the Atlas gitlink at `61c7c5103660e2226bf107c115dae42bf46f8374`; do not edit `infra/`.
 - Keep `LLM_PROVIDER_SOURCE=ollama-localhost`; never introduce containerized Ollama.
@@ -23,7 +23,7 @@
 
 ---
 
-## Task 1: Add regression gates for repository containment, completeness, and numbering
+## 12.4.2 Task 1: Add regression gates for repository containment, completeness, and numbering
 
 **Files:**
 
@@ -104,7 +104,7 @@ git commit -m "test: gate canonical docs completeness and numbering"
 
 ---
 
-## Task 2: Normalize the manifest and canonical numbering
+## 12.4.3 Task 2: Normalize the manifest and canonical numbering
 
 **Files:**
 
@@ -118,7 +118,7 @@ git commit -m "test: gate canonical docs completeness and numbering"
 - Consumes: `check_completeness` and `check_numbering` from Task 1.
 - Produces: one manifest declaration for every `docs/**/*.md` file and every diagram master.
 
-- [ ] **Step 1: Write a failing real-repository manifest coverage test**
+- [x] **Step 1: Write a failing real-repository manifest coverage test**
 
 Add a test that loads the real manifest and asserts:
 
@@ -130,13 +130,13 @@ assert declared == actual
 
 Also assert every top-level manifest section is exclusively a source leaf or children group.
 
-- [ ] **Step 2: Run the focused test and confirm RED**
+- [x] **Step 2: Run the focused test and confirm RED**
 
 Run: `pytest tests/test_check_docs.py -q -k 'real_repository or source_leaf'`
 
 Expected: the nine prior omissions plus this design and plan are reported.
 
-- [ ] **Step 3: Restructure the manifest**
+- [x] **Step 3: Restructure the manifest**
 
 Use this hierarchy without changing notebook numbers:
 
@@ -158,21 +158,21 @@ Use this hierarchy without changing notebook numbers:
 
 Declare the `notebook-sequence` and `docs-publishing` diagram masters in `diagrams:`.
 
-- [ ] **Step 4: Normalize headings mechanically and review the diff**
+- [x] **Step 4: Normalize headings mechanically and review the diff**
 
 For each page, set H1 to its manifest number, append one numeric component for each H2, append one more component for each H3, and continue the hierarchy for deeper headings. Preserve heading text and update prose/table cross-references to changed section numbers. Do not change code-fence comments beginning with `#`.
 
-- [ ] **Step 5: Make manifest traversal recursive if the real hierarchy requires it**
+- [x] **Step 5: Make manifest traversal recursive if the real hierarchy requires it**
 
 If site/wiki rendering or source maps only visit one child level, first add a failing nested-section test in `tests/test_build_docs.py`, then implement one recursive section iterator shared by rendering, nav, source maps, wiki sidebar, and checks.
 
-- [ ] **Step 6: Run gates and confirm GREEN**
+- [x] **Step 6: Run gates and confirm GREEN**
 
 Run: `pytest tests/test_check_docs.py tests/test_build_docs.py tests/test_wiki.py tests/test_transforms.py -q`
 
 Expected: all tests pass and `python -m scripts.docs.check_docs` reports no heading/completeness findings.
 
-- [ ] **Step 7: Commit the hierarchy slice**
+- [x] **Step 7: Commit the hierarchy slice**
 
 ```bash
 git add docs scripts/docs tests/test_check_docs.py tests/test_build_docs.py tests/test_wiki.py tests/test_transforms.py
@@ -181,7 +181,7 @@ git commit -m "docs: synchronize the complete canonical hierarchy"
 
 ---
 
-## Task 3: Correct README, Atlas, migration, and diagram content
+## 12.4.4 Task 3: Correct README, Atlas, migration, and diagram content
 
 **Files:**
 
@@ -245,7 +245,7 @@ git commit -m "docs: correct Atlas and publishing guidance"
 
 ---
 
-## Task 4: Lock documentation dependencies and harden workflows
+## 12.4.5 Task 4: Lock documentation dependencies and harden workflows
 
 **Files:**
 
@@ -314,7 +314,7 @@ git commit -m "ci: harden three-surface documentation gates"
 
 ---
 
-## Task 5: Verify, finalize records, and publish through Gitflow
+## 12.4.6 Task 5: Verify, finalize records, and publish through Gitflow
 
 **Files:**
 

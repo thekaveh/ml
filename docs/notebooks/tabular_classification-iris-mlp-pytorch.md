@@ -126,7 +126,7 @@ The results section either confirms or refutes this.
 
 ## 8.1.5 Code walkthrough
 
-### Data loading and exploration
+### 8.1.5.1 Data loading and exploration
 
 ```python
 _iris = load_iris()
@@ -142,7 +142,7 @@ Feature columns are bound explicitly (not consumed from `iris.feature_names`) so
 that flow into `NNTabularDataset` match the column names explored with seaborn — debugging "why
 is my pairplot blank?" is no fun.
 
-### Stratified split and scaling
+### 8.1.5.2 Stratified split and scaling
 
 ```python
 X_train, X_rest, y_train, y_rest = train_test_split(
@@ -164,7 +164,7 @@ at 150 samples times 15% test, a default random split can plausibly miss a whole
 canonical anti-leakage pattern. Petal length spans `[1.0, 6.9]` and sepal length spans
 `[4.3, 7.9]`; without rescaling, the gradient steps for the wider-range feature would dominate.
 
-### Dataset plumbing
+### 8.1.5.3 Dataset plumbing
 
 ```python
 ds_train = NNTabularDataset(
@@ -186,7 +186,7 @@ constructs three separate datasets (one per split). The train dataset uses `batc
 for mini-batch SGD; the val and test datasets use the full split as one batch so evaluation is a
 single forward pass.
 
-### Candidate specifications
+### 8.1.5.4 Candidate specifications
 
 ```python
 shared_model_params = NNModelParams(
@@ -211,7 +211,7 @@ three candidates. `input_dim` and `output_dim` come from the dataset (`4` and `3
 `dropout_prob` is held at `0.1` for the two MLPs — tiny model plus tiny dataset means heavy
 dropout would starve them.
 
-### Training loop
+### 8.1.5.5 Training loop
 
 ```python
 shared_train_params = (
@@ -247,7 +247,7 @@ reload a trained model without re-running the training loop. In this notebook th
 object is sufficient — the candidates train in seconds — but the same `NNModel` / `NNRun`
 contract scales to the longer-running image-classification and generative tasks.
 
-### Convergence visualization
+### 8.1.5.6 Convergence visualization
 
 ```python
 VisUtils.multi_line_plot(
@@ -264,7 +264,7 @@ All three candidates overlay on one figure so convergence shape is directly comp
 linear baseline plateaus above zero (it cannot fit the *versicolor*/*virginica* overlap); the
 two MLPs decay to near-zero train error within the first hundred iterations.
 
-### Evaluation and verdict
+### 8.1.5.7 Evaluation and verdict
 
 ```python
 for name, model in models.items():

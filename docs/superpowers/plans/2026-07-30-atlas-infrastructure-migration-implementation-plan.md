@@ -1,4 +1,4 @@
-# Atlas Infrastructure Migration Implementation Plan
+# 12.2 Atlas Infrastructure Migration Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Git submodule; Atlas `61c7c5103660e2226bf107c115dae42bf46f8374`; Docker Compose through Atlas; Bash with ShellCheck; Python 3.11; PyYAML; pytest; MkDocs/site/wiki documentation pipeline; GitHub Actions.
 
-## Global constraints
+## 12.2.1 Global constraints
 
 - Pin `infra/` to the detached Atlas SHA `61c7c5103660e2226bf107c115dae42bf46f8374`. `.gitmodules` contains only the Atlas URL and `infra` path—never a moving `branch` entry.
 - Treat `infra/` as read-only implementation owned by Atlas. Do not add consumer symlinks under it, alter its compose files, patch its Dockerfiles, or write parent-specific scripts inside it.
@@ -22,7 +22,7 @@
 - Preserve all three documentation surfaces: edit canonical docs and the manifest only; let existing generators produce `generated/site`, `generated/wiki`, and `mkdocs.yml`. Never hand-edit generated outputs.
 - Do not call the migration complete, remove the legacy gitlink, or change the manual-only quantization status before the static contract, live Atlas package probe, remote VS Code connection, and mounted NumPy import gates have succeeded.
 
-## Migration phases
+## 12.2.2 Migration phases
 
 1. Build and test the parent-owned Atlas contract while the old gitlink remains only as an unmodified rollback reference.
 2. Validate the real Atlas runtime at the reviewed pin. Resolve the documented package-compatibility boundary from evidence, not image-version assumptions.
@@ -30,7 +30,7 @@
 
 ---
 
-## Task 1: Add the reusable notebook-infrastructure contract parser and renderer
+## 12.2.3 Task 1: Add the reusable notebook-infrastructure contract parser and renderer
 
 **Files:**
 
@@ -89,7 +89,7 @@ git add scripts/docs/notebook_infrastructure.py scripts/docs/check_docs.py scrip
 git commit -m "feat: validate notebook Atlas runtime contracts"
 ```
 
-## Task 2: Declare every active task’s Atlas contract and publish the canonical table
+## 12.2.4 Task 2: Declare every active task’s Atlas contract and publish the canonical table
 
 **Files:**
 
@@ -188,7 +188,7 @@ git add notebooks docs/notebook-infrastructure.md docs/manifest.yaml scripts/doc
 git commit -m "docs: declare notebook Atlas runtime contracts"
 ```
 
-## Task 3: Add the pinned Atlas consumer seam and its static configuration contract
+## 12.2.5 Task 3: Add the pinned Atlas consumer seam and its static configuration contract
 
 **Files:**
 
@@ -276,7 +276,7 @@ git add .gitmodules .gitignore atlas.consumer.yml atlas.env.user.example compose
 git commit -m "feat: add pinned Atlas consumer configuration"
 ```
 
-## Task 4: Implement safe Atlas lifecycle wrappers and the default VS Code connection helper
+## 12.2.6 Task 4: Implement safe Atlas lifecycle wrappers and the default VS Code connection helper
 
 **Files:**
 
@@ -340,7 +340,7 @@ git add Makefile scripts/atlas-up.sh scripts/atlas-down.sh scripts/atlas-connect
 git commit -m "feat: add Atlas notebook lifecycle wrappers"
 ```
 
-## Task 5: Retarget repository verification and add a non-live Atlas CI contract
+## 12.2.7 Task 5: Retarget repository verification and add a non-live Atlas CI contract
 
 **Files:**
 
@@ -389,7 +389,7 @@ git add scripts/verify_repo.py tests/test_verify_repo.py Makefile .github/workfl
 git commit -m "ci: validate Atlas consumer contract"
 ```
 
-## Task 6: Capture Atlas runtime compatibility evidence before changing dependency claims
+## 12.2.8 Task 6: Capture Atlas runtime compatibility evidence before changing dependency claims
 
 **Files:**
 
@@ -434,7 +434,7 @@ git add scripts/atlas_runtime_probe.py tests/test_atlas_runtime_probe.py docs/de
 git commit -m "test: establish Atlas Jupyter runtime compatibility"
 ```
 
-## Task 7: Rewrite the user-facing documentation, architecture, and Atlas pin-bump runbook
+## 12.2.9 Task 7: Rewrite the user-facing documentation, architecture, and Atlas pin-bump runbook
 
 **Files:**
 
@@ -479,7 +479,7 @@ git add README.md CONTRIBUTING.md CHANGELOG.md docs Makefile scripts/verify_repo
 git commit -m "docs: make Atlas the primary notebook runtime"
 ```
 
-## Task 8: Complete the direct replacement and remove the legacy consumer seam
+## 12.2.10 Task 8: Complete the direct replacement and remove the legacy consumer seam
 
 **Files:**
 
@@ -524,7 +524,7 @@ git add -A .gitmodules pyproject.toml docs scripts Makefile .github tests infra 
 git commit -m "refactor: replace genai-vanilla submodule with Atlas"
 ```
 
-## Task 9: Run the complete acceptance suite and record release evidence
+## 12.2.11 Task 9: Run the complete acceptance suite and record release evidence
 
 **Files:**
 
@@ -565,7 +565,7 @@ Expected: only intentional parent-owned changes are staged, the Atlas gitlink is
 
 - [ ] Create the final implementation commit(s) and open review with the static and live evidence attached. Do not advance the Atlas SHA as part of review cleanup; pin bumps follow the new runbook.
 
-## Task 10: Enforce the native-host AI service policy
+## 12.2.12 Task 10: Enforce the native-host AI service policy
 
 **Files:**
 

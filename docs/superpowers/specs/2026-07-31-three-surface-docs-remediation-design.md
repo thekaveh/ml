@@ -1,6 +1,6 @@
 # 12.3 Three-surface documentation remediation design
 
-**Status:** Approved for implementation
+**Status:** Implemented
 **Date:** 2026-07-31
 **Decision:** Resolve every finding from the 2026-07-31 three-surface documentation audit in one Gitflow feature.
 

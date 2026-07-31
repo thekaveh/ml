@@ -1,6 +1,6 @@
 # 12.4 Three-surface documentation remediation implementation plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Implementation record:** This plan was executed task by task; completed steps use checked boxes.
 
 **Goal:** Make every canonical document and diagram publish identically to the repository, MkDocs site, and GitHub wiki while preventing the audit findings from recurring.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11, PyYAML, pytest, Ruff, MkDocs Material, CairoSVG, GitHub Actions, GNU Make, `uv pip compile`, Git/GitHub CLI.
 
-**Status:** Approved for inline execution
+**Status:** Completed
 
 ## 12.4.1 Global constraints
 
@@ -325,7 +325,7 @@ git commit -m "ci: harden three-surface documentation gates"
 - Consumes: all prior tasks.
 - Produces: verified feature branch, feature-to-develop PR, and develop-to-main PR.
 
-- [ ] **Step 1: Run complete local verification**
+- [x] **Step 1: Run complete local verification**
 
 ```bash
 python -m scripts.docs.build_docs --site --wiki
@@ -343,15 +343,15 @@ git diff --check
 
 Expected: zero failures, zero project warnings, and no unintended notebook changes.
 
-- [ ] **Step 2: Verify inventory and deterministic cleanliness**
+- [x] **Step 2: Verify inventory and deterministic cleanliness**
 
 Confirm every `docs/**/*.md` appears in the manifest, all eleven diagram masters have committed PNG/site SVG/wiki PNG outputs, generated trees remain ignored, and a second generation produces identical hashes.
 
-- [ ] **Step 3: Mark this implementation record complete and commit**
+- [x] **Step 3: Mark this implementation record complete and commit**
 
 Convert each completed checkbox in this plan to `[x]`, set its status to completed, rerun `make docs-check`, then commit the record and any regenerated committed diagram assets.
 
-- [ ] **Step 4: Push and open the feature PR to develop**
+- [x] **Step 4: Push and open the feature PR to develop**
 
 ```bash
 git push
@@ -362,10 +362,10 @@ gh pr create --base develop --head codex/fix-three-surface-docs-audit \
 
 Wait for required checks, address failures, and merge without force-pushing.
 
-- [ ] **Step 5: Open and merge the develop-to-main release PR**
+- [x] **Step 5: Open and merge the develop-to-main release PR**
 
 Update local `develop`, confirm it is content-identical to the merged feature, push if needed, then create a separate `develop` to `main` PR. Wait for required checks and merge it.
 
-- [ ] **Step 6: Resynchronize develop and clean up**
+- [x] **Step 6: Resynchronize develop and clean up**
 
 If GitHub's merge commit makes branch SHAs differ, merge `main` back to `develop` through the repository's normal synchronization PR. Confirm main/develop trees are identical, no open remediation PR remains, and delete the merged feature branch locally and remotely when it is no longer attached to the workspace.

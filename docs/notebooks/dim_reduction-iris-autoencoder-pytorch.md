@@ -69,7 +69,7 @@ import; its `ctx` argument is a `TrainStepContext`.
 
 ## 8.20.3 Mathematical formulation
 
-### PCA
+### 8.20.3.1 PCA
 
 PCA solves for the two orthogonal directions of maximum variance in the centered feature
 matrix \(X \in \mathbb{R}^{N \times 4}\). Equivalently, it finds the top-2 eigenvectors of the
@@ -84,7 +84,7 @@ with the projection \(Z = X V\) where \(V = [v_1, v_2]\). The explained variance
 components explain \([0.833, 0.129]\) — i.e., the first PC alone carries 83 % of the total
 variance, which is why iris's 4-D → 2-D projection is so clean.
 
-### Autoencoder reconstruction
+### 8.20.3.2 Autoencoder reconstruction
 
 The autoencoder splits into an encoder \(E_\phi: \mathbb{R}^4 \to \mathbb{R}^2\) and a decoder
 \(D_\psi: \mathbb{R}^2 \to \mathbb{R}^4\), parameterized as the front and back halves of a
@@ -105,7 +105,7 @@ classification recipes' `1e-2`) reflects that reconstruction is a tighter optimi
 aggressive a step size makes the encoder collapse onto a low-rank projection that minimizes MSE
 without preserving species-relevant structure.
 
-### Linear probe
+### 8.20.3.3 Linear probe
 
 To quantify species-separation quality of a latent space \(Z \in \mathbb{R}^{N \times 2}\), fit a
 logistic regression \(\hat{y} = \mathrm{softmax}(W z + b)\) on the train latents and evaluate
@@ -151,7 +151,7 @@ species separation in the bottleneck. The results section either confirms or ref
 
 ## 8.20.5 Code walkthrough
 
-### Autoencoder construction
+### 8.20.5.1 Autoencoder construction
 
 ```python
 def make_autoencoder(hidden_dims):
@@ -176,7 +176,7 @@ The `loss=Losses.CROSS_ENTROPY` is *cosmetic* — it is never invoked because th
 computes its own MSE. `NNModelParams` requires the field to be present, so the notebook sets it
 to a placeholder. This is a known rough edge of the nnx API for unsupervised training.
 
-### The `train_step_fn` contract
+### 8.20.5.2 The `train_step_fn` contract
 
 ```python
 def autoencoder_step(ctx):
@@ -210,7 +210,7 @@ custom step — it handles device movement and dtype normalization consistently 
 default supervised step does. The trailing `_` discards the dummy `Y` from the loader (which
 exists only to satisfy the `(X, y)` batch contract).
 
-### Training
+### 8.20.5.3 Training
 
 ```python
 def train_ae(model):
@@ -232,7 +232,7 @@ def train_ae(model):
 The framework still owns the epoch loop, the val cadence, the iteration-data-point logging, and
 the checkpoint schedule — `autoencoder_step` only owns *one forward + backward*.
 
-### Encoder extraction
+### 8.20.5.4 Encoder extraction
 
 ```python
 def encode(model, X_np):
@@ -257,7 +257,7 @@ The encoder is the prefix of `net.layers` up to and including the bottleneck, wi
 applied *between* Linears (mirroring what `FeedFwdNN.forward` does internally). The bottleneck
 activation itself is linear — that's the latent.
 
-### Linear probe
+### 8.20.5.5 Linear probe
 
 ```python
 def linear_probe(train_z, train_y, test_z, test_y):

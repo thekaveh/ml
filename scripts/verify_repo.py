@@ -917,7 +917,7 @@ def _stale_layout_guidance_findings(repo: Path) -> list[Finding]:
 
 
 _ATLAS_INFRA_LEDGER_SECTION_RE = re.compile(
-    r"^##[ \t]+\d+\.[ \t]+Atlas Infra Submodule Contract[ \t]*\r?$"
+    r"^##[ \t]+\d+(?:\.\d+)*[.]?[ \t]+Atlas Infra Submodule Contract[ \t]*\r?$"
     r"(?P<body>.*?)(?=^##[ \t]|\Z)",
     re.MULTILINE | re.DOTALL,
 )
@@ -1144,19 +1144,33 @@ def _ordered_contains(required: tuple[str, ...], actual: list[str]) -> tuple[boo
 
 def check_docs(repo: Path) -> CheckResult:
     result = CheckResult(name="docs")
+    canonical_doc_sources: set[str] = set()
 
     manifest_path = repo / "docs" / "manifest.yaml"
     if manifest_path.exists():
-        from scripts.docs.check_docs import check_notebook_infrastructure
+        from scripts.docs.check_docs import (
+            check_notebook_infrastructure,
+            check_numbering,
+            manifest_markdown_sources,
+        )
         from scripts.docs.manifest import load_manifest
 
         manifest = load_manifest(manifest_path, repo)
+        canonical_doc_sources = manifest_markdown_sources(manifest)
         for finding in check_notebook_infrastructure(manifest, repo):
             result.findings.append(Finding(
                 id="D10.notebook_infrastructure",
                 check="docs",
                 severity=finding.severity,
                 location="docs/notebook-infrastructure.md",
+                message=finding.message,
+            ))
+        for finding in check_numbering(manifest, repo):
+            result.findings.append(Finding(
+                id="D9.numbered_heading",
+                check="docs",
+                severity=finding.severity,
+                location=finding.message.split(":", 1)[0],
                 message=finding.message,
             ))
 
@@ -1304,6 +1318,8 @@ def check_docs(repo: Path) -> CheckResult:
                     ))
 
     for path in _iter_numbered_doc_files(repo):
+        if str(path.relative_to(repo)) in canonical_doc_sources:
+            continue
         result.findings.extend(_numbered_heading_findings(repo, path))
 
     result.findings.extend(_dependency_ledger_findings(repo))

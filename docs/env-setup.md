@@ -1,9 +1,9 @@
-# Environment setup
+# 4.1 Environment setup
 
 Four paths are supported. Atlas is the default because it gives local VS Code a reproducible,
 running JupyterHub kernel while retaining the checked-out notebooks on the host.
 
-## 1. Atlas JupyterHub + local VS Code (recommended)
+## 4.1.1 Atlas JupyterHub + local VS Code (recommended)
 
 Atlas is the direct successor to the previous infrastructure seam. This repository
 pins Atlas as `infra/` at `61c7c5103660e2226bf107c115dae42bf46f8374`; the lifecycle wrapper
@@ -13,7 +13,7 @@ bind-mounts this checkout at `/home/jovyan/work/ml-eng-lab`. That mounted path i
 Browser JupyterLab or an attached JupyterHub container; it is not assumed by every host-local
 notebook paired with a remote kernel.
 
-### 1.1. Start the runtime
+### 4.1.1.1 Start the runtime
 
 ```bash
 git submodule update --init --recursive
@@ -30,10 +30,10 @@ make atlas-connect
 `make atlas-setup` creates ignored, machine-local environment files without replacing existing
 ones. `make atlas-up` validates the consumer contract and starts Atlas in detached mode. It refuses
 to proceed unless native Ollama answers on the loopback address. `make atlas-connect` prints a
-short-lived token URL only to an interactive terminal; follow its VS Code instructions rather than
+token-bearing URL only to an interactive terminal; follow its VS Code instructions rather than
 recording the URL in a shell history, issue, or document.
 
-### 1.2. Source and persistence policy
+### 4.1.1.2 Source and persistence policy
 
 - **Ollama:** `LLM_PROVIDER_SOURCE=ollama-localhost` is mandatory. Use the host-native Ollama
   daemon; never run an Ollama Docker container for this consumer.
@@ -47,7 +47,7 @@ recording the URL in a shell history, issue, or document.
   JupyterLab or VS Code attached to the JupyterHub container from `/home/jovyan/work/ml-eng-lab`,
   so its ignored `data/` and `runs/` directories remain in this checkout.
 
-### 1.3. Stop and clean up
+### 4.1.1.3 Stop and clean up
 
 ```bash
 make atlas-down          # normal shutdown; preserves Atlas volumes
@@ -59,7 +59,7 @@ discarding persisted Atlas data. Never edit files inside `infra/`; consumer conf
 in the parent repository. See [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md) for pin
 updates and future service admission.
 
-## 2. Local Docker
+## 4.1.2 Local Docker
 
 ```bash
 docker build -t ml-eng-lab .
@@ -70,7 +70,7 @@ Open the token URL printed at startup. This is a self-contained notebook image, 
 runtime; use it when you specifically need an isolated local image. `--shm-size=4g` is the minimum
 for the GNN notebooks; serious GNN training may need 16–50 GiB.
 
-## 3. Local Python venv
+## 4.1.3 Local Python venv
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -85,7 +85,7 @@ The local/CI package contract remains intentionally separate from Atlas. In part
 [dependency-contracts.md](dependency-contracts.md) before changing it. `make nlp-assets` obtains
 the spaCy `en_core_web_sm` model and NLTK `vader_lexicon` required by two Tier-A notebooks.
 
-## 4. GitHub Codespaces
+## 4.1.4 GitHub Codespaces
 
 Create a codespace on `main` from GitHub. `.devcontainer/devcontainer.json` runs
 `make codespace-setup`, which installs the local/CI dependency contract and NLP assets in the
@@ -96,14 +96,14 @@ The quantization notebook is still manual-only because the Codespaces/local pack
 Torch 2.4.1; Atlas has a newer observed package surface but has not yet received a full
 quantization-notebook smoke.
 
-## 5. GPU notes
+## 4.1.5 GPU notes
 
 The current checked-in local Docker and Codespaces paths are CPU-oriented. For a new GPU run, use
 an environment with a matching CUDA Torch/PyG stack and record the compatibility result. Do not
 silently repoint the Atlas consumer to a containerized Ollama or ComfyUI service to obtain GPU
 access; service admission is a separate reviewed change.
 
-## 6. Tier mapping
+## 4.1.6 Tier mapping
 
 The authoritative lists are `Makefile` (`TIER_A`, `TIER_B`, and `TIER_C`) and
 `scripts/verify_repo_config.yaml` (`tier_a_notebooks`).

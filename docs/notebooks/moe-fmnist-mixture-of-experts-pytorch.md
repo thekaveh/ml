@@ -161,7 +161,7 @@ refutes this.
 
 ## 8.9.5 Code walkthrough
 
-### Model construction and `.net` substitution
+### 8.9.5.1 Model construction and `.net` substitution
 
 ```python
 class MoEClassifier(FeedFwdNN):
@@ -178,7 +178,7 @@ a custom `train_step_fn` works without further plumbing. The `NNModel` shell is 
 placeholder `FeedFwdNN`, then the real `MoEClassifier` is swapped in via `model.net = ...` —
 the same trick the diffusion and JEPA tasks use for `.net` substitution.
 
-### Custom train step with aux loss
+### 8.9.5.2 Custom train step with aux loss
 
 ```python
 step_fn = moe_train_step_factory(aux_loss_weight=AUX_LOSS_WEIGHT)
@@ -197,7 +197,7 @@ cross-entropy plus `aux_loss_weight * sum(last_aux_loss for each MoELinear in th
 factory sums across every `MoELinear` so stacking more of them amplifies the aux-loss signal
 automatically.
 
-### Pre/post aux-loss probe
+### 8.9.5.3 Pre/post aux-loss probe
 
 ```python
 # 640-sample probe BEFORE training
@@ -218,7 +218,7 @@ the layer — the cleanest way to inspect load balancing without digging into th
 Probing the *same* 640-sample batch before and after training makes the before/after comparison
 controlled.
 
-### Expert-utilization histogram
+### 8.9.5.4 Expert-utilization histogram
 
 ```python
 flat = probe_X.view(probe_X.size(0), -1).to(model.device)

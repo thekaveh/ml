@@ -130,7 +130,7 @@ compounds. Whether the absolute accuracy is high or low is a function of the 2-e
 
 ## 8.6.5 Code walkthrough
 
-### Model and training-parameter factories
+### 8.6.5.1 Model and training-parameter factories
 
 ```python
 def make_model():
@@ -156,7 +156,7 @@ Both factories are pure — each call returns a fresh object — so the single-g
 born-again chain can be built from identical starting conditions. `dropout_prob=0.0` because the
 budget is tiny and dropout would starve an already-undertrained model.
 
-### Single-generation reference
+### 8.6.5.2 Single-generation reference
 
 ```python
 nnx.set_seed(0)
@@ -169,7 +169,7 @@ This is the control. With `set_seed(0)` immediately before, and `make_model()` +
 deterministic, the reference's final recorded validation loss is `2.1403` (validation accuracy
 `40.73%` — low, because the budget is 2 epochs).
 
-### Born-again chain — one call
+### 8.6.5.3 Born-again chain — one call
 
 ```python
 nnx.set_seed(0)
@@ -187,7 +187,7 @@ teacher is a separate frozen `deepcopy` of the prior-gen snapshot. So after the 
 `ba_model` holds the last generation's parameters and `ba_runs[i].idps[-1].val_edp.loss` is gen
 \(i\)'s final validation loss.
 
-### Per-generation trajectory
+### 8.6.5.4 Per-generation trajectory
 
 ```python
 for i, run in enumerate(ba_runs):
@@ -199,7 +199,7 @@ The trajectory table is the directly-interpretable artifact: it pairs each gener
 validation loss with what that generation was trained against, making the soft-label handoff
 explicit.
 
-### Final comparison
+### 8.6.5.5 Final comparison
 
 ```python
 single_acc = single_gen.evaluate(ds.val_loader).accuracy
@@ -302,5 +302,5 @@ budget-confounded* (the magnitude is not pure distillation). Both are honest.
   same-architecture self-distillation result. Hinton et al., 2015, *Distilling the Knowledge in a
   Neural Network* (arXiv:1503.02531) — the original distillation framework with the temperature
   formulation. See also the task [`README.md`](../../notebooks/knowledge_distillation-mnist-ffnn-pytorch/README.md)
-  for the in-repo contract summary and [`docs/env-setup.md`](../env-setup.md) §6 for the Tier-A
+  for the in-repo contract summary and [`docs/env-setup.md`](../env-setup.md) §4.1.6 for the Tier-A
   execution path.

@@ -77,6 +77,7 @@ def test_render_mkdocs_yml_has_generated_nav_and_no_repo_url(tmp_path):
     text = render_mkdocs_yml(m, tmp_path, tmp_path / "generated/site")
     assert "docs_dir: generated/site" in text
     assert "site_dir: site" in text
+    assert "exclude_docs" not in text
     assert "repo_url" not in text and "edit_uri" not in text
     parsed = yaml.safe_load(text)
     titles = [item if isinstance(item, str) else list(item)[0] for item in parsed["nav"]]
@@ -101,11 +102,37 @@ def test_nav_preserves_a_section_source_and_children():
     ]
 
 
+def test_nav_places_notebooks_before_later_numbered_sections():
+    manifest = parse_manifest(
+        MANIFEST_YAML.replace(
+            "notebooks:",
+            "  - id: findings\n    number: \"9\"\n    title: Findings\n"
+            "    source: docs/findings.md\nnotebooks:",
+        )
+    )
+
+    nav = yaml.safe_load(render_mkdocs_yml(manifest, Path("."), Path(".")))["nav"]
+    labels = [next(iter(item)) for item in nav]
+
+    assert labels.index("8. Notebooks") < labels.index("9. Findings")
+
+
 def test_build_check_is_deterministic(tmp_path):
     _seed(tmp_path)
     rc1 = build(tmp_path / "docs/manifest.yaml", tmp_path, site=True, check=True)
     rc2 = build(tmp_path / "docs/manifest.yaml", tmp_path, site=True, check=True)
     assert rc1 == 0 and rc2 == 0
+
+
+def test_render_site_removes_stale_generated_files(tmp_path):
+    _seed(tmp_path)
+    out = tmp_path / "generated/site"
+    out.mkdir(parents=True)
+    (out / "obsolete.md").write_text("stale", encoding="utf-8")
+
+    render_site(parse_manifest(MANIFEST_YAML), tmp_path, out)
+
+    assert not (out / "obsolete.md").exists()
 
 
 def test_rewrite_images_site_preserves_subdir_prefix():

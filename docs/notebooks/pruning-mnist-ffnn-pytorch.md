@@ -129,7 +129,7 @@ numbers are low and the curve is noisy in places — see results.
 
 ## 8.7.5 Code walkthrough
 
-### Baseline training
+### 8.7.5.1 Baseline training
 
 ```python
 model = make_model()   # FeedFwdNN, [256, 128]
@@ -148,7 +148,7 @@ accuracy \(\sim 51.9\%\)). The short budget is a Tier-A choice (\(\sim 15\) s on
 *shape* of the pruning curve is what is pedagogically interesting and it is stable across budgets,
 but the absolute accuracies are well below MNIST state-of-the-art.
 
-### Measuring the actual zero fraction
+### 8.7.5.2 Measuring the actual zero fraction
 
 ```python
 def actual_zero_fraction(net):
@@ -166,7 +166,7 @@ weight matrices only — the tensors magnitude pruning actually touches. This ma
 Pareto curve: a reported 50% zero fraction means 50% of *weight* entries, not 50% of all parameters
 including biases.
 
-### The sparsity sweep
+### 8.7.5.3 The sparsity sweep
 
 ```python
 for s in SPARSITY_LEVELS:
@@ -184,7 +184,7 @@ it returns the number of layers that were pruned. Third, `bake=True` is the defa
 call `pruned.net`'s `state_dict()` has the same keys as the unpruned net, with physical zeros in
 the pruned positions — the deployable form.
 
-### The Pareto curve
+### 8.7.5.4 The Pareto curve
 
 ```python
 ax.plot(xs, [a*100 for a in accs], "o-", label="val accuracy (%)", color="tab:blue")
@@ -288,4 +288,4 @@ shape — flat through mid-sparsity, cliff past ~0.8.
   *Accelerating Sparse Deep Neural Networks* — the 2:4 semi-structured formulation backed by
   NVIDIA's `SparseSemiStructuredTensor`. See also the task
   [`README.md`](../../notebooks/pruning-mnist-ffnn-pytorch/README.md) for the in-repo contract
-  summary and [`docs/env-setup.md`](../env-setup.md) §6 for the Tier-A execution path.
+  summary and [`docs/env-setup.md`](../env-setup.md) §4.1.6 for the Tier-A execution path.

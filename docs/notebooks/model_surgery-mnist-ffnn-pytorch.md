@@ -130,7 +130,7 @@ statistical, and dropout's stochastic masking would break the forward-equality a
 
 ## 8.5.5 Code walkthrough
 
-### Baseline construction
+### 8.5.5.1 Baseline construction
 
 ```python
 def make_model(hidden_dims):
@@ -151,7 +151,7 @@ The ReLU pin is load-bearing for the deepen step that follows — see pitfalls. 
 for 3 epochs and reaches a final validation loss of `1.3150`: deliberately undertrained, so the
 post-surgery resume has headroom to improve.
 
-### Asserting the function-preservation contract
+### 8.5.5.2 Asserting the function-preservation contract
 
 ```python
 x_probe, _ = next(iter(ds.val_loader))
@@ -181,7 +181,7 @@ count, which accumulates floating-point rounding error; `deepen`'s identity matr
 ReLU. The `1e-5` tolerance should not be relaxed — drift past it means the surgery primitive is
 broken.
 
-### Wrapping an operated net for resumed training
+### 8.5.5.3 Wrapping an operated net for resumed training
 
 ```python
 def make_model_from_net(net, model_params):
@@ -202,7 +202,7 @@ is descriptive metadata here, and the live `m.net` drives training. This is a kn
 `nnx` API surface (no public call both injects a net *and* syncs params); it does not affect the
 recorded results.
 
-### The warm-start vs cold-start race
+### 8.5.5.4 The warm-start vs cold-start race
 
 ```python
 cont_model   = make_model_from_net(copy.deepcopy(baseline.net), ...)
@@ -299,4 +299,4 @@ real effect, not a bug). Extending the budget is the first item in §8.5.8.
   (arXiv:1511.05641) — the original function-preserving construction. The `nnx` surgery primitives
   implement Net2WiderNet (§3.1) and Net2DeeperNet (§3.2) of that paper; see also the task
   [`README.md`](../../notebooks/model_surgery-mnist-ffnn-pytorch/README.md) for the in-repo
-  contract summary and [`docs/env-setup.md`](../env-setup.md) §6 for the Tier-A execution path.
+  contract summary and [`docs/env-setup.md`](../env-setup.md) §4.1.6 for the Tier-A execution path.

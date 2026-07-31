@@ -171,7 +171,7 @@ exercised in CI is 10.
 
 ## 8.3.5 Code walkthrough
 
-### The linear layer (`linear_layer.py`)
+### 8.3.5.1 The linear layer (`linear_layer.py`)
 
 ```python
 def forward(self, X):
@@ -192,7 +192,7 @@ exactly what an autograd framework would record on the tape — here it is a
 literal attribute assignment. Note the `1/n` factor: the gradient is averaged
 across the batch to match the mean in the loss.
 
-### The PReLU layer (`relu_layer.py`)
+### 8.3.5.2 The PReLU layer (`relu_layer.py`)
 
 ```python
 def forward(self, Z):
@@ -209,7 +209,7 @@ PReLU derivative — the chain rule for an element-wise nonlinearity. The leaky
 slope α = 0.01 means dead-negative-region gradients are 1% of the positive
 slope, not strictly zero as in vanilla ReLU.
 
-### The fused softmax + cross-entropy layer (`softmax_cross_entropy_layer.py`)
+### 8.3.5.3 The fused softmax + cross-entropy layer (`softmax_cross_entropy_layer.py`)
 
 ```python
 def forward(self, A, Y):
@@ -230,7 +230,7 @@ to avoid overflow on the raw `[0, 255]` inputs (whose initial logits can be
 large), and the cross-entropy adds `EPSILON = 1e-30` inside the `log` to stay
 finite when the model is confidently wrong early in training.
 
-### The training loop (`feed_fwd_nn.py`)
+### 8.3.5.4 The training loop (`feed_fwd_nn.py`)
 
 ```python
 for epoch_idx in range(self.n_epochs):
@@ -265,7 +265,7 @@ already consumed (and thus can no longer be confused by overwriting) the cached
 Second, with `mini_batch_size = 60000`, the inner `for mb_idx` loop body runs
 exactly once per epoch — one gradient step per epoch.
 
-### Data plumbing
+### 8.3.5.5 Data plumbing
 
 ```python
 ds_train = thv.datasets.MNIST(root="./data", train=True, download=True, ...)
@@ -279,7 +279,7 @@ entirely. Consequently no `ToTensor` / `Normalize` / `[0,1]` rescaling happens �
 the model trains on raw 0–255 integers. The labels are one-hot encoded once
 upfront and reused for every batch.
 
-### The two-run comparison
+### 8.3.5.6 The two-run comparison
 
 The same `FeedFwdNN` class is instantiated twice — `net1` at `lr=0.1`
 (`Consts.LR`) and `net2` at `lr=0.01` — and `Utils.two_line_plot` overlays

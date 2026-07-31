@@ -1,10 +1,10 @@
-# Atlas pin-bump and service-admission runbook
+# 6.2 Atlas pin-bump and service-admission runbook
 
 This runbook governs the `infra/` Atlas submodule and the consumer boundary around it. Atlas is
 the successor to the old infrastructure seam; this repository consumes it rather than maintaining
 a fork. The current reviewed pin is `61c7c5103660e2226bf107c115dae42bf46f8374`.
 
-## 1. Ownership and invariants
+## 6.2.1 Ownership and invariants
 
 - Keep Atlas implementation changes upstream. This repository owns only `atlas.consumer.yml`,
   `atlas.env.user.example`, `compose/ml-eng-lab-atlas.yml`, lifecycle wrappers, task contracts,
@@ -13,16 +13,16 @@ a fork. The current reviewed pin is `61c7c5103660e2226bf107c115dae42bf46f8374`.
   port.
 - Keep `LLM_PROVIDER_SOURCE=ollama-localhost`. Run host-native Ollama; never start or add a
   containerized Ollama service for this consumer.
-- Leave ComfyUI disabled unless a concrete task completes the admission path in §3. If admitted,
+- Leave ComfyUI disabled unless a concrete task completes the admission path in §6.2.3. If admitted,
   it must use a reviewed host-native source, never an automatic or containerized source.
 - The primary notebook interaction remains local VS Code connected to the running remote JupyterHub
   kernel for remote-workspace tasks. A `mounted-workspace` / `mounted-required` task (currently
   NumPy MNIST) must use Browser JupyterLab or VS Code attached to the JupyterHub container from
   the mounted checkout.
 
-## 2. Atlas pin bump
+## 6.2.2 Atlas pin bump
 
-### 2.1. Prepare the working tree
+### 6.2.2.1 Prepare the working tree
 
 1. Start from an up-to-date feature branch based on `develop`; do not bump infrastructure directly
    on `main`.
@@ -38,7 +38,7 @@ a fork. The current reviewed pin is `61c7c5103660e2226bf107c115dae42bf46f8374`.
    that `start.sh`, `stop.sh`, consumer manifests, `ml-eng`, and the native localhost Ollama source
    remain available.
 
-### 2.2. Advance the gitlink deliberately
+### 6.2.2.2 Advance the gitlink deliberately
 
 1. Fetch and detach `infra/` at the exact reviewed commit; never make a consumer-local commit in
    the submodule.
@@ -57,7 +57,7 @@ a fork. The current reviewed pin is `61c7c5103660e2226bf107c115dae42bf46f8374`.
    JupyterHub container, `BASE_PORT=auto`, and native Ollama. A pin bump must not silently make a
    previously disabled service containerized.
 
-### 2.3. Validate the live runtime
+### 6.2.2.3 Validate the live runtime
 
 1. Verify the host-native Ollama daemon answers on loopback. Start it in a separate terminal only
    if needed, then return to the lifecycle terminal:
@@ -75,7 +75,7 @@ a fork. The current reviewed pin is `61c7c5103660e2226bf107c115dae42bf46f8374`.
      'cd /home/jovyan/work/ml-eng-lab && python scripts/atlas_runtime_probe.py'
    ```
 
-4. Run `make atlas-connect` from an interactive terminal and use its short-lived URL to execute a
+4. Run `make atlas-connect` from an interactive terminal and use its token-bearing URL to execute a
    cheap cell from local VS Code against the remote kernel. Do not expose the URL in a command log.
 5. Record observed package changes, supported notebook imports, and any manual-only exceptions in
    [dependency-contracts.md](dependency-contracts.md). Successful imports do not replace a
@@ -83,13 +83,13 @@ a fork. The current reviewed pin is `61c7c5103660e2226bf107c115dae42bf46f8374`.
 6. Stop normally with `make atlas-down`; reserve `COLD=1 make atlas-down` for an intentional,
    destructive volume reset. Verify `git -C infra status --short` remains clean.
 
-### 2.4. Integrate with Gitflow
+### 6.2.2.4 Integrate with Gitflow
 
 Open a PR from the feature branch to `develop` with the gitlink, contract, test, and documentation
 changes together. After it merges and checks pass, open a separate `develop` to `main` PR. Do not
 merge a pin bump straight to `main`; keep the two review boundaries visible.
 
-## 3. Future service admission
+## 6.2.3 Future service admission
 
 Do this before enabling any additional Atlas service for a notebook:
 
@@ -112,7 +112,7 @@ Do this before enabling any additional Atlas service for a notebook:
 The `ml-eng` track may expose other default services, but availability is not authorization for a
 notebook dependency. Each service must earn an explicit task contract and targeted evidence.
 
-## 4. Failure handling
+## 6.2.4 Failure handling
 
 - **A pin breaks consumer validation:** return the `infra` gitlink to the last reviewed SHA in a
   new commit; do not force-reset shared branches or edit the submodule history.

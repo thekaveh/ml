@@ -1,10 +1,10 @@
-# Atlas consumer findings
+# 9.2 Atlas consumer findings
 
 This log records integration findings at the boundary between ml-eng-lab and its pinned Atlas
 submodule. Do not patch Atlas implementation files from this repository; report upstream defects
 there and record the consumer impact here.
 
-## 1. Native Ollama is mandatory
+## 9.2.1 Native Ollama is mandatory
 
 Status: enforced in `scripts/atlas-up.sh` and covered by lifecycle tests.
 
@@ -14,7 +14,7 @@ overrides, verifies the loopback native daemon before startup, and rejects conta
 ComfyUI overrides. Keep this finding in place unless a reviewed Atlas change gives equivalent
 native behavior with a different explicit source.
 
-## 2. Atlas Jupyter runtime is distinct from local CI
+## 9.2.2 Atlas Jupyter runtime is distinct from local CI
 
 Status: documented with live probe evidence on 2026-07-30.
 

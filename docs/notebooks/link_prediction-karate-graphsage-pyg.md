@@ -141,7 +141,7 @@ but with a wide confidence interval because the test set is only 30 edges.
 
 ## 8.14.5 Code walkthrough
 
-### Link split
+### 8.14.5.1 Link split
 
 ```python
 split = RandomLinkSplit(
@@ -158,7 +158,7 @@ different splits (which would silently inflate test AUC). `add_negative_train_sa
 the recommended setting for link-prediction training: it lets the loop draw fresh negatives every
 epoch instead of memorizing a fixed set.
 
-### Encoder and decoder
+### 8.14.5.2 Encoder and decoder
 
 ```python
 encoder = GraphSageNN(
@@ -178,7 +178,7 @@ function over the embedding tensor: index the two endpoints, multiply elementwis
 raw logits (no sigmoid) is what lets `binary_cross_entropy_with_logits` apply the numerically
 stable log-sum-exp internally.
 
-### Training loop
+### 8.14.5.3 Training loop
 
 ```python
 for epoch in range(N_EPOCHS):
@@ -211,7 +211,7 @@ epoch via `negative_sampling` — the single most important line for keeping the
 honest. Positives and negatives are concatenated and fed to the decoder as one batch; labels are
 1 for the first `pos_edge_index.size(1)` entries and 0 for the rest.
 
-### Validation and test
+### 8.14.5.4 Validation and test
 
 ```python
 encoder.eval()

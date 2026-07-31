@@ -178,17 +178,17 @@ lint:
 docs-build:
 	$(PYTHON) -m scripts.docs.render_diagrams
 	$(PYTHON) -m scripts.docs.build_docs --site
-	mkdocs build --strict
+	NO_MKDOCS_2_WARNING=1 mkdocs build --strict
 
 docs-serve:
 	$(PYTHON) -m scripts.docs.render_diagrams
 	$(PYTHON) -m scripts.docs.build_docs --site
-	mkdocs serve
+	NO_MKDOCS_2_WARNING=1 mkdocs serve
 
 docs-check:
 	$(PYTHON) -m scripts.docs.render_diagrams
 	$(PYTHON) -m scripts.docs.check_docs
-	mkdocs build --strict
+	NO_MKDOCS_2_WARNING=1 mkdocs build --strict
 
 docs-sync-notebook-infrastructure:
 	$(PYTHON) -m scripts.docs.notebook_infrastructure --write

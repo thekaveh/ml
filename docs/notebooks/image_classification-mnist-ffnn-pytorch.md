@@ -184,7 +184,7 @@ should be in the 1.5–2% band typical of well-tuned MLPs on MNIST.
 
 ## 8.4.5 Code walkthrough
 
-### Dataset
+### 8.4.5.1 Dataset
 
 ```python
 DS_MEAN, DS_STD = 0.1307, 0.3081
@@ -205,7 +205,7 @@ constants are the published MNIST mean and standard deviation — the same value
 every mainstream MNIST example uses, and the single biggest difference from the
 NumPy sibling (which feeds raw `[0, 255]`).
 
-### Sweep specification
+### 8.4.5.2 Sweep specification
 
 ```python
 n_epochs = SMOKE_TEST_EPOCHS if SMOKE_TEST else 500
@@ -236,7 +236,7 @@ else flows from the shared `NNModelParams`. Note the Cartesian product order:
 dropout is the outer loop, hidden_dims the inner, so candidates group by
 dropout value in the resulting `models` list.
 
-### Training
+### 8.4.5.3 Training
 
 ```python
 train_params = [
@@ -261,7 +261,7 @@ defaults recorded in the committed output confirm Adam + ReduceLROnPlateau +
 `max_lr=0.01`; the notebook never instantiates any of them by name — they are
 the framework defaults.
 
-### Ranking and visualization
+### 8.4.5.4 Ranking and visualization
 
 ```python
 top_runs = sorted(
@@ -284,7 +284,7 @@ The same `multi_line_plot` is then called again with `idp.lr` to overlay the
 ReduceLROnPlateau learning-rate traces across the top five runs, making the
 self-annealing behavior directly visible.
 
-### Inspection: t-SNE and sample grid
+### 8.4.5.5 Inspection: t-SNE and sample grid
 
 ```python
 for checkpoint in top_runs[0].checkpoints():
@@ -306,7 +306,7 @@ glance across checkpoints. The sample grid reloads the best run from disk via
 image and generative tasks depend on — and renders an 81-image tile with
 correct/incorrect color-coding.
 
-### Surface test (the every-PR gate)
+### 8.4.5.6 Surface test (the every-PR gate)
 
 Because the full sweep is too slow for per-PR CI, the call-shape contract is
 pinned separately in

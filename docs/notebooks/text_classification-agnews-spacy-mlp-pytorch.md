@@ -150,7 +150,7 @@ in the pitfalls.
 
 ## 8.17.5 Code walkthrough
 
-### spaCy lemmatization
+### 8.17.5.1 spaCy lemmatization
 
 ```python
 nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])
@@ -166,7 +166,7 @@ lemmatization) run. The filter keeps content-word lemmas: lowercased, non-stopwo
 non-empty-after-strip. The `t.lemma_.strip()` guard also drops whitespace/SPACE tokens (whose
 lemma is the whitespace itself).
 
-### The train-only vocabulary (the footgun)
+### 8.17.5.2 The train-only vocabulary (the footgun)
 
 ```python
 counter = Counter()
@@ -184,7 +184,7 @@ data leakage that inflates test accuracy by a few points and is invisible unless
 vocab-construction loop. Recorded: 410 unique lemmas in train, top 200 kept. The vocab maps
 token → dense index ordered by descending train frequency (so index 0 is the most frequent lemma).
 
-### L2-normalized BoW featurizer
+### 8.17.5.3 L2-normalized BoW featurizer
 
 ```python
 def featurize(toks):
@@ -204,7 +204,7 @@ vocab choice: at test time the model must work with the vocabulary it learned, e
 in production. The L2 normalization projects every BoW vector onto the unit sphere so that the
 downstream dot-product logits measure *direction*, not magnitude.
 
-### MLP head and training
+### 8.17.5.4 MLP head and training
 
 ```python
 def make_model():
@@ -230,7 +230,7 @@ there is no separate val split to carve off, so the test loss is surfaced per-ep
 into convergence — but it is *not* used for early-stopping or model selection. Training runs 16
 batches/epoch × 80 epochs = **1280 iterations**.
 
-### Evaluation
+### 8.17.5.5 Evaluation
 
 ```python
 y_pred = np.argmax(model.predict_proba(X_test), axis=1)

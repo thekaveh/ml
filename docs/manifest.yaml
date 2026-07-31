@@ -13,7 +13,7 @@ sections:
         number: "2.1"
         title: "System & context view"
         source: docs/architecture.md
-        diagrams: [system, docs-sync, runtime-flow]
+        diagrams: [system, docs-sync, runtime-flow, docs-publishing]
   - id: concepts
     number: "3"
     title: Concepts
@@ -42,6 +42,7 @@ sections:
     number: "5"
     title: Repository conventions
     source: docs/conventions.md
+    diagrams: [notebook-sequence]
   - id: dependency-contracts
     number: "6"
     title: Dependency contracts

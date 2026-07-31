@@ -64,6 +64,17 @@ def test_render_wiki_writes_home_sidebar_pages_and_images(tmp_path):
     assert (out / "img/system.png").exists()
 
 
+def test_render_wiki_removes_stale_generated_files(tmp_path):
+    _seed(tmp_path)
+    out = tmp_path / "generated/wiki"
+    out.mkdir(parents=True)
+    (out / "obsolete.md").write_text("stale", encoding="utf-8")
+
+    render_wiki(parse_manifest(MANIFEST_YAML), tmp_path, out)
+
+    assert not (out / "obsolete.md").exists()
+
+
 def test_render_wiki_strips_forbidden_links(tmp_path):
     _seed(tmp_path)
     (tmp_path / "docs/index.md").write_text(

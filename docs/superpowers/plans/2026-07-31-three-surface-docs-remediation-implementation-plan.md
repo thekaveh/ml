@@ -44,9 +44,9 @@ Add tests that create `README.md` and `docs/page.md` with `.io` or wiki links, a
 ```python
 def test_repo_self_containment_rejects_site_and_wiki_links(tmp_path):
     (tmp_path / "docs").mkdir()
-    (tmp_path / "README.md").write_text("https://thekaveh.github.io/ml-eng-lab/\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text(f"{SITE_URL}\n", encoding="utf-8")
     (tmp_path / "docs/page.md").write_text(
-        "[wiki](https://github.com/thekaveh/ml-eng-lab/wiki/Page)\n", encoding="utf-8"
+        f"[wiki]({WIKI_URL}/Page)\n", encoding="utf-8"
     )
     findings = check_repo_self_containment(tmp_path)
     assert len(findings) == 2
@@ -206,29 +206,29 @@ git commit -m "docs: synchronize the complete canonical hierarchy"
 - Consumes: repository self-containment and grounding checks.
 - Produces: current, security-accurate user guidance and two current diagram masters.
 
-- [ ] **Step 1: Add failing content-contract tests**
+- [x] **Step 1: Add failing content-contract tests**
 
 Assert the real README contains none of `thekaveh.github.io`, `MkDocs`, wiki synchronization, or deployment mechanics. Assert token guidance contains `token-bearing` but not `short-lived`. Assert notebook infrastructure says track defaults are not notebook authorization and does not claim all other services are inactive.
 
-- [ ] **Step 2: Run the content tests and confirm RED**
+- [x] **Step 2: Run the content tests and confirm RED**
 
 Run: `pytest tests/test_check_docs.py tests/test_verify_repo.py -q -k 'readme or token or atlas'`
 
 Expected: failures on the audited wording.
 
-- [ ] **Step 3: Correct user-facing and Atlas prose**
+- [x] **Step 3: Correct user-facing and Atlas prose**
 
 Remove README build-system prose and generated `mkdocs.yml` tree entry. Replace Codespaces quota text with `120 included compute hours for Free and 180 for Pro; on a two-core machine this is 60/90 machine-hours`. Replace every unqualified `short-lived` claim with `token-bearing` and advise reconnecting after restart. State that Atlas track defaults may run but JupyterHub is the only currently authorized notebook dependency.
 
-- [ ] **Step 4: Convert migration documents into completed records**
+- [x] **Step 4: Convert migration documents into completed records**
 
 Set the 2026-07-30 design status to `Implemented`. Change the plan title/status to an implementation record, convert all 86 `[ ]` markers to `[x]`, and correct the Jupyter-only statement to distinguish task dependencies from track defaults.
 
-- [ ] **Step 5: Correct and publish diagram content**
+- [x] **Step 5: Correct and publish diagram content**
 
 Remove styling/rasterization filler from diagram-adjacent prose. Update the docs-publishing status to current main-triggered Pages/wiki publication. Update the notebook-sequence master only where its labels do not match current Makefile/runtime behavior. Embed both diagrams in their manifest-declared pages and make regeneration instructions require `make docs-check` plus `make docs-wiki`.
 
-- [ ] **Step 6: Run focused tests and render diagrams**
+- [x] **Step 6: Run focused tests and render diagrams**
 
 Run: `pytest tests/test_check_docs.py tests/test_verify_repo.py tests/test_render_diagrams.py -q`
 
@@ -236,7 +236,7 @@ Run: `python -m scripts.docs.render_diagrams`
 
 Expected: tests pass and eleven committed PNGs exist.
 
-- [ ] **Step 7: Commit the content slice**
+- [x] **Step 7: Commit the content slice**
 
 ```bash
 git add README.md docs tests/test_check_docs.py tests/test_verify_repo.py

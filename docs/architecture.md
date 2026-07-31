@@ -7,22 +7,19 @@ documentation surfaces derived from the canonical `docs/` tree.
 
 ## 2.1.1 System architecture
 
-The diagram below is rendered from the `system` diagram master declared in
-`docs/manifest.yaml` (`docs/diagrams/ml-eng-lab-system.html`). The build pipeline rasterizes the
-master to PNG for the repository and wiki surfaces and extracts the inline SVG for the site
-surface, so all three surfaces embed the same geometry.
+The system view establishes the ownership boundary: this repository owns notebook tasks,
+consumer configuration, and verification, while NNx and Atlas remain separately versioned
+upstream dependencies.
 
 ![ml-eng-lab system architecture](diagrams/img/system.png)
-
-The diagram captures the repository context and primary components: the notebook task
-directories, the shared `nnx` library consumed from PyPI, the validation and documentation
-tooling, and the three documentation surfaces.
 
 ![ml-eng-lab runtime flow](diagrams/img/runtime-flow.png)
 
 ## 2.1.2 Three-surface documentation pipeline
 
 ![Three-surface documentation sync](diagrams/img/docs-sync.png)
+
+![Documentation publishing flow](diagrams/img/docs-publishing.png)
 
 The documentation system is the cleanest worked example of the lab's "canonical source +
 derived surface" discipline. One source tree feeds three surfaces:

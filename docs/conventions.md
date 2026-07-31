@@ -83,6 +83,12 @@ Notebooks are tiered by execution cost, and the tier decides both the local
 re-run command and what CI exercises. The Makefile owns the authoritative
 per-tier notebook lists (`TIER_A`, `TIER_B`, `TIER_C`).
 
+![Notebook execution sequence](diagrams/img/notebook-sequence.png)
+
+The sequence separates task-local execution from repository-wide validation. That boundary keeps
+ignored run artifacts near their task while allowing CI to verify source notebooks without
+mutating their committed outputs.
+
 | Tier | Cost | Re-run policy | Local target |
 |---|---|---|---|
 | **A** | Cheap (<5 min) | `make run-tier-a` deliberately refreshes a committed snapshot; CI smoke-runs to `/tmp/ml-tier-a` without rewriting it. | `make run-tier-a` / `make smoke-tier-a` |

@@ -124,6 +124,17 @@ def test_build_check_is_deterministic(tmp_path):
     assert rc1 == 0 and rc2 == 0
 
 
+def test_render_site_removes_stale_generated_files(tmp_path):
+    _seed(tmp_path)
+    out = tmp_path / "generated/site"
+    out.mkdir(parents=True)
+    (out / "obsolete.md").write_text("stale", encoding="utf-8")
+
+    render_site(parse_manifest(MANIFEST_YAML), tmp_path, out)
+
+    assert not (out / "obsolete.md").exists()
+
+
 def test_rewrite_images_site_preserves_subdir_prefix():
     from scripts.docs.build_docs import _rewrite_images_site
     # deep-dive in notebooks/ uses ../diagrams/img/... → must keep ../ for the generated site

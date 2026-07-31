@@ -1,7 +1,7 @@
 # 10 Diagram Provenance
 
-This directory holds the diagram **masters**: standalone, dark, HTML/SVG architecture
-artifacts produced by the architecture-diagram skill. Each master is the single source
+This directory holds the diagram **masters**: standalone HTML/SVG architecture
+artifacts. Each master is the single source
 for one diagram; the docs pipeline derives per-surface artifacts from it so all three
 documentation surfaces embed the same geometry.
 
@@ -11,11 +11,9 @@ Each diagram declared in `docs/manifest.yaml` (`diagrams[].master` → a file in
 directory) is rendered once into two artifacts by `scripts/docs/render_diagrams.py` and
 `scripts/docs/build_docs.py`:
 
-- **SVG** → `generated/site/assets/img/<id>.svg` (crisp, themeable) — embedded by the
-  generated `.io` site. `render_site` extracts the inline `<svg>` from the master, so the
-  site output is complete and deterministic.
-- **PNG** → `docs/diagrams/img/<id>.png` (committed) — embedded by the in-repo markdown
-  and the generated wiki. `render_diagrams.py` rasterizes the SVG via `cairosvg`.
+- **SVG** → `generated/site/assets/img/<id>.svg` — embedded by the generated site.
+- **PNG** → `docs/diagrams/img/<id>.png` (committed) — embedded by the in-repo Markdown
+  and the generated wiki.
 
 Because the same master feeds all three surfaces, diagrams never drift: updating a master
 and re-running the pipeline refreshes every surface.
@@ -27,9 +25,9 @@ and re-running the pipeline refreshes every surface.
 - `ml-eng-lab-runtime-flow.html` — local VS Code → Atlas JupyterHub as the default runtime,
   fallback entry paths, and task-local artifact behavior.
 - `ml-eng-lab-notebook-sequence.html` — notebook execution from parameters through
-  training, ranking, visualization, persistence, and verification (planned).
+  training, ranking, visualization, persistence, and verification.
 - `ml-eng-lab-docs-publishing.html` — README, docs, MkDocs, GitHub Pages, wiki, and
-  repository metadata surfaces (planned).
+  repository metadata surfaces.
 - `ml-eng-lab-docs-sync.html` — the three-surface documentation sync pipeline (added with
   the docs-overhaul foundation).
 
@@ -38,12 +36,11 @@ and re-running the pipeline refreshes every surface.
 The checked-in HTML masters are the source of truth. Do not hand-edit generated geometry
 without updating this provenance note in the same change. When a diagram needs to change:
 
-1. Regenerate the affected HTML master with the same dark technical style, landscape
-   layout, embedded SVG, and no external runtime JavaScript.
+1. Update the affected HTML master while preserving its standalone, deterministic SVG contract.
 2. Run `python -m scripts.docs.render_diagrams` to refresh the committed PNG
    (`docs/diagrams/img/<id>.png`); the site SVG is refreshed by the next `build_docs` run.
-3. Run `make docs-build` (render + `build_docs --site` + `mkdocs build --strict`) and
-   confirm both surfaces embed the updated geometry.
+3. Run `make docs-check` and `make docs-wiki` so the repository, site, and wiki projections are
+   regenerated and validated from the same commit.
 4. Inspect the rendered diagram at normal browser zoom for overlapping labels, boxes,
    legends, or arrows before committing.
 

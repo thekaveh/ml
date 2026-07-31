@@ -15,9 +15,9 @@ mounted checkout. Its `default_mode` is `mounted-workspace`; run it from
 Browser JupyterLab or VS Code attached to the JupyterHub container at
 `/home/jovyan/work/ml-eng-lab`; its task-local ignored paths hold its artifacts.
 
-Every contract currently requires JupyterHub. Additional Atlas services stay
-inactive until a task declares them in its contract and their package and
-service validation has passed. Do not copy artifacts from Atlas volumes into
+Every contract currently authorizes JupyterHub alone. Atlas track defaults are not notebook authorization:
+other services may be running as part of the selected track, but a notebook must not depend on one until
+its task contract declares it and its package and service validation has passed. Do not copy artifacts from Atlas volumes into
 the repository unless a task explicitly documents that policy. The full
 admission sequence is [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
 

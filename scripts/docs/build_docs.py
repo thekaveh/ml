@@ -27,6 +27,7 @@ def render_site(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
     source_map = build_source_map(manifest, "site")
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
+    expected: set[Path] = set()
 
     def emit(src_rel: str) -> None:
         text = (repo_root / src_rel).read_text(encoding="utf-8")
@@ -36,6 +37,7 @@ def render_site(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(text, encoding="utf-8")
         written.append(dest)
+        expected.add(dest)
 
     for s in manifest.sections:
         if s.source:
@@ -50,12 +52,16 @@ def render_site(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
     css_src = repo_root / "docs/stylesheets/extra.css"
     if css_src.exists():
         (out_dir / "stylesheets").mkdir(parents=True, exist_ok=True)
-        (out_dir / "stylesheets/extra.css").write_text(css_src.read_text(encoding="utf-8"), encoding="utf-8")
+        css_dest = out_dir / "stylesheets/extra.css"
+        css_dest.write_text(css_src.read_text(encoding="utf-8"), encoding="utf-8")
+        expected.add(css_dest)
     # copy mathjax loader (referenced by generated mkdocs.yml)
     js_src = repo_root / "docs/javascripts/mathjax.js"
     if js_src.exists():
         (out_dir / "javascripts").mkdir(parents=True, exist_ok=True)
-        (out_dir / "javascripts/mathjax.js").write_text(js_src.read_text(encoding="utf-8"), encoding="utf-8")
+        js_dest = out_dir / "javascripts/mathjax.js"
+        js_dest.write_text(js_src.read_text(encoding="utf-8"), encoding="utf-8")
+        expected.add(js_dest)
     # place diagram SVGs (crisp, for the site) — extracted from committed HTML masters,
     # so render_site owns the complete, deterministic site output.
     from scripts.docs.render_diagrams import extract_svg
@@ -64,7 +70,12 @@ def render_site(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
     for d in manifest.diagrams:
         svg = extract_svg((repo_root / d.master).read_text(encoding="utf-8"))
         assets.mkdir(parents=True, exist_ok=True)
-        (assets / f"{d.id}.svg").write_text(svg, encoding="utf-8")
+        svg_dest = assets / f"{d.id}.svg"
+        svg_dest.write_text(svg, encoding="utf-8")
+        expected.add(svg_dest)
+    for path in out_dir.rglob("*"):
+        if path.is_file() and path not in expected:
+            path.unlink()
     return written
 
 

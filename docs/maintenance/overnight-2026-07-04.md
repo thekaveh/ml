@@ -105,7 +105,7 @@ Skipped checks:
 - `git diff --check`: passed.
 - `pytest tests/test_verify_repo.py::test_e14_flags_tmp_papermill_output_path -q`: failed before adding the E14 verifier guard, then passed after it.
 - `python scripts/verify_repo.py --check execution --fast`: first reported 17 `E14.tmp_papermill_output_path` warnings, then 0 findings after stripping top-level stale papermill metadata.
-- `curl -I -L https://thekaveh.github.io/ml-eng-lab/`: still returned HTTP 404, matching deferred OM-011.
+- The live Pages endpoint probe still returned HTTP 404, matching deferred OM-011.
 - `gh repo view thekaveh/ml-eng-lab --json name,description,homepageUrl,repositoryTopics,defaultBranchRef,url`: default branch `main`, description/topics current, homepage still README pending live Pages.
 - `git ls-remote --tags` for pinned GitHub Actions: reviewed tag SHAs still match `.github/workflows/*` and `docs/dependency-contracts.md`.
 - `git ls-remote https://github.com/thekaveh/genai-vanilla.git refs/heads/main`: upstream `main` is `b0bce0fc4e9d2bb282fbc6c97631f3e37233e24e`.
@@ -136,7 +136,7 @@ Skipped checks:
 - `git ls-remote https://github.com/thekaveh/genai-vanilla.git refs/heads/main`: upstream `main` is now `0e4e9643ac273c6f36f815a5f4b3b187876bac74`.
 - `git submodule status --recursive`: superproject gitlink remains pinned to `c89eb5e7bc53a97c9ecea668a86a4f41debe7113`.
 - `git ls-remote --tags` for pinned GitHub Actions: `actions/checkout@v7`, `actions/setup-python@v6`, `astral-sh/ruff-action@v3`, `actions/upload-pages-artifact@v5`, and `actions/deploy-pages@v5` still match workflow pins and the dependency ledger.
-- `curl -I -L https://thekaveh.github.io/ml-eng-lab/`: still returned HTTP 404, matching deferred OM-011.
+- The live Pages endpoint probe still returned HTTP 404, matching deferred OM-011.
 - `gh repo view thekaveh/ml-eng-lab --json name,description,homepageUrl,repositoryTopics,defaultBranchRef,url`: default branch `main`, description/topics current, homepage still README pending live Pages.
 - `gh run list --repo thekaveh/ml-eng-lab --branch codex/overnight-maintenance --limit 10 --json ...`: no fresh run for current head, matching deferred OM-012.
 - `pytest tests/test_verify_repo.py::test_e14_flags_source_notebook_papermill_metadata -q`: failed before broadening E14 to all active source-notebook top-level papermill metadata, then passed after the verifier guard.
@@ -154,7 +154,7 @@ Skipped checks:
 - YAML parse: `.github/workflows/ci.yml`, `.github/workflows/pages.yml`, `deploy/genai-vanilla-jupyterhub.override.yml`, and `vendor/genai-vanilla/services/jupyterhub/compose.yml` parsed successfully.
 - `docker compose config --services` with the wrapper env was attempted from `vendor/genai-vanilla`; full-stack config is blocked without genai-vanilla's generated `.env` and failed before a useful wrapper verdict. The JupyterHub fragment/override YAML and exact pinned runtime files were verified instead.
 - Live wiki probe: the GitHub wiki now contains the current `ml-eng-lab` signpost and planned Pages URL, so OM-011 was narrowed to Pages/default-branch/About drift.
-- `curl -I -L https://thekaveh.github.io/ml-eng-lab/`: still returned HTTP 404, matching deferred OM-011.
+- The live Pages endpoint probe still returned HTTP 404, matching deferred OM-011.
 - `gh repo view thekaveh/ml-eng-lab --json name,description,homepageUrl,repositoryTopics,defaultBranchRef,url`: default branch `main`, description/topics current, homepage still README pending live Pages.
 - `git ls-remote https://github.com/thekaveh/genai-vanilla.git refs/heads/main`: upstream `main` advanced to `675f1fffaf467a1f17ddd346e8b16fc6cbc365e0`.
 - `git -C vendor/genai-vanilla checkout 675f1fffaf467a1f17ddd346e8b16fc6cbc365e0`: bumped the working submodule to the current upstream commit.
@@ -171,7 +171,7 @@ Skipped checks:
 - `python -m py_compile scripts/verify_repo.py scripts/rewrite_imports.py scripts/inject_smoke_test_cell.py scripts/edit_notebook_markdown.py`: passed.
 - `git diff --check`: passed.
 - `pip-audit -r requirements.txt -r torch-requirements.txt`: still reports the same 23 known vulnerabilities in `torch`, `pytorch-lightning`, and `nltk`.
-- `curl -I -L https://thekaveh.github.io/ml-eng-lab/`: still returned HTTP 404, matching deferred OM-011.
+- The live Pages endpoint probe still returned HTTP 404, matching deferred OM-011.
 - `gh repo view thekaveh/ml-eng-lab --json name,description,homepageUrl,repositoryTopics,defaultBranchRef,url`: default branch `main`, description/topics current, homepage still README pending live Pages.
 - `gh run list --repo thekaveh/ml-eng-lab --branch codex/overnight-maintenance --limit 5 --json ...`: latest branch CI run remains the older failed `2df1c9b...` run, matching deferred OM-012.
 - `git ls-remote https://github.com/thekaveh/genai-vanilla.git refs/heads/main`: upstream `main` advanced to `d22014078041e59d076059a7704d265c79a777df`.
@@ -192,7 +192,7 @@ Skipped checks:
 - `git diff --check`: passed.
 - `make check-tier-a-clean`: passed; active Tier-A notebooks remained unchanged by the archive-only notebook edits.
 - `git ls-remote https://github.com/thekaveh/genai-vanilla.git refs/heads/main`: upstream `main` remains `d22014078041e59d076059a7704d265c79a777df`, matching the pinned submodule.
-- `curl -I -L https://thekaveh.github.io/ml-eng-lab/`: still returned HTTP 404, matching deferred OM-011.
+- The live Pages endpoint probe still returned HTTP 404, matching deferred OM-011.
 - `gh repo view thekaveh/ml-eng-lab --json name,description,homepageUrl,repositoryTopics,defaultBranchRef,url`: default branch `main`, description/topics current, homepage still README pending live Pages.
 - `gh run list --repo thekaveh/ml-eng-lab --branch codex/overnight-maintenance --limit 5 --json ...`: latest branch CI run remains the older failed `2df1c9b...` run, matching deferred OM-012.
 - `git status --short --ignored=matching docs/superpowers` and `git check-ignore -v docs/superpowers/...`: confirmed the stale `docs/superpowers/**` references are ignored local scratch files, not tracked repository docs.

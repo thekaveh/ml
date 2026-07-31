@@ -21,7 +21,8 @@ make atlas-connect
 ```
 
 Use the connection URL that the last command prints in the VS Code Jupyter server selector. The
-URL contains a short-lived credential. It must stay out of the repository, tickets, and docs.
+URL contains a credential. It must stay out of the repository, tickets, and docs. Reconnect after
+Atlas or JupyterHub restarts rather than assuming that a saved token is still valid.
 See [vscode-remote-access.md](vscode-remote-access.md) for the exact editor flow.
 
 ## 4.2.2 Consumer contract and ownership

@@ -67,7 +67,8 @@ change the Atlas consumer or source policy.
   VS Code attached to the JupyterHub container with `/home/jovyan/work/ml-eng-lab` open. Do not
   rely on a local notebook plus remote kernel to establish that mounted workspace.
 - **Token rejected after a restart:** run `make atlas-connect` again. Connection URLs are
-  short-lived and should not be reused from notes or editor history.
+  token-bearing and should not be reused from notes or editor history. Reconnect after an Atlas or
+  JupyterHub restart.
 - **Ollama startup error:** Atlas requires the host-native daemon. Start or repair it locally and
   retry; never substitute an Ollama container.
 - **Need a Jupyter shell:** use the attached-container fallback rather than changing the default

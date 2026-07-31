@@ -75,7 +75,7 @@ a fork. The current reviewed pin is `61c7c5103660e2226bf107c115dae42bf46f8374`.
      'cd /home/jovyan/work/ml-eng-lab && python scripts/atlas_runtime_probe.py'
    ```
 
-4. Run `make atlas-connect` from an interactive terminal and use its short-lived URL to execute a
+4. Run `make atlas-connect` from an interactive terminal and use its token-bearing URL to execute a
    cheap cell from local VS Code against the remote kernel. Do not expose the URL in a command log.
 5. Record observed package changes, supported notebook imports, and any manual-only exceptions in
    [dependency-contracts.md](dependency-contracts.md). Successful imports do not replace a

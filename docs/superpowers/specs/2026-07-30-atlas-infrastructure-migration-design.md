@@ -1,6 +1,6 @@
 # 12.1 Atlas infrastructure migration design
 
-**Status:** Approved design
+**Status:** Implemented
 **Date:** 2026-07-30
 **Decision:** Directly replace the legacy `vendor/genai-vanilla` runtime with Atlas, consumed as a pinned `infra/` Git submodule.
 

@@ -19,6 +19,7 @@ def render_wiki(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
     source_map = build_source_map(manifest, "wiki")
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
+    expected: set[Path] = set()
 
     def emit(src_rel: str) -> Path:
         text = (repo_root / src_rel).read_text(encoding="utf-8")
@@ -28,6 +29,7 @@ def render_wiki(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(text, encoding="utf-8")
         written.append(dest)
+        expected.add(dest)
         return dest
 
     home = None
@@ -44,7 +46,10 @@ def render_wiki(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
 
     # GitHub wiki convention: Home.md is the landing page.
     if home and home.name != "Home.md":
-        home.rename(out_dir / "Home.md")
+        home_dest = out_dir / "Home.md"
+        home.rename(home_dest)
+        expected.remove(home)
+        expected.add(home_dest)
 
     # Sidebar (numbered nav) + footer.
     sidebar = ["# ml-eng-lab wiki", ""]
@@ -68,8 +73,11 @@ def render_wiki(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
         for c in s.children:
             if c.source:
                 sidebar.append(f"  - [{c.number}. {c.title}]({Path(source_map[c.source]).stem})")
-    (out_dir / "_Sidebar.md").write_text("\n".join(sidebar) + "\n", encoding="utf-8")
-    (out_dir / "_Footer.md").write_text("Self-contained ml-eng-lab wiki.\n", encoding="utf-8")
+    sidebar_dest = out_dir / "_Sidebar.md"
+    footer_dest = out_dir / "_Footer.md"
+    sidebar_dest.write_text("\n".join(sidebar) + "\n", encoding="utf-8")
+    footer_dest.write_text("Self-contained ml-eng-lab wiki.\n", encoding="utf-8")
+    expected.update((sidebar_dest, footer_dest))
 
     # copy PNG assets
     img_out = out_dir / "img"
@@ -77,5 +85,10 @@ def render_wiki(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
         png = repo_root / "docs/diagrams/img" / f"{d.id}.png"
         if png.exists():
             img_out.mkdir(parents=True, exist_ok=True)
-            (img_out / png.name).write_bytes(png.read_bytes())
+            png_dest = img_out / png.name
+            png_dest.write_bytes(png.read_bytes())
+            expected.add(png_dest)
+    for path in out_dir.rglob("*"):
+        if path.is_file() and path not in expected:
+            path.unlink()
     return written

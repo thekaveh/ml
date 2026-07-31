@@ -30,7 +30,7 @@ make atlas-connect
 `make atlas-setup` creates ignored, machine-local environment files without replacing existing
 ones. `make atlas-up` validates the consumer contract and starts Atlas in detached mode. It refuses
 to proceed unless native Ollama answers on the loopback address. `make atlas-connect` prints a
-short-lived token URL only to an interactive terminal; follow its VS Code instructions rather than
+token-bearing URL only to an interactive terminal; follow its VS Code instructions rather than
 recording the URL in a shell history, issue, or document.
 
 ### 4.1.1.2 Source and persistence policy

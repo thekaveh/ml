@@ -117,6 +117,44 @@ def test_real_manifest_sections_are_source_leaves_or_children_groups():
     assert all(bool(section.source) ^ bool(section.children) for section in manifest.sections)
 
 
+def test_real_user_facing_docs_match_the_atlas_runtime_contract():
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    runtime_docs = "\n".join(
+        (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in (
+            "docs/env-setup.md",
+            "docs/jupyterhub-integration.md",
+            "docs/vscode-remote-access.md",
+            "docs/atlas-pin-bump-runbook.md",
+        )
+    )
+    infrastructure = (REPO_ROOT / "docs/notebook-infrastructure.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "MkDocs" not in readme
+    assert "mkdocs.yml" not in readme
+    assert "short-lived" not in readme + runtime_docs
+    assert "token-bearing" in readme + runtime_docs
+    assert "track defaults are not notebook authorization" in infrastructure
+    assert "Additional Atlas services stay inactive" not in infrastructure
+
+
+def test_atlas_migration_records_are_marked_complete():
+    design = (
+        REPO_ROOT
+        / "docs/superpowers/specs/2026-07-30-atlas-infrastructure-migration-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        REPO_ROOT
+        / "docs/superpowers/plans/2026-07-30-atlas-infrastructure-migration-implementation-plan.md"
+    ).read_text(encoding="utf-8")
+
+    assert "**Status:** Implemented" in design
+    assert "**Status:** Completed" in plan
+    assert "- [ ]" not in plan
+
+
 def test_numbering_requires_manifest_h1_and_hierarchical_children(tmp_path):
     manifest = _write_valid_notebook_infrastructure_fixture(tmp_path)
     (tmp_path / "docs/index.md").write_text(

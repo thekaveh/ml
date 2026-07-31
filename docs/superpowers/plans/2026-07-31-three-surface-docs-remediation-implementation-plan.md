@@ -37,7 +37,7 @@
 - Produces: `check_numbering(manifest: Manifest, repo_root: Path) -> list[Finding]`
 - Extends: `check_completeness(manifest, repo_root)` to report manifest-to-disk and disk-to-manifest drift.
 
-- [ ] **Step 1: Write failing repository-containment tests**
+- [x] **Step 1: Write failing repository-containment tests**
 
 Add tests that create `README.md` and `docs/page.md` with `.io` or wiki links, assert both are reported, and prove normal relative repository links remain clean:
 
@@ -52,13 +52,13 @@ def test_repo_self_containment_rejects_site_and_wiki_links(tmp_path):
     assert len(findings) == 2
 ```
 
-- [ ] **Step 2: Run the focused tests and confirm RED**
+- [x] **Step 2: Run the focused tests and confirm RED**
 
 Run: `pytest tests/test_check_docs.py -q`
 
 Expected: collection failure because `check_repo_self_containment` does not exist.
 
-- [ ] **Step 3: Write failing completeness and numbering tests**
+- [x] **Step 3: Write failing completeness and numbering tests**
 
 Add fixtures proving:
 
@@ -79,23 +79,23 @@ def test_numbering_requires_manifest_h1_and_hierarchical_children(tmp_path):
     assert any("H3" in message for message in messages)
 ```
 
-- [ ] **Step 4: Run the focused tests and confirm RED**
+- [x] **Step 4: Run the focused tests and confirm RED**
 
 Run: `pytest tests/test_check_docs.py -q`
 
 Expected: failures because inverse completeness and numbering validation are absent.
 
-- [ ] **Step 5: Implement the minimal independent probes**
+- [x] **Step 5: Implement the minimal independent probes**
 
 Use the manifest's section sources and notebook docs as the declared Markdown set. Scan canonical Markdown except generated trees, extract `#` through `######` headings outside fenced blocks, and require each numbered heading to extend its parent prefix by exactly one numeric component. Add the probes to `check()` after deterministic generation.
 
-- [ ] **Step 6: Run focused tests and confirm GREEN**
+- [x] **Step 6: Run focused tests and confirm GREEN**
 
 Run: `pytest tests/test_check_docs.py tests/test_manifest.py -q`
 
 Expected: all tests pass.
 
-- [ ] **Step 7: Commit the gate slice**
+- [x] **Step 7: Commit the gate slice**
 
 ```bash
 git add scripts/docs/check_docs.py tests/test_check_docs.py

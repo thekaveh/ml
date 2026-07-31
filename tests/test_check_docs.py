@@ -6,8 +6,11 @@ import pytest
 from scripts.docs.check_docs import (
     check_notebook_infrastructure,
     check_completeness,
+    check_numbering,
     check_placeholders,
+    check_repo_self_containment,
     check_self_containment,
+    manifest_markdown_sources,
 )
 from scripts.docs.manifest import parse_manifest
 
@@ -44,12 +47,79 @@ def test_self_contamination_clean(tmp_path):
     assert check_self_containment(tmp_path) == []
 
 
+def test_repo_self_containment_rejects_site_and_wiki_links(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "README.md").write_text(
+        "https://thekaveh.github.io/ml-eng-lab/\n", encoding="utf-8"
+    )
+    (tmp_path / "docs/page.md").write_text(
+        "[wiki](https://github.com/thekaveh/ml-eng-lab/wiki/Page)\n",
+        encoding="utf-8",
+    )
+
+    findings = check_repo_self_containment(tmp_path)
+
+    assert len(findings) == 2
+    assert all(finding.severity == "error" for finding in findings)
+
+
+def test_repo_self_containment_allows_relative_links(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "README.md").write_text("[docs](docs/page.md)\n", encoding="utf-8")
+    (tmp_path / "docs/page.md").write_text("[next](next.md)\n", encoding="utf-8")
+
+    assert check_repo_self_containment(tmp_path) == []
+
+
 def test_completeness_flags_missing_spec(tmp_path):
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs/index.md").write_text("x", encoding="utf-8")
     m = parse_manifest(MANIFEST_YAML)
     findings = check_completeness(m, tmp_path)
     assert any("spec" in f.message.lower() or "doc" in f.message.lower() for f in findings)
+
+
+def test_completeness_flags_unmanifested_markdown(tmp_path):
+    manifest = _write_valid_notebook_infrastructure_fixture(tmp_path)
+    (tmp_path / "docs/extra.md").write_text("# 9 Extra\n", encoding="utf-8")
+
+    findings = check_completeness(manifest, tmp_path)
+
+    assert any("docs/extra.md" in finding.message and "not declared" in finding.message for finding in findings)
+
+
+def test_manifest_markdown_sources_contains_sections_and_notebooks():
+    manifest = parse_manifest(MANIFEST_YAML)
+
+    assert manifest_markdown_sources(manifest) == {
+        "docs/index.md",
+        "docs/notebooks/t.md",
+    }
+
+
+def test_numbering_requires_manifest_h1_and_hierarchical_children(tmp_path):
+    manifest = _write_valid_notebook_infrastructure_fixture(tmp_path)
+    (tmp_path / "docs/index.md").write_text(
+        "# Overview\n\n## 1. Wrong depth\n\n### Child without a number\n",
+        encoding="utf-8",
+    )
+
+    messages = [finding.message for finding in check_numbering(manifest, tmp_path)]
+
+    assert any("H1" in message for message in messages)
+    assert any("H2" in message for message in messages)
+    assert any("H3" in message for message in messages)
+
+
+def test_numbering_accepts_hierarchical_headings_and_ignores_fences(tmp_path):
+    manifest = _write_valid_notebook_infrastructure_fixture(tmp_path)
+    (tmp_path / "docs/index.md").write_text(
+        "# 1 Overview\n\n## 1.1 First\n\n### 1.1.1 Child\n\n"
+        "```bash\n# shell comment\n## not a heading\n```\n",
+        encoding="utf-8",
+    )
+
+    assert check_numbering(manifest, tmp_path) == []
 
 
 def test_placeholders_flag_tbd(tmp_path):

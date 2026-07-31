@@ -1,6 +1,14 @@
 title: "Quantization — MNIST FFN (PTQ + QAT via torchao)"
 family: mlp-compression
 tier: manual
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints:
+    - Manual-only until Atlas Jupyter package validation passes.
 dataset: MNIST
 model: Feed-forward NN ([128,64]); PTQ int8 + QAT 8da4w
 framework: "PyTorch (via nnx) + torchao"
@@ -35,7 +43,7 @@ results:
   - { metric: "QAT callback", value: "is_prepared=True, is_converted=True; Int8DynActInt4WeightLinear present" }
   - { metric: "note", value: "CPU latency dispatch-bound; quantization slower than FP32 at this scale" }
 pitfalls:
-  - "MANUAL-ONLY: torchao needs torch>=2.5 (torch.int1); repo pins torch==2.4.1. Not in CI. Issue #10. Side env: torch>=2.5 + torchao>=0.17."
+  - "MANUAL-ONLY: local/CI Torch 2.4.1 cannot import torchao's torch.int1 path. Atlas has newer package evidence but no full quantization smoke. Not in CI. Issue #10. Side env: torch>=2.5 + torchao>=0.17."
   - "8da4w is aggressive (4-bit); QAT recovery partial at 3 epochs (44.53% vs FP32 53.48%)."
   - "CPU latency misleading at MNIST scale: torchao dispatch overhead makes int8/8da4w SLOWER than FP32 (win is on GPU/mobile NPU)."
   - "Hidden widths must divide int4 groupsize 32; [128,64] chosen to dodge padding_allowed."

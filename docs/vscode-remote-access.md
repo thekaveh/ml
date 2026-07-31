@@ -1,52 +1,74 @@
-# VS Code remote access to the jupyterhub container
+# VS Code remote access to Atlas JupyterHub
 
-Three modes, pick by use case. Mode 2 is the default for most ml-eng-lab work as of genai-vanilla `10f8402` — the image ships ml-eng-lab's external dependencies, `thekaveh-nnx[lm]==0.2.0`, and NLP assets.
+The default notebook experience is deliberately split: VS Code and `.ipynb` files stay local; the
+kernel runs in the active Atlas JupyterHub service. That preserves familiar local editing while
+making the Atlas dependency contract explicit.
 
-## 1. Mode 1 — Attach to Running Container
+## 1. Default mode: connect a local notebook to the remote kernel
 
-Install extension: **Dev Containers** (`ms-vscode-remote.remote-containers`).
+1. Start the runtime from the repository root:
 
-After the genai-vanilla stack is up:
-1. Open the Docker view in VS Code (left sidebar; install the Docker extension if missing).
-2. Find the running `<project>-jupyterhub` container.
-3. Right-click → **Attach Visual Studio Code**.
-
-A new VS Code window opens inside the container. The container's CWD is `/home/jovyan/work/`. On the §2-wrapper path of [jupyterhub-integration.md](jupyterhub-integration.md#2-persistence-path-wrapper-script-bind-mount), the ml-eng-lab repo is bind-mounted at `/home/jovyan/work/ml-eng-lab/`; open that folder.
-
-What works inside:
-- Native VS Code notebook UI with kernel = `python3` (the container's interpreter, with external deps/assets installed by the pinned genai-vanilla image).
-- Integrated terminal with `git`, `pip`, etc.
-- If using the §2-wrapper path, `/home/jovyan/.ssh` is empty by default. Set `HOST_SSH_DIR=/path/to/keys` before `scripts/start-jupyterhub.sh` only when you want to opt into a read-only host-key mount for `git push`.
-
-Use this when you want the full container shell experience.
-
-## 2. Mode 2 — Connect to Remote Jupyter Server (default)
-
-Install extension: **Jupyter** (`ms-toolsai.jupyter`).
-
-After the stack is up:
-1. Open the local `.ipynb` file in VS Code (your host machine's path: e.g. `~/repos/ml-eng-lab/...`).
-2. `Cmd-Shift-P` → **Jupyter: Specify Jupyter Server for Connections** → paste:
+   ```bash
+   make atlas-up
+   make atlas-connect
    ```
-   http://localhost:<JUPYTERHUB_PORT>/?token=<JUPYTERHUB_TOKEN>
-   ```
-   `JUPYTERHUB_PORT` and `JUPYTERHUB_TOKEN` are env vars in genai-vanilla's `.env`. The shipped default port is `63081`. The token is empty by default — set it to a fixed value before `./start.sh`, otherwise the container's `start-notebook.sh` generates a random token on every boot that you'd have to scrape from `docker logs <project>-jupyterhub | grep token`.
-3. The kernel now runs in the container; the `.ipynb` file is local.
 
-**Coverage:** A current genai-vanilla checkout works out of the box for the tier-covered notebooks except `notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb`, which imports 8 sibling `.py` modules from its own task folder (`consts`, `feed_fwd_nn`, `linear_layer`, etc.) that aren't pip-installable and require the ml-eng-lab repo to be accessible inside the container. The quantization notebook remains manual-only under `torch>=2.5` + `torchao>=0.17`. For the numpy notebook, use the §2-wrapper path of [jupyterhub-integration.md](jupyterhub-integration.md#2-persistence-path-wrapper-script-bind-mount) (bind-mount the repo) and open the notebook from `/home/jovyan/work/ml-eng-lab/notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb`.
+2. Open a local notebook in VS Code.
+3. Run **Jupyter: Specify Jupyter Server for Connections** from the Command Palette.
+4. Choose **Existing Jupyter Server**, then paste only the URL printed by `make atlas-connect`.
+5. Use **Select Kernel** to choose the remote Atlas kernel and run a small cell before beginning
+   the notebook.
 
-**Relative paths:** Notebook code that does `pd.read_csv("./data/foo.csv")` or `NNRun.save()` resolves against the kernel's CWD inside the container (`/home/jovyan/`), not your host repo. On the standalone-genai-vanilla path, those artifacts land in the `jupyterhub-data` named volume. On the wrapper-and-bind-mount path, they land in your host repo. Pick the path based on whether you want host-side persistence — see [jupyterhub-integration.md §1 vs §2](jupyterhub-integration.md#1-default-path-standalone-genai-vanilla-vs-code-mode-2).
+The connection helper refuses non-interactive output because its URL contains a token. Treat that
+URL like a password: do not save it in settings, commit it, attach it to an issue, or paste it into
+an untrusted application. `BASE_PORT=auto` means the visible port is intentionally not a stable
+contract; the helper is the source of truth for each running instance.
 
-## 3. Mode 3 — Browser JupyterLab
+This default applies to tasks with `workspace_access: remote`. The NumPy MNIST task instead uses
+`default_mode: mounted-workspace` with `workspace_access: mounted-required`: use Browser JupyterLab
+or VS Code attached to the JupyterHub container from `/home/jovyan/work/ml-eng-lab`, not a
+host-local notebook paired with the remote kernel.
 
-The simplest path. After the stack is up:
-- Open `http://localhost:<JUPYTERHUB_PORT>/?token=<JUPYTERHUB_TOKEN>` in a browser
-- Navigate to `work/ml-eng-lab/...` (wrapper-and-bind-mount path) or upload notebooks individually (standalone path)
-- The `jupyterlab-git` extension (shipped in the image) handles git operations
+## 2. Workspace and artifact semantics
 
-Use this for quick edits, demos, or when VS Code is unnecessary.
+The local editor owns the notebook file. The Atlas container has the repository mounted at
+`/home/jovyan/work/ml-eng-lab`, but a host-local notebook paired with a remote kernel does not
+guarantee that working directory. Most task contracts use a remote workspace and place runtime
+artifacts on the Atlas Jupyter volume. The NumPy MNIST task's `mounted-workspace` mode needs its
+mounted checkout for sibling modules and ignored task-local artifacts, so run it through Browser
+JupyterLab or VS Code attached to the JupyterHub container. The per-task policy is documented in
+[notebook-infrastructure.md](notebook-infrastructure.md).
 
-## 4. Not pursued
+Select the remote kernel after opening the local file, rather than opening the same path twice in
+both host and browser clients. It prevents accidental disagreement about which copy owns notebook
+metadata and outputs.
 
-- **Remote-SSH** — requires an SSH server in the container. Extra surface area for no benefit over Mode 1.
-- **`.devcontainer.json` reopen-in-container for the existing JupyterHub container** — not applicable; Mode 1 attaches to the long-lived running container. The repo's `.devcontainer/devcontainer.json` is a separate Codespaces/local-devcontainer path that builds its own environment.
+## 3. Fallback modes
+
+### 3.1. Browser JupyterLab
+
+Use the token URL from `make atlas-connect` in a browser for a quick investigation or notebook
+session. Navigate to `/home/jovyan/work/ml-eng-lab` when you need the mounted checkout. Browser
+mode implements the NumPy MNIST `mounted-workspace` default unless using the attached-container
+alternative; local VS Code remains the primary authoring surface for ordinary remote-workspace tasks.
+
+### 3.2. Attach VS Code to the running JupyterHub container
+
+Use VS Code's Dev Containers support when a task needs an integrated shell in the JupyterHub
+container. Open `/home/jovyan/work/ml-eng-lab` after attaching. This is the other implementation
+of the NumPy MNIST `mounted-workspace` default. It uses the same JupyterHub service and does not
+change the Atlas consumer or source policy.
+
+## 4. Troubleshooting
+
+- **No remote server option:** ensure `make atlas-up` completed and use `make atlas-connect` in an
+  interactive terminal.
+- **Kernel cannot import a sibling module:** the NumPy MNIST task must use Browser JupyterLab or
+  VS Code attached to the JupyterHub container with `/home/jovyan/work/ml-eng-lab` open. Do not
+  rely on a local notebook plus remote kernel to establish that mounted workspace.
+- **Token rejected after a restart:** run `make atlas-connect` again. Connection URLs are
+  short-lived and should not be reused from notes or editor history.
+- **Ollama startup error:** Atlas requires the host-native daemon. Start or repair it locally and
+  retry; never substitute an Ollama container.
+- **Need a Jupyter shell:** use the attached-container fallback rather than changing the default
+  workflow or patching `infra/`.

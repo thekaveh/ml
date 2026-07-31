@@ -1,0 +1,4 @@
+services:
+  jupyterhub:
+    volumes:
+      - ${ML_ENG_LAB_REPO_PATH}:/home/jovyan/work/ml-eng-lab

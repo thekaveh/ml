@@ -25,10 +25,11 @@ ml-eng-lab/
 ├── docs/                                      (env/runtime docs, dependency contracts, findings, maintenance log)
 ├── mkdocs.yml                                 (generated documentation site)
 ├── requirements.txt + torch-*.txt             (pip deps; thekaveh-nnx[lm]==0.2.0)
-├── scripts/                                   (jupyterhub start, verifier, notebook edit/import helpers)
-├── deploy/                                    (genai-vanilla compose override)
+├── infra/                                     (Atlas git submodule; pinned infrastructure)
+├── atlas.consumer.yml                         (ml-eng Atlas consumer contract)
+├── compose/                                   (parent-owned Atlas compose overlays)
+├── scripts/                                   (Atlas lifecycle, verifier, notebook edit/import helpers)
 ├── tests/                                     (pytest: nnx_surface contract + verifier + helpers)
-├── vendor/genai-vanilla/                      (git submodule, JupyterHub stack)
 └── notebooks/                                 (21 active task folders plus notebooks/archive/)
 ```
 
@@ -40,27 +41,39 @@ the GitHub Pages workflow will publish it after the workflow lands on `main`.
 
 Four ways to run these notebooks, ordered from managed runtime to local execution.
 
-### 3.1. genai-vanilla jupyterhub (recommended)
+### 3.1. Atlas JupyterHub + local VS Code (recommended)
 
-As of genai-vanilla `10f8402` (pinned in `vendor/genai-vanilla`), the `jupyterhub` image natively ships the ml-eng-lab dependency set, `thekaveh-nnx[lm]==0.2.0`, and the two NLP model assets. Two paths, pick by need:
-
-**Default — standalone genai-vanilla + VS Code Mode 2** (works for tier-covered notebooks from a current genai-vanilla checkout; one tier-covered exception remains: `notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb` imports sibling `.py` modules from its own folder and needs the persistence variant below. The quantization notebook is still manual-only under `torch>=2.5` + `torchao>=0.17`):
-
-```bash
-cd ~/repos/genai-vanilla && ./start.sh
-# Open any ml-eng-lab notebook locally in VS Code, then:
-# Cmd-Shift-P → Jupyter: Specify Jupyter Server for Connections →
-#   http://localhost:63081/?token=<JUPYTERHUB_TOKEN>
-```
-
-**Persistence variant — wrapper script + bind-mount** (required for the from-scratch `image_classification-mnist-ffnn-numpy` notebook + host-side `./data/`/`./runs/` persistence):
+Atlas is the direct successor to the previous infrastructure seam. This repository
+pins it as the `infra/` submodule at `61c7c5103660e2226bf107c115dae42bf46f8374` and starts the
+`ml-eng` track. The default workflow keeps notebooks and VS Code on the host while execution uses
+the running Atlas JupyterHub kernel. The NumPy MNIST task's `mounted-workspace` mode is
+`mounted-required`, so run it from Browser JupyterLab or VS Code attached to the JupyterHub
+container at `/home/jovyan/work/ml-eng-lab` rather than relying on a host-local notebook's
+remote-kernel CWD.
 
 ```bash
-git submodule update --init --recursive   # one-time, for vendor/genai-vanilla
-scripts/start-jupyterhub.sh
+git submodule update --init --recursive  # one-time after clone or a pin update
+make atlas-setup
+
+# In a separate terminal, only if the host-native daemon is not already running:
+ollama serve
+
+# Return to this terminal after the daemon is ready.
+make atlas-up
+make atlas-connect
 ```
 
-See [docs/jupyterhub-integration.md](docs/jupyterhub-integration.md) (full two-path walkthrough) and [docs/vscode-remote-access.md](docs/vscode-remote-access.md).
+`make atlas-connect` prints a short-lived, token-bearing local URL only to an interactive
+terminal. In VS Code: open a local notebook, run **Jupyter: Specify Jupyter Server for
+Connections**, choose **Existing Jupyter Server**, paste that URL, then choose the remote kernel.
+Treat the URL as a password; do not commit or paste it into documentation.
+
+Atlas is intentionally configured with `LLM_PROVIDER_SOURCE=ollama-localhost`: use the native
+host Ollama daemon, never an Ollama Docker container. ComfyUI is off for this `ml-eng` consumer
+until a task has an approved need for a host-native source. See
+[docs/jupyterhub-integration.md](docs/jupyterhub-integration.md) and
+[docs/vscode-remote-access.md](docs/vscode-remote-access.md) for the lifecycle, persistence,
+and fallback details.
 
 ### 3.2. Local Docker
 
@@ -87,18 +100,23 @@ See [docs/env-setup.md](docs/env-setup.md) for environment details.
 
 Click **Code → Codespaces → Create codespace on main** on [github.com/thekaveh/ml-eng-lab](https://github.com/thekaveh/ml-eng-lab). After ~2-3 minutes of one-time dep install you have a browser-based VS Code (or JupyterLab — see below) with the 21 active task folders available and 28 of 29 active notebooks runnable under the pinned environment.
 
-**Why this path was added.** The §3.1 / §3.2 / §3.3 paths each require ~10-15 minutes of first-time setup on a new machine (Docker pulls, `git submodule update --init --recursive` for `vendor/genai-vanilla`, pip installs against the requirements manifests, `make nlp-assets` predownloads for spaCy + NLTK). They also each have a coupling cost: §3.1 depends on the genai-vanilla image's pip layer staying in sync with ml-eng-lab's `requirements.txt` (the former `nnx-pytorch[lm]` → `thekaveh-nnx[lm]==0.2.0` drift is the kind of image/repo mismatch this maintenance loop checks for); §3.2 and §3.3 require local Docker / a working venv on the dev's machine. Codespaces eliminates both: the `.devcontainer/devcontainer.json` declaratively bakes the install recipe (so the dep set is auto-synced to `requirements.txt`, `torch-core-requirements.txt`, and `torch-requirements.txt` during Codespace creation via `postCreateCommand`, with no image-rebuild loop), and the repo is auto-cloned into `/workspaces/ml-eng-lab` inside the container.
+**Why this path was added.** The §3.1 / §3.2 / §3.3 paths each require local services or
+dependency setup. Codespaces avoids that setup: the `.devcontainer/devcontainer.json`
+declaratively bakes the install recipe (so the dep set is synchronized to `requirements.txt`,
+`torch-core-requirements.txt`, and `torch-requirements.txt` during Codespace creation via
+`postCreateCommand`), and the repo is auto-cloned into `/workspaces/ml-eng-lab` inside the
+container.
 
 **Scenarios this supports**:
 - Onboarding a new contributor — they click "Create codespace" and have a working env in ~2-3 minutes, no local install at all.
 - Running a notebook on a larger host without local install (the smallest Codespace machine is 2-core / 8 GB RAM — comparable to a low-end laptop, sufficient for every Tier-A notebook; bump to 4-core / 16 GB if any Tier-B sweep feels slow).
 - Short exploratory run without polluting the local Python env.
-- The `notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb` edge case (it imports sibling `.py` modules from its own folder) works natively — Codespaces clones the repo into the container's `/workspaces/ml-eng-lab`, so the kernel sees those files without needing the §3.1 wrapper-and-bind-mount path's `scripts/start-jupyterhub.sh`.
+- The `notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb` edge case (it imports sibling `.py` modules from its own folder) works natively because Codespaces clones the repo into `/workspaces/ml-eng-lab`.
 
 **Scenarios this does NOT support**:
 - GPU workloads — GitHub deprecated GPU Codespaces 2025-08-29 (Azure NCv3 retirement). The few GPU-benefiting notebooks (heaviest is `self_supervised-fmnist-jepa-pytorch`) still run on CPU here, just slowly; for real GPU you want a separate path (Modal `function.spawn`, a self-hosted GPU box behind Jupyter Enterprise Gateway, or Vertex AI Workbench / Colab Enterprise).
 - Data persistence across Codespace deletions — anything written to `./data/` or `./runs/` is gone when the Codespace is deleted (Codespaces are intended to be cheap and disposable). Commit any results you want to keep, or use Codespaces' "prebuild" feature if dep install time becomes a bottleneck.
-- The quantization-mnist-ffnn-pytorch notebook still won't run here — it has the same `torch.int1` vs `torch==2.4.1` incompatibility documented in its task README and in [docs/dependency-contracts.md](docs/dependency-contracts.md) (manual-only).
+- The quantization-mnist-ffnn-pytorch notebook remains manual-only: the local/CI Torch 2.4.1 stack cannot import the required torchao path, while the Atlas package surface has not yet received a full notebook smoke. See [docs/dependency-contracts.md](docs/dependency-contracts.md).
 
 **How to use**:
 
@@ -156,11 +174,11 @@ Notebooks are tiered by execution cost:
 
 | Tier | What it is | Re-run policy |
 |---|---|---|
-| **A** | Cheap (<5 min) | `make run-tier-a` re-runs and refreshes outputs. Verified in CI on every PR. Tier-A notebooks also accept a `SMOKE_TEST` papermill parameter (default `0` = full run). |
+| **A** | Cheap (<5 min) | `make run-tier-a` deliberately refreshes committed snapshots. CI uses non-mutating `make smoke-tier-a`, which writes fresh artifacts to `/tmp/ml-tier-a`. Tier-A notebooks also accept a `SMOKE_TEST` papermill parameter (default `0` = full run). |
 | **B** | Moderate (model-selection sweeps) | Original outputs preserved. `make smoke-tier-b` runs `SMOKE_TEST=1` and writes to `/tmp/`: the parameterized `image_classification-mnist-ffnn-pytorch` notebook shrinks its sweep, and the 4 phase2 reddit notebooks run smoke-truncated epochs/subsets (notebook4 also reduces fanout). |
 | **C** | Expensive (main GPU training) | Historical Aug-2023 GPU training-run outputs preserved as artifact. `make smoke-tier-c` runs CPU with `SMOKE_TEST=1` to validate the pipeline without overwriting outputs. |
 
-Tier-B/C smoke targets write the executed notebook copies under `/tmp/ml-smoke`, but papermill intentionally runs each notebook from its own task directory so relative paths behave like an interactive run. Training and evaluation may therefore create ignored task-local `./data/` or `./runs/` artifacts even when source notebook outputs are preserved; committed output text such as `Run saved to ./runs/...` describes that notebook-local runtime location, not files guaranteed to exist in a clean checkout.
+Tier-A CI writes executed notebook copies under `/tmp/ml-tier-a`; Tier-B/C smoke targets write under `/tmp/ml-smoke`. Papermill intentionally runs each notebook from its own task directory so relative paths behave like an interactive run. Training and evaluation may therefore create ignored task-local `./data/` or `./runs/` artifacts even when source notebook outputs are preserved; committed output text such as `Run saved to ./runs/...` describes that notebook-local runtime location, not files guaranteed to exist in a clean checkout.
 
 See [docs/env-setup.md](docs/env-setup.md) for the tier mapping.
 
@@ -220,10 +238,11 @@ The README is the entry point; the items below are the hub's index of secondary 
 
 ### 10.2. Environment + runtimes
 
-- [docs/env-setup.md](docs/env-setup.md) — the four setup paths (jupyterhub / Docker / venv / Codespaces), GPU notes, Tier mapping.
-- [docs/jupyterhub-integration.md](docs/jupyterhub-integration.md) — primary runtime (vendored `genai-vanilla` JupyterHub stack).
-- [docs/vscode-remote-access.md](docs/vscode-remote-access.md) — VS Code remote-attach modes.
-- [docs/dependency-contracts.md](docs/dependency-contracts.md) — dependency audit ledger, Torch-stack pin rationale, NNx/genai-vanilla consumed contracts, manual-only quantization contract, and external asset notes.
+- [docs/env-setup.md](docs/env-setup.md) — the four setup paths (Atlas / Docker / venv / Codespaces), GPU notes, Tier mapping.
+- [docs/jupyterhub-integration.md](docs/jupyterhub-integration.md) — Atlas JupyterHub lifecycle and ownership boundary.
+- [docs/vscode-remote-access.md](docs/vscode-remote-access.md) — local VS Code remote-kernel path and browser fallback.
+- [docs/atlas-pin-bump-runbook.md](docs/atlas-pin-bump-runbook.md) — reviewed Atlas pin-bump and future-service admission runbook.
+- [docs/dependency-contracts.md](docs/dependency-contracts.md) — dependency audit ledger, local/CI Torch contract, Atlas runtime evidence, and manual-only quantization contract.
 - [docs/architecture.md](docs/architecture.md) — system/context view for the notebook lab, verifier, CI, runtime environments, and documentation site.
 - [docs/diagrams/README.md](docs/diagrams/README.md) — provenance and regeneration contract for embedded architecture diagrams.
 - [docs/maintenance/overnight-2026-07-04.md](docs/maintenance/overnight-2026-07-04.md) — current overnight maintenance pass log and issue tracker.
@@ -234,7 +253,7 @@ The README is the entry point; the items below are the hub's index of secondary 
 ### 10.3. Issue sinks for external code
 
 - [docs/FINDINGS-NNX.md](docs/FINDINGS-NNX.md) — issue log for the `thekaveh-nnx` library (append findings here; do not edit nnx directly via this repo — fixes land upstream at [`thekaveh/NNx`](https://github.com/thekaveh/NNx)).
-- [docs/FINDINGS-VENDOR.md](docs/FINDINGS-VENDOR.md) — same, for the `vendor/genai-vanilla` submodule.
+- [docs/FINDINGS-ATLAS.md](docs/FINDINGS-ATLAS.md) — Atlas-consumer findings; fixes to Atlas itself belong upstream.
 
 ### 10.4. Archive
 

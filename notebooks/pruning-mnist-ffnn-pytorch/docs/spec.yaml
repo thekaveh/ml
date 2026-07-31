@@ -1,6 +1,13 @@
 title: "Pruning — MNIST FFN (magnitude sparsity sweep)"
 family: mlp-compression
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: MNIST
 model: Feed-forward NN ([256,128]); magnitude-pruned at s in {0.1..0.9}
 framework: "PyTorch (via nnx)"

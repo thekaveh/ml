@@ -1,6 +1,13 @@
 title: "Community detection — Karate Club Louvain vs GNN"
 family: graph
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: Zachary's Karate Club
 model: Louvain modularity vs GraphSAGE encoder + KMeans
 framework: "PyTorch Geometric + python-louvain + sklearn (minimal nnx)"

@@ -1,99 +1,97 @@
 # JupyterHub integration
 
-The recommended runtime for these notebooks is the `jupyterhub` service in the [`genai-vanilla`](https://github.com/thekaveh/genai-vanilla) stack. As of genai-vanilla `10f8402` (pinned in this repo's `vendor/genai-vanilla` submodule), that image natively ships the ml-eng-lab dependency set:
+Atlas supplies the notebook infrastructure for this repository. It is consumed as the pinned
+`infra/` submodule, not as a vendored application tree. The active consumer uses the `ml-eng`
+track and a parent-owned compose overlay to mount this checkout into JupyterHub.
 
-- `thekaveh-nnx[lm]==0.2.0`
-- `python-louvain`, `nltk`, `spacy`, `torchao`, `prettytable`
-- The `en_core_web_sm` spaCy model + the `vader_lexicon` NLTK corpus, downloaded at image-build time
+## 1. Default path: local VS Code, remote Atlas kernel
 
-For most workflows you do NOT need this repo's wrapper script or override file — just start the standalone stack and connect from VS Code.
-
-## 1. Default path: standalone genai-vanilla + VS Code Mode 2
-
-This is the recommended path for **most tier-covered ml-eng-lab notebooks** — the exception being the from-scratch `notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb` (which imports sibling `.py` modules from its own folder, requiring filesystem access, and needs the §2 path). The quantization notebook is still manual-only under `torch>=2.5` + `torchao>=0.17`.
-
-1. Bring the stack up from a standalone clone of genai-vanilla:
-
-    ```bash
-    cd ~/repos/genai-vanilla
-    ./start.sh
-    ```
-
-2. Open any ml-eng-lab notebook locally in VS Code (it stays on your host filesystem).
-
-3. Point VS Code at the remote kernel — see [vscode-remote-access.md Mode 2](vscode-remote-access.md#2-mode-2-connect-to-remote-jupyter-server-default).
-
-`import nnx` resolves for tier-covered notebooks in the current image. Notebook outputs save back to the local `.ipynb` file because VS Code holds the file on the host.
-
-What this path does NOT give you: notebook code that does `pd.read_csv("./data/foo.csv")` or `NNRun.save()` writes to the container's CWD (`/home/jovyan/`), not to your host repo. Data/run artifacts land in the `jupyterhub-data` named volume — opaque to `git status` and lost on `docker volume rm`. For most Tier-A demos that's fine (small datasets, cheap to re-download). For long-running training where you want host-side persistence, see §2.
-
-## 2. Persistence path: wrapper script + bind-mount
-
-Use this when you want any of:
-
-- Datasets and `runs/` checkpoints to land on your host filesystem (visible in `git status`, survives `docker compose down -v`).
-- The from-scratch `notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb` notebook to work (it imports sibling `.py` modules from its own folder).
-- A development workflow where you `git commit` notebook edits + dataset downloads from inside the container.
-
-This repo vendors a snapshot of genai-vanilla as a git submodule at [`vendor/genai-vanilla`](https://github.com/thekaveh/ml-eng-lab/tree/main/vendor/genai-vanilla) and ships a wrapper script that layers an ml-eng-lab override onto the standalone compose:
-
-### 2.1. Clone with submodules
+The notebook file remains open on the host in VS Code; computation runs in the Atlas JupyterHub
+kernel. This is the primary path for tasks with `workspace_access: remote`. The NumPy MNIST task
+uses `default_mode: mounted-workspace` with `workspace_access: mounted-required`: use Browser
+JupyterLab or VS Code attached to the JupyterHub container from `/home/jovyan/work/ml-eng-lab`.
+A local notebook connected to a remote kernel does not guarantee that mounted working directory,
+which its sibling Python modules and task-local `data/` and `runs/` paths require.
 
 ```bash
-git clone --recurse-submodules https://github.com/thekaveh/ml-eng-lab.git
-# Or, if already cloned:
 git submodule update --init --recursive
+make atlas-setup
+make atlas-up
+make atlas-connect
 ```
 
-### 2.2. Run the wrapper
+Use the connection URL that the last command prints in the VS Code Jupyter server selector. The
+URL contains a short-lived credential. It must stay out of the repository, tickets, and docs.
+See [vscode-remote-access.md](vscode-remote-access.md) for the exact editor flow.
+
+## 2. Consumer contract and ownership
+
+`atlas.consumer.yml` is the committed source-policy contract. The lifecycle wrapper
+`scripts/atlas-up.sh` supplies `--track ml-eng`; the manifest deliberately has no `track` key:
+
+- It sets `JUPYTERHUB_SOURCE=container`.
+- It delegates port selection to Atlas with `BASE_PORT=auto`.
+- It requires `LLM_PROVIDER_SOURCE=ollama-localhost`.
+- `compose/ml-eng-lab-atlas.yml` is the only parent-owned compose overlay and mounts
+  `ML_ENG_LAB_REPO_PATH` at `/home/jovyan/work/ml-eng-lab`.
+- `atlas.env.user` is ignored and contains the absolute checkout path, plus an optional native
+  Ollama port override.
+
+Do not patch `infra/`, generated Atlas configuration, or Atlas service definitions from this
+repository. Consumer behavior belongs in the files above; changes to Atlas itself belong in the
+upstream project. The exact gitlink and bump procedure are recorded in
+[atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
+
+## 3. Native AI-service policy
+
+Before `make atlas-up`, the host-native Ollama daemon must answer on loopback. The lifecycle
+wrapper checks `http://127.0.0.1:<port>/api/version` and refuses a different source.
 
 ```bash
-scripts/start-jupyterhub.sh
+# Start only when the native daemon is not already managed by the host.
+ollama serve
+ollama list
+make atlas-up
 ```
 
-The wrapper sets `ML_REPO_PATH` (the ml-eng-lab repo root), exports `COMPOSE_FILE` to layer [`deploy/genai-vanilla-jupyterhub.override.yml`](https://github.com/thekaveh/ml-eng-lab/blob/main/deploy/genai-vanilla-jupyterhub.override.yml) onto genai-vanilla's base compose, and execs the submodule's `./start.sh`. The override bind-mounts `${ML_REPO_PATH}:/home/jovyan/work/ml-eng-lab`, so from the running container's perspective, the repo is at `/home/jovyan/work/ml-eng-lab/`.
+Never launch an Ollama Docker container for this Atlas consumer: it is slow and memory-heavy on
+the target workstation. The wrapper clears ambient source variables and accepts only the committed
+native source. ComfyUI is not enabled by the `ml-eng` configuration. If a future task genuinely
+needs it, it must first have an approved consumer specification, an explicit host-native source
+(`localhost` or managed MPS), an in-network configuration, a targeted runtime smoke, and matching
+documentation. Automatic and containerized ComfyUI sources are rejected.
 
-By default, the wrapper mounts an empty ignored directory at `/home/jovyan/.ssh`; host SSH keys are not exposed to notebook code. To opt into a read-only SSH-key mount for `git push`, set `HOST_SSH_DIR` explicitly:
+## 4. Artifact and workspace behavior
 
-```bash
-HOST_SSH_DIR=/path/to/keys scripts/start-jupyterhub.sh
-```
+The notebook-contract table in [notebook-infrastructure.md](notebook-infrastructure.md) is
+authoritative per task. The normal remote workflow stores runtime artifacts on the Atlas Jupyter
+volume; task source remains local and version controlled. The NumPy MNIST task is explicitly
+`mounted-workspace` / `mounted-required`, so use Browser JupyterLab or VS Code attached to the
+JupyterHub container from the mounted checkout; its ignored artifacts are written through that
+checkout mount instead.
 
-## 3. nnx development: editable install override
+Do not copy volume artifacts into the repository without a task-level policy. A task that needs a
+new Atlas service must declare that service in its contract before enabling it; it must not infer
+availability from other services that happen to be in the `ml-eng` track.
 
-If you're developing `nnx` itself (editing source on your host and wanting changes to land in the running kernel without a `pip install` cycle), clone [`thekaveh/NNx`](https://github.com/thekaveh/NNx) anywhere outside the ml-eng-lab tree, then bind-mount your clone into the running container alongside ml-eng-lab (extend `deploy/genai-vanilla-jupyterhub.override.yml` with a second volume) and:
+## 5. Browser and container-attached workspace mode
 
-```bash
-docker exec -it <project>-jupyterhub pip install -e /home/jovyan/work/NNx[lm]
-```
+Browser JupyterLab and VS Code's container-attach mode are alternatives for normal
+remote-workspace tasks. They implement the required `mounted-workspace` mode for NumPy MNIST:
+open `/home/jovyan/work/ml-eng-lab` before running it. They use the same JupyterHub service and
+mount; they do not authorize changing the track, modifying `infra/`, or running containerized
+Ollama.
 
-For everyone else, the image's pre-baked `thekaveh-nnx[lm]==0.2.0` layer is what you want and this override is unnecessary.
+## 6. Lifecycle troubleshooting
 
-## 4. Submodule pin / bumping
-
-`vendor/genai-vanilla` pins a known-good commit on genai-vanilla's `main`. Standard submodule bump:
-
-```bash
-cd vendor/genai-vanilla
-git fetch origin
-git checkout main
-git pull origin main
-cd ../..
-git add vendor/genai-vanilla
-git commit -m "ml-eng-lab: bump genai-vanilla submodule to <new-sha>"
-```
-
-The submodule pin matters for the §2 path; the §1 path uses your standalone genai-vanilla checkout and is independent of the submodule.
-
-## 5. Tested against
-
-genai-vanilla `10f840252404eb5399550f96fbb560153f1a47c7`, which includes the ml-eng-lab runtime dependency block, `thekaveh-nnx[lm]==0.2.0`, and the spaCy/NLTK asset downloads in the JupyterHub image.
-
-## 6. Common failure modes
-
-- **`Could not find a version that satisfies the requirement nnx-pytorch`** during `docker compose build jupyterhub` — the checkout is older than the `10f8402` runtime pin. Pull current genai-vanilla `main` or update this repo's submodule with `git submodule update --init --recursive`.
-- **`ModuleNotFoundError: No module named 'nnx'`** in the §1 path — the image was built from an older genai-vanilla checkout. Pull current genai-vanilla `main`, rebuild the `jupyterhub` image, and confirm `services/jupyterhub/build/requirements.txt` contains `thekaveh-nnx[lm]==0.2.0`.
-- **Submodule not found at `vendor/genai-vanilla/`** — run `git submodule update --init --recursive` at the repo root.
-- **`ML_REPO_PATH variable is not set`** during compose up — you ran `cd vendor/genai-vanilla && ./start.sh` directly instead of using the wrapper. Use `scripts/start-jupyterhub.sh`.
-- **Relative-path reads/writes go to the wrong place** (notebook does `pd.read_csv("./data/foo.csv")` but the file is on your host) — you're on the §1 path. Switch to §2 if you want host-side persistence.
-- **Stack service didn't come up** — Check `docker compose ps` from inside `vendor/genai-vanilla/` (§2) or `~/repos/genai-vanilla/` (§1).
+- **Submodule missing:** run `git submodule update --init --recursive` from the repository root.
+- **Native Ollama check failed:** start or repair the host-native daemon (`ollama serve` is one
+  option), then re-run `make atlas-up`. Do not substitute a Dockerized daemon.
+- **Connection URL missing:** Atlas must be running, and `make atlas-connect` must be invoked in
+  an interactive terminal so a token is not written to automation logs.
+- **Wrong notebook paths:** for normal tasks, use the remote kernel after opening the local
+  repository in VS Code. For NumPy MNIST, use Browser JupyterLab or VS Code attached to the
+  JupyterHub container and open `/home/jovyan/work/ml-eng-lab`; selecting a remote kernel for the
+  local file is not a substitute for its mounted-workspace requirement.
+- **Need a clean service reset:** use `make atlas-down` first. `COLD=1 make atlas-down` destroys
+  persisted volumes and is deliberately not the normal reset command.

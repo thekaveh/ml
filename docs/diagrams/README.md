@@ -24,8 +24,8 @@ and re-running the pipeline refreshes every surface.
 
 - `ml-eng-lab-system.html` — repository context and primary components (declared as
   `system` in the manifest; embedded by `docs/architecture.md`).
-- `ml-eng-lab-runtime-flow.html` — runtime entry paths and task-local notebook artifact
-  paths (added to the manifest later).
+- `ml-eng-lab-runtime-flow.html` — local VS Code → Atlas JupyterHub as the default runtime,
+  fallback entry paths, and task-local artifact behavior.
 - `ml-eng-lab-notebook-sequence.html` — notebook execution from parameters through
   training, ranking, visualization, persistence, and verification (planned).
 - `ml-eng-lab-docs-publishing.html` — README, docs, MkDocs, GitHub Pages, wiki, and

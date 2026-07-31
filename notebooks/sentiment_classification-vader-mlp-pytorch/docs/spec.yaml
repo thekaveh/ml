@@ -1,6 +1,13 @@
 title: "Sentiment classification — VADER vs MLP"
 family: language
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: Embedded sentiment corpus (60 unique reviews, 4x tiled)
 model: VADER lexicon + spaCy BoW MLP (head-to-head)
 framework: "PyTorch (via nnx) + NLTK + spaCy + sklearn"

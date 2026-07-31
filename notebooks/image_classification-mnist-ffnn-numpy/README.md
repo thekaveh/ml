@@ -34,11 +34,14 @@ Supporting modules in this folder:
 
 ## 4. How to run
 
-In the recommended runtime (genai-vanilla jupyterhub, see [../docs/jupyterhub-integration.md](../../docs/jupyterhub-integration.md)):
+This task's Atlas mode is `mounted-workspace`, not the ordinary host-local VS Code/remote-kernel
+path: its sibling Python modules and ignored artifacts require the checkout mounted inside
+JupyterHub. Use Browser JupyterLab or VS Code attached to the JupyterHub container from
+`/home/jovyan/work/ml-eng-lab`; see [JupyterHub integration](../../docs/jupyterhub-integration.md).
 
 ```bash
-# From an attached VS Code or browser jupyter session:
-# Open notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb, run all cells.
+# From the mounted JupyterHub checkout:
+# Open notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb and run all cells.
 ```
 
 Or use papermill (the Tier-A target in the root Makefile):
@@ -54,7 +57,7 @@ make run-tier-a   # re-runs this notebook in place, alongside the other Tier-A n
 - `numpy` (≥ 1.24)
 - `torchvision` (only for MNIST dataset loading; the model itself is pure NumPy)
 
-All available via the root `requirements.txt` or the genai-vanilla jupyterhub image.
+Available through the root `requirements.txt` or the Atlas JupyterHub runtime.
 
 ## 6. Known issues
 

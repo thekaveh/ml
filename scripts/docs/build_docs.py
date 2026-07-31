@@ -71,7 +71,13 @@ def render_site(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
 def _nav_lines(manifest: Manifest) -> list[str]:
     lines: list[str] = ["nav:"]
     for s in manifest.sections:
-        if s.source:
+        if s.source and s.children:
+            lines.append(f'  - "{s.number}. {s.title}":')
+            lines.append(f'      - "{s.number}. {s.title}": {s.source.removeprefix("docs/")}')
+            for c in s.children:
+                if c.source:
+                    lines.append(f'      - "{c.number}. {c.title}": {c.source.removeprefix("docs/")}')
+        elif s.source:
             lines.append(f'  - "{s.number}. {s.title}": {s.source.removeprefix("docs/")}')
         elif s.children:
             lines.append(f'  - "{s.number}. {s.title}":')

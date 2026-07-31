@@ -6,6 +6,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+import yaml
+
+from scripts import verify_repo
+
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "verify_repo.py"
 ACTIVE_FIXTURE_DIR = "notebooks/image_classification-mnist-ffnn-numpy"
@@ -33,6 +38,45 @@ def _temp_repo(tmp_path: Path) -> Path:
         timeout=TEST_SUBPROCESS_TIMEOUT,
     )
     return tmp_path
+
+
+def test_docs_adapter_skips_synthetic_fixture_without_manifest(tmp_path, monkeypatch):
+    monkeypatch.setattr(verify_repo, "REQUIRED_SECTIONS", {})
+
+    result = verify_repo.check_docs(tmp_path)
+
+    assert not [finding for finding in result.findings if finding.id == "D10.notebook_infrastructure"]
+
+
+def test_docs_adapter_reports_drift_for_a_real_manifest(tmp_path, monkeypatch):
+    monkeypatch.setattr(verify_repo, "REQUIRED_SECTIONS", {})
+    (tmp_path / "docs/notebooks").mkdir(parents=True)
+    (tmp_path / "docs/manifest.yaml").write_text(
+        "surfaces: [repo, site, wiki]\nnumbering: baked\nsections:\n  - id: overview\n"
+        "    number: '1'\n    title: Overview\n    source: docs/index.md\nnotebooks:\n"
+        "  - task: task\n    number: '8.1'\n    family: test\n    depth: full\n"
+        "    doc: docs/notebooks/task.md\n    spec: notebooks/task/docs/spec.yaml\ndiagrams: []\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docs/index.md").write_text("# 1. Overview\n", encoding="utf-8")
+    (tmp_path / "docs/notebooks/task.md").write_text("# 8.1 Task\n", encoding="utf-8")
+    (tmp_path / "docs/notebook-infrastructure.md").write_text(
+        "<!-- atlas-task-contracts:start -->\n| stale |\n<!-- atlas-task-contracts:end -->\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "notebooks/task/docs").mkdir(parents=True)
+    (tmp_path / "notebooks/task/docs/spec.yaml").write_text(
+        "title: Task\ntier: A\natlas:\n  executor: jupyterhub\n  default_mode: vscode-remote\n"
+        "  required_services: [jupyterhub]\n  workspace_access: remote\n"
+        "  artifact_policy: atlas-jupyter-volume\n  constraints: []\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts/verify_repo_config.yaml").write_text("active_task_dirs: [task]\n", encoding="utf-8")
+
+    result = verify_repo.check_docs(tmp_path)
+
+    assert [finding.id for finding in result.findings if finding.id == "D10.notebook_infrastructure"] == ["D10.notebook_infrastructure"]
 
 
 def test_help_lists_all_checks():
@@ -99,6 +143,13 @@ def test_structure_s1_notebooks_parse():
     assert data["summary"]["by_check"]["structure"] == len(s1) + sum(
         1 for f in data["findings"] if not f["id"].startswith("S1") and f["check"] == "structure"
     )
+
+
+def test_structure_s3_current_markdown_links_resolve():
+    r = run_verify("--check", "structure", "--fast")
+    data = json.loads(r.stdout) if r.stdout else {"findings": []}
+    s3 = [f for f in data["findings"] if f["id"].startswith("S3")]
+    assert s3 == [], f"S3 found broken current-repository links: {s3}"
 
 
 def test_structure_s1_flags_missing_notebook_cell_id(tmp_path):
@@ -979,7 +1030,7 @@ def test_docs_d1_unconfigured_active_notebook_is_error(tmp_path):
 def test_docs_d8_terminology_consistency_known_canonicals():
     """The check should mention canonical spellings in its allow-list logic."""
     SCRIPT_TEXT = SCRIPT.read_text()
-    for token in ("genai-vanilla", "JupyterHub", "NumPy", "PyTorch"):
+    for token in ("JupyterHub", "NumPy", "PyTorch"):
         assert token in SCRIPT_TEXT, f"D8 missing canonical {token!r}"
 
 
@@ -1061,6 +1112,16 @@ def test_docs_d10_dependency_ledger_counts_match_current_doc():
     assert d10 == [], f"D10 reported dependency-ledger issues: {d10}"
 
 
+def test_docs_d10_current_atlas_infra_gitlink_matches_ledger():
+    r = run_verify("--check", "docs", "--fast")
+    data = json.loads(r.stdout) if r.stdout else {"findings": []}
+    hits = [
+        f for f in data["findings"]
+        if f["id"] == "D10.dependency_ledger_submodule_sha"
+    ]
+    assert hits == [], f"D10 reported Atlas infra ledger issues: {hits}"
+
+
 def test_docs_d10_flags_dependency_ledger_count_drift(tmp_path):
     """The dependency ledger should not collapse duplicated advisory feed records."""
     repo = _temp_repo(tmp_path)
@@ -1085,24 +1146,24 @@ def test_docs_d10_flags_dependency_ledger_count_drift(tmp_path):
 
 
 def test_docs_d10_flags_dependency_ledger_submodule_sha_drift(tmp_path, monkeypatch):
-    """The genai-vanilla ledger SHA should match the superproject gitlink."""
+    """The Atlas ledger SHA should match the superproject infra gitlink."""
     repo = _temp_repo(tmp_path)
+    (repo / "infra").mkdir()
     docs = repo / "docs"
     docs.mkdir()
     ledger_sha = "b96a2924b5d30aa30eddb2fa43f9b7a47fc81bcb"
     gitlink_sha = "163134451a19d024e0e1c0df51139fd8c0a2ca52"
     (docs / "dependency-contracts.md").write_text(
         "# Dependency Contracts\n\n"
-        "## 7. genai-vanilla Submodule Contract\n\n"
-        "`vendor/genai-vanilla` submodule. The repository currently pins tree entry\n"
-        f"`{ledger_sha}`; a read-only check found upstream `main` at the same SHA.\n",
+        "## 7. Atlas Infra Submodule Contract\n\n"
+        f"Current Atlas `infra` gitlink SHA: `{ledger_sha}`.\n",
         encoding="utf-8",
     )
     verify_repo = _load_verify_module()
 
     def fake_run(cmd, cwd, timeout=None):
-        if cmd == ["git", "ls-files", "--stage", "--", "vendor/genai-vanilla"]:
-            return 0, f"160000 {gitlink_sha} 0\tvendor/genai-vanilla\n", ""
+        if cmd == ["git", "ls-files", "--stage", "--", "infra"]:
+            return 0, f"160000 {gitlink_sha} 0\tinfra\n", ""
         return 0, "", ""
 
     monkeypatch.setattr(verify_repo, "_run", fake_run)
@@ -1115,22 +1176,22 @@ def test_docs_d10_flags_dependency_ledger_submodule_sha_drift(tmp_path, monkeypa
 
 
 def test_docs_d10_flags_missing_dependency_ledger_submodule_sha(tmp_path, monkeypatch):
-    """The genai-vanilla ledger must keep a parseable pinned tree-entry SHA."""
+    """The Atlas ledger must keep a parseable pinned tree-entry SHA."""
     repo = _temp_repo(tmp_path)
+    (repo / "infra").mkdir()
     docs = repo / "docs"
     docs.mkdir()
     (docs / "dependency-contracts.md").write_text(
         "# Dependency Contracts\n\n"
-        "## 7. genai-vanilla Submodule Contract\n\n"
-        "`vendor/genai-vanilla` submodule. The repository currently pins tree entry\n"
-        "`not-a-sha`; a read-only check found upstream `main` at the same SHA.\n",
+        "## 7. Atlas Infra Submodule Contract\n\n"
+        "Current Atlas `infra` gitlink SHA: `not-a-sha`.\n",
         encoding="utf-8",
     )
     verify_repo = _load_verify_module()
 
     def fake_run(cmd, cwd, timeout=None):
-        if cmd == ["git", "ls-files", "--stage", "--", "vendor/genai-vanilla"]:
-            return 0, "160000 ba21661e8a63b3727b9c4a14eaf5e61262d4b48e 0\tvendor/genai-vanilla\n", ""
+        if cmd == ["git", "ls-files", "--stage", "--", "infra"]:
+            return 0, "160000 ba21661e8a63b3727b9c4a14eaf5e61262d4b48e 0\tinfra\n", ""
         return 0, "", ""
 
     monkeypatch.setattr(verify_repo, "_run", fake_run)
@@ -1143,22 +1204,22 @@ def test_docs_d10_flags_missing_dependency_ledger_submodule_sha(tmp_path, monkey
 
 
 def test_docs_d10_flags_missing_dependency_ledger_gitlink(tmp_path, monkeypatch):
-    """The genai-vanilla ledger SHA must be checked against a parseable gitlink."""
+    """The Atlas ledger SHA must be checked against a parseable gitlink."""
     repo = _temp_repo(tmp_path)
+    (repo / "infra").mkdir()
     docs = repo / "docs"
     docs.mkdir()
     ledger_sha = "ba21661e8a63b3727b9c4a14eaf5e61262d4b48e"
     (docs / "dependency-contracts.md").write_text(
         "# Dependency Contracts\n\n"
-        "## 7. genai-vanilla Submodule Contract\n\n"
-        "`vendor/genai-vanilla` submodule. The repository currently pins tree entry\n"
-        f"`{ledger_sha}`; a read-only check found upstream `main` at the same SHA.\n",
+        "## 7. Atlas Infra Submodule Contract\n\n"
+        f"Current Atlas `infra` gitlink SHA: `{ledger_sha}`.\n",
         encoding="utf-8",
     )
     verify_repo = _load_verify_module()
 
     def fake_run(cmd, cwd, timeout=None):
-        if cmd == ["git", "ls-files", "--stage", "--", "vendor/genai-vanilla"]:
+        if cmd == ["git", "ls-files", "--stage", "--", "infra"]:
             return 0, "", ""
         return 0, "", ""
 
@@ -1170,6 +1231,83 @@ def test_docs_d10_flags_missing_dependency_ledger_gitlink(tmp_path, monkeypatch)
     assert hits
     assert "gitlink" in hits[0].message
     assert hits[0].detail == {"ledger_sha": ledger_sha, "gitlink_sha": None}
+
+
+def test_docs_d10_requires_atlas_ledger_entry_when_infra_exists(tmp_path):
+    repo = _temp_repo(tmp_path)
+    (repo / "infra").mkdir()
+    docs = repo / "docs"
+    docs.mkdir()
+    (docs / "dependency-contracts.md").write_text(
+        "# Dependency Contracts\n\n"
+        "## 8. Other dependency record\n\n"
+        "The unrelated tree entry is `10f840252404eb5399550f96fbb560153f1a47c7`.\n",
+        encoding="utf-8",
+    )
+
+    findings = _load_verify_module()._dependency_ledger_findings(repo)
+
+    hits = [f for f in findings if f.id == "D10.dependency_ledger_submodule_sha"]
+    assert len(hits) == 1
+    assert "Atlas Infra Submodule Contract" in hits[0].message
+
+
+def test_docs_d10_does_not_use_legacy_sha_for_malformed_atlas_entry(tmp_path, monkeypatch):
+    repo = _temp_repo(tmp_path)
+    (repo / "infra").mkdir()
+    docs = repo / "docs"
+    docs.mkdir()
+    legacy_sha = "61c7c5103660e2226bf107c115dae42bf46f8374"
+    (docs / "dependency-contracts.md").write_text(
+        "# Dependency Contracts\n\n"
+        "## 7. Atlas Infra Submodule Contract\n\n"
+        "Current Atlas `infra` gitlink SHA: `not-a-sha`.\n\n"
+        "## 8. Other dependency record\n\n"
+        f"The repository currently pins tree entry `{legacy_sha}`.\n",
+        encoding="utf-8",
+    )
+    module = _load_verify_module()
+
+    def fail_if_gitlink_checked(cmd, cwd, timeout=None):
+        assert cmd != ["git", "ls-files", "--stage", "--", "infra"]
+        return 0, "", ""
+
+    monkeypatch.setattr(module, "_run", fail_if_gitlink_checked)
+
+    findings = module._dependency_ledger_findings(repo)
+
+    hits = [f for f in findings if f.id == "D10.dependency_ledger_submodule_sha"]
+    assert len(hits) == 1
+    assert "parseable" in hits[0].message
+
+
+def test_docs_d10_reads_atlas_sha_without_capturing_legacy_rollback_sha(tmp_path, monkeypatch):
+    repo = _temp_repo(tmp_path)
+    (repo / "infra").mkdir()
+    docs = repo / "docs"
+    docs.mkdir()
+    atlas_sha = "61c7c5103660e2226bf107c115dae42bf46f8374"
+    legacy_sha = "10f840252404eb5399550f96fbb560153f1a47c7"
+    (docs / "dependency-contracts.md").write_text(
+        "# Dependency Contracts\n\n"
+        "## 7. Atlas Infra Submodule Contract\n\n"
+        f"Current Atlas `infra` gitlink SHA: `{atlas_sha}`.\n\n"
+        "## 8. Other dependency record\n\n"
+        f"The repository currently pins tree entry `{legacy_sha}`.\n",
+        encoding="utf-8",
+    )
+    module = _load_verify_module()
+
+    def fake_run(cmd, cwd, timeout=None):
+        if cmd == ["git", "ls-files", "--stage", "--", "infra"]:
+            return 0, f"160000 {atlas_sha} 0\tinfra\n", ""
+        return 0, "", ""
+
+    monkeypatch.setattr(module, "_run", fake_run)
+
+    findings = module._dependency_ledger_findings(repo)
+
+    assert not [f for f in findings if f.id == "D10.dependency_ledger_submodule_sha"]
 
 
 def test_docs_d10_flags_workflow_action_refs_that_are_not_sha_pinned(tmp_path):
@@ -1393,6 +1531,32 @@ def test_runtime_available_requires_pyg_extension_stack(monkeypatch):
     assert verify_repo._runtime_available() is False
 
 
+def test_full_execution_uses_temporary_tier_a_outputs(tmp_path, monkeypatch):
+    verify_repo = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(verify_repo, "ACTIVE_TASK_DIRS", ())
+    monkeypatch.setattr(verify_repo, "REQUIRED_SECTIONS", {})
+    monkeypatch.setattr(verify_repo, "TIER_A_NOTEBOOKS", ())
+    monkeypatch.setattr(verify_repo, "_phase3_code_cells_unchanged", lambda _repo: [])
+    monkeypatch.setattr(verify_repo, "_runtime_available", lambda: True)
+
+    def fake_run(cmd, cwd, timeout=None):
+        del cwd, timeout
+        calls.append(cmd)
+        return 0, "", ""
+
+    monkeypatch.setattr(verify_repo, "_run", fake_run)
+
+    verify_repo.check_execution(repo, fast=False)
+
+    assert ["make", "smoke-tier-a"] in calls
+    assert ["make", "check-tier-a-artifacts"] in calls
+    assert ["make", "check-tier-a-clean"] in calls
+    assert ["make", "run-tier-a"] not in calls
+
+
 def test_required_sections_loaded_from_yaml_config():
     """The verify_repo_config.yaml should be the source of truth for the
     REQUIRED_SECTIONS table."""
@@ -1579,7 +1743,516 @@ def test_e14_flags_source_notebook_papermill_metadata(tmp_path, monkeypatch):
     assert hits[0].location == str(nb_path.relative_to(repo))
 
 
-def test_e6_shellcheck_targets_include_consumed_vendor_entrypoints():
+def _write_valid_atlas_verifier_fixture(repo: Path) -> None:
+    (repo / "compose").mkdir(exist_ok=True)
+    (repo / "infra").mkdir(exist_ok=True)
+    scripts = repo / "scripts"
+    scripts.mkdir(exist_ok=True)
+    (repo / "atlas.consumer.yml").write_text(
+        "name: ml-eng-lab\n"
+        "project_name: ml-eng-lab\n"
+        "profile: dev\n"
+        "brand:\n"
+        "  name: ML Eng Lab\n"
+        "env:\n"
+        "  file: ./atlas.env.user\n"
+        "  values:\n"
+        "    BASE_PORT: auto\n"
+        "    JUPYTERHUB_SOURCE: container\n"
+        "    LLM_PROVIDER_SOURCE: ollama-localhost\n"
+        "compose_overlays:\n"
+        "  - ./compose/ml-eng-lab-atlas.yml\n",
+        encoding="utf-8",
+    )
+    (repo / "atlas.env.user.example").write_text(
+        "ML_ENG_LAB_REPO_PATH=/absolute/path/to/ml-eng-lab\n",
+        encoding="utf-8",
+    )
+    (repo / "compose/ml-eng-lab-atlas.yml").write_text(
+        "services:\n  jupyterhub: {}\n",
+        encoding="utf-8",
+    )
+    for name in ("atlas-up.sh", "atlas-down.sh", "atlas-connect.sh"):
+        script = scripts / name
+        script.write_text("#!/usr/bin/env bash\ntrue\n", encoding="utf-8")
+        script.chmod(0o755)
+
+
+def _prepare_atlas_execution_check(monkeypatch, module, repo: Path, active_tasks=()):
+    monkeypatch.setattr(module, "ACTIVE_TASK_DIRS", tuple(active_tasks))
+    monkeypatch.setattr(module, "REQUIRED_SECTIONS", {})
+    monkeypatch.setattr(module, "TIER_A_NOTEBOOKS", ())
+    monkeypatch.setattr(module, "_phase3_code_cells_unchanged", lambda _repo: [])
+
+    def fake_run(cmd, cwd, timeout=None):
+        if cmd == ["git", "submodule", "status", "--", "infra"]:
+            return 0, " 61c7c5103660e2226bf107c115dae42bf46f8374 infra\n", ""
+        if cmd == ["git", "status", "--porcelain", "--", "."]:
+            assert cwd == repo / "infra"
+            return 0, "", ""
+        if cmd == ["which", "shellcheck"]:
+            return 1, "", ""
+        return 0, "", ""
+
+    monkeypatch.setattr(module, "_run", fake_run)
+
+
+@pytest.mark.parametrize(
+    ("manifest_text", "message"),
+    [
+        (None, "missing"),
+        ("name: [unterminated\n", "valid YAML"),
+    ],
+)
+def test_e15_flags_missing_or_malformed_atlas_manifest(
+    tmp_path, monkeypatch, manifest_text, message
+):
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    if manifest_text is None:
+        (repo / "atlas.consumer.yml").unlink()
+    else:
+        (repo / "atlas.consumer.yml").write_text(manifest_text, encoding="utf-8")
+    _prepare_atlas_execution_check(monkeypatch, module, repo)
+
+    result = module.check_execution(repo, fast=True)
+
+    hits = [finding for finding in result.findings if finding.id == "E15.atlas_manifest"]
+    assert any(finding.location == "atlas.consumer.yml" and message in finding.message for finding in hits)
+
+
+def test_e15_flags_illegal_manifest_track(tmp_path, monkeypatch):
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    manifest = repo / "atlas.consumer.yml"
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "track: ml-eng\n", encoding="utf-8")
+    _prepare_atlas_execution_check(monkeypatch, module, repo)
+
+    result = module.check_execution(repo, fast=True)
+
+    hits = [finding for finding in result.findings if finding.id == "E15.atlas_manifest"]
+    assert any(finding.location == "atlas.consumer.yml" and "track" in finding.message for finding in hits)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "",
+        "    LLM_PROVIDER_SOURCE: auto\n",
+        "    LLM_PROVIDER_SOURCE: ollama-container-cpu\n",
+        "    LLM_PROVIDER_SOURCE: ollama-container-gpu\n",
+        "    COMFYUI_SOURCE: container-cpu\n",
+        "    COMFYUI_SOURCE: container-gpu\n",
+    ],
+)
+def test_e15_rejects_non_native_or_containerized_ai_sources(
+    tmp_path, monkeypatch, mutation
+):
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    manifest = repo / "atlas.consumer.yml"
+    text = manifest.read_text(encoding="utf-8")
+    if mutation:
+        text = text.replace("    LLM_PROVIDER_SOURCE: ollama-localhost\n", mutation)
+    else:
+        text = text.replace("    LLM_PROVIDER_SOURCE: ollama-localhost\n", "")
+    manifest.write_text(text, encoding="utf-8")
+    _prepare_atlas_execution_check(monkeypatch, module, repo)
+
+    result = module.check_execution(repo, fast=True)
+
+    hits = [finding for finding in result.findings if finding.id == "E15.atlas_manifest"]
+    assert any(finding.location == "atlas.consumer.yml" for finding in hits)
+
+
+@pytest.mark.parametrize(
+    "missing_path",
+    [
+        "atlas.env.user.example",
+        "compose/ml-eng-lab-atlas.yml",
+        "scripts/atlas-up.sh",
+        "scripts/atlas-down.sh",
+        "scripts/atlas-connect.sh",
+    ],
+)
+def test_e15_flags_missing_atlas_contract_files(tmp_path, monkeypatch, missing_path):
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    (repo / missing_path).unlink()
+    _prepare_atlas_execution_check(monkeypatch, module, repo)
+
+    result = module.check_execution(repo, fast=True)
+
+    hits = [finding for finding in result.findings if finding.id == "E15.atlas_manifest"]
+    assert any(finding.location == missing_path and "missing" in finding.message for finding in hits)
+
+
+def test_e15_flags_non_executable_atlas_lifecycle_script(tmp_path, monkeypatch):
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    script = repo / "scripts/atlas-connect.sh"
+    script.chmod(0o644)
+    _prepare_atlas_execution_check(monkeypatch, module, repo)
+
+    result = module.check_execution(repo, fast=True)
+
+    hits = [finding for finding in result.findings if finding.id == "E15.atlas_manifest"]
+    assert any(finding.location == "scripts/atlas-connect.sh" and "executable" in finding.message for finding in hits)
+
+
+def test_e16_uses_shared_parser_for_invalid_active_task_metadata(tmp_path, monkeypatch):
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    task = "atlas-task"
+    (repo / "scripts/verify_repo_config.yaml").write_text(
+        f"active_task_dirs: [{task}]\n",
+        encoding="utf-8",
+    )
+    (repo / "docs/notebooks").mkdir(parents=True)
+    (repo / "docs/notebooks/atlas-task.md").write_text("# Task\n", encoding="utf-8")
+    (repo / "docs/manifest.yaml").write_text(
+        "surfaces: [repo, site, wiki]\n"
+        "numbering: baked\n"
+        "sections: []\n"
+        "notebooks:\n"
+        f"  - task: {task}\n"
+        '    number: "1"\n'
+        "    family: test\n"
+        "    depth: full\n"
+        "    doc: docs/notebooks/atlas-task.md\n"
+        "    spec: notebooks/atlas-task/docs/spec.yaml\n"
+        "diagrams: []\n",
+        encoding="utf-8",
+    )
+    spec = repo / "notebooks/atlas-task/docs/spec.yaml"
+    spec.parent.mkdir(parents=True)
+    spec.write_text(
+        "title: Atlas task\n"
+        "tier: A\n"
+        "atlas:\n"
+        "  executor: jupyterhub\n"
+        "  default_mode: vscode-remote\n"
+        "  required_services: [jupyterhub]\n"
+        "  workspace_access: local\n"
+        "  artifact_policy: atlas-jupyter-volume\n"
+        "  constraints: []\n",
+        encoding="utf-8",
+    )
+    _prepare_atlas_execution_check(monkeypatch, module, repo, active_tasks=(task,))
+
+    result = module.check_execution(repo, fast=True)
+
+    hits = [finding for finding in result.findings if finding.id == "E16.atlas_task_metadata"]
+    assert len(hits) == 1
+    assert hits[0].location == "notebooks/**/docs/spec.yaml"
+    assert "workspace_access" in hits[0].message
+
+
+def test_e17_flags_port_literal_in_integration_code_and_notebook_code_cell(
+    tmp_path, monkeypatch
+):
+    import nbformat
+
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    task = "atlas-task"
+    (repo / "scripts/atlas-up.sh").write_text(
+        'MLFLOW_HOST="127.0.0.1:63040"\n',
+        encoding="utf-8",
+    )
+    notebook_path = repo / f"notebooks/{task}/notebook.ipynb"
+    notebook_path.parent.mkdir(parents=True)
+    notebook = nbformat.v4.new_notebook()
+    notebook.cells = [
+        nbformat.v4.new_code_cell('spark = "http://localhost:63030"\n'),
+    ]
+    nbformat.write(notebook, notebook_path)
+    _prepare_atlas_execution_check(monkeypatch, module, repo, active_tasks=(task,))
+
+    result = module.check_execution(repo, fast=True)
+
+    hits = [finding for finding in result.findings if finding.id == "E17.atlas_hardcoded_endpoint"]
+    assert {finding.location for finding in hits} == {
+        "scripts/atlas-up.sh:1",
+        "notebooks/atlas-task/notebook.ipynb:cell[0]:line[1]",
+    }
+    assert {finding.detail["endpoint"] for finding in hits} == {
+        "127.0.0.1:63040",
+        "http://localhost:63030",
+    }
+
+
+def test_e17_excludes_docs_tests_history_notebook_prose_and_harmless_examples(
+    tmp_path, monkeypatch
+):
+    import nbformat
+
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    task = "atlas-task"
+    (repo / "docs").mkdir(exist_ok=True)
+    (repo / "docs/example.md").write_text("Try http://localhost:63094\n", encoding="utf-8")
+    (repo / "tests").mkdir()
+    (repo / "tests/test_example.py").write_text(
+        'EXAMPLE = "http://127.0.0.1:63040"\n',
+        encoding="utf-8",
+    )
+    (repo / "scripts/docs").mkdir()
+    (repo / "scripts/docs/example.py").write_text(
+        '"""Documentation example: http://localhost:63094."""\n',
+        encoding="utf-8",
+    )
+    (repo / "scripts/atlas-integration.py").write_text(
+        '"""Prose example: http://127.0.0.1:63040."""\n'
+        "# Historical example: http://localhost:63094\n"
+        'TEMPLATE = "http://localhost:<port>"\n',
+        encoding="utf-8",
+    )
+    notebook_path = repo / f"notebooks/{task}/notebook.ipynb"
+    notebook_path.parent.mkdir(parents=True)
+    notebook = nbformat.v4.new_notebook()
+    notebook.cells = [
+        nbformat.v4.new_markdown_cell("Try http://localhost:63094"),
+        nbformat.v4.new_code_cell(
+            "# Historical example: http://127.0.0.1:63040\n"
+            'template = "http://localhost:<port>"\n'
+        ),
+    ]
+    notebook.cells[1].outputs = [
+        nbformat.v4.new_output("stream", name="stdout", text="http://localhost:63094\n")
+    ]
+    nbformat.write(notebook, notebook_path)
+    archive_path = repo / "notebooks/archive/old/notebook.ipynb"
+    archive_path.parent.mkdir(parents=True)
+    archived = nbformat.v4.new_notebook()
+    archived.cells = [nbformat.v4.new_code_cell('url = "http://localhost:63094"\n')]
+    nbformat.write(archived, archive_path)
+    _prepare_atlas_execution_check(monkeypatch, module, repo, active_tasks=(task,))
+
+    result = module.check_execution(repo, fast=True)
+
+    assert not [
+        finding for finding in result.findings if finding.id == "E17.atlas_hardcoded_endpoint"
+    ]
+
+
+def test_e17_ignores_docstring_after_ipython_magic_in_active_notebook(
+    tmp_path, monkeypatch
+):
+    import nbformat
+
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    task = "atlas-task"
+    notebook_path = repo / f"notebooks/{task}/notebook.ipynb"
+    notebook_path.parent.mkdir(parents=True)
+    notebook = nbformat.v4.new_notebook()
+    notebook.cells = [
+        nbformat.v4.new_code_cell(
+            "%matplotlib inline\n"
+            '"""Prose example: http://localhost:63094."""\n'
+        ),
+    ]
+    nbformat.write(notebook, notebook_path)
+    _prepare_atlas_execution_check(monkeypatch, module, repo, active_tasks=(task,))
+
+    result = module.check_execution(repo, fast=True)
+
+    assert not [
+        finding for finding in result.findings if finding.id == "E17.atlas_hardcoded_endpoint"
+    ]
+
+
+def test_e17_checks_endpoint_after_same_line_docstring(tmp_path, monkeypatch):
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    (repo / "scripts/atlas-integration.py").write_text(
+        '"""Prose."""; endpoint = "http://127.0.0.1:63040"\n',
+        encoding="utf-8",
+    )
+    _prepare_atlas_execution_check(monkeypatch, module, repo, active_tasks=())
+
+    result = module.check_execution(repo, fast=True)
+
+    hits = [
+        finding for finding in result.findings
+        if finding.id == "E17.atlas_hardcoded_endpoint"
+    ]
+    assert [(finding.location, finding.detail["endpoint"]) for finding in hits] == [
+        ("scripts/atlas-integration.py:1", "http://127.0.0.1:63040"),
+    ]
+
+
+def _load_workflow(path: Path) -> dict:
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+
+def test_atlas_contract_workflow_has_recursive_checkout_and_narrow_paths():
+    workflow = _load_workflow(REPO / ".github/workflows/atlas-contract.yml")
+    paths = set(workflow["on"]["pull_request"]["paths"])
+    assert paths == {
+        ".gitmodules",
+        "infra",
+        "atlas.consumer.yml",
+        "atlas.env.user.example",
+        "compose/ml-eng-lab-atlas.yml",
+        "scripts/atlas-*.sh",
+        "scripts/docs/notebook_infrastructure.py",
+        "docs/notebook-infrastructure.md",
+        "docs/atlas-pin-bump-runbook.md",
+        "docs/dependency-contracts.md",
+        "notebooks/**/docs/spec.yaml",
+        "scripts/verify_repo.py",
+        "scripts/verify_repo_config.yaml",
+        "tests/test_verify_repo.py",
+        "Makefile",
+        ".github/workflows/atlas-contract.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/docs.yml",
+    }
+    steps = workflow["jobs"]["atlas-contract"]["steps"]
+    checkout = next(step for step in steps if step.get("name") == "Checkout")
+    assert checkout["with"]["persist-credentials"] == "false"
+    assert checkout["with"]["submodules"] == "recursive"
+
+
+def test_ci_runs_atlas_workflow_contract_tests():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    steps = workflow["jobs"]["verify-repo"]["steps"]
+    contract_tests = next(step for step in steps if step.get("name") == "Test Atlas workflow contracts")
+    assert contract_tests["run"] == (
+        "pytest tests/test_verify_repo.py -q -k "
+        "'atlas_contract_workflow or "
+        "atlas_docs_preserve_mounted_workspace_and_track_ownership or "
+        "ci_covers_gitflow_pr_targets or "
+        "ci_tier_a_uses_temporary_outputs_and_preserves_sources or "
+        "docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or "
+        "ci_runs_atlas_workflow_contract_tests'"
+    )
+
+
+def test_ci_covers_gitflow_pr_targets():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+
+    assert set(workflow["on"]["pull_request"]["branches"]) == {"develop", "main"}
+
+
+def test_ci_tier_a_uses_temporary_outputs_and_preserves_sources():
+    verify_repo = _load_verify_module()
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    steps = workflow["jobs"]["tier-a-papermill"]["steps"]
+
+    execute = next(step for step in steps if step.get("name") == "Run Tier-A notebooks (papermill)")
+    artifacts = next(
+        step for step in steps if step.get("name") == "Check Tier-A temporary notebook outputs"
+    )
+    clean = next(step for step in steps if step.get("name") == "Check Tier-A source notebooks are unchanged")
+    artifact = next(step for step in steps if step.get("name") == "Upload refreshed notebook outputs as artifact")
+    artifact_paths = tuple(
+        line.strip()
+        for line in artifact["with"]["path"].splitlines()
+        if line.strip()
+    )
+
+    assert execute["run"] == "make smoke-tier-a"
+    assert artifacts["run"] == "make check-tier-a-artifacts"
+    assert clean["run"] == "make check-tier-a-clean"
+    assert artifact["with"]["if-no-files-found"] == "error"
+    assert artifact_paths == tuple(
+        f"/tmp/ml-tier-a/{notebook}" for notebook in verify_repo.TIER_A_NOTEBOOKS
+    )
+    assert "TIER_A_OUT ?= /tmp/ml-tier-a" in (REPO / "Makefile").read_text(encoding="utf-8")
+
+
+def test_atlas_docs_preserve_mounted_workspace_and_track_ownership():
+    numpy_spec = yaml.safe_load(
+        (REPO / "notebooks/image_classification-mnist-ffnn-numpy/docs/spec.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    constraint = " ".join(numpy_spec["atlas"]["constraints"])
+    numpy_readme = (REPO / "notebooks/image_classification-mnist-ffnn-numpy/README.md").read_text(
+        encoding="utf-8"
+    )
+    jupyterhub = (REPO / "docs/jupyterhub-integration.md").read_text(encoding="utf-8")
+    vscode = (REPO / "docs/vscode-remote-access.md").read_text(encoding="utf-8")
+    environment = (REPO / "docs/env-setup.md").read_text(encoding="utf-8")
+    contributing = (REPO / "CONTRIBUTING.md").read_text(encoding="utf-8")
+
+    mounted_editor = "Browser JupyterLab or VS Code attached to the JupyterHub container"
+    assert numpy_spec["atlas"]["default_mode"] == "mounted-workspace"
+    assert numpy_spec["atlas"]["workspace_access"] == "mounted-required"
+    assert mounted_editor in constraint
+    for document in (jupyterhub, vscode, contributing, numpy_readme):
+        assert mounted_editor in " ".join(document.split())
+
+    track_owner = "`scripts/atlas-up.sh` supplies `--track ml-eng`"
+    assert track_owner in jupyterhub
+    assert track_owner in environment
+    assert "`atlas:` mapping" in contributing
+    assert "`make docs-sync-notebook-infrastructure`" in contributing
+    assert "future-service admission" in contributing
+
+
+def test_atlas_contract_workflow_runs_exact_non_live_preflight_and_dirty_gate():
+    workflow = _load_workflow(REPO / ".github/workflows/atlas-contract.yml")
+    run_bodies = [
+        step["run"]
+        for step in workflow["jobs"]["atlas-contract"]["steps"]
+        if "run" in step
+    ]
+    command_body = "\n".join(run_bodies)
+    exact_preflight = """cp infra/.env.example infra/.env
+printf 'ML_ENG_LAB_REPO_PATH=%s\\n' "$GITHUB_WORKSPACE" > atlas.env.user
+(
+  cd infra
+  ./start.sh env backfill
+  ./start.sh --consumer ../atlas.consumer.yml compose validate
+  ./start.sh --consumer ../atlas.consumer.yml doctor --format json
+)"""
+    assert exact_preflight in command_body
+    assert "git -C infra status --porcelain --untracked-files=all --ignored=no" in command_body
+    assert "exit 1" in command_body
+    for forbidden in (
+        "make atlas-contract",
+        "./scripts/atlas-up.sh",
+        "--detach",
+        "--track",
+        "endpoints ",
+        "atlas-connect",
+        "docker ",
+        "curl ",
+        "localhost:",
+        "127.0.0.1:",
+    ):
+        assert forbidden not in command_body
+
+
+def test_docs_workflow_covers_atlas_metadata_inputs_and_parser_tests():
+    workflow = _load_workflow(REPO / ".github/workflows/docs.yml")
+    paths = set(workflow["on"]["pull_request"]["paths"])
+    assert {
+        "docs/manifest.yaml",
+        "notebooks/**/docs/spec.yaml",
+        "scripts/docs/notebook_infrastructure.py",
+        "tests/test_notebook_infrastructure.py",
+    } <= paths
+    steps = workflow["jobs"]["check"]["steps"]
+    unit_tests = next(step for step in steps if step.get("name") == "Unit tests (docs scripts)")
+    assert "tests/test_notebook_infrastructure.py" in unit_tests["run"].split()
+
+
+def test_e6_shellcheck_targets_include_only_parent_owned_scripts():
     verify_repo = _load_verify_module()
 
     targets = {
@@ -1587,19 +2260,37 @@ def test_e6_shellcheck_targets_include_consumed_vendor_entrypoints():
         for path in verify_repo._shellcheck_targets(REPO)
     }
 
-    assert "scripts/start-jupyterhub.sh" in targets
-    assert "vendor/genai-vanilla/start.sh" in targets
-    assert "vendor/genai-vanilla/stop.sh" in targets
-    assert "vendor/genai-vanilla/bootstrapper/_run.sh" in targets
-    assert "vendor/genai-vanilla/services/jupyterhub/build/scripts/startup.sh" in targets
+    assert "scripts/atlas-up.sh" in targets
+    assert "scripts/atlas-down.sh" in targets
+    assert "scripts/atlas-connect.sh" in targets
+    assert not any(target.startswith(("infra/", "vendor/")) for target in targets)
 
 
-def test_e6_flags_missing_required_vendor_shellcheck_targets(tmp_path, monkeypatch):
+def test_e6_flags_required_parent_shellcheck_target_without_executable_bit(
+    tmp_path, monkeypatch
+):
+    module = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    _write_valid_atlas_verifier_fixture(repo)
+    script = repo / "scripts/atlas-down.sh"
+    script.chmod(0o644)
+    _prepare_atlas_execution_check(monkeypatch, module, repo)
+
+    result = module.check_execution(repo, fast=True)
+
+    hits = [
+        finding
+        for finding in result.findings
+        if finding.id == "E6.shellcheck_target_not_executable"
+    ]
+    assert [finding.location for finding in hits] == ["scripts/atlas-down.sh"]
+
+
+def test_e6_flags_missing_required_parent_shellcheck_targets(tmp_path, monkeypatch):
     verify_repo = _load_verify_module()
     repo = _temp_repo(tmp_path)
     scripts = repo / "scripts"
     scripts.mkdir()
-    (scripts / "start-jupyterhub.sh").write_text("#!/bin/sh\ntrue\n", encoding="utf-8")
 
     monkeypatch.setattr(verify_repo, "ACTIVE_TASK_DIRS", ())
     monkeypatch.setattr(verify_repo, "TIER_A_NOTEBOOKS", ())
@@ -1619,21 +2310,19 @@ def test_e6_flags_missing_required_vendor_shellcheck_targets(tmp_path, monkeypat
     hits = [f for f in result.findings if f.id == "E6.shellcheck_target_missing"]
     assert hits
     assert {
-        "vendor/genai-vanilla/start.sh",
-        "vendor/genai-vanilla/stop.sh",
-        "vendor/genai-vanilla/bootstrapper/_run.sh",
-        "vendor/genai-vanilla/services/jupyterhub/build/scripts/startup.sh",
+        "scripts/atlas-up.sh",
+        "scripts/atlas-down.sh",
+        "scripts/atlas-connect.sh",
     } == {f.location for f in hits}
 
 
-def test_e6_flags_missing_required_vendor_shellcheck_targets_without_shellcheck(
+def test_e6_flags_missing_required_parent_shellcheck_targets_without_shellcheck(
     tmp_path, monkeypatch
 ):
     verify_repo = _load_verify_module()
     repo = _temp_repo(tmp_path)
     scripts = repo / "scripts"
     scripts.mkdir()
-    (scripts / "start-jupyterhub.sh").write_text("#!/bin/sh\ntrue\n", encoding="utf-8")
 
     monkeypatch.setattr(verify_repo, "ACTIVE_TASK_DIRS", ())
     monkeypatch.setattr(verify_repo, "TIER_A_NOTEBOOKS", ())
@@ -1656,10 +2345,9 @@ def test_e6_flags_missing_required_vendor_shellcheck_targets_without_shellcheck(
         f for f in result.findings if f.id == "E6.shellcheck_target_missing"
     ]
     assert {
-        "vendor/genai-vanilla/start.sh",
-        "vendor/genai-vanilla/stop.sh",
-        "vendor/genai-vanilla/bootstrapper/_run.sh",
-        "vendor/genai-vanilla/services/jupyterhub/build/scripts/startup.sh",
+        "scripts/atlas-up.sh",
+        "scripts/atlas-down.sh",
+        "scripts/atlas-connect.sh",
     } == {f.location for f in missing_targets}
 
 
@@ -1667,8 +2355,8 @@ def test_e6_flags_dirty_required_submodule(monkeypatch):
     verify_repo = _load_verify_module()
 
     def fake_run(cmd, cwd, timeout=None):
-        if cmd == ["git", "submodule", "status", "--", "vendor/genai-vanilla"]:
-            return 0, "+163134451a19d024e0e1c0df51139fd8c0a2ca52 vendor/genai-vanilla\n", ""
+        if cmd == ["git", "submodule", "status", "--", "infra"]:
+            return 0, "+163134451a19d024e0e1c0df51139fd8c0a2ca52 infra\n", ""
         if cmd == ["which", "shellcheck"]:
             return 1, "", ""
         return 0, "", ""
@@ -1682,16 +2370,16 @@ def test_e6_flags_dirty_required_submodule(monkeypatch):
 
     hits = [f for f in result.findings if f.id == "E6.submodule_dirty"]
     assert hits
-    assert hits[0].location == "vendor/genai-vanilla"
+    assert hits[0].location == "infra"
 
 
 def test_e6_flags_required_submodule_with_modified_worktree(monkeypatch):
     verify_repo = _load_verify_module()
-    submodule_cwd = REPO / "vendor/genai-vanilla"
+    submodule_cwd = REPO / "infra"
 
     def fake_run(cmd, cwd, timeout=None):
-        if cmd == ["git", "submodule", "status", "--", "vendor/genai-vanilla"]:
-            return 0, " 163134451a19d024e0e1c0df51139fd8c0a2ca52 vendor/genai-vanilla\n", ""
+        if cmd == ["git", "submodule", "status", "--", "infra"]:
+            return 0, " 163134451a19d024e0e1c0df51139fd8c0a2ca52 infra\n", ""
         if cmd == ["git", "status", "--porcelain", "--", "."]:
             assert cwd == submodule_cwd
             return 0, " M services/jupyterhub/build/requirements.txt\n", ""
@@ -1708,7 +2396,7 @@ def test_e6_flags_required_submodule_with_modified_worktree(monkeypatch):
 
     hits = [f for f in result.findings if f.id == "E6.submodule_dirty"]
     assert hits
-    assert hits[0].location == "vendor/genai-vanilla"
+    assert hits[0].location == "infra"
     assert "local modifications" in hits[0].message
 
 
@@ -1874,7 +2562,7 @@ def test_ci_tier_a_artifact_paths_parse_workflow(tmp_path):
 def test_e12_tier_a_artifact_paths_match_config():
     verify_repo = _load_verify_module()
     assert verify_repo._ci_tier_a_artifact_paths(REPO) == tuple(
-        verify_repo.TIER_A_NOTEBOOKS
+        f"/tmp/ml-tier-a/{notebook}" for notebook in verify_repo.TIER_A_NOTEBOOKS
     )
     r = run_verify("--check", "execution", "--fast")
     data = json.loads(r.stdout) if r.stdout else {"findings": []}

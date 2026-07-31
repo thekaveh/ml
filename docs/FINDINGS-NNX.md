@@ -75,13 +75,15 @@ execution --fast` now rejects stale path artifacts in active notebooks.
 `NNRun.save()` (in nnx's training infrastructure) emits a confirmation string with the absolute filesystem path of the saved run directory. Two related issues:
 
 1. **Execution-environment path leak**: any committed notebook output can carry the path from whatever machine, container, or worktree last executed it. This is reproducibility noise because the path is meaningless to readers outside that runtime.
-2. **CI normalization is not sufficient**: a CI Tier-A re-execution can replace a local absolute path with a GitHub-runner path, trading one environment-specific artifact for another.
+2. **CI normalization is not sufficient**: CI now writes Tier-A re-execution
+   results to a temporary artifact tree and deliberately leaves committed
+   notebook snapshots untouched. It therefore cannot (and should not) be used
+   to normalize machine-local paths in tracked output.
 
 **Suggested upstream fix**: print a path relative to `cwd` (or to the notebook's parent), or just `Run saved to ./runs/<hash>`. Absolute path is fine in the saved metadata JSON; the human-facing print should be relative.
 
 **Workaround for ml-eng-lab**: keep active notebook outputs free of stale
 machine-local paths through `E13.stale_active_notebook_path`, and avoid
 claiming that a CI re-run alone makes these outputs portable. Once nnx prints a
-relative run path, the next Tier-A papermill batch (`make run-tier-a` —
-re-executes in place) can refresh outputs without reintroducing environment-
-specific paths.
+relative run path, a maintainer can deliberately refresh the committed snapshot
+with `make run-tier-a` without reintroducing environment-specific paths.

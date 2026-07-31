@@ -1,6 +1,13 @@
 title: "Text classification — AG-News spaCy + MLP"
 family: language
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: AG-News-style embedded headlines (80 unique, 4x tiled)
 model: spaCy BoW + Feed-forward MLP
 framework: "PyTorch (via nnx) + spaCy + sklearn"

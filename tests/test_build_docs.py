@@ -84,6 +84,23 @@ def test_render_mkdocs_yml_has_generated_nav_and_no_repo_url(tmp_path):
     assert any("2. Architecture" in t for t in titles)
 
 
+def test_nav_preserves_a_section_source_and_children():
+    manifest = parse_manifest(
+        MANIFEST_YAML.replace(
+            "  - id: architecture\n    number: \"2\"\n    title: Architecture\n    children:",
+            "  - id: architecture\n    number: \"2\"\n    title: Architecture\n    source: docs/architecture-parent.md\n    children:",
+        )
+    )
+
+    nav = yaml.safe_load(render_mkdocs_yml(manifest, Path("."), Path(".")))["nav"]
+
+    architecture = next(item["2. Architecture"] for item in nav if "2. Architecture" in item)
+    assert architecture == [
+        {"2. Architecture": "architecture-parent.md"},
+        {"2.1. System view": "architecture.md"},
+    ]
+
+
 def test_build_check_is_deterministic(tmp_path):
     _seed(tmp_path)
     rc1 = build(tmp_path / "docs/manifest.yaml", tmp_path, site=True, check=True)

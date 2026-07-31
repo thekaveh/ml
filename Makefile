@@ -1,12 +1,13 @@
 # Notebook re-execution targets, organized by execution-cost tier.
 #
-# Tier A: cheap (<5 min), re-executed in place (refreshes outputs).
+# Tier A: cheap (<5 min), re-executed in place only when deliberately refreshing
+# committed snapshots; CI writes generated copies to a temporary output tree.
 # Tier B: moderate, smoke-runs to /tmp (preserves original outputs).
 # Tier C: expensive, smoke-runs via SMOKE_TEST parameter to /tmp.
 #
-# Tier A is what CI runs on every PR. B/C smoke targets can run locally or via
-# workflow_dispatch; CI also runs both on the weekly schedule and Tier B on PRs
-# labeled `tier-b-smoke`.
+# Tier A's temporary-output smoke target runs on every PR. B/C smoke targets can
+# run locally or via workflow_dispatch; CI also runs both on the weekly schedule
+# and Tier B on PRs labeled `tier-b-smoke`.
 #
 # All targets assume the selected Python can run papermill and the notebooks'
 # kernel can import nnx. nnx is consumed from PyPI via the `thekaveh-nnx[lm]==0.2.0`
@@ -55,9 +56,9 @@ TIER_B := \
 # above. Removed 2026-06-16 after the weekly smoke-tier-b cron failed at the
 # quantization import: `torchao>=0.17` (requirements.txt pin, smallest version
 # exposing nnx.quantize_int8's `Int8WeightOnlyConfig` API) references
-# `torch.int1` at module load; `torch.int1` was added in torch 2.5; ml-eng-lab
-# pins `torch==2.4.1` for genai-vanilla image-parity (see torch-core-requirements.txt
-# + issue #10). No torchao version satisfies both nnx's API requirement AND
+# `torch.int1` at module load; `torch.int1` was added in torch 2.5; the local/CI
+# contract pins `torch==2.4.1` (see torch-core-requirements.txt + issue #10).
+# No torchao version satisfies both nnx's API requirement AND
 # the torch 2.4.1 import surface, so the notebook cannot execute under
 # CI's pinned environment. Notebook stays in the repo as a manual-only task
 # (run locally under a `torch>=2.5` env). The Tier-B move (PR #11) was made
@@ -72,13 +73,17 @@ TIER_C := \
     notebooks/node_classification-reddit-gnn-pyg/phase3-main-model-training-and-eval-notebook4.ipynb
 
 SMOKE_OUT := /tmp/ml-smoke
+TIER_A_OUT ?= /tmp/ml-tier-a
+TIER_A_OUT_ABS := $(abspath $(TIER_A_OUT))
 
-.PHONY: help run-tier-a check-tier-a-clean smoke-tier-b smoke-tier-c test test-nnx-surface lint docs-build docs-serve docs-check docs-wiki nlp-assets verify install-torch-stack codespace-setup
+.PHONY: help run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test test-nnx-surface lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
 
 help:
 	@echo "Targets:"
-	@echo "  run-tier-a        Re-execute Tier-A notebooks in place. CI runs this on every PR."
-	@echo "  check-tier-a-clean Fail if Tier-A notebook execution changed tracked outputs."
+	@echo "  run-tier-a        Re-execute Tier-A notebooks in place to deliberately refresh snapshots."
+	@echo "  smoke-tier-a      Execute Tier-A notebooks into $(TIER_A_OUT_ABS)/ without changing source notebooks."
+	@echo "  check-tier-a-artifacts Fail if a Tier-A temporary notebook output is missing or empty."
+	@echo "  check-tier-a-clean Fail if Tier-A execution changed tracked source notebooks."
 	@echo "  smoke-tier-b      Papermill Tier-B notebooks with SMOKE_TEST=1 to $(SMOKE_OUT)/ (preserves source outputs)."
 	@echo "  smoke-tier-c      Papermill Tier-C notebooks with SMOKE_TEST=1 to $(SMOKE_OUT)/."
 	@echo "  test              Run pytest on tests/ directory."
@@ -87,17 +92,57 @@ help:
 	@echo "  docs-build        Build the MkDocs site: render diagrams, generate the site input, then mkdocs build --strict."
 	@echo "  docs-serve        Render diagrams + generate the site input, then mkdocs serve for live preview."
 	@echo "  docs-check        Render diagrams, run the docs gate (check_docs), then mkdocs build --strict."
+	@echo "  docs-sync-notebook-infrastructure Render the canonical Atlas task-contract table explicitly."
 	@echo "  docs-wiki         Generate the wiki Markdown (build_docs --wiki), then push_wiki --check (dry-run)."
 	@echo "  nlp-assets        Download spaCy en_core_web_sm + NLTK vader_lexicon (needed by the 2 NLP Tier-A notebooks)."
 	@echo "  verify            Run repo verifier (scripts/verify_repo.py --check all --fast)."
 	@echo "  install-torch-stack Install pinned Torch core first, then PyG/runtime deps."
 	@echo "  codespace-setup   Full dep install + NLP assets. Invoked by .devcontainer/devcontainer.json's postCreateCommand."
+	@echo "  atlas-setup       Initialize Atlas and prepare machine-local environment files."
+	@echo "  atlas-up          Prepare, validate, and start the Atlas ml-eng track."
+	@echo "  atlas-down        Stop Atlas while preserving volumes (set COLD=1 to destroy them)."
+	@echo "  atlas-connect     Print interactive VS Code remote-Jupyter connection steps."
+	@echo "  atlas-contract    Run Atlas preparation and non-live contract validation."
+
+atlas-setup:
+	git submodule update --init --recursive infra
+	./scripts/atlas-up.sh --prepare
+
+atlas-up:
+	./scripts/atlas-up.sh
+
+atlas-down:
+	./scripts/atlas-down.sh $(if $(COLD),--cold,)
+
+atlas-connect:
+	./scripts/atlas-connect.sh
+
+atlas-contract:
+	./scripts/atlas-up.sh --validate
 
 run-tier-a:
 	@for nb in $(TIER_A); do \
 		echo "==> $$nb"; \
 		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
 		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 "$$base" "$$base") || exit 1; \
+	done
+
+smoke-tier-a:
+	@for nb in $(TIER_A); do \
+		out="$(TIER_A_OUT_ABS)/$$nb"; \
+		echo "==> $$nb -> $$out"; \
+		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
+		mkdir -p "$$(dirname "$$out")"; \
+		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 "$$base" "$$out") || exit 1; \
+	done
+
+check-tier-a-artifacts:
+	@for nb in $(TIER_A); do \
+		out="$(TIER_A_OUT_ABS)/$$nb"; \
+		if [ ! -s "$$out" ]; then \
+			printf 'missing expected Tier-A notebook output: %s\n' "$$out" >&2; \
+			exit 1; \
+		fi; \
 	done
 
 check-tier-a-clean:
@@ -144,6 +189,9 @@ docs-check:
 	$(PYTHON) -m scripts.docs.render_diagrams
 	$(PYTHON) -m scripts.docs.check_docs
 	mkdocs build --strict
+
+docs-sync-notebook-infrastructure:
+	$(PYTHON) -m scripts.docs.notebook_infrastructure --write
 
 docs-wiki:
 	$(PYTHON) -m scripts.docs.build_docs --wiki

@@ -1,6 +1,13 @@
 title: "Clustering — Iris KMeans vs autoencoder"
 family: clustering
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: Iris
 model: KMeans on raw features vs KMeans on AE latent
 framework: "PyTorch (via nnx) + sklearn"

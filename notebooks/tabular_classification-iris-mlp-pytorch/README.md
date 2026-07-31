@@ -50,7 +50,7 @@ Also verified via [`tests/nnx_surface/test_tabular_classification_iris_mlp_pytor
 - `pandas`, `numpy`, `scikit-learn`
 - `seaborn`, `matplotlib`
 
-All installed by the genai-vanilla jupyterhub image or via the root `requirements.txt` + `torch-requirements.txt`.
+Installed by the Atlas JupyterHub runtime or via the root `requirements.txt` + `torch-requirements.txt`.
 
 ## 6. Known issues
 

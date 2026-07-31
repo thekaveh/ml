@@ -1,0 +1,65 @@
+name: Atlas contract
+
+on:
+  pull_request:
+    paths:
+      - '.gitmodules'
+      - 'infra'
+      - 'atlas.consumer.yml'
+      - 'atlas.env.user.example'
+      - 'compose/ml-eng-lab-atlas.yml'
+      - 'scripts/atlas-*.sh'
+      - 'scripts/docs/notebook_infrastructure.py'
+      - 'docs/notebook-infrastructure.md'
+      - 'docs/atlas-pin-bump-runbook.md'
+      - 'docs/dependency-contracts.md'
+      - 'notebooks/**/docs/spec.yaml'
+      - 'scripts/verify_repo.py'
+      - 'scripts/verify_repo_config.yaml'
+      - 'tests/test_verify_repo.py'
+      - 'Makefile'
+      - '.github/workflows/atlas-contract.yml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  atlas-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned Atlas runner
+        run: python -m pip install uv==0.11.19
+
+      - name: Validate the non-live Atlas consumer contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp infra/.env.example infra/.env
+          printf 'ML_ENG_LAB_REPO_PATH=%s\n' "$GITHUB_WORKSPACE" > atlas.env.user
+          (
+            cd infra
+            ./start.sh env backfill
+            ./start.sh --consumer ../atlas.consumer.yml compose validate
+            ./start.sh --consumer ../atlas.consumer.yml doctor --format json
+          )
+          infra_status="$(git -C infra status --porcelain --untracked-files=all --ignored=no)"
+          if [[ -n "$infra_status" ]]; then
+            printf '%s\n' "Atlas validation changed tracked or non-ignored infra files:" >&2
+            printf '%s\n' "$infra_status" >&2
+            exit 1
+          fi

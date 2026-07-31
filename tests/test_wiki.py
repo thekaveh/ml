@@ -74,3 +74,21 @@ def test_render_wiki_strips_forbidden_links(tmp_path):
     render_wiki(m, tmp_path, out)
     home = (out / "Home.md").read_text()
     assert "https://thekaveh.github.io" not in home and "see site." in home
+
+
+def test_sidebar_lists_a_parent_page_and_children(tmp_path):
+    _seed(tmp_path)
+    (tmp_path / "docs/env-setup.md").write_text("# 4. Environment\n", encoding="utf-8")
+    (tmp_path / "docs/jupyterhub-integration.md").write_text("# 4.1 JupyterHub\n", encoding="utf-8")
+    manifest = parse_manifest(
+        MANIFEST_YAML.replace(
+            "  - id: architecture\n    number: \"2\"\n    title: Architecture\n    children:",
+            "  - id: architecture\n    number: \"2\"\n    title: Architecture\n    source: docs/env-setup.md\n    children:",
+        ).replace("source: docs/architecture.md", "source: docs/jupyterhub-integration.md"),
+    )
+
+    render_wiki(manifest, tmp_path, tmp_path / "generated/wiki")
+
+    sidebar = (tmp_path / "generated/wiki/_Sidebar.md").read_text(encoding="utf-8")
+    assert "[2. Architecture](2-Architecture)" in sidebar
+    assert "[2.1. System view](2-1-System-view)" in sidebar

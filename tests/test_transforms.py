@@ -40,6 +40,31 @@ def test_build_source_map_site():
     assert sm["docs/notebooks/tabular_classification-iris-mlp-pytorch.md"] == "notebooks/tabular_classification-iris-mlp-pytorch.md"
 
 
+def test_build_source_map_includes_parent_and_children_sources():
+    manifest = parse_manifest(
+        """surfaces: [repo, site, wiki]
+numbering: baked
+sections:
+  - id: environment
+    number: "4"
+    title: Environment
+    source: docs/env-setup.md
+    children:
+      - id: jupyterhub
+        number: "4.1"
+        title: JupyterHub
+        source: docs/jupyterhub-integration.md
+notebooks: []
+diagrams: []
+"""
+    )
+
+    assert build_source_map(manifest, "site") == {
+        "docs/env-setup.md": "env-setup.md",
+        "docs/jupyterhub-integration.md": "jupyterhub-integration.md",
+    }
+
+
 def test_build_source_map_wiki():
     sm = build_source_map(MANIFEST, surface="wiki")
     assert sm["docs/index.md"] == "Home.md"

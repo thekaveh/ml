@@ -1,6 +1,13 @@
 title: "Diffusion — DDPM on MNIST"
 family: generative
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: MNIST
 model: "DDPM with DiffusionMLP denoiser (no U-Net)"
 framework: "PyTorch (via nnx)"

@@ -1,6 +1,13 @@
 title: "Knowledge distillation — MNIST FFN (born-again)"
 family: mlp-compression
 tier: A
+atlas:
+  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []
 dataset: MNIST
 model: Feed-forward NN ([128,64]); same-arch student/teacher
 framework: "PyTorch (via nnx)"

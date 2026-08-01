@@ -21,35 +21,85 @@ _NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(?:\.)?(?:\s+|$)")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _INLINE_CODE_RE = re.compile(r"(`+).*?\1")
 _HTML_TAG_RE = re.compile(r"<(?P<closing>/)?(?P<tag>[A-Za-z][\w:-]*)\b[^>]*>")
-_HTML_BLOCK_CONTAINERS = frozenset(
+# Stable union of CommonMark's block tag set and Python-Markdown's block elements.
+_HTML_BLOCK_ELEMENTS = frozenset(
     {
         "address",
         "article",
         "aside",
+        "base",
+        "basefont",
         "blockquote",
+        "body",
+        "canvas",
+        "caption",
+        "center",
+        "col",
+        "colgroup",
+        "dd",
         "details",
         "dialog",
+        "dir",
         "div",
         "dl",
+        "dt",
         "fieldset",
+        "figcaption",
         "figure",
         "footer",
         "form",
+        "frame",
+        "frameset",
+        "group",
         "h1",
         "h2",
         "h3",
         "h4",
         "h5",
         "h6",
+        "head",
         "header",
+        "hgroup",
+        "hr",
+        "html",
+        "iframe",
+        "legend",
+        "li",
+        "link",
         "main",
+        "map",
+        "math",
+        "menu",
+        "menuitem",
         "nav",
+        "noframes",
+        "noscript",
+        "object",
         "ol",
+        "optgroup",
+        "option",
+        "output",
         "p",
+        "param",
         "pre",
+        "progress",
+        "script",
+        "search",
         "section",
+        "style",
+        "summary",
         "table",
+        "tbody",
+        "td",
+        "textarea",
+        "tfoot",
+        "th",
+        "thead",
+        "title",
+        "tr",
+        "track",
         "ul",
+        "video",
     }
 )
 _HTML_VOID_ELEMENTS = frozenset(
@@ -182,8 +232,6 @@ def _advance_html_container_stack(line: str, stack: list[str]) -> None:
         tag = match.group("tag").lower()
         if not match.group("closing") and tag in _HTML_VOID_ELEMENTS:
             continue
-        if tag not in _HTML_BLOCK_CONTAINERS:
-            continue
         if match.group("closing"):
             if tag in stack:
                 del stack[len(stack) - 1 - stack[::-1].index(tag) :]
@@ -195,8 +243,8 @@ def _starts_html_container(line: str) -> bool:
     match = re.match(r"^ {0,3}<(?P<tag>[A-Za-z][\w:-]*)\b[^>]*>", line)
     return bool(
         match
-        and match.group("tag").lower() in _HTML_BLOCK_CONTAINERS
         and match.group("tag").lower() not in _HTML_VOID_ELEMENTS
+        and not match.group(0).rstrip().endswith("/>")
     )
 
 
@@ -216,14 +264,19 @@ def _rendered_markdown(text: str) -> str:
             opening = fence_match.group(1)
             fence = (opening[0], len(opening))
             continue
+        if not line.strip():
+            html_container_stack[:] = [
+                tag for tag in html_container_stack if tag in _HTML_BLOCK_ELEMENTS
+            ]
         if (
             not html_container_stack
             and not _starts_html_container(line)
             and (line.startswith("    ") or line.startswith("\t"))
         ):
             continue
-        rendered.append(_INLINE_CODE_RE.sub("", line))
-        _advance_html_container_stack(line, html_container_stack)
+        rendered_line = _INLINE_CODE_RE.sub("", line)
+        rendered.append(rendered_line)
+        _advance_html_container_stack(rendered_line, html_container_stack)
     return "\n".join(rendered)
 
 

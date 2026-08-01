@@ -293,6 +293,38 @@ def test_self_containment_flags_indented_raw_html_image_inside_details(tmp_path)
     assert "assets/missing.png" in findings[0].message
 
 
+@pytest.mark.parametrize("wrapper", ["li", "tbody", "center", "custom-element"])
+def test_self_containment_flags_indented_raw_html_image_inside_paired_wrapper(
+    tmp_path,
+    wrapper,
+):
+    page = tmp_path / "site/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        f"<{wrapper}>\n"
+        "    <img src=assets/missing.png>\n"
+        f"</{wrapper}>\n",
+        encoding="utf-8",
+    )
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "assets/missing.png" in findings[0].message
+
+
+def test_self_containment_clears_inline_html_context_at_blank_line(tmp_path):
+    page = tmp_path / "site/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        "Prose with <custom-element>inline HTML\n\n"
+        "    <img src=assets/missing.png>\n",
+        encoding="utf-8",
+    )
+
+    assert check_self_containment(tmp_path) == []
+
+
 def test_repo_self_containment_rejects_site_and_wiki_links(tmp_path):
     (tmp_path / "docs").mkdir()
     (tmp_path / "README.md").write_text(

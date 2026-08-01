@@ -6,6 +6,11 @@ import re
 from pathlib import Path
 
 from scripts.docs.manifest import Manifest
+from scripts.docs.project_assets import (
+    cleanup_generated_output,
+    copy_project_assets,
+    validate_generated_output,
+)
 from scripts.docs.transforms import build_source_map, rewrite_for_surface
 
 _PNG_RE = re.compile(r"!\[([^\]]*)\]\([^)]*diagrams/img/([^.]+)\.png\)")
@@ -15,7 +20,14 @@ def _rewrite_images_wiki(md: str) -> str:
     return _PNG_RE.sub(lambda m: f"![{m.group(1)}](img/{m.group(2)}.png)", md)
 
 
-def render_wiki(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path]:
+def render_wiki(
+    manifest: Manifest,
+    repo_root: Path,
+    out_dir: Path,
+    *,
+    trusted_output_root: Path,
+) -> list[Path]:
+    validate_generated_output(trusted_output_root, out_dir)
     source_map = build_source_map(manifest, "wiki")
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
@@ -88,7 +100,15 @@ def render_wiki(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
             png_dest = img_out / png.name
             png_dest.write_bytes(png.read_bytes())
             expected.add(png_dest)
-    for path in out_dir.rglob("*"):
-        if path.is_file() and path not in expected:
-            path.unlink()
+    copy_project_assets(
+        repo_root,
+        out_dir,
+        expected,
+        trusted_output_root=trusted_output_root,
+    )
+    cleanup_generated_output(
+        out_dir,
+        expected,
+        trusted_output_root=trusted_output_root,
+    )
     return written

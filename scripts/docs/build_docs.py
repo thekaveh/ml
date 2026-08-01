@@ -10,7 +10,11 @@ import sys
 from pathlib import Path
 
 from scripts.docs.manifest import Manifest, load_manifest
-from scripts.docs.project_assets import copy_project_assets
+from scripts.docs.project_assets import (
+    cleanup_generated_output,
+    copy_project_assets,
+    validate_generated_output,
+)
 from scripts.docs.transforms import build_source_map, rewrite_for_surface
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +30,7 @@ def _rewrite_images_site(md: str) -> str:
 
 def render_site(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path]:
     source_map = build_source_map(manifest, "site")
+    validate_generated_output(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     expected: set[Path] = set()
@@ -75,9 +80,7 @@ def render_site(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
         svg_dest.write_text(svg, encoding="utf-8")
         expected.add(svg_dest)
     copy_project_assets(repo_root, out_dir, expected)
-    for path in out_dir.rglob("*"):
-        if path.is_file() and path not in expected:
-            path.unlink()
+    cleanup_generated_output(out_dir, expected)
     return written
 
 
@@ -199,17 +202,42 @@ def build(manifest_path: Path, repo_root: Path, *, site: bool = False, wiki: boo
 
 
 def _assert_dirs_equal(a: Path, b: Path) -> None:
-    def snapshot(d: Path) -> dict[str, str]:
-        return {p.relative_to(d).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in d.rglob("*") if p.is_file()}
+    def snapshot(d: Path) -> dict[str, tuple[str, str]]:
+        entries: dict[str, tuple[str, str]] = {}
+        for path in d.rglob("*"):
+            relative = path.relative_to(d).as_posix()
+            if path.is_symlink():
+                entries[relative] = ("symlink", str(path.readlink()))
+            elif path.is_dir():
+                entries[relative] = ("directory", "")
+            elif path.is_file():
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                entries[relative] = ("file", digest)
+            else:
+                entries[relative] = ("other", "")
+        return entries
 
     a_snap, b_snap = snapshot(a), snapshot(b)
     if a_snap == b_snap:
         return
     only_a = sorted(set(a_snap) - set(b_snap))
     only_b = sorted(set(b_snap) - set(a_snap))
-    content_diff = sorted(p for p in a_snap if p in b_snap and a_snap[p] != b_snap[p])
+    type_diff = sorted(
+        path
+        for path in a_snap
+        if path in b_snap and a_snap[path][0] != b_snap[path][0]
+    )
+    content_diff = sorted(
+        path
+        for path in a_snap
+        if path in b_snap
+        and a_snap[path][0] == b_snap[path][0]
+        and a_snap[path][1] != b_snap[path][1]
+    )
     raise AssertionError(
-        f"generation not deterministic: only-in-temp={only_a}, only-in-generated={only_b}, content-diff={content_diff}"
+        "generation not deterministic: "
+        f"only-in-temp={only_a}, only-in-generated={only_b}, "
+        f"type-diff={type_diff}, content-diff={content_diff}"
     )
 
 

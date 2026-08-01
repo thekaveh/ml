@@ -143,6 +143,74 @@ def test_render_site_removes_stale_generated_files(tmp_path):
     assert not (out / "obsolete.md").exists()
 
 
+def test_render_site_removes_stale_empty_directories_recursively(tmp_path):
+    _seed(tmp_path)
+    out = tmp_path / "generated/site"
+    stale = out / "old/nested"
+    stale.mkdir(parents=True)
+    (stale / "obsolete.md").write_text("stale", encoding="utf-8")
+
+    render_site(parse_manifest(MANIFEST_YAML), tmp_path, out)
+
+    assert not (out / "old").exists()
+
+
+@pytest.mark.parametrize("kind", ["root", "file", "directory"])
+def test_render_site_rejects_symlinks_in_canonical_project_assets(tmp_path, kind):
+    _seed(tmp_path)
+    assets = tmp_path / "docs/assets"
+    if kind == "root":
+        target = tmp_path / "canonical-assets"
+        assets.rename(target)
+        assets.symlink_to(target, target_is_directory=True)
+    elif kind == "file":
+        source = assets / "ml-eng-lab-poster.png"
+        target = tmp_path / "poster-target.png"
+        source.rename(target)
+        source.symlink_to(target)
+    else:
+        source = assets / "badges"
+        target = tmp_path / "badge-targets"
+        source.rename(target)
+        source.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="canonical project assets.*symlink"):
+        render_site(parse_manifest(MANIFEST_YAML), tmp_path, tmp_path / "generated/site")
+
+
+@pytest.mark.parametrize("kind", ["root", "ancestor", "entry"])
+def test_render_site_rejects_symlinks_in_generated_output(tmp_path, kind):
+    _seed(tmp_path)
+    out = tmp_path / "generated/site"
+    target_dir = tmp_path / "generated-target"
+    target_dir.mkdir()
+    if kind == "root":
+        out.parent.mkdir(parents=True)
+        out.symlink_to(target_dir, target_is_directory=True)
+    elif kind == "ancestor":
+        out.mkdir(parents=True)
+        (out / "assets").symlink_to(target_dir, target_is_directory=True)
+    else:
+        entry = out / "assets/ml-eng-lab-poster.png"
+        entry.parent.mkdir(parents=True)
+        target = tmp_path / "poster-target.png"
+        target.write_bytes(b"original")
+        entry.symlink_to(target)
+
+    with pytest.raises(ValueError, match="generated output.*symlink"):
+        render_site(parse_manifest(MANIFEST_YAML), tmp_path, out)
+
+
+def test_render_site_rejects_project_asset_collision_with_diagram(tmp_path):
+    _seed(tmp_path)
+    collision = tmp_path / "docs/assets/img/system.svg"
+    collision.parent.mkdir(parents=True)
+    collision.write_text("project asset", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="destination collision.*assets/img/system.svg"):
+        render_site(parse_manifest(MANIFEST_YAML), tmp_path, tmp_path / "generated/site")
+
+
 def test_rewrite_images_site_preserves_subdir_prefix():
     from scripts.docs.build_docs import _rewrite_images_site
     # deep-dive in notebooks/ uses ../diagrams/img/... → must keep ../ for the generated site
@@ -163,3 +231,21 @@ def test_assert_dirs_equal_catches_content_drift(tmp_path):
         _assert_dirs_equal(a, b)
     (b / "x.md").write_text("one")  # now byte-identical
     _assert_dirs_equal(a, b)  # no raise
+
+
+def test_assert_dirs_equal_catches_entry_type_and_empty_directory_drift(tmp_path):
+    from scripts.docs.build_docs import _assert_dirs_equal
+
+    a, b = tmp_path / "a", tmp_path / "b"
+    (a / "same-path").mkdir(parents=True)
+    b.mkdir()
+    (b / "same-path").write_text("file", encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="type-diff.*same-path"):
+        _assert_dirs_equal(a, b)
+
+    (b / "same-path").unlink()
+    (b / "same-path").mkdir()
+    (a / "only-empty-directory").mkdir()
+    with pytest.raises(AssertionError, match="only-in-temp.*only-empty-directory"):
+        _assert_dirs_equal(a, b)

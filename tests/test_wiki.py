@@ -83,6 +83,18 @@ def test_render_wiki_removes_stale_generated_files(tmp_path):
     assert not (out / "obsolete.md").exists()
 
 
+def test_render_wiki_removes_stale_empty_directories_recursively(tmp_path):
+    _seed(tmp_path)
+    out = tmp_path / "generated/wiki"
+    stale = out / "old/nested"
+    stale.mkdir(parents=True)
+    (stale / "obsolete.md").write_text("stale", encoding="utf-8")
+
+    render_wiki(parse_manifest(MANIFEST_YAML), tmp_path, out)
+
+    assert not (out / "old").exists()
+
+
 def test_render_wiki_strips_forbidden_links(tmp_path):
     _seed(tmp_path)
     (tmp_path / "docs/index.md").write_text(

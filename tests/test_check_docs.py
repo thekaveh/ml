@@ -108,6 +108,40 @@ def test_self_contamination_clean(tmp_path):
     assert check_self_containment(tmp_path) == []
 
 
+def test_self_containment_rejects_missing_local_raw_html_image(tmp_path):
+    page = tmp_path / "site/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        '<img src="assets/ml-eng-lab-poster.png">\n'
+        '<img src="https://example.com/remote-badge.svg">\n',
+        encoding="utf-8",
+    )
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "local image target missing" in findings[0].message
+    assert "assets/ml-eng-lab-poster.png" in findings[0].message
+
+
+def test_self_containment_ignores_raw_html_image_examples_in_code(tmp_path):
+    page = tmp_path / "site/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        "```html\n"
+        '<img src="examples/fenced.png">\n'
+        "```\n\n"
+        'Use `<img src="examples/inline.png">` as an example.\n'
+        '<img src="assets/rendered.png">\n',
+        encoding="utf-8",
+    )
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "assets/rendered.png" in findings[0].message
+
+
 def test_repo_self_containment_rejects_site_and_wiki_links(tmp_path):
     (tmp_path / "docs").mkdir()
     (tmp_path / "README.md").write_text(
@@ -462,6 +496,35 @@ def test_project_opening_allows_summary_line_reflow(tmp_path):
     assert check_project_opening(tmp_path) == []
 
 
+def test_project_opening_rejects_moved_summary_paragraph_boundary(tmp_path):
+    _write_project_opening(
+        tmp_path,
+        landing_summary=PROJECT_SUMMARY.replace(
+            "together.\n\nContributors can use Browser JupyterLab",
+            "together. Contributors can use Browser\n\nJupyterLab",
+        ),
+    )
+
+    messages = [finding.message for finding in check_project_opening(tmp_path)]
+
+    assert any("summary differs" in message for message in messages)
+    assert not any("exactly two paragraphs" in message for message in messages)
+
+
+def test_project_opening_ignores_summary_tail_whitespace_drift(tmp_path):
+    _write_project_opening(tmp_path)
+    landing = tmp_path / "docs/index.md"
+    landing.write_text(
+        landing.read_text(encoding="utf-8").replace(
+            "<!-- project-summary:end -->\n\n## 1.1 Repository map",
+            "<!-- project-summary:end -->\n \n\n   \n## 1.1 Repository map",
+        ),
+        encoding="utf-8",
+    )
+
+    assert check_project_opening(tmp_path) == []
+
+
 def test_real_project_opening_is_canonical():
     assert check_project_opening(REPO_ROOT) == []
 
@@ -555,6 +618,22 @@ def test_numbering_keeps_fences_open_for_shorter_or_trailing_closers(
         f"{trailing_closer}\n"
         "## 1.1 Still in the fence\n"
         f"{closer}\n\n"
+        "## 1.1 Repository map\n",
+        encoding="utf-8",
+    )
+
+    assert check_numbering(manifest, tmp_path) == []
+
+
+@pytest.mark.parametrize("marker", ["```", "~~~"])
+def test_numbering_keeps_fence_open_for_overindented_closer(tmp_path, marker):
+    manifest = _write_valid_notebook_infrastructure_fixture(tmp_path)
+    (tmp_path / "docs/index.md").write_text(
+        "# 1 Overview\n\n"
+        f"{marker}\n"
+        f"    {marker}\n"
+        '<h1 align="center">Second title still inside fence</h1>\n'
+        f"{marker}\n\n"
         "## 1.1 Repository map\n",
         encoding="utf-8",
     )

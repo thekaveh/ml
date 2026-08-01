@@ -7,6 +7,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from scripts.docs.links import SITE_URL, WIKI_URL, find_links, is_forbidden
 from scripts.docs.manifest import Manifest, load_manifest
@@ -16,7 +17,11 @@ _PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME|XXX)\b")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _HTML_H1_RE = re.compile(r'^<h1\s+align=["\']center["\']>(.+?)</h1>$', re.IGNORECASE)
 _NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(?:\.)?(?:\s+|$)")
-_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_RAW_HTML_IMG_RE = re.compile(
+    r"<img\b[^>]*\bsrc\s*=\s*([\"'])(.*?)\1", re.IGNORECASE
+)
+_INLINE_CODE_RE = re.compile(r"(`+).*?\1")
 _NUMBERED_H2_RE = re.compile(r"^##\s+\d+(?:\.\d)*(?:\.)?(?:\s+|$)", re.MULTILINE)
 _PROJECT_SUMMARY_RE = re.compile(
     r"<!-- project-summary:start -->\s*(.*?)\s*<!-- project-summary:end -->",
@@ -99,6 +104,33 @@ class Finding:
     message: str
 
 
+def _is_fence_closer(line: str, marker: str, opening_length: int) -> bool:
+    closing_match = re.match(
+        r"^ {0,3}(" + re.escape(marker) + r"+)(?:[ \t]*)$",
+        line,
+    )
+    return bool(
+        closing_match and len(closing_match.group(1)) >= opening_length
+    )
+
+
+def _rendered_markdown(text: str) -> str:
+    rendered: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in text.splitlines():
+        if fence is not None:
+            if _is_fence_closer(line, *fence):
+                fence = None
+            continue
+        fence_match = _FENCE_RE.match(line)
+        if fence_match:
+            opening = fence_match.group(1)
+            fence = (opening[0], len(opening))
+            continue
+        rendered.append(_INLINE_CODE_RE.sub("", line))
+    return "\n".join(rendered)
+
+
 def check_self_containment(generated_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for surface in ("site", "wiki"):
@@ -106,9 +138,28 @@ def check_self_containment(generated_root: Path) -> list[Finding]:
         if not d.exists():
             continue
         for md in d.rglob("*.md"):
-            for link in find_links(md.read_text(encoding="utf-8")):
+            text = md.read_text(encoding="utf-8")
+            for link in find_links(text):
                 if is_forbidden(link.target, surface):
                     findings.append(Finding("error", f"{surface}: {md.relative_to(generated_root)} links cross-surface: {link.target}"))
+            for match in _RAW_HTML_IMG_RE.finditer(_rendered_markdown(text)):
+                target = match.group(2).strip()
+                parsed = urlsplit(target)
+                if parsed.scheme or parsed.netloc or not parsed.path:
+                    continue
+                image_path = unquote(parsed.path)
+                resolved = (
+                    d / image_path.lstrip("/")
+                    if image_path.startswith("/")
+                    else md.parent / image_path
+                )
+                if not resolved.is_file():
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{surface}: {md.relative_to(generated_root)} local image target missing: {target}",
+                        )
+                    )
     return findings
 
 
@@ -167,13 +218,7 @@ def _markdown_headings(text: str) -> list[tuple[int, str]]:
     for raw_line in text.splitlines():
         if fence is not None:
             marker, opening_length = fence
-            stripped = raw_line.lstrip()
-            closing_match = re.match(re.escape(marker) + r"+", stripped)
-            if (
-                closing_match
-                and len(closing_match.group()) >= opening_length
-                and not stripped[closing_match.end() :].strip()
-            ):
+            if _is_fence_closer(raw_line, marker, opening_length):
                 fence = None
             continue
 
@@ -305,6 +350,13 @@ def _normalize_prose(text: str) -> str:
     return " ".join(text.split())
 
 
+def _normalize_summary_structure(text: str) -> str:
+    return "\n\n".join(
+        _normalize_prose(paragraph)
+        for paragraph in re.split(r"\n\s*\n", text.strip())
+    )
+
+
 def _badge_rows(asset_prefix: str) -> str:
     rows: list[str] = []
     for label, badges in PROJECT_BADGE_GROUPS:
@@ -376,9 +428,11 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
                 )
             )
             opener = text
+            opener_with_tail = text
         else:
             summary_tail = following_summary[: h2_match.start()]
-            opener = text[: summary_match.end() + h2_match.start()]
+            opener = text[: summary_match.end()]
+            opener_with_tail = text[: summary_match.end() + h2_match.start()]
             if summary_tail.strip():
                 findings.append(
                     Finding(
@@ -386,7 +440,7 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
                         f"project opener tail after summary must contain only whitespace in {relative_path}",
                     )
                 )
-        if "runtime-flow" in opener:
+        if "runtime-flow" in opener_with_tail:
             findings.append(
                 Finding(
                     "error",
@@ -436,10 +490,10 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
                 )
             )
         summary = _normalize_prose(matches[0])
-        summaries[relative_path] = summary
+        summaries[relative_path] = _normalize_summary_structure(matches[0])
         normalized_opener = (
             opener[: summary_match.start(1)]
-            + _normalize_prose(summary_match.group(1))
+            + _normalize_summary_structure(summary_match.group(1))
             + opener[summary_match.end(1) :]
         )
         opener_structures[relative_path] = _normalize_opener_structure(

@@ -249,6 +249,22 @@ def test_self_containment_ignores_raw_html_images_in_comments_and_indented_code(
     assert "assets/rendered.png" in findings[0].message
 
 
+def test_self_containment_flags_indented_raw_html_image_inside_html_block(tmp_path):
+    page = tmp_path / "site/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        "<div>\n"
+        "    <img src=assets/missing.png>\n"
+        "</div>\n",
+        encoding="utf-8",
+    )
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "assets/missing.png" in findings[0].message
+
+
 def test_repo_self_containment_rejects_site_and_wiki_links(tmp_path):
     (tmp_path / "docs").mkdir()
     (tmp_path / "README.md").write_text(

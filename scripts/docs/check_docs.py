@@ -228,6 +228,19 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
             findings.append(Finding("error", f"project opener source missing: {relative_path}"))
             continue
         text = path.read_text(encoding="utf-8")
+        expected_prefix = (
+            f"{_PROJECT_TITLES[relative_path]}\n\n"
+            f"{poster}\n\n"
+            f"{expected_tagline}\n\n"
+            "<!-- project-summary:start -->\n"
+        )
+        if not text.startswith(expected_prefix):
+            findings.append(
+                Finding(
+                    "error",
+                    f"project opener order must be title, poster, tagline, summary in {relative_path}",
+                )
+            )
         if not text.startswith(f"{_PROJECT_TITLES[relative_path]}\n"):
             findings.append(Finding("error", f"canonical project title missing from {relative_path}"))
         if poster not in text:

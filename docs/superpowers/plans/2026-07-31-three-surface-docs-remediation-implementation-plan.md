@@ -423,8 +423,8 @@ Run: `python -m scripts.docs.render_diagrams`
 Expected: opener tests pass and `docs/diagrams/img/docs-publishing.png` reflects the corrected
 wiki label.
 
-- [ ] **Step 6: Run complete verification and publish through Gitflow**
+- [x] **Step 6: Run complete verification and independent review**
 
-Run the full documentation and repository verification suite, request an independent review,
-commit and push the feature branch, merge its PR into `develop`, then merge a separate
-`develop`-to-`main` PR after required checks pass.
+Run the full documentation and repository verification suite, request an independent review, and
+resolve every Critical or Important finding before publishing the feature branch through the
+required feature-to-`develop` and `develop`-to-`main` pull requests.

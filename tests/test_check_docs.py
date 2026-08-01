@@ -224,6 +224,25 @@ def test_project_opening_rejects_missing_project_title(tmp_path):
     assert any("title" in finding.message for finding in check_project_opening(tmp_path))
 
 
+def test_project_opening_rejects_content_inserted_before_poster(tmp_path):
+    summary = " ".join(["grounded"] * 100)
+    _write_project_opening(
+        tmp_path,
+        readme_summary=summary,
+        landing_summary=summary,
+    )
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8").replace(
+            "# ml-eng-lab — personal ML lab\n\n![ml-eng-lab runtime paths]",
+            "# ml-eng-lab — personal ML lab\n\nUnexpected prose.\n\n![ml-eng-lab runtime paths]",
+        ),
+        encoding="utf-8",
+    )
+
+    assert any("order" in finding.message for finding in check_project_opening(tmp_path))
+
+
 def test_real_project_opening_is_canonical():
     assert check_project_opening(REPO_ROOT) == []
 

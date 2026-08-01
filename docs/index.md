@@ -1,14 +1,22 @@
-# 1 Overview
+# 1 ml-eng-lab — personal ML lab
 
-`ml-eng-lab` is a portfolio of self-contained machine-learning notebook experiments. Active
-experiments live under `notebooks/`; archived CodeXGLUE experiments live under
-`notebooks/archive/`; repository tooling keeps notebook execution, documentation, CI, and
-dependency contracts aligned.
+![ml-eng-lab runtime paths](diagrams/img/runtime-flow.png)
 
-This page is the entry point for the generated documentation site. The site is one of three
-documentation surfaces — repository, site, and wiki — all derived from a single canonical source
-tree under `docs/` by the pipeline in `scripts/docs/`. Section 2 below describes the surfaces;
-[the System & context view](architecture.md) draws the full picture.
+*Local notebooks. Remote Atlas execution. Explicit infrastructure contracts.*
+
+<!-- project-summary:start -->
+`ml-eng-lab` is a portfolio of self-contained machine-learning notebook experiments built for
+local editing in VS Code and recommended remote execution through JupyterHub on Atlas's ML
+Engineering track. Unlike a loose notebook collection, each task declares its runtime needs in a
+checked infrastructure contract, keeping notebook dependencies explicit as the lab expands beyond
+JupyterHub. Narrative experiments, reproducible execution tiers, exact dependency pins, validation
+gates, and the reusable `thekaveh-nnx` toolkit evolve together. Contributors can use Browser
+JupyterLab for mounted-workspace tasks or choose a local virtual environment, Docker, or GitHub
+Codespaces when Atlas is not the right fit. Host-native Ollama is the only approved Ollama source
+whenever a future task needs it; containerized Ollama is intentionally excluded. This makes the
+lab both a practical portfolio and a controlled environment for growing machine-learning systems
+without hiding operational assumptions inside notebooks.
+<!-- project-summary:end -->
 
 ## 1.1 Repository map
 
@@ -23,8 +31,8 @@ tree under `docs/` by the pipeline in `scripts/docs/`. Section 2 below describes
 - `.github/workflows/` contains CI and documentation publishing workflows.
 
 The root `README.md` is the day-to-day entry point for contributors — it carries the task index,
-quick-start paths, and the standard make targets. This generated site is the focused reference
-surface that sits behind the README.
+quick-start paths, and the standard make targets. This documentation collection is the focused
+reference surface that complements the README.
 
 ## 1.2 Documentation surfaces
 
@@ -52,5 +60,5 @@ and determinism. The canonical sources are written once; every surface is a tran
   for the exemplar comprehensive deep-dive — the canonical walk-through of one notebook end to
   end (problem, math, architecture, code, results, pitfalls, extensions).
 
-Additional notebook deep-dives will be added under `docs/notebooks/` as the manifest grows; the
-catalog above is the current page set.
+All twenty-one active task deep-dives are available under section 8. The three links above are a
+recommended starting path through that complete catalog.

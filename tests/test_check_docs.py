@@ -10,6 +10,7 @@ from scripts.docs.check_docs import (
     check_completeness,
     check_numbering,
     check_placeholders,
+    check_project_opening,
     check_repo_self_containment,
     check_self_containment,
     manifest_markdown_sources,
@@ -138,6 +139,112 @@ def test_real_user_facing_docs_match_the_atlas_runtime_contract():
     assert "token-bearing" in readme + runtime_docs
     assert "track defaults are not notebook authorization" in infrastructure
     assert "Additional Atlas services stay inactive" not in infrastructure
+
+
+def _write_project_opening(
+    repo_root: Path,
+    *,
+    readme_tagline: str = "Local notebooks. Remote Atlas execution. Explicit infrastructure contracts.",
+    landing_tagline: str = "Local notebooks. Remote Atlas execution. Explicit infrastructure contracts.",
+    readme_summary: str,
+    landing_summary: str,
+) -> None:
+    (repo_root / "docs").mkdir()
+    (repo_root / "README.md").write_text(
+        "# ml-eng-lab — personal ML lab\n\n"
+        "![ml-eng-lab runtime paths](docs/diagrams/img/runtime-flow.png)\n\n"
+        f"*{readme_tagline}*\n\n"
+        "<!-- project-summary:start -->\n"
+        f"{readme_summary}\n"
+        "<!-- project-summary:end -->\n",
+        encoding="utf-8",
+    )
+    (repo_root / "docs/index.md").write_text(
+        "# 1 ml-eng-lab — personal ML lab\n\n"
+        "![ml-eng-lab runtime paths](diagrams/img/runtime-flow.png)\n\n"
+        f"*{landing_tagline}*\n\n"
+        "<!-- project-summary:start -->\n"
+        f"{landing_summary}\n"
+        "<!-- project-summary:end -->\n",
+        encoding="utf-8",
+    )
+
+
+def test_project_opening_rejects_tagline_and_summary_drift(tmp_path):
+    summary = " ".join(["grounded"] * 100)
+    _write_project_opening(
+        tmp_path,
+        landing_tagline="A different tagline.",
+        readme_summary=summary,
+        landing_summary=f"{summary} changed",
+    )
+
+    messages = [finding.message for finding in check_project_opening(tmp_path)]
+
+    assert any("tagline" in message for message in messages)
+    assert any("summary" in message and "differ" in message for message in messages)
+
+
+def test_project_opening_rejects_missing_poster_and_summary_outside_word_range(tmp_path):
+    short_summary = " ".join(["short"] * 20)
+    _write_project_opening(
+        tmp_path,
+        readme_summary=short_summary,
+        landing_summary=short_summary,
+    )
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8").replace(
+            "![ml-eng-lab runtime paths](docs/diagrams/img/runtime-flow.png)\n\n", ""
+        ),
+        encoding="utf-8",
+    )
+
+    messages = [finding.message for finding in check_project_opening(tmp_path)]
+
+    assert any("poster" in message for message in messages)
+    assert any("100-150 words" in message for message in messages)
+
+
+def test_project_opening_rejects_missing_project_title(tmp_path):
+    summary = " ".join(["grounded"] * 100)
+    _write_project_opening(
+        tmp_path,
+        readme_summary=summary,
+        landing_summary=summary,
+    )
+    landing = tmp_path / "docs/index.md"
+    landing.write_text(
+        landing.read_text(encoding="utf-8").replace(
+            "# 1 ml-eng-lab — personal ML lab", "# 1 Overview"
+        ),
+        encoding="utf-8",
+    )
+
+    assert any("title" in finding.message for finding in check_project_opening(tmp_path))
+
+
+def test_project_opening_rejects_content_inserted_before_poster(tmp_path):
+    summary = " ".join(["grounded"] * 100)
+    _write_project_opening(
+        tmp_path,
+        readme_summary=summary,
+        landing_summary=summary,
+    )
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8").replace(
+            "# ml-eng-lab — personal ML lab\n\n![ml-eng-lab runtime paths]",
+            "# ml-eng-lab — personal ML lab\n\nUnexpected prose.\n\n![ml-eng-lab runtime paths]",
+        ),
+        encoding="utf-8",
+    )
+
+    assert any("order" in finding.message for finding in check_project_opening(tmp_path))
+
+
+def test_real_project_opening_is_canonical():
+    assert check_project_opening(REPO_ROOT) == []
 
 
 def test_atlas_migration_records_are_marked_complete():

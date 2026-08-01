@@ -1,6 +1,22 @@
 # ml-eng-lab — personal ML lab
 
-A multi-project repository of machine-learning task demonstrations, organized as a portfolio of self-contained ML experiments. Active experiments live under `notebooks/[task]-[dataset]-[model]-[framework]/`; each experiment directory contains its notebook(s) and README, with gitignored `data/` and `runs/` directories created as needed by runtime downloads and training/evaluation runs.
+![ml-eng-lab runtime paths](docs/diagrams/img/runtime-flow.png)
+
+*Local notebooks. Remote Atlas execution. Explicit infrastructure contracts.*
+
+<!-- project-summary:start -->
+`ml-eng-lab` is a portfolio of self-contained machine-learning notebook experiments built for
+local editing in VS Code and recommended remote execution through JupyterHub on Atlas's ML
+Engineering track. Unlike a loose notebook collection, each task declares its runtime needs in a
+checked infrastructure contract, keeping notebook dependencies explicit as the lab expands beyond
+JupyterHub. Narrative experiments, reproducible execution tiers, exact dependency pins, validation
+gates, and the reusable `thekaveh-nnx` toolkit evolve together. Contributors can use Browser
+JupyterLab for mounted-workspace tasks or choose a local virtual environment, Docker, or GitHub
+Codespaces when Atlas is not the right fit. Host-native Ollama is the only approved Ollama source
+whenever a future task needs it; containerized Ollama is intentionally excluded. This makes the
+lab both a practical portfolio and a controlled environment for growing machine-learning systems
+without hiding operational assumptions inside notebooks.
+<!-- project-summary:end -->
 
 ## 1. Overview
 

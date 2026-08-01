@@ -65,7 +65,7 @@ def test_render_site_writes_pages_and_assets(tmp_path):
     _seed(tmp_path)
     m = parse_manifest(MANIFEST_YAML)
     out = tmp_path / "generated/site"
-    written = render_site(m, tmp_path, out)
+    written = render_site(m, tmp_path, out, trusted_output_root=tmp_path)
     assert (out / "index.md").read_text().startswith("# 1. Overview")
     assert (out / "architecture.md").exists()
     assert (out / "notebooks/tabular_classification-iris-mlp-pytorch.md").exists()
@@ -138,7 +138,12 @@ def test_render_site_removes_stale_generated_files(tmp_path):
     out.mkdir(parents=True)
     (out / "obsolete.md").write_text("stale", encoding="utf-8")
 
-    render_site(parse_manifest(MANIFEST_YAML), tmp_path, out)
+    render_site(
+        parse_manifest(MANIFEST_YAML),
+        tmp_path,
+        out,
+        trusted_output_root=tmp_path,
+    )
 
     assert not (out / "obsolete.md").exists()
 
@@ -150,7 +155,12 @@ def test_render_site_removes_stale_empty_directories_recursively(tmp_path):
     stale.mkdir(parents=True)
     (stale / "obsolete.md").write_text("stale", encoding="utf-8")
 
-    render_site(parse_manifest(MANIFEST_YAML), tmp_path, out)
+    render_site(
+        parse_manifest(MANIFEST_YAML),
+        tmp_path,
+        out,
+        trusted_output_root=tmp_path,
+    )
 
     assert not (out / "old").exists()
 
@@ -175,7 +185,12 @@ def test_render_site_rejects_symlinks_in_canonical_project_assets(tmp_path, kind
         source.symlink_to(target, target_is_directory=True)
 
     with pytest.raises(ValueError, match="canonical project assets.*symlink"):
-        render_site(parse_manifest(MANIFEST_YAML), tmp_path, tmp_path / "generated/site")
+        render_site(
+            parse_manifest(MANIFEST_YAML),
+            tmp_path,
+            tmp_path / "generated/site",
+            trusted_output_root=tmp_path,
+        )
 
 
 @pytest.mark.parametrize("kind", ["root", "ancestor", "entry"])
@@ -198,7 +213,30 @@ def test_render_site_rejects_symlinks_in_generated_output(tmp_path, kind):
         entry.symlink_to(target)
 
     with pytest.raises(ValueError, match="generated output.*symlink"):
-        render_site(parse_manifest(MANIFEST_YAML), tmp_path, out)
+        render_site(
+            parse_manifest(MANIFEST_YAML),
+            tmp_path,
+            out,
+            trusted_output_root=tmp_path,
+        )
+
+
+def test_render_site_rejects_symlinked_generated_parent(tmp_path):
+    _seed(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    generated = tmp_path / "generated"
+    generated.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="generated output.*symlink"):
+        render_site(
+            parse_manifest(MANIFEST_YAML),
+            tmp_path,
+            generated / "site",
+            trusted_output_root=tmp_path,
+        )
+
+    assert list(outside.iterdir()) == []
 
 
 def test_render_site_rejects_project_asset_collision_with_diagram(tmp_path):
@@ -208,7 +246,12 @@ def test_render_site_rejects_project_asset_collision_with_diagram(tmp_path):
     collision.write_text("project asset", encoding="utf-8")
 
     with pytest.raises(ValueError, match="destination collision.*assets/img/system.svg"):
-        render_site(parse_manifest(MANIFEST_YAML), tmp_path, tmp_path / "generated/site")
+        render_site(
+            parse_manifest(MANIFEST_YAML),
+            tmp_path,
+            tmp_path / "generated/site",
+            trusted_output_root=tmp_path,
+        )
 
 
 def test_rewrite_images_site_preserves_subdir_prefix():
@@ -228,9 +271,19 @@ def test_assert_dirs_equal_catches_content_drift(tmp_path):
     (a / "x.md").write_text("one")
     (b / "x.md").write_text("two")  # same path, different content
     with pytest.raises(AssertionError, match="content-diff"):
-        _assert_dirs_equal(a, b)
+        _assert_dirs_equal(
+            a,
+            b,
+            a_trusted_output_root=tmp_path,
+            b_trusted_output_root=tmp_path,
+        )
     (b / "x.md").write_text("one")  # now byte-identical
-    _assert_dirs_equal(a, b)  # no raise
+    _assert_dirs_equal(
+        a,
+        b,
+        a_trusted_output_root=tmp_path,
+        b_trusted_output_root=tmp_path,
+    )  # no raise
 
 
 def test_assert_dirs_equal_catches_entry_type_and_empty_directory_drift(tmp_path):
@@ -242,10 +295,20 @@ def test_assert_dirs_equal_catches_entry_type_and_empty_directory_drift(tmp_path
     (b / "same-path").write_text("file", encoding="utf-8")
 
     with pytest.raises(AssertionError, match="type-diff.*same-path"):
-        _assert_dirs_equal(a, b)
+        _assert_dirs_equal(
+            a,
+            b,
+            a_trusted_output_root=tmp_path,
+            b_trusted_output_root=tmp_path,
+        )
 
     (b / "same-path").unlink()
     (b / "same-path").mkdir()
     (a / "only-empty-directory").mkdir()
     with pytest.raises(AssertionError, match="only-in-temp.*only-empty-directory"):
-        _assert_dirs_equal(a, b)
+        _assert_dirs_equal(
+            a,
+            b,
+            a_trusted_output_root=tmp_path,
+            b_trusted_output_root=tmp_path,
+        )

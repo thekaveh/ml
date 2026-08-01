@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -18,9 +19,6 @@ _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _HTML_H1_RE = re.compile(r'^<h1\s+align=["\']center["\']>(.+?)</h1>$', re.IGNORECASE)
 _NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(?:\.)?(?:\s+|$)")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-_RAW_HTML_IMG_RE = re.compile(
-    r"<img\b[^>]*\bsrc\s*=\s*([\"'])(.*?)\1", re.IGNORECASE
-)
 _INLINE_CODE_RE = re.compile(r"(`+).*?\1")
 _NUMBERED_H2_RE = re.compile(r"^##\s+\d+(?:\.\d)*(?:\.)?(?:\s+|$)", re.MULTILINE)
 _PROJECT_SUMMARY_RE = re.compile(
@@ -104,6 +102,21 @@ class Finding:
     message: str
 
 
+class _RawImageParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.sources: list[str | None] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if tag != "img":
+            return
+        self.sources.append(next((value for name, value in attrs if name == "src"), None))
+
+
 def _is_fence_closer(line: str, marker: str, opening_length: int) -> bool:
     closing_match = re.match(
         r"^ {0,3}(" + re.escape(marker) + r"+)(?:[ \t]*)$",
@@ -117,18 +130,29 @@ def _is_fence_closer(line: str, marker: str, opening_length: int) -> bool:
 def _rendered_markdown(text: str) -> str:
     rendered: list[str] = []
     fence: tuple[str, int] | None = None
-    for line in text.splitlines():
+    in_html_comment = False
+    for raw_line in text.splitlines():
         if fence is not None:
-            if _is_fence_closer(line, *fence):
+            if _is_fence_closer(raw_line, *fence):
                 fence = None
             continue
+        line, in_html_comment = _strip_html_comments(raw_line, in_html_comment)
         fence_match = _FENCE_RE.match(line)
         if fence_match:
             opening = fence_match.group(1)
             fence = (opening[0], len(opening))
             continue
+        if line.startswith("    ") or line.startswith("\t"):
+            continue
         rendered.append(_INLINE_CODE_RE.sub("", line))
     return "\n".join(rendered)
+
+
+def _raw_html_image_sources(text: str) -> list[str | None]:
+    parser = _RawImageParser()
+    parser.feed(_rendered_markdown(text))
+    parser.close()
+    return parser.sources
 
 
 def check_self_containment(generated_root: Path) -> list[Finding]:
@@ -137,22 +161,50 @@ def check_self_containment(generated_root: Path) -> list[Finding]:
         d = generated_root / surface
         if not d.exists():
             continue
+        surface_root = d.resolve()
         for md in d.rglob("*.md"):
             text = md.read_text(encoding="utf-8")
             for link in find_links(text):
                 if is_forbidden(link.target, surface):
                     findings.append(Finding("error", f"{surface}: {md.relative_to(generated_root)} links cross-surface: {link.target}"))
-            for match in _RAW_HTML_IMG_RE.finditer(_rendered_markdown(text)):
-                target = match.group(2).strip()
+            for source in _raw_html_image_sources(text):
+                if source is None or not source.strip():
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{surface}: {md.relative_to(generated_root)} raw HTML image missing src",
+                        )
+                    )
+                    continue
+                target = source.strip()
                 parsed = urlsplit(target)
-                if parsed.scheme or parsed.netloc or not parsed.path:
+                if parsed.scheme.lower() in {"http", "https", "data"}:
+                    continue
+                if parsed.scheme:
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{surface}: {md.relative_to(generated_root)} unsupported raw HTML image source: {target}",
+                        )
+                    )
+                    continue
+                if parsed.netloc:
                     continue
                 image_path = unquote(parsed.path)
-                resolved = (
+                candidate = (
                     d / image_path.lstrip("/")
                     if image_path.startswith("/")
                     else md.parent / image_path
                 )
+                resolved = candidate.resolve()
+                if not resolved.is_relative_to(surface_root):
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{surface}: {md.relative_to(generated_root)} local image target escapes generated surface: {target}",
+                        )
+                    )
+                    continue
                 if not resolved.is_file():
                     findings.append(
                         Finding(

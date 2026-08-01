@@ -18,9 +18,23 @@ def _entries(root: Path):
             yield current_path / name
 
 
-def validate_generated_output(out_dir: Path) -> None:
-    if out_dir.is_symlink():
-        raise ProjectAssetError(f"generated output contains symlink: {out_dir}")
+def validate_generated_output(trusted_output_root: Path, out_dir: Path) -> None:
+    trusted_output_root = Path(os.path.abspath(trusted_output_root))
+    out_dir = Path(os.path.abspath(out_dir))
+    try:
+        relative_out = out_dir.relative_to(trusted_output_root)
+    except ValueError as exc:
+        raise ProjectAssetError(
+            f"generated output is outside trusted output root: {out_dir}"
+        ) from exc
+
+    current = trusted_output_root
+    if current.is_symlink():
+        raise ProjectAssetError(f"generated output contains symlink: {current}")
+    for component in relative_out.parts:
+        current /= component
+        if current.is_symlink():
+            raise ProjectAssetError(f"generated output contains symlink: {current}")
     if not out_dir.exists():
         return
     for path in _entries(out_dir):
@@ -31,8 +45,13 @@ def validate_generated_output(out_dir: Path) -> None:
             )
 
 
-def cleanup_generated_output(out_dir: Path, expected: set[Path]) -> None:
-    validate_generated_output(out_dir)
+def cleanup_generated_output(
+    out_dir: Path,
+    expected: set[Path],
+    *,
+    trusted_output_root: Path,
+) -> None:
+    validate_generated_output(trusted_output_root, out_dir)
     entries = sorted(
         out_dir.rglob("*"),
         key=lambda path: len(path.relative_to(out_dir).parts),
@@ -45,7 +64,14 @@ def cleanup_generated_output(out_dir: Path, expected: set[Path]) -> None:
             path.rmdir()
 
 
-def copy_project_assets(repo_root: Path, out_dir: Path, expected: set[Path]) -> list[Path]:
+def copy_project_assets(
+    repo_root: Path,
+    out_dir: Path,
+    expected: set[Path],
+    *,
+    trusted_output_root: Path,
+) -> list[Path]:
+    validate_generated_output(trusted_output_root, out_dir)
     source_root = repo_root / "docs/assets"
     if source_root.is_symlink():
         raise ProjectAssetError(
@@ -59,7 +85,6 @@ def copy_project_assets(repo_root: Path, out_dir: Path, expected: set[Path]) -> 
             raise ProjectAssetError(
                 f"canonical project assets contain symlink: {relative}"
             )
-    validate_generated_output(out_dir)
     written: list[Path] = []
     for source in sorted(path for path in source_root.rglob("*") if path.is_file()):
         destination = out_dir / "assets" / source.relative_to(source_root)

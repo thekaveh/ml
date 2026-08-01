@@ -142,6 +142,113 @@ def test_self_containment_ignores_raw_html_image_examples_in_code(tmp_path):
     assert "assets/rendered.png" in findings[0].message
 
 
+@pytest.mark.parametrize(
+    "source",
+    ["../outside.png", "/../outside.png", "%2e%2e/outside.png"],
+)
+def test_self_containment_rejects_raw_html_image_root_escapes(tmp_path, source):
+    page = tmp_path / "site/index.md"
+    page.parent.mkdir(parents=True)
+    (tmp_path / "outside.png").write_bytes(b"outside")
+    page.write_text(f'<img src="{source}">\n', encoding="utf-8")
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "escapes generated surface" in findings[0].message
+
+
+def test_self_containment_rejects_raw_html_image_symlink_escape(tmp_path):
+    page = tmp_path / "site/index.md"
+    assets = tmp_path / "site/assets"
+    assets.mkdir(parents=True)
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"outside")
+    (assets / "redirect.png").symlink_to(outside)
+    page.write_text('<img src="assets/redirect.png">\n', encoding="utf-8")
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "escapes generated surface" in findings[0].message
+
+
+@pytest.mark.parametrize("source", ["file:assets/existing.png", "ftp://example.com/image.png"])
+def test_self_containment_rejects_non_web_raw_html_image_schemes(tmp_path, source):
+    page = tmp_path / "site/index.md"
+    page.parent.mkdir(parents=True)
+    (page.parent / "assets").mkdir()
+    (page.parent / "assets/existing.png").write_bytes(b"image")
+    page.write_text(f'<img src="{source}">\n', encoding="utf-8")
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "unsupported raw HTML image source" in findings[0].message
+
+
+def test_self_containment_allows_web_data_and_contained_root_images(tmp_path):
+    page = tmp_path / "site/index.md"
+    asset = tmp_path / "site/assets/existing.png"
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(b"image")
+    page.write_text(
+        '<img src="https://example.com/image.png">\n'
+        '<img src="//example.com/image.png">\n'
+        '<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==">\n'
+        '<img src="/assets/existing.png">\n',
+        encoding="utf-8",
+    )
+
+    assert check_self_containment(tmp_path) == []
+
+
+def test_self_containment_parses_unquoted_raw_html_image_src(tmp_path):
+    page = tmp_path / "site/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text("<img src=assets/missing.png>\n", encoding="utf-8")
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "assets/missing.png" in findings[0].message
+
+
+def test_self_containment_does_not_mistake_data_src_for_src(tmp_path):
+    page = tmp_path / "site/index.md"
+    asset = tmp_path / "site/assets/existing.png"
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(b"image")
+    page.write_text(
+        '<img data-src="assets/existing.png">\n'
+        '<img data-src="assets/existing.png" src=assets/missing.png>\n',
+        encoding="utf-8",
+    )
+
+    messages = [finding.message for finding in check_self_containment(tmp_path)]
+
+    assert len(messages) == 2
+    assert any("missing src" in message for message in messages)
+    assert any("assets/missing.png" in message for message in messages)
+
+
+def test_self_containment_ignores_raw_html_images_in_comments_and_indented_code(tmp_path):
+    page = tmp_path / "site/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        '<!-- <img src="examples/comment.png"> -->\n'
+        '    <img src="examples/spaces.png">\n'
+        '\t<img src="examples/tab.png">\n'
+        '<img src="assets/rendered.png">\n',
+        encoding="utf-8",
+    )
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "assets/rendered.png" in findings[0].message
+
+
 def test_repo_self_containment_rejects_site_and_wiki_links(tmp_path):
     (tmp_path / "docs").mkdir()
     (tmp_path / "README.md").write_text(

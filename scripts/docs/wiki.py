@@ -20,9 +20,15 @@ def _rewrite_images_wiki(md: str) -> str:
     return _PNG_RE.sub(lambda m: f"![{m.group(1)}](img/{m.group(2)}.png)", md)
 
 
-def render_wiki(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path]:
+def render_wiki(
+    manifest: Manifest,
+    repo_root: Path,
+    out_dir: Path,
+    *,
+    trusted_output_root: Path,
+) -> list[Path]:
+    validate_generated_output(trusted_output_root, out_dir)
     source_map = build_source_map(manifest, "wiki")
-    validate_generated_output(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     expected: set[Path] = set()
@@ -94,6 +100,15 @@ def render_wiki(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
             png_dest = img_out / png.name
             png_dest.write_bytes(png.read_bytes())
             expected.add(png_dest)
-    copy_project_assets(repo_root, out_dir, expected)
-    cleanup_generated_output(out_dir, expected)
+    copy_project_assets(
+        repo_root,
+        out_dir,
+        expected,
+        trusted_output_root=trusted_output_root,
+    )
+    cleanup_generated_output(
+        out_dir,
+        expected,
+        trusted_output_root=trusted_output_root,
+    )
     return written

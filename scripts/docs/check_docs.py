@@ -14,6 +14,7 @@ from scripts.docs.manifest import Manifest, load_manifest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME|XXX)\b")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+_HTML_H1_RE = re.compile(r'^<h1\s+align=["\']center["\']>(.+?)</h1>$', re.IGNORECASE)
 _NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(?:\.)?(?:\s+|$)")
 _FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 _PROJECT_SUMMARY_RE = re.compile(
@@ -22,18 +23,73 @@ _PROJECT_SUMMARY_RE = re.compile(
 )
 PROJECT_TAGLINE = "Local notebooks. Remote Atlas execution. Explicit infrastructure contracts."
 PROJECT_SUMMARY_OPENING = (
-    "`ml-eng-lab` is a portfolio of self-contained machine-learning notebook experiments built "
+    "ml-eng-lab is a portfolio of self-contained machine-learning notebook experiments built "
     "for local editing in VS Code and recommended remote execution through JupyterHub on Atlas's "
     "ML Engineering track."
 )
-_PROJECT_POSTERS = {
-    "README.md": "![ml-eng-lab runtime paths](docs/diagrams/img/runtime-flow.png)",
-    "docs/index.md": "![ml-eng-lab runtime paths](diagrams/img/runtime-flow.png)",
+_PROJECT_POSTER_MARKUP = {
+    "README.md": (
+        '<p align="center">\n'
+        '  <img src="docs/assets/ml-eng-lab-poster.png" '
+        'alt="ML Eng Lab — notebooks, systems, and reproducibility" width="100%">\n'
+        "</p>"
+    ),
+    "docs/index.md": (
+        '<p align="center">\n'
+        '  <img src="assets/ml-eng-lab-poster.png" '
+        'alt="ML Eng Lab — notebooks, systems, and reproducibility" width="100%">\n'
+        "</p>"
+    ),
 }
-_PROJECT_TITLES = {
-    "README.md": "# ml-eng-lab — personal ML lab",
-    "docs/index.md": "# 1 ml-eng-lab — personal ML lab",
+_PROJECT_CENTERED_TITLES = {
+    "README.md": '<h1 align="center">ML ENG LAB</h1>',
+    "docs/index.md": '<h1 align="center">1 · ML ENG LAB</h1>',
 }
+_PROJECT_ASSET_PREFIXES = {
+    "README.md": "docs/assets/",
+    "docs/index.md": "assets/",
+}
+PROJECT_BADGE_GROUPS = (
+    (
+        "Core ML",
+        (
+            ("Python", "python.svg"),
+            ("Jupyter", "jupyter.svg"),
+            ("NumPy", "numpy.svg"),
+            ("pandas", "pandas.svg"),
+            ("PyTorch", "pytorch.svg"),
+            ("PyTorch Geometric", "pytorch-geometric.svg"),
+            ("scikit-learn", "scikit-learn.svg"),
+        ),
+    ),
+    (
+        "NLP and graphs",
+        (
+            ("spaCy", "spacy.svg"),
+            ("NLTK", "nltk.svg"),
+            ("NetworkX", "networkx.svg"),
+        ),
+    ),
+    (
+        "Runtime",
+        (
+            ("Atlas", "atlas.svg"),
+            ("Docker", "docker.svg"),
+            ("VS Code", "vscode.svg"),
+            ("GitHub Codespaces", "github-codespaces.svg"),
+        ),
+    ),
+    (
+        "Engineering",
+        (
+            ("NNx", "nnx.svg"),
+            ("Papermill", "papermill.svg"),
+            ("pytest", "pytest.svg"),
+            ("Ruff", "ruff.svg"),
+            ("GitHub Actions", "github-actions.svg"),
+        ),
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -116,6 +172,10 @@ def _markdown_headings(text: str) -> list[tuple[int, str]]:
                 fence = None
             continue
         if fence is not None:
+            continue
+        html_match = _HTML_H1_RE.match(line)
+        if html_match:
+            headings.append((1, html_match.group(1)))
             continue
         heading_match = _HEADING_RE.match(line)
         if heading_match:
@@ -217,36 +277,96 @@ def _normalize_prose(text: str) -> str:
     return " ".join(text.split())
 
 
+def _badge_rows(asset_prefix: str) -> str:
+    rows: list[str] = []
+    for label, badges in PROJECT_BADGE_GROUPS:
+        images = " ".join(
+            f'<img alt="{alt}" src="{asset_prefix}badges/{filename}">'
+            for alt, filename in badges
+        )
+        rows.append(
+            '<p align="center">\n'
+            f"  <sub><strong>{label}</strong></sub><br>\n"
+            f"  {images}\n"
+            "</p>"
+        )
+    return "\n\n".join(rows)
+
+
+def _normalize_opener_structure(opener: str) -> str:
+    return opener.replace("docs/assets/", "assets/").replace(
+        '<h1 align="center">1 · ML ENG LAB</h1>',
+        '<h1 align="center">ML ENG LAB</h1>',
+    )
+
+
 def check_project_opening(repo_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     summaries: dict[str, str] = {}
-    expected_tagline = f"*{PROJECT_TAGLINE}*"
+    opener_structures: dict[str, str] = {}
+    expected_tagline = (
+        f'<p align="center"><strong>{PROJECT_TAGLINE}</strong></p>'
+    )
 
-    for relative_path, poster in _PROJECT_POSTERS.items():
+    for relative_path, poster in _PROJECT_POSTER_MARKUP.items():
         path = repo_root / relative_path
         if not path.exists():
             findings.append(Finding("error", f"project opener source missing: {relative_path}"))
             continue
         text = path.read_text(encoding="utf-8")
+        centered_title = _PROJECT_CENTERED_TITLES[relative_path]
+        asset_prefix = _PROJECT_ASSET_PREFIXES[relative_path]
         expected_prefix = (
-            f"{_PROJECT_TITLES[relative_path]}\n\n"
             f"{poster}\n\n"
+            f"{centered_title}\n\n"
             f"{expected_tagline}\n\n"
+            f"{_badge_rows(asset_prefix)}\n\n"
             "<!-- project-summary:start -->\n"
         )
         if not text.startswith(expected_prefix):
             findings.append(
                 Finding(
                     "error",
-                    f"project opener order must be title, poster, tagline, summary in {relative_path}",
+                    f"project opener order or structure is invalid in {relative_path}",
                 )
             )
-        if not text.startswith(f"{_PROJECT_TITLES[relative_path]}\n"):
-            findings.append(Finding("error", f"canonical project title missing from {relative_path}"))
+        opener_end = text.find("<!-- project-summary:end -->")
+        opener = text if opener_end == -1 else text[:opener_end]
+        if "runtime-flow" in opener:
+            findings.append(
+                Finding(
+                    "error",
+                    f"runtime-flow diagram cannot be the project poster in {relative_path}",
+                )
+            )
+        if centered_title not in opener:
+            findings.append(
+                Finding("error", f"centered HTML title missing from {relative_path}")
+            )
         if poster not in text:
             findings.append(Finding("error", f"project opener poster missing from {relative_path}"))
         if expected_tagline not in text:
             findings.append(Finding("error", f"canonical project tagline missing from {relative_path}"))
+
+        for _, badges in PROJECT_BADGE_GROUPS:
+            for alt, filename in badges:
+                source = f"{asset_prefix}badges/{filename}"
+                badge = f'<img alt="{alt}" src="{source}">'
+                if badge not in opener:
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"project badge {alt!r} missing from {relative_path}",
+                        )
+                    )
+                resolved_source = Path(relative_path).parent / source
+                if not (repo_root / resolved_source).is_file():
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"project badge asset missing: {resolved_source}",
+                        )
+                    )
 
         matches = _PROJECT_SUMMARY_RE.findall(text)
         if len(matches) != 1:
@@ -254,8 +374,20 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
                 Finding("error", f"project summary markers must occur exactly once in {relative_path}")
             )
             continue
+        if len(re.split(r"\n\s*\n", matches[0].strip())) != 2:
+            findings.append(
+                Finding(
+                    "error",
+                    f"project summary in {relative_path} must contain exactly two paragraphs",
+                )
+            )
         summary = _normalize_prose(matches[0])
         summaries[relative_path] = summary
+        summary_match = _PROJECT_SUMMARY_RE.search(text)
+        assert summary_match is not None
+        opener_structures[relative_path] = _normalize_opener_structure(
+            text[:summary_match.end()]
+        )
         if not summary.startswith(PROJECT_SUMMARY_OPENING):
             findings.append(
                 Finding("error", f"canonical project summary opening missing from {relative_path}")
@@ -269,8 +401,18 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
                 )
             )
 
-    if len(summaries) == len(_PROJECT_POSTERS) and len(set(summaries.values())) != 1:
+    if len(summaries) == len(_PROJECT_POSTER_MARKUP) and len(set(summaries.values())) != 1:
         findings.append(Finding("error", "project summary differs between README.md and docs/index.md"))
+    if (
+        len(opener_structures) == len(_PROJECT_POSTER_MARKUP)
+        and len(set(opener_structures.values())) != 1
+    ):
+        findings.append(
+            Finding(
+                "error",
+                "project opener order or structure differs between README.md and docs/index.md",
+            )
+        )
     return findings
 
 

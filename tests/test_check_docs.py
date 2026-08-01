@@ -37,6 +37,62 @@ notebooks:
 diagrams: []
 """
 
+BADGE_GROUPS = (
+    (
+        "Core ML",
+        (
+            ("Python", "python.svg"),
+            ("Jupyter", "jupyter.svg"),
+            ("NumPy", "numpy.svg"),
+            ("pandas", "pandas.svg"),
+            ("PyTorch", "pytorch.svg"),
+            ("PyTorch Geometric", "pytorch-geometric.svg"),
+            ("scikit-learn", "scikit-learn.svg"),
+        ),
+    ),
+    (
+        "NLP and graphs",
+        (
+            ("spaCy", "spacy.svg"),
+            ("NLTK", "nltk.svg"),
+            ("NetworkX", "networkx.svg"),
+        ),
+    ),
+    (
+        "Runtime",
+        (
+            ("Atlas", "atlas.svg"),
+            ("Docker", "docker.svg"),
+            ("VS Code", "vscode.svg"),
+            ("GitHub Codespaces", "github-codespaces.svg"),
+        ),
+    ),
+    (
+        "Engineering",
+        (
+            ("NNx", "nnx.svg"),
+            ("Papermill", "papermill.svg"),
+            ("pytest", "pytest.svg"),
+            ("Ruff", "ruff.svg"),
+            ("GitHub Actions", "github-actions.svg"),
+        ),
+    ),
+)
+
+PROJECT_SUMMARY = (
+    "ml-eng-lab is a portfolio of self-contained machine-learning notebook experiments built for "
+    "local editing in VS Code and recommended remote execution through JupyterHub on Atlas's ML "
+    "Engineering track. Unlike a loose notebook collection, each task declares its runtime needs in a "
+    "checked infrastructure contract, keeping notebook dependencies explicit as the lab expands beyond "
+    "JupyterHub. Narrative experiments, reproducible execution tiers, exact dependency pins, validation "
+    "gates, and the reusable thekaveh-nnx toolkit evolve together.\n\n"
+    "Contributors can use Browser JupyterLab for mounted-workspace tasks or choose a local virtual "
+    "environment, Docker, or GitHub Codespaces when Atlas is not the right fit. Host-native Ollama is "
+    "the only approved Ollama source whenever a future task needs it; containerized Ollama is "
+    "intentionally excluded. This makes the lab both a practical portfolio and a controlled environment "
+    "for growing machine-learning systems without hiding operational assumptions inside notebooks."
+)
+
 
 def test_self_contamination_flags_cross_surface_link(tmp_path):
     site = tmp_path / "site/page.md"
@@ -146,37 +202,71 @@ def _write_project_opening(
     *,
     readme_tagline: str = "Local notebooks. Remote Atlas execution. Explicit infrastructure contracts.",
     landing_tagline: str = "Local notebooks. Remote Atlas execution. Explicit infrastructure contracts.",
-    readme_summary: str,
-    landing_summary: str,
+    readme_summary: str = PROJECT_SUMMARY,
+    landing_summary: str = PROJECT_SUMMARY,
 ) -> None:
-    (repo_root / "docs").mkdir()
+    badge_assets = repo_root / "docs/assets/badges"
+    badge_assets.mkdir(parents=True)
+    for _, badges in BADGE_GROUPS:
+        for _, filename in badges:
+            (badge_assets / filename).write_text("badge", encoding="utf-8")
+
+    def badge_html(prefix: str) -> str:
+        rows = []
+        for label, badges in BADGE_GROUPS:
+            images = " ".join(
+                f'<img alt="{alt}" src="{prefix}badges/{filename}">'
+                for alt, filename in badges
+            )
+            rows.append(
+                '<p align="center">\n'
+                f"  <sub><strong>{label}</strong></sub><br>\n"
+                f"  {images}\n"
+                "</p>"
+            )
+        return "\n\n".join(rows)
+
+    def opener(
+        *, asset_prefix: str, title: str, tagline: str, summary: str
+    ) -> str:
+        return (
+            '<p align="center">\n'
+            f'  <img src="{asset_prefix}ml-eng-lab-poster.png" '
+            'alt="ML Eng Lab — notebooks, systems, and reproducibility" width="100%">\n'
+            "</p>\n\n"
+            f'<h1 align="center">{title}</h1>\n\n'
+            f'<p align="center"><strong>{tagline}</strong></p>\n\n'
+            f"{badge_html(asset_prefix)}\n\n"
+            "<!-- project-summary:start -->\n"
+            f"{summary}\n"
+            "<!-- project-summary:end -->\n"
+        )
+
     (repo_root / "README.md").write_text(
-        "# ml-eng-lab — personal ML lab\n\n"
-        "![ml-eng-lab runtime paths](docs/diagrams/img/runtime-flow.png)\n\n"
-        f"*{readme_tagline}*\n\n"
-        "<!-- project-summary:start -->\n"
-        f"{readme_summary}\n"
-        "<!-- project-summary:end -->\n",
+        opener(
+            asset_prefix="docs/assets/",
+            title="ML ENG LAB",
+            tagline=readme_tagline,
+            summary=readme_summary,
+        ),
         encoding="utf-8",
     )
     (repo_root / "docs/index.md").write_text(
-        "# 1 ml-eng-lab — personal ML lab\n\n"
-        "![ml-eng-lab runtime paths](diagrams/img/runtime-flow.png)\n\n"
-        f"*{landing_tagline}*\n\n"
-        "<!-- project-summary:start -->\n"
-        f"{landing_summary}\n"
-        "<!-- project-summary:end -->\n",
+        opener(
+            asset_prefix="assets/",
+            title="1 · ML ENG LAB",
+            tagline=landing_tagline,
+            summary=landing_summary,
+        ),
         encoding="utf-8",
     )
 
 
 def test_project_opening_rejects_tagline_and_summary_drift(tmp_path):
-    summary = " ".join(["grounded"] * 100)
     _write_project_opening(
         tmp_path,
         landing_tagline="A different tagline.",
-        readme_summary=summary,
-        landing_summary=f"{summary} changed",
+        landing_summary=f"{PROJECT_SUMMARY} changed",
     )
 
     messages = [finding.message for finding in check_project_opening(tmp_path)]
@@ -186,7 +276,7 @@ def test_project_opening_rejects_tagline_and_summary_drift(tmp_path):
 
 
 def test_project_opening_rejects_missing_poster_and_summary_outside_word_range(tmp_path):
-    short_summary = " ".join(["short"] * 20)
+    short_summary = f"ml-eng-lab {' '.join(['short'] * 20)}"
     _write_project_opening(
         tmp_path,
         readme_summary=short_summary,
@@ -195,7 +285,9 @@ def test_project_opening_rejects_missing_poster_and_summary_outside_word_range(t
     readme = tmp_path / "README.md"
     readme.write_text(
         readme.read_text(encoding="utf-8").replace(
-            "![ml-eng-lab runtime paths](docs/diagrams/img/runtime-flow.png)\n\n", ""
+            '  <img src="docs/assets/ml-eng-lab-poster.png" '
+            'alt="ML Eng Lab — notebooks, systems, and reproducibility" width="100%">\n',
+            "",
         ),
         encoding="utf-8",
     )
@@ -207,16 +299,12 @@ def test_project_opening_rejects_missing_poster_and_summary_outside_word_range(t
 
 
 def test_project_opening_rejects_missing_project_title(tmp_path):
-    summary = " ".join(["grounded"] * 100)
-    _write_project_opening(
-        tmp_path,
-        readme_summary=summary,
-        landing_summary=summary,
-    )
+    _write_project_opening(tmp_path)
     landing = tmp_path / "docs/index.md"
     landing.write_text(
         landing.read_text(encoding="utf-8").replace(
-            "# 1 ml-eng-lab — personal ML lab", "# 1 Overview"
+            '<h1 align="center">1 · ML ENG LAB</h1>',
+            '<h1 align="center">1 · Overview</h1>',
         ),
         encoding="utf-8",
     )
@@ -225,22 +313,90 @@ def test_project_opening_rejects_missing_project_title(tmp_path):
 
 
 def test_project_opening_rejects_content_inserted_before_poster(tmp_path):
-    summary = " ".join(["grounded"] * 100)
-    _write_project_opening(
-        tmp_path,
-        readme_summary=summary,
-        landing_summary=summary,
-    )
+    _write_project_opening(tmp_path)
     readme = tmp_path / "README.md"
     readme.write_text(
         readme.read_text(encoding="utf-8").replace(
-            "# ml-eng-lab — personal ML lab\n\n![ml-eng-lab runtime paths]",
-            "# ml-eng-lab — personal ML lab\n\nUnexpected prose.\n\n![ml-eng-lab runtime paths]",
+            '<p align="center">\n  <img src="docs/assets/ml-eng-lab-poster.png"',
+            'Unexpected prose.\n\n<p align="center">\n  <img src="docs/assets/ml-eng-lab-poster.png"',
         ),
         encoding="utf-8",
     )
 
     assert any("order" in finding.message for finding in check_project_opening(tmp_path))
+
+
+def test_project_opening_rejects_runtime_diagram_as_poster(tmp_path):
+    _write_project_opening(tmp_path)
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8").replace(
+            "docs/assets/ml-eng-lab-poster.png",
+            "docs/diagrams/img/runtime-flow.png",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    assert any(
+        "runtime-flow" in finding.message
+        for finding in check_project_opening(tmp_path)
+    )
+
+
+def test_project_opening_rejects_left_aligned_markdown_title(tmp_path):
+    _write_project_opening(tmp_path)
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8").replace(
+            '<h1 align="center">ML ENG LAB</h1>', "# ML ENG LAB", 1
+        ),
+        encoding="utf-8",
+    )
+
+    assert any(
+        "centered HTML title" in finding.message
+        for finding in check_project_opening(tmp_path)
+    )
+
+
+def test_project_opening_rejects_missing_badge_and_plain_text_stack(tmp_path):
+    _write_project_opening(tmp_path)
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8").replace(
+            '<img alt="Python" src="docs/assets/badges/python.svg">',
+            "Python",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    assert any("badge" in finding.message for finding in check_project_opening(tmp_path))
+
+
+def test_project_opening_rejects_missing_local_asset(tmp_path):
+    _write_project_opening(tmp_path)
+    (tmp_path / "docs/assets/badges/python.svg").unlink()
+
+    assert any(
+        "asset missing" in finding.message
+        for finding in check_project_opening(tmp_path)
+    )
+
+
+def test_project_opening_rejects_single_paragraph_summary(tmp_path):
+    _write_project_opening(tmp_path)
+    landing = tmp_path / "docs/index.md"
+    landing.write_text(
+        landing.read_text(encoding="utf-8").replace("together.\n\nContributors", "together. Contributors", 1),
+        encoding="utf-8",
+    )
+
+    assert any(
+        "two paragraphs" in finding.message
+        for finding in check_project_opening(tmp_path)
+    )
 
 
 def test_real_project_opening_is_canonical():
@@ -281,6 +437,16 @@ def test_numbering_accepts_hierarchical_headings_and_ignores_fences(tmp_path):
     (tmp_path / "docs/index.md").write_text(
         "# 1 Overview\n\n## 1.1 First\n\n### 1.1.1 Child\n\n"
         "```bash\n# shell comment\n## not a heading\n```\n",
+        encoding="utf-8",
+    )
+
+    assert check_numbering(manifest, tmp_path) == []
+
+
+def test_numbering_accepts_centered_html_h1(tmp_path):
+    manifest = _write_valid_notebook_infrastructure_fixture(tmp_path)
+    (tmp_path / "docs/index.md").write_text(
+        '<h1 align="center">1 · ML ENG LAB</h1>\n\n## 1.1 Repository map\n',
         encoding="utf-8",
     )
 

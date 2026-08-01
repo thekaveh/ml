@@ -36,7 +36,7 @@
 - Consumes: canonical files recursively beneath `docs/assets/`.
 - Guarantees: byte-identical output beneath `<surface>/assets/`, with every copied file added to the caller's stale-file `expected` set.
 
-- [ ] **Step 1: Seed representative poster and badge fixtures**
+- [x] **Step 1: Seed representative poster and badge fixtures**
 
 Add binary-safe fixture writes to both `_seed` helpers:
 
@@ -49,7 +49,7 @@ badge.parent.mkdir(parents=True, exist_ok=True)
 badge.write_text("<svg xmlns='http://www.w3.org/2000/svg'/>", encoding="utf-8")
 ```
 
-- [ ] **Step 2: Write failing site/wiki projection assertions**
+- [x] **Step 2: Write failing site/wiki projection assertions**
 
 ```python
 assert (out / "assets/ml-eng-lab-poster.png").read_bytes() == b"poster"
@@ -58,7 +58,7 @@ assert (out / "assets/badges/python.svg").exists()
 
 Add both assertions to the primary site and wiki render tests.
 
-- [ ] **Step 3: Run the focused tests and confirm RED**
+- [x] **Step 3: Run the focused tests and confirm RED**
 
 Run:
 
@@ -68,7 +68,7 @@ pytest tests/test_build_docs.py::test_render_site_writes_pages_and_assets tests/
 
 Expected: both tests fail because generated project assets do not exist.
 
-- [ ] **Step 4: Implement the shared recursive copier**
+- [x] **Step 4: Implement the shared recursive copier**
 
 Create `scripts/docs/project_assets.py`:
 
@@ -101,11 +101,11 @@ from scripts.docs.project_assets import copy_project_assets
 copy_project_assets(repo_root, out_dir, expected)
 ```
 
-- [ ] **Step 5: Run the focused tests and confirm GREEN**
+- [x] **Step 5: Run the focused tests and confirm GREEN**
 
 Run the Task 1 command again. Expected: `2 passed`.
 
-- [ ] **Step 6: Commit the projection boundary**
+- [x] **Step 6: Commit the projection boundary**
 
 ```bash
 git add scripts/docs/project_assets.py scripts/docs/build_docs.py scripts/docs/wiki.py tests/test_build_docs.py tests/test_wiki.py
@@ -124,7 +124,7 @@ git commit -m "feat(docs): project opener assets to every surface"
 - Produces: the canonical project poster and badge files consumed by Task 1 and referenced by Task 3.
 - Consumes: the exact badge inventory in design section 12.5.6.
 
-- [ ] **Step 1: Generate the project poster with the built-in image tool**
+- [x] **Step 1: Generate the project poster with the built-in image tool**
 
 Use this production prompt:
 
@@ -142,11 +142,11 @@ Constraints: exact spelling; no other text; no people; no vendor logos; no archi
 Avoid: busy dashboard composition, tiny labels, photorealistic server rooms, stock-photo aesthetics, Atlas mythology, illegible decorative glyphs.
 ```
 
-- [ ] **Step 2: Inspect and iterate once if necessary**
+- [x] **Step 2: Inspect and iterate once if necessary**
 
 Validate exact text, wordmark dominance, absence of extra glyphs, and readability at approximately 1000px display width. If one condition fails, issue one targeted image edit correcting only that condition. Save the accepted result as `docs/assets/ml-eng-lab-poster.png`.
 
-- [ ] **Step 3: Fetch and commit local shield SVGs**
+- [x] **Step 3: Fetch and commit local shield SVGs**
 
 Create `docs/assets/badges/` and download these exact shield endpoints once; the documentation never references the remote URLs:
 
@@ -174,7 +174,7 @@ github-actions.svg         GitHub_Actions-CI-2088FF?logo=githubactions&logoColor
 
 Use `https://img.shields.io/badge/<endpoint>` as the one-time source, verify every response starts with `<svg`, and retain the files locally.
 
-- [ ] **Step 4: Verify assets**
+- [x] **Step 4: Verify assets**
 
 Run:
 
@@ -185,7 +185,7 @@ test "$(find docs/assets/badges -name '*.svg' | wc -l | tr -d ' ')" = 19
 
 Expected: one PNG, nineteen SVG documents, exit 0.
 
-- [ ] **Step 5: Commit the visual assets**
+- [x] **Step 5: Commit the visual assets**
 
 ```bash
 git add docs/assets/ml-eng-lab-poster.png docs/assets/badges
@@ -205,7 +205,7 @@ git commit -m "feat(docs): add branded opener artwork and stack badges"
 - Produces: equivalent opener blocks whose only intentional differences are the landing H1 number and asset prefix.
 - Consumes: `docs/assets/ml-eng-lab-poster.png` and the nineteen Task 2 badges.
 
-- [ ] **Step 1: Replace the README opener markup**
+- [x] **Step 1: Replace the README opener markup**
 
 Use centered HTML wrappers in this order:
 
@@ -221,7 +221,7 @@ Use centered HTML wrappers in this order:
 
 Follow it with four `<p align="center">` badge rows. Each begins with a `<sub><strong>…</strong></sub><br>` category label and contains the category's local `<img>` shields in the design-specified order.
 
-- [ ] **Step 2: Replace the landing-source opener markup**
+- [x] **Step 2: Replace the landing-source opener markup**
 
 Use identical markup with:
 
@@ -232,11 +232,11 @@ Use identical markup with:
 
 and `assets/badges/...` sources. Preserve all content beginning at `## 1.1 Repository map`.
 
-- [ ] **Step 3: Split the synchronized summary into two paragraphs**
+- [x] **Step 3: Split the synchronized summary into two paragraphs**
 
 Keep the existing 136-word content and insert one blank line after `the reusable thekaveh-nnx toolkit evolve together.` Remove backticks around `ml-eng-lab` and `thekaveh-nnx` so the opener reads as prose rather than code UI. Keep the summary markers around both paragraphs.
 
-- [ ] **Step 4: Add narrowly scoped landing spacing**
+- [x] **Step 4: Add narrowly scoped landing spacing**
 
 Append to `docs/stylesheets/extra.css`:
 
@@ -253,7 +253,7 @@ Append to `docs/stylesheets/extra.css`:
 }
 ```
 
-- [ ] **Step 5: Render both canonical openers for inspection**
+- [x] **Step 5: Render both canonical openers for inspection**
 
 Run:
 
@@ -264,7 +264,7 @@ mkdocs build --strict
 
 Expected: strict build succeeds and generated `index.md`/`Home.md` contain only surface-local asset paths.
 
-- [ ] **Step 6: Commit the opener markup**
+- [x] **Step 6: Commit the opener markup**
 
 ```bash
 git add README.md docs/index.md docs/stylesheets/extra.css
@@ -284,11 +284,11 @@ git commit -m "docs: install centered badge-rich project opener"
 - Produces: `_markdown_headings(text: str) -> list[tuple[int, str]]` supporting centered HTML H1 as well as Markdown headings.
 - Consumes: the canonical poster and badge constants corresponding to Task 3 markup.
 
-- [ ] **Step 1: Rewrite the opener fixture around a shared builder**
+- [x] **Step 1: Rewrite the opener fixture around a shared builder**
 
 Define test constants for `BADGE_GROUPS`, construct complete README/landing badge HTML from a supplied prefix, and make `_write_project_opening` emit centered poster, HTML H1, bold centered tagline, four badge rows, and two summary paragraphs.
 
-- [ ] **Step 2: Add failing defect tests**
+- [x] **Step 2: Add failing defect tests**
 
 Add tests asserting findings for:
 
@@ -303,7 +303,7 @@ def test_numbering_accepts_centered_html_h1(tmp_path): ...
 
 Each test mutates exactly one valid fixture and asserts the specific message fragment: `runtime-flow`, `centered HTML title`, `badge`, `asset missing`, `two paragraphs`, or an empty numbering finding list.
 
-- [ ] **Step 3: Run the focused tests and confirm RED**
+- [x] **Step 3: Run the focused tests and confirm RED**
 
 Run:
 
@@ -313,7 +313,7 @@ pytest tests/test_check_docs.py -q -k 'project_opening or centered_html_h1'
 
 Expected: new tests fail against the old string-only checker.
 
-- [ ] **Step 4: Implement HTML-H1-aware numbering**
+- [x] **Step 4: Implement HTML-H1-aware numbering**
 
 Add:
 
@@ -323,7 +323,7 @@ _HTML_H1_RE = re.compile(r'^<h1\s+align=["\']center["\']>(.+?)</h1>$', re.IGNORE
 
 In `_markdown_headings`, when outside a fence, append `(1, html_match.group(1))` for that form. Keep Markdown H1–H6 behavior unchanged. The landing title constant becomes `1 · ML ENG LAB`, whose numeric prefix remains `1`.
 
-- [ ] **Step 5: Implement structural opener validation**
+- [x] **Step 5: Implement structural opener validation**
 
 Replace `_PROJECT_POSTERS` and `_PROJECT_TITLES` with exact per-surface poster/title paths plus an ordered `PROJECT_BADGE_GROUPS` tuple. Validate:
 
@@ -338,7 +338,7 @@ if len(re.split(r"\n\s*\n", matches[0].strip())) != 2:
 
 For every expected badge, require the exact `<img alt="…" src="…">` fragment and verify `(repo_root / resolved_source).is_file()`. Normalize `docs/assets/` and `assets/` to one logical prefix before comparing opener structure across the two sources.
 
-- [ ] **Step 6: Run focused and full docs tests**
+- [x] **Step 6: Run focused and full docs tests**
 
 Run:
 
@@ -347,9 +347,9 @@ pytest tests/test_check_docs.py -q -k 'project_opening or centered_html_h1'
 pytest tests/test_manifest.py tests/test_notebook_infrastructure.py tests/test_links.py tests/test_transforms.py tests/test_render_diagrams.py tests/test_build_docs.py tests/test_wiki.py tests/test_check_docs.py tests/test_push_wiki.py -q
 ```
 
-Expected: focused tests and the complete docs-script suite pass.
+Expected: focused tests pass 11/11 and the complete docs-script suite passes 89/89.
 
-- [ ] **Step 7: Commit the stronger gate**
+- [x] **Step 7: Commit the stronger gate**
 
 ```bash
 git add scripts/docs/check_docs.py tests/test_check_docs.py
@@ -369,19 +369,19 @@ git commit -m "test(docs): enforce deliberate opener structure"
 - Produces: current user-facing release notes, accurate diagram provenance, and a checked implementation record.
 - Consumes: final asset paths, checker behavior, and verification results from Tasks 1–4.
 
-- [ ] **Step 1: Add the Unreleased changelog entry**
+- [x] **Step 1: Add the Unreleased changelog entry**
 
 Under `### Changed`, document the dedicated local poster, centered shared header, nineteen categorized badges, two-paragraph summary, generated asset projection, and strengthened CI gate. State explicitly that `runtime-flow` remains an architecture diagram only.
 
-- [ ] **Step 2: Clarify runtime-flow provenance**
+- [x] **Step 2: Clarify runtime-flow provenance**
 
 Update `docs/diagrams/README.md` so the runtime-flow entry says it is embedded only in `docs/architecture.md` and is not a project-branding asset.
 
-- [ ] **Step 3: Mark completed plan steps**
+- [x] **Step 3: Mark completed plan steps**
 
 Change each executed `- [ ]` to `- [x]`. Replace expected-output descriptions only where actual results differ, without weakening any acceptance criterion.
 
-- [ ] **Step 4: Run documentation integrity checks**
+- [x] **Step 4: Run documentation integrity checks**
 
 Run:
 
@@ -392,7 +392,7 @@ git diff --check
 
 Expected: no placeholder hits outside literal test/spec examples and no whitespace errors.
 
-- [ ] **Step 5: Commit the records**
+- [x] **Step 5: Commit the records**
 
 ```bash
 git add CHANGELOG.md docs/diagrams/README.md docs/superpowers/plans/2026-08-01-opener-visual-remediation-implementation-plan.md

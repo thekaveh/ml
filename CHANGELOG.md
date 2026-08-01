@@ -6,6 +6,12 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Project opener visual remediation:** replaced the runtime-diagram opener with a dedicated
+  local `docs/assets/ml-eng-lab-poster.png`, a centered shared title and tagline, nineteen local
+  shields arranged in four stack categories, and a synchronized two-paragraph executive summary.
+  The docs pipeline now recursively projects these assets into the site and wiki, while the
+  documentation gate verifies opener structure, local assets, badges, summary shape, and centered
+  numbering. `runtime-flow` remains an architecture diagram only, not a project-branding asset.
 - **Atlas infrastructure migration:** replaced the legacy `vendor/genai-vanilla` submodule (the
   former Atlas project name) and wrapper with the pinned `infra/` Atlas submodule at
   `61c7c5103660e2226bf107c115dae42bf46f8374`. The default notebook path is now local VS Code

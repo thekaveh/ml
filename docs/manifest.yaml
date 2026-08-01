@@ -115,6 +115,14 @@ sections:
         number: "12.4"
         title: Three-surface documentation remediation implementation record
         source: docs/superpowers/plans/2026-07-31-three-surface-docs-remediation-implementation-plan.md
+      - id: opener-visual-remediation-design
+        number: "12.5"
+        title: Project opener visual remediation design
+        source: docs/superpowers/specs/2026-08-01-opener-visual-remediation-design.md
+      - id: opener-visual-remediation-implementation
+        number: "12.6"
+        title: Project opener visual remediation implementation plan
+        source: docs/superpowers/plans/2026-08-01-opener-visual-remediation-implementation-plan.md
 notebooks:
   - task: tabular_classification-iris-mlp-pytorch
     number: "8.1"

@@ -1,16 +1,40 @@
-# 1 ml-eng-lab — personal ML lab
+<p align="center">
+  <img src="assets/ml-eng-lab-poster.png" alt="ML Eng Lab — notebooks, systems, and reproducibility" width="100%">
+</p>
 
-![ml-eng-lab runtime paths](diagrams/img/runtime-flow.png)
+<h1 align="center">1 · ML ENG LAB</h1>
 
-*Local notebooks. Remote Atlas execution. Explicit infrastructure contracts.*
+<p align="center"><strong>Local notebooks. Remote Atlas execution. Explicit infrastructure contracts.</strong></p>
+
+<p align="center">
+  <sub><strong>Core ML</strong></sub><br>
+  <img alt="Python" src="assets/badges/python.svg"> <img alt="Jupyter" src="assets/badges/jupyter.svg"> <img alt="NumPy" src="assets/badges/numpy.svg"> <img alt="pandas" src="assets/badges/pandas.svg"> <img alt="PyTorch" src="assets/badges/pytorch.svg"> <img alt="PyTorch Geometric" src="assets/badges/pytorch-geometric.svg"> <img alt="scikit-learn" src="assets/badges/scikit-learn.svg">
+</p>
+
+<p align="center">
+  <sub><strong>NLP and graphs</strong></sub><br>
+  <img alt="spaCy" src="assets/badges/spacy.svg"> <img alt="NLTK" src="assets/badges/nltk.svg"> <img alt="NetworkX" src="assets/badges/networkx.svg">
+</p>
+
+<p align="center">
+  <sub><strong>Runtime</strong></sub><br>
+  <img alt="Atlas" src="assets/badges/atlas.svg"> <img alt="Docker" src="assets/badges/docker.svg"> <img alt="VS Code" src="assets/badges/vscode.svg"> <img alt="GitHub Codespaces" src="assets/badges/github-codespaces.svg">
+</p>
+
+<p align="center">
+  <sub><strong>Engineering</strong></sub><br>
+  <img alt="NNx" src="assets/badges/nnx.svg"> <img alt="Papermill" src="assets/badges/papermill.svg"> <img alt="pytest" src="assets/badges/pytest.svg"> <img alt="Ruff" src="assets/badges/ruff.svg"> <img alt="GitHub Actions" src="assets/badges/github-actions.svg">
+</p>
 
 <!-- project-summary:start -->
-`ml-eng-lab` is a portfolio of self-contained machine-learning notebook experiments built for
+ml-eng-lab is a portfolio of self-contained machine-learning notebook experiments built for
 local editing in VS Code and recommended remote execution through JupyterHub on Atlas's ML
 Engineering track. Unlike a loose notebook collection, each task declares its runtime needs in a
 checked infrastructure contract, keeping notebook dependencies explicit as the lab expands beyond
 JupyterHub. Narrative experiments, reproducible execution tiers, exact dependency pins, validation
-gates, and the reusable `thekaveh-nnx` toolkit evolve together. Contributors can use Browser
+gates, and the reusable thekaveh-nnx toolkit evolve together.
+
+Contributors can use Browser
 JupyterLab for mounted-workspace tasks or choose a local virtual environment, Docker, or GitHub
 Codespaces when Atlas is not the right fit. Host-native Ollama is the only approved Ollama source
 whenever a future task needs it; containerized Ollama is intentionally excluded. This makes the

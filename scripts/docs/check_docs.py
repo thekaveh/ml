@@ -6,7 +6,9 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from scripts.docs.links import SITE_URL, WIKI_URL, find_links, is_forbidden
 from scripts.docs.manifest import Manifest, load_manifest
@@ -14,26 +16,184 @@ from scripts.docs.manifest import Manifest, load_manifest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME|XXX)\b")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+_HTML_H1_RE = re.compile(r'^<h1\s+align=["\']center["\']>(.+?)</h1>$', re.IGNORECASE)
 _NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(?:\.)?(?:\s+|$)")
-_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_INLINE_CODE_RE = re.compile(r"(`+).*?\1")
+_HTML_TAG_RE = re.compile(r"<(?P<closing>/)?(?P<tag>[A-Za-z][\w:-]*)\b[^>]*>")
+# Stable union of CommonMark's block tag set and Python-Markdown's block elements.
+_HTML_BLOCK_ELEMENTS = frozenset(
+    {
+        "address",
+        "article",
+        "aside",
+        "base",
+        "basefont",
+        "blockquote",
+        "body",
+        "canvas",
+        "caption",
+        "center",
+        "col",
+        "colgroup",
+        "dd",
+        "details",
+        "dialog",
+        "dir",
+        "div",
+        "dl",
+        "dt",
+        "fieldset",
+        "figcaption",
+        "figure",
+        "footer",
+        "form",
+        "frame",
+        "frameset",
+        "group",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "head",
+        "header",
+        "hgroup",
+        "hr",
+        "html",
+        "iframe",
+        "legend",
+        "li",
+        "link",
+        "main",
+        "map",
+        "math",
+        "menu",
+        "menuitem",
+        "nav",
+        "noframes",
+        "noscript",
+        "object",
+        "ol",
+        "optgroup",
+        "option",
+        "output",
+        "p",
+        "param",
+        "pre",
+        "progress",
+        "script",
+        "search",
+        "section",
+        "style",
+        "summary",
+        "table",
+        "tbody",
+        "td",
+        "textarea",
+        "tfoot",
+        "th",
+        "thead",
+        "title",
+        "tr",
+        "track",
+        "ul",
+        "video",
+    }
+)
+_HTML_VOID_ELEMENTS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
+_NUMBERED_H2_RE = re.compile(r"^##\s+\d+(?:\.\d)*(?:\.)?(?:\s+|$)", re.MULTILINE)
 _PROJECT_SUMMARY_RE = re.compile(
     r"<!-- project-summary:start -->\s*(.*?)\s*<!-- project-summary:end -->",
     re.DOTALL,
 )
 PROJECT_TAGLINE = "Local notebooks. Remote Atlas execution. Explicit infrastructure contracts."
 PROJECT_SUMMARY_OPENING = (
-    "`ml-eng-lab` is a portfolio of self-contained machine-learning notebook experiments built "
+    "ml-eng-lab is a portfolio of self-contained machine-learning notebook experiments built "
     "for local editing in VS Code and recommended remote execution through JupyterHub on Atlas's "
     "ML Engineering track."
 )
-_PROJECT_POSTERS = {
-    "README.md": "![ml-eng-lab runtime paths](docs/diagrams/img/runtime-flow.png)",
-    "docs/index.md": "![ml-eng-lab runtime paths](diagrams/img/runtime-flow.png)",
+_PROJECT_POSTER_MARKUP = {
+    "README.md": (
+        '<p align="center">\n'
+        '  <img src="docs/assets/ml-eng-lab-poster.png" '
+        'alt="ML Eng Lab — notebooks, systems, and reproducibility" width="100%">\n'
+        "</p>"
+    ),
+    "docs/index.md": (
+        '<p align="center">\n'
+        '  <img src="assets/ml-eng-lab-poster.png" '
+        'alt="ML Eng Lab — notebooks, systems, and reproducibility" width="100%">\n'
+        "</p>"
+    ),
 }
-_PROJECT_TITLES = {
-    "README.md": "# ml-eng-lab — personal ML lab",
-    "docs/index.md": "# 1 ml-eng-lab — personal ML lab",
+_PROJECT_CENTERED_TITLES = {
+    "README.md": '<h1 align="center">ML ENG LAB</h1>',
+    "docs/index.md": '<h1 align="center">1 · ML ENG LAB</h1>',
 }
+_PROJECT_ASSET_PREFIXES = {
+    "README.md": "docs/assets/",
+    "docs/index.md": "assets/",
+}
+PROJECT_BADGE_GROUPS = (
+    (
+        "Core ML",
+        (
+            ("Python", "python.svg"),
+            ("Jupyter", "jupyter.svg"),
+            ("NumPy", "numpy.svg"),
+            ("pandas", "pandas.svg"),
+            ("PyTorch", "pytorch.svg"),
+            ("PyTorch Geometric", "pytorch-geometric.svg"),
+            ("scikit-learn", "scikit-learn.svg"),
+        ),
+    ),
+    (
+        "NLP and graphs",
+        (
+            ("spaCy", "spacy.svg"),
+            ("NLTK", "nltk.svg"),
+            ("NetworkX", "networkx.svg"),
+        ),
+    ),
+    (
+        "Runtime",
+        (
+            ("Atlas", "atlas.svg"),
+            ("Docker", "docker.svg"),
+            ("VS Code", "vscode.svg"),
+            ("GitHub Codespaces", "github-codespaces.svg"),
+        ),
+    ),
+    (
+        "Engineering",
+        (
+            ("NNx", "nnx.svg"),
+            ("Papermill", "papermill.svg"),
+            ("pytest", "pytest.svg"),
+            ("Ruff", "ruff.svg"),
+            ("GitHub Actions", "github-actions.svg"),
+        ),
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -42,16 +202,148 @@ class Finding:
     message: str
 
 
+class _RawImageParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.sources: list[str | None] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if tag != "img":
+            return
+        self.sources.append(next((value for name, value in attrs if name == "src"), None))
+
+
+def _is_fence_closer(line: str, marker: str, opening_length: int) -> bool:
+    closing_match = re.match(
+        r"^ {0,3}(" + re.escape(marker) + r"+)(?:[ \t]*)$",
+        line,
+    )
+    return bool(
+        closing_match and len(closing_match.group(1)) >= opening_length
+    )
+
+
+def _advance_html_container_stack(line: str, stack: list[str]) -> None:
+    for match in _HTML_TAG_RE.finditer(line):
+        tag = match.group("tag").lower()
+        if not match.group("closing") and tag in _HTML_VOID_ELEMENTS:
+            continue
+        if match.group("closing"):
+            if tag in stack:
+                del stack[len(stack) - 1 - stack[::-1].index(tag) :]
+        elif tag not in _HTML_VOID_ELEMENTS and not match.group(0).rstrip().endswith("/>"):
+            stack.append(tag)
+
+
+def _starts_html_container(line: str) -> bool:
+    match = re.match(r"^ {0,3}<(?P<tag>[A-Za-z][\w:-]*)\b[^>]*>", line)
+    return bool(
+        match
+        and match.group("tag").lower() not in _HTML_VOID_ELEMENTS
+        and not match.group(0).rstrip().endswith("/>")
+    )
+
+
+def _rendered_markdown(text: str) -> str:
+    rendered: list[str] = []
+    fence: tuple[str, int] | None = None
+    in_html_comment = False
+    html_container_stack: list[str] = []
+    for raw_line in text.splitlines():
+        if fence is not None:
+            if _is_fence_closer(raw_line, *fence):
+                fence = None
+            continue
+        line, in_html_comment = _strip_html_comments(raw_line, in_html_comment)
+        fence_match = _FENCE_RE.match(line)
+        if fence_match:
+            opening = fence_match.group(1)
+            fence = (opening[0], len(opening))
+            continue
+        if not line.strip():
+            html_container_stack[:] = [
+                tag for tag in html_container_stack if tag in _HTML_BLOCK_ELEMENTS
+            ]
+        if (
+            not html_container_stack
+            and not _starts_html_container(line)
+            and (line.startswith("    ") or line.startswith("\t"))
+        ):
+            continue
+        rendered_line = _INLINE_CODE_RE.sub("", line)
+        rendered.append(rendered_line)
+        _advance_html_container_stack(rendered_line, html_container_stack)
+    return "\n".join(rendered)
+
+
+def _raw_html_image_sources(text: str) -> list[str | None]:
+    parser = _RawImageParser()
+    parser.feed(_rendered_markdown(text))
+    parser.close()
+    return parser.sources
+
+
 def check_self_containment(generated_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for surface in ("site", "wiki"):
         d = generated_root / surface
         if not d.exists():
             continue
+        surface_root = d.resolve()
         for md in d.rglob("*.md"):
-            for link in find_links(md.read_text(encoding="utf-8")):
+            text = md.read_text(encoding="utf-8")
+            for link in find_links(text):
                 if is_forbidden(link.target, surface):
                     findings.append(Finding("error", f"{surface}: {md.relative_to(generated_root)} links cross-surface: {link.target}"))
+            for source in _raw_html_image_sources(text):
+                if source is None or not source.strip():
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{surface}: {md.relative_to(generated_root)} raw HTML image missing src",
+                        )
+                    )
+                    continue
+                target = source.strip()
+                parsed = urlsplit(target)
+                if parsed.scheme.lower() in {"http", "https", "data"}:
+                    continue
+                if parsed.scheme:
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{surface}: {md.relative_to(generated_root)} unsupported raw HTML image source: {target}",
+                        )
+                    )
+                    continue
+                if parsed.netloc:
+                    continue
+                image_path = unquote(parsed.path)
+                candidate = (
+                    d / image_path.lstrip("/")
+                    if image_path.startswith("/")
+                    else md.parent / image_path
+                )
+                resolved = candidate.resolve()
+                if not resolved.is_relative_to(surface_root):
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{surface}: {md.relative_to(generated_root)} local image target escapes generated surface: {target}",
+                        )
+                    )
+                    continue
+                if not resolved.is_file():
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{surface}: {md.relative_to(generated_root)} local image target missing: {target}",
+                        )
+                    )
     return findings
 
 
@@ -105,22 +397,47 @@ def _manifest_page_numbers(manifest: Manifest) -> dict[str, str]:
 
 def _markdown_headings(text: str) -> list[tuple[int, str]]:
     headings: list[tuple[int, str]] = []
-    fence: str | None = None
-    for line in text.splitlines():
-        fence_match = _FENCE_RE.match(line)
-        if fence_match:
-            marker = fence_match.group(1)[0]
-            if fence is None:
-                fence = marker
-            elif fence == marker:
+    fence: tuple[str, int] | None = None
+    in_html_comment = False
+    for raw_line in text.splitlines():
+        if fence is not None:
+            marker, opening_length = fence
+            if _is_fence_closer(raw_line, marker, opening_length):
                 fence = None
             continue
-        if fence is not None:
+
+        line, in_html_comment = _strip_html_comments(raw_line, in_html_comment)
+        fence_match = _FENCE_RE.match(line)
+        if fence_match:
+            opening = fence_match.group(1)
+            fence = (opening[0], len(opening))
+            continue
+        html_match = _HTML_H1_RE.match(line)
+        if html_match:
+            headings.append((1, html_match.group(1)))
             continue
         heading_match = _HEADING_RE.match(line)
         if heading_match:
             headings.append((len(heading_match.group(1)), heading_match.group(2)))
     return headings
+
+
+def _strip_html_comments(line: str, in_comment: bool) -> tuple[str, bool]:
+    while True:
+        if in_comment:
+            end = line.find("-->")
+            if end == -1:
+                return "", True
+            line = line[end + 3 :]
+            in_comment = False
+
+        start = line.find("<!--")
+        if start == -1:
+            return line, False
+        end = line.find("-->", start + 4)
+        if end == -1:
+            return line[:start], True
+        line = line[:start] + line[end + 3 :]
 
 
 def check_numbering(manifest: Manifest, repo_root: Path) -> list[Finding]:
@@ -217,45 +534,155 @@ def _normalize_prose(text: str) -> str:
     return " ".join(text.split())
 
 
+def _normalize_summary_structure(text: str) -> str:
+    return "\n\n".join(
+        _normalize_prose(paragraph)
+        for paragraph in re.split(r"\n\s*\n", text.strip())
+    )
+
+
+def _badge_rows(asset_prefix: str) -> str:
+    rows: list[str] = []
+    for label, badges in PROJECT_BADGE_GROUPS:
+        images = " ".join(
+            f'<img alt="{alt}" src="{asset_prefix}badges/{filename}">'
+            for alt, filename in badges
+        )
+        rows.append(
+            '<p align="center">\n'
+            f"  <sub><strong>{label}</strong></sub><br>\n"
+            f"  {images}\n"
+            "</p>"
+        )
+    return "\n\n".join(rows)
+
+
+def _normalize_opener_structure(opener: str) -> str:
+    return opener.replace("docs/assets/", "assets/").replace(
+        '<h1 align="center">1 · ML ENG LAB</h1>',
+        '<h1 align="center">ML ENG LAB</h1>',
+    )
+
+
 def check_project_opening(repo_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     summaries: dict[str, str] = {}
-    expected_tagline = f"*{PROJECT_TAGLINE}*"
+    opener_structures: dict[str, str] = {}
+    expected_tagline = (
+        f'<p align="center"><strong>{PROJECT_TAGLINE}</strong></p>'
+    )
 
-    for relative_path, poster in _PROJECT_POSTERS.items():
+    for relative_path, poster in _PROJECT_POSTER_MARKUP.items():
         path = repo_root / relative_path
         if not path.exists():
             findings.append(Finding("error", f"project opener source missing: {relative_path}"))
             continue
         text = path.read_text(encoding="utf-8")
+        centered_title = _PROJECT_CENTERED_TITLES[relative_path]
+        asset_prefix = _PROJECT_ASSET_PREFIXES[relative_path]
         expected_prefix = (
-            f"{_PROJECT_TITLES[relative_path]}\n\n"
             f"{poster}\n\n"
+            f"{centered_title}\n\n"
             f"{expected_tagline}\n\n"
+            f"{_badge_rows(asset_prefix)}\n\n"
             "<!-- project-summary:start -->\n"
         )
         if not text.startswith(expected_prefix):
             findings.append(
                 Finding(
                     "error",
-                    f"project opener order must be title, poster, tagline, summary in {relative_path}",
+                    f"project opener order or structure is invalid in {relative_path}",
                 )
             )
-        if not text.startswith(f"{_PROJECT_TITLES[relative_path]}\n"):
-            findings.append(Finding("error", f"canonical project title missing from {relative_path}"))
-        if poster not in text:
-            findings.append(Finding("error", f"project opener poster missing from {relative_path}"))
-        if expected_tagline not in text:
-            findings.append(Finding("error", f"canonical project tagline missing from {relative_path}"))
-
         matches = _PROJECT_SUMMARY_RE.findall(text)
         if len(matches) != 1:
             findings.append(
                 Finding("error", f"project summary markers must occur exactly once in {relative_path}")
             )
             continue
+        summary_match = _PROJECT_SUMMARY_RE.search(text)
+        assert summary_match is not None
+        following_summary = text[summary_match.end() :]
+        h2_match = _NUMBERED_H2_RE.search(following_summary)
+        if h2_match is None:
+            findings.append(
+                Finding(
+                    "error",
+                    f"project summary must be followed by a numbered H2 in {relative_path}",
+                )
+            )
+            opener = text
+            opener_with_tail = text
+        else:
+            summary_tail = following_summary[: h2_match.start()]
+            opener = text[: summary_match.end()]
+            opener_with_tail = text[: summary_match.end() + h2_match.start()]
+            if summary_tail.strip():
+                findings.append(
+                    Finding(
+                        "error",
+                        f"project opener tail after summary must contain only whitespace in {relative_path}",
+                    )
+                )
+        if "runtime-flow" in opener_with_tail:
+            findings.append(
+                Finding(
+                    "error",
+                    f"runtime-flow diagram cannot appear in project opener in {relative_path}",
+                )
+            )
+        if centered_title not in opener:
+            findings.append(
+                Finding("error", f"centered HTML title missing from {relative_path}"))
+        if poster not in opener:
+            findings.append(Finding("error", f"project opener poster missing from {relative_path}"))
+        if expected_tagline not in opener:
+            findings.append(Finding("error", f"canonical project tagline missing from {relative_path}"))
+
+        poster_source = re.search(r'<img src="([^"]+)"', poster)
+        assert poster_source is not None
+        resolved_poster = Path(relative_path).parent / poster_source.group(1)
+        if not (repo_root / resolved_poster).is_file():
+            findings.append(
+                Finding("error", f"project poster asset missing: {resolved_poster}")
+            )
+
+        for _, badges in PROJECT_BADGE_GROUPS:
+            for alt, filename in badges:
+                source = f"{asset_prefix}badges/{filename}"
+                badge = f'<img alt="{alt}" src="{source}">'
+                if badge not in opener:
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"project badge {alt!r} missing from {relative_path}",
+                        )
+                    )
+                resolved_source = Path(relative_path).parent / source
+                if not (repo_root / resolved_source).is_file():
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"project badge asset missing: {resolved_source}",
+                        )
+                    )
+        if len(re.split(r"\n\s*\n", matches[0].strip())) != 2:
+            findings.append(
+                Finding(
+                    "error",
+                    f"project summary in {relative_path} must contain exactly two paragraphs",
+                )
+            )
         summary = _normalize_prose(matches[0])
-        summaries[relative_path] = summary
+        summaries[relative_path] = _normalize_summary_structure(matches[0])
+        normalized_opener = (
+            opener[: summary_match.start(1)]
+            + _normalize_summary_structure(summary_match.group(1))
+            + opener[summary_match.end(1) :]
+        )
+        opener_structures[relative_path] = _normalize_opener_structure(
+            normalized_opener
+        )
         if not summary.startswith(PROJECT_SUMMARY_OPENING):
             findings.append(
                 Finding("error", f"canonical project summary opening missing from {relative_path}")
@@ -269,8 +696,18 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
                 )
             )
 
-    if len(summaries) == len(_PROJECT_POSTERS) and len(set(summaries.values())) != 1:
+    if len(summaries) == len(_PROJECT_POSTER_MARKUP) and len(set(summaries.values())) != 1:
         findings.append(Finding("error", "project summary differs between README.md and docs/index.md"))
+    if (
+        len(opener_structures) == len(_PROJECT_POSTER_MARKUP)
+        and len(set(opener_structures.values())) != 1
+    ):
+        findings.append(
+            Finding(
+                "error",
+                "project opener order or structure differs between README.md and docs/index.md",
+            )
+        )
     return findings
 
 

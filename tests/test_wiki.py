@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scripts.docs.wiki import render_wiki
 from scripts.docs.manifest import parse_manifest
 
@@ -48,13 +50,19 @@ def _seed(repo: Path) -> None:
         p = repo / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")
+    poster = repo / "docs/assets/ml-eng-lab-poster.png"
+    poster.parent.mkdir(parents=True, exist_ok=True)
+    poster.write_bytes(b"poster")
+    badge = repo / "docs/assets/badges/python.svg"
+    badge.parent.mkdir(parents=True, exist_ok=True)
+    badge.write_text("<svg xmlns='http://www.w3.org/2000/svg'/>", encoding="utf-8")
 
 
 def test_render_wiki_writes_home_sidebar_pages_and_images(tmp_path):
     _seed(tmp_path)
     m = parse_manifest(MANIFEST_YAML)
     out = tmp_path / "generated/wiki"
-    render_wiki(m, tmp_path, out)
+    render_wiki(m, tmp_path, out, trusted_output_root=tmp_path)
     assert (out / "Home.md").exists()
     assert (out / "_Sidebar.md").exists() and (out / "_Footer.md").exists()
     assert (out / "2-Architecture.md").exists() or (out / "2-1-System-view.md").exists()
@@ -62,6 +70,8 @@ def test_render_wiki_writes_home_sidebar_pages_and_images(tmp_path):
     arch = (out / "2-1-System-view.md").read_text()
     assert "img/system.png" in arch and "diagrams/img/system.png" not in arch
     assert (out / "img/system.png").exists()
+    assert (out / "assets/ml-eng-lab-poster.png").read_bytes() == b"poster"
+    assert (out / "assets/badges/python.svg").exists()
 
 
 def test_render_wiki_removes_stale_generated_files(tmp_path):
@@ -70,9 +80,49 @@ def test_render_wiki_removes_stale_generated_files(tmp_path):
     out.mkdir(parents=True)
     (out / "obsolete.md").write_text("stale", encoding="utf-8")
 
-    render_wiki(parse_manifest(MANIFEST_YAML), tmp_path, out)
+    render_wiki(
+        parse_manifest(MANIFEST_YAML),
+        tmp_path,
+        out,
+        trusted_output_root=tmp_path,
+    )
 
     assert not (out / "obsolete.md").exists()
+
+
+def test_render_wiki_removes_stale_empty_directories_recursively(tmp_path):
+    _seed(tmp_path)
+    out = tmp_path / "generated/wiki"
+    stale = out / "old/nested"
+    stale.mkdir(parents=True)
+    (stale / "obsolete.md").write_text("stale", encoding="utf-8")
+
+    render_wiki(
+        parse_manifest(MANIFEST_YAML),
+        tmp_path,
+        out,
+        trusted_output_root=tmp_path,
+    )
+
+    assert not (out / "old").exists()
+
+
+def test_render_wiki_rejects_symlinked_generated_parent(tmp_path):
+    _seed(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    generated = tmp_path / "generated"
+    generated.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="generated output.*symlink"):
+        render_wiki(
+            parse_manifest(MANIFEST_YAML),
+            tmp_path,
+            generated / "wiki",
+            trusted_output_root=tmp_path,
+        )
+
+    assert list(outside.iterdir()) == []
 
 
 def test_render_wiki_strips_forbidden_links(tmp_path):
@@ -82,7 +132,7 @@ def test_render_wiki_strips_forbidden_links(tmp_path):
     )
     m = parse_manifest(MANIFEST_YAML)
     out = tmp_path / "generated/wiki"
-    render_wiki(m, tmp_path, out)
+    render_wiki(m, tmp_path, out, trusted_output_root=tmp_path)
     home = (out / "Home.md").read_text()
     assert "https://thekaveh.github.io" not in home and "see site." in home
 
@@ -98,7 +148,12 @@ def test_sidebar_lists_a_parent_page_and_children(tmp_path):
         ).replace("source: docs/architecture.md", "source: docs/jupyterhub-integration.md"),
     )
 
-    render_wiki(manifest, tmp_path, tmp_path / "generated/wiki")
+    render_wiki(
+        manifest,
+        tmp_path,
+        tmp_path / "generated/wiki",
+        trusted_output_root=tmp_path,
+    )
 
     sidebar = (tmp_path / "generated/wiki/_Sidebar.md").read_text(encoding="utf-8")
     assert "[2. Architecture](2-Architecture)" in sidebar
@@ -116,7 +171,12 @@ def test_sidebar_places_notebooks_before_later_numbered_sections(tmp_path):
         )
     )
 
-    render_wiki(manifest, tmp_path, tmp_path / "generated/wiki")
+    render_wiki(
+        manifest,
+        tmp_path,
+        tmp_path / "generated/wiki",
+        trusted_output_root=tmp_path,
+    )
 
     sidebar = (tmp_path / "generated/wiki/_Sidebar.md").read_text(encoding="utf-8")
     assert sidebar.index("- 8. Notebooks") < sidebar.index("[9. Findings]")

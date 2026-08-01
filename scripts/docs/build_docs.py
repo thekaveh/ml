@@ -10,6 +10,11 @@ import sys
 from pathlib import Path
 
 from scripts.docs.manifest import Manifest, load_manifest
+from scripts.docs.project_assets import (
+    cleanup_generated_output,
+    copy_project_assets,
+    validate_generated_output,
+)
 from scripts.docs.transforms import build_source_map, rewrite_for_surface
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -23,7 +28,14 @@ def _rewrite_images_site(md: str) -> str:
     return _PNG_RE.sub(lambda m: f"![{m.group(1)}]({m.group(2)}assets/img/{m.group(3)}.svg)", md)
 
 
-def render_site(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path]:
+def render_site(
+    manifest: Manifest,
+    repo_root: Path,
+    out_dir: Path,
+    *,
+    trusted_output_root: Path,
+) -> list[Path]:
+    validate_generated_output(trusted_output_root, out_dir)
     source_map = build_source_map(manifest, "site")
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
@@ -73,9 +85,17 @@ def render_site(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
         svg_dest = assets / f"{d.id}.svg"
         svg_dest.write_text(svg, encoding="utf-8")
         expected.add(svg_dest)
-    for path in out_dir.rglob("*"):
-        if path.is_file() and path not in expected:
-            path.unlink()
+    copy_project_assets(
+        repo_root,
+        out_dir,
+        expected,
+        trusted_output_root=trusted_output_root,
+    )
+    cleanup_generated_output(
+        out_dir,
+        expected,
+        trusted_output_root=trusted_output_root,
+    )
     return written
 
 
@@ -179,35 +199,100 @@ def build(manifest_path: Path, repo_root: Path, *, site: bool = False, wiki: boo
     manifest = load_manifest(manifest_path, repo_root)
     if site or check:
         out_dir = repo_root / "generated/site"
-        render_site(manifest, repo_root, out_dir)
+        render_site(
+            manifest,
+            repo_root,
+            out_dir,
+            trusted_output_root=repo_root,
+        )
         (repo_root / "mkdocs.yml").write_text(render_mkdocs_yml(manifest, repo_root, out_dir), encoding="utf-8")
     if wiki or check:
         from scripts.docs.wiki import render_wiki  # lazy; keeps `mkdocs`-less checks lightweight
 
-        render_wiki(manifest, repo_root, repo_root / "generated/wiki")
+        render_wiki(
+            manifest,
+            repo_root,
+            repo_root / "generated/wiki",
+            trusted_output_root=repo_root,
+        )
     if check:
         import tempfile
 
         with tempfile.TemporaryDirectory() as td:
-            render_site(manifest, repo_root, Path(td) / "site")
-            _assert_dirs_equal(Path(td) / "site", repo_root / "generated/site")
-            render_wiki(manifest, repo_root, Path(td) / "wiki")
-            _assert_dirs_equal(Path(td) / "wiki", repo_root / "generated/wiki")
+            temporary_root = Path(td)
+            render_site(
+                manifest,
+                repo_root,
+                temporary_root / "site",
+                trusted_output_root=temporary_root,
+            )
+            _assert_dirs_equal(
+                temporary_root / "site",
+                repo_root / "generated/site",
+                a_trusted_output_root=temporary_root,
+                b_trusted_output_root=repo_root,
+            )
+            render_wiki(
+                manifest,
+                repo_root,
+                temporary_root / "wiki",
+                trusted_output_root=temporary_root,
+            )
+            _assert_dirs_equal(
+                temporary_root / "wiki",
+                repo_root / "generated/wiki",
+                a_trusted_output_root=temporary_root,
+                b_trusted_output_root=repo_root,
+            )
     return 0
 
 
-def _assert_dirs_equal(a: Path, b: Path) -> None:
-    def snapshot(d: Path) -> dict[str, str]:
-        return {p.relative_to(d).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in d.rglob("*") if p.is_file()}
+def _assert_dirs_equal(
+    a: Path,
+    b: Path,
+    *,
+    a_trusted_output_root: Path,
+    b_trusted_output_root: Path,
+) -> None:
+    validate_generated_output(a_trusted_output_root, a)
+    validate_generated_output(b_trusted_output_root, b)
+
+    def snapshot(d: Path) -> dict[str, tuple[str, str]]:
+        entries: dict[str, tuple[str, str]] = {}
+        for path in d.rglob("*"):
+            relative = path.relative_to(d).as_posix()
+            if path.is_symlink():
+                entries[relative] = ("symlink", str(path.readlink()))
+            elif path.is_dir():
+                entries[relative] = ("directory", "")
+            elif path.is_file():
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                entries[relative] = ("file", digest)
+            else:
+                entries[relative] = ("other", "")
+        return entries
 
     a_snap, b_snap = snapshot(a), snapshot(b)
     if a_snap == b_snap:
         return
     only_a = sorted(set(a_snap) - set(b_snap))
     only_b = sorted(set(b_snap) - set(a_snap))
-    content_diff = sorted(p for p in a_snap if p in b_snap and a_snap[p] != b_snap[p])
+    type_diff = sorted(
+        path
+        for path in a_snap
+        if path in b_snap and a_snap[path][0] != b_snap[path][0]
+    )
+    content_diff = sorted(
+        path
+        for path in a_snap
+        if path in b_snap
+        and a_snap[path][0] == b_snap[path][0]
+        and a_snap[path][1] != b_snap[path][1]
+    )
     raise AssertionError(
-        f"generation not deterministic: only-in-temp={only_a}, only-in-generated={only_b}, content-diff={content_diff}"
+        "generation not deterministic: "
+        f"only-in-temp={only_a}, only-in-generated={only_b}, "
+        f"type-diff={type_diff}, content-diff={content_diff}"
     )
 
 

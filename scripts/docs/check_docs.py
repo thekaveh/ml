@@ -17,6 +17,7 @@ _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _HTML_H1_RE = re.compile(r'^<h1\s+align=["\']center["\']>(.+?)</h1>$', re.IGNORECASE)
 _NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(?:\.)?(?:\s+|$)")
 _FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+_NUMBERED_H2_RE = re.compile(r"^##\s+\d+(?:\.\d)*(?:\.)?(?:\s+|$)", re.MULTILINE)
 _PROJECT_SUMMARY_RE = re.compile(
     r"<!-- project-summary:start -->\s*(.*?)\s*<!-- project-summary:end -->",
     re.DOTALL,
@@ -161,17 +162,26 @@ def _manifest_page_numbers(manifest: Manifest) -> dict[str, str]:
 
 def _markdown_headings(text: str) -> list[tuple[int, str]]:
     headings: list[tuple[int, str]] = []
-    fence: str | None = None
-    for line in text.splitlines():
-        fence_match = _FENCE_RE.match(line)
-        if fence_match:
-            marker = fence_match.group(1)[0]
-            if fence is None:
-                fence = marker
-            elif fence == marker:
+    fence: tuple[str, int] | None = None
+    in_html_comment = False
+    for raw_line in text.splitlines():
+        if fence is not None:
+            marker, opening_length = fence
+            stripped = raw_line.lstrip()
+            closing_match = re.match(re.escape(marker) + r"+", stripped)
+            if (
+                closing_match
+                and len(closing_match.group()) >= opening_length
+                and not stripped[closing_match.end() :].strip()
+            ):
                 fence = None
             continue
-        if fence is not None:
+
+        line, in_html_comment = _strip_html_comments(raw_line, in_html_comment)
+        fence_match = _FENCE_RE.match(line)
+        if fence_match:
+            opening = fence_match.group(1)
+            fence = (opening[0], len(opening))
             continue
         html_match = _HTML_H1_RE.match(line)
         if html_match:
@@ -181,6 +191,24 @@ def _markdown_headings(text: str) -> list[tuple[int, str]]:
         if heading_match:
             headings.append((len(heading_match.group(1)), heading_match.group(2)))
     return headings
+
+
+def _strip_html_comments(line: str, in_comment: bool) -> tuple[str, bool]:
+    while True:
+        if in_comment:
+            end = line.find("-->")
+            if end == -1:
+                return "", True
+            line = line[end + 3 :]
+            in_comment = False
+
+        start = line.find("<!--")
+        if start == -1:
+            return line, False
+        end = line.find("-->", start + 4)
+        if end == -1:
+            return line[:start], True
+        line = line[:start] + line[end + 3 :]
 
 
 def check_numbering(manifest: Manifest, repo_root: Path) -> list[Finding]:
@@ -330,23 +358,56 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
                     f"project opener order or structure is invalid in {relative_path}",
                 )
             )
-        opener_end = text.find("<!-- project-summary:end -->")
-        opener = text if opener_end == -1 else text[:opener_end]
+        matches = _PROJECT_SUMMARY_RE.findall(text)
+        if len(matches) != 1:
+            findings.append(
+                Finding("error", f"project summary markers must occur exactly once in {relative_path}")
+            )
+            continue
+        summary_match = _PROJECT_SUMMARY_RE.search(text)
+        assert summary_match is not None
+        following_summary = text[summary_match.end() :]
+        h2_match = _NUMBERED_H2_RE.search(following_summary)
+        if h2_match is None:
+            findings.append(
+                Finding(
+                    "error",
+                    f"project summary must be followed by a numbered H2 in {relative_path}",
+                )
+            )
+            opener = text
+        else:
+            summary_tail = following_summary[: h2_match.start()]
+            opener = text[: summary_match.end() + h2_match.start()]
+            if summary_tail.strip():
+                findings.append(
+                    Finding(
+                        "error",
+                        f"project opener tail after summary must contain only whitespace in {relative_path}",
+                    )
+                )
         if "runtime-flow" in opener:
             findings.append(
                 Finding(
                     "error",
-                    f"runtime-flow diagram cannot be the project poster in {relative_path}",
+                    f"runtime-flow diagram cannot appear in project opener in {relative_path}",
                 )
             )
         if centered_title not in opener:
             findings.append(
-                Finding("error", f"centered HTML title missing from {relative_path}")
-            )
-        if poster not in text:
+                Finding("error", f"centered HTML title missing from {relative_path}"))
+        if poster not in opener:
             findings.append(Finding("error", f"project opener poster missing from {relative_path}"))
-        if expected_tagline not in text:
+        if expected_tagline not in opener:
             findings.append(Finding("error", f"canonical project tagline missing from {relative_path}"))
+
+        poster_source = re.search(r'<img src="([^"]+)"', poster)
+        assert poster_source is not None
+        resolved_poster = Path(relative_path).parent / poster_source.group(1)
+        if not (repo_root / resolved_poster).is_file():
+            findings.append(
+                Finding("error", f"project poster asset missing: {resolved_poster}")
+            )
 
         for _, badges in PROJECT_BADGE_GROUPS:
             for alt, filename in badges:
@@ -367,13 +428,6 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
                             f"project badge asset missing: {resolved_source}",
                         )
                     )
-
-        matches = _PROJECT_SUMMARY_RE.findall(text)
-        if len(matches) != 1:
-            findings.append(
-                Finding("error", f"project summary markers must occur exactly once in {relative_path}")
-            )
-            continue
         if len(re.split(r"\n\s*\n", matches[0].strip())) != 2:
             findings.append(
                 Finding(
@@ -383,10 +437,13 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
             )
         summary = _normalize_prose(matches[0])
         summaries[relative_path] = summary
-        summary_match = _PROJECT_SUMMARY_RE.search(text)
-        assert summary_match is not None
+        normalized_opener = (
+            opener[: summary_match.start(1)]
+            + _normalize_prose(summary_match.group(1))
+            + opener[summary_match.end(1) :]
+        )
         opener_structures[relative_path] = _normalize_opener_structure(
-            text[:summary_match.end()]
+            normalized_opener
         )
         if not summary.startswith(PROJECT_SUMMARY_OPENING):
             findings.append(

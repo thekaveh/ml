@@ -210,6 +210,9 @@ def _write_project_opening(
     for _, badges in BADGE_GROUPS:
         for _, filename in badges:
             (badge_assets / filename).write_text("badge", encoding="utf-8")
+    (repo_root / "docs/assets/ml-eng-lab-poster.png").write_text(
+        "poster", encoding="utf-8"
+    )
 
     def badge_html(prefix: str) -> str:
         rows = []
@@ -240,6 +243,7 @@ def _write_project_opening(
             "<!-- project-summary:start -->\n"
             f"{summary}\n"
             "<!-- project-summary:end -->\n"
+            "\n## 1.1 Repository map\n"
         )
 
     (repo_root / "README.md").write_text(
@@ -385,6 +389,16 @@ def test_project_opening_rejects_missing_local_asset(tmp_path):
     )
 
 
+def test_project_opening_rejects_missing_poster_asset(tmp_path):
+    _write_project_opening(tmp_path)
+    (tmp_path / "docs/assets/ml-eng-lab-poster.png").unlink()
+
+    assert any(
+        "poster asset missing" in finding.message
+        for finding in check_project_opening(tmp_path)
+    )
+
+
 def test_project_opening_rejects_single_paragraph_summary(tmp_path):
     _write_project_opening(tmp_path)
     landing = tmp_path / "docs/index.md"
@@ -397,6 +411,55 @@ def test_project_opening_rejects_single_paragraph_summary(tmp_path):
         "two paragraphs" in finding.message
         for finding in check_project_opening(tmp_path)
     )
+
+
+def test_project_opening_rejects_runtime_flow_in_summary_tail(tmp_path):
+    _write_project_opening(tmp_path)
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8").replace(
+            "<!-- project-summary:end -->\n\n## 1.1 Repository map",
+            "<!-- project-summary:end -->\n\n"
+            "![Runtime flow](docs/diagrams/img/runtime-flow.png)\n\n"
+            "## 1.1 Repository map",
+        ),
+        encoding="utf-8",
+    )
+
+    assert any(
+        "runtime-flow" in finding.message
+        for finding in check_project_opening(tmp_path)
+    )
+
+
+def test_project_opening_rejects_nonwhitespace_summary_tail(tmp_path):
+    _write_project_opening(tmp_path)
+    landing = tmp_path / "docs/index.md"
+    landing.write_text(
+        landing.read_text(encoding="utf-8").replace(
+            "<!-- project-summary:end -->\n\n## 1.1 Repository map",
+            "<!-- project-summary:end -->\n\nOne-surface tail drift.\n\n"
+            "## 1.1 Repository map",
+        ),
+        encoding="utf-8",
+    )
+
+    assert any(
+        "only whitespace" in finding.message
+        for finding in check_project_opening(tmp_path)
+    )
+
+
+def test_project_opening_allows_summary_line_reflow(tmp_path):
+    _write_project_opening(
+        tmp_path,
+        landing_summary=PROJECT_SUMMARY.replace(
+            "recommended remote execution through JupyterHub",
+            "recommended remote execution\nthrough JupyterHub",
+        ),
+    )
+
+    assert check_project_opening(tmp_path) == []
 
 
 def test_real_project_opening_is_canonical():
@@ -447,6 +510,52 @@ def test_numbering_accepts_centered_html_h1(tmp_path):
     manifest = _write_valid_notebook_infrastructure_fixture(tmp_path)
     (tmp_path / "docs/index.md").write_text(
         '<h1 align="center">1 · ML ENG LAB</h1>\n\n## 1.1 Repository map\n',
+        encoding="utf-8",
+    )
+
+    assert check_numbering(manifest, tmp_path) == []
+
+
+def test_numbering_ignores_markdown_and_html_headings_in_html_comments(tmp_path):
+    manifest = _write_valid_notebook_infrastructure_fixture(tmp_path)
+    (tmp_path / "docs/index.md").write_text(
+        "# 1 Overview\n\n"
+        "<!-- ## 1.1 Single-line Markdown comment -->\n"
+        '<!-- <h1 align="center">1 Commented title</h1> -->\n'
+        "<!--\n"
+        "## 1.1 Multiline Markdown comment\n"
+        "-->\n"
+        "<!--\n"
+        '<h1 align="center">1 Multiline commented title</h1>\n'
+        "-->\n"
+        "## 1.1 Repository map\n",
+        encoding="utf-8",
+    )
+
+    assert check_numbering(manifest, tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    ("opener", "shorter_closer", "trailing_closer", "closer"),
+    [
+        ("````", "```", "```` trailing", "````"),
+        ("~~~~", "~~~", "~~~~ trailing", "~~~~"),
+    ],
+)
+def test_numbering_keeps_fences_open_for_shorter_or_trailing_closers(
+    tmp_path, opener, shorter_closer, trailing_closer, closer
+):
+    manifest = _write_valid_notebook_infrastructure_fixture(tmp_path)
+    (tmp_path / "docs/index.md").write_text(
+        "# 1 Overview\n\n"
+        f"{opener}text\n"
+        "## 1.1 Still in the fence\n"
+        f"{shorter_closer}\n"
+        "## 1.1 Still in the fence\n"
+        f"{trailing_closer}\n"
+        "## 1.1 Still in the fence\n"
+        f"{closer}\n\n"
+        "## 1.1 Repository map\n",
         encoding="utf-8",
     )
 

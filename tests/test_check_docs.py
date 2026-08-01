@@ -265,6 +265,34 @@ def test_self_containment_flags_indented_raw_html_image_inside_html_block(tmp_pa
     assert "assets/missing.png" in findings[0].message
 
 
+def test_self_containment_ignores_indented_raw_html_image_after_void_html_block(tmp_path):
+    page = tmp_path / "site/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        "<hr>\n\n"
+        "    <img src=assets/missing.png>\n",
+        encoding="utf-8",
+    )
+
+    assert check_self_containment(tmp_path) == []
+
+
+def test_self_containment_flags_indented_raw_html_image_inside_details(tmp_path):
+    page = tmp_path / "site/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        "<details>\n"
+        "    <img src=assets/missing.png>\n"
+        "</details>\n",
+        encoding="utf-8",
+    )
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "assets/missing.png" in findings[0].message
+
+
 def test_repo_self_containment_rejects_site_and_wiki_links(tmp_path):
     (tmp_path / "docs").mkdir()
     (tmp_path / "README.md").write_text(

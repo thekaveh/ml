@@ -20,42 +20,55 @@ _HTML_H1_RE = re.compile(r'^<h1\s+align=["\']center["\']>(.+?)</h1>$', re.IGNORE
 _NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(?:\.)?(?:\s+|$)")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _INLINE_CODE_RE = re.compile(r"(`+).*?\1")
-_HTML_BLOCK_TAGS = (
-    "address",
-    "article",
-    "aside",
-    "blockquote",
-    "div",
-    "dl",
-    "fieldset",
-    "figure",
-    "footer",
-    "form",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "header",
-    "hr",
-    "main",
-    "nav",
-    "ol",
-    "p",
-    "pre",
-    "section",
-    "table",
-    "ul",
+_HTML_TAG_RE = re.compile(r"<(?P<closing>/)?(?P<tag>[A-Za-z][\w:-]*)\b[^>]*>")
+_HTML_BLOCK_CONTAINERS = frozenset(
+    {
+        "address",
+        "article",
+        "aside",
+        "blockquote",
+        "details",
+        "dialog",
+        "div",
+        "dl",
+        "fieldset",
+        "figure",
+        "footer",
+        "form",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "header",
+        "main",
+        "nav",
+        "ol",
+        "p",
+        "pre",
+        "section",
+        "table",
+        "ul",
+    }
 )
-_HTML_BLOCK_TAG_PATTERN = "|".join(_HTML_BLOCK_TAGS)
-_HTML_BLOCK_START_RE = re.compile(
-    rf"^ {{0,3}}<(?P<tag>{_HTML_BLOCK_TAG_PATTERN})\b[^>]*>",
-    re.IGNORECASE,
-)
-_HTML_BLOCK_TAG_RE = re.compile(
-    rf"<(?P<closing>/)?(?P<tag>{_HTML_BLOCK_TAG_PATTERN})\b[^>]*>",
-    re.IGNORECASE,
+_HTML_VOID_ELEMENTS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
 )
 _NUMBERED_H2_RE = re.compile(r"^##\s+\d+(?:\.\d)*(?:\.)?(?:\s+|$)", re.MULTILINE)
 _PROJECT_SUMMARY_RE = re.compile(
@@ -164,21 +177,34 @@ def _is_fence_closer(line: str, marker: str, opening_length: int) -> bool:
     )
 
 
-def _advance_html_block_stack(line: str, stack: list[str]) -> None:
-    for match in _HTML_BLOCK_TAG_RE.finditer(line):
+def _advance_html_container_stack(line: str, stack: list[str]) -> None:
+    for match in _HTML_TAG_RE.finditer(line):
         tag = match.group("tag").lower()
+        if not match.group("closing") and tag in _HTML_VOID_ELEMENTS:
+            continue
+        if tag not in _HTML_BLOCK_CONTAINERS:
+            continue
         if match.group("closing"):
             if tag in stack:
                 del stack[len(stack) - 1 - stack[::-1].index(tag) :]
-        elif not match.group(0).rstrip().endswith("/>"):
+        elif tag not in _HTML_VOID_ELEMENTS and not match.group(0).rstrip().endswith("/>"):
             stack.append(tag)
+
+
+def _starts_html_container(line: str) -> bool:
+    match = re.match(r"^ {0,3}<(?P<tag>[A-Za-z][\w:-]*)\b[^>]*>", line)
+    return bool(
+        match
+        and match.group("tag").lower() in _HTML_BLOCK_CONTAINERS
+        and match.group("tag").lower() not in _HTML_VOID_ELEMENTS
+    )
 
 
 def _rendered_markdown(text: str) -> str:
     rendered: list[str] = []
     fence: tuple[str, int] | None = None
     in_html_comment = False
-    html_block_stack: list[str] = []
+    html_container_stack: list[str] = []
     for raw_line in text.splitlines():
         if fence is not None:
             if _is_fence_closer(raw_line, *fence):
@@ -190,15 +216,14 @@ def _rendered_markdown(text: str) -> str:
             opening = fence_match.group(1)
             fence = (opening[0], len(opening))
             continue
-        starts_html_block = bool(_HTML_BLOCK_START_RE.match(line))
         if (
-            not html_block_stack
-            and not starts_html_block
+            not html_container_stack
+            and not _starts_html_container(line)
             and (line.startswith("    ") or line.startswith("\t"))
         ):
             continue
         rendered.append(_INLINE_CODE_RE.sub("", line))
-        _advance_html_block_stack(line, html_block_stack)
+        _advance_html_container_stack(line, html_container_stack)
     return "\n".join(rendered)
 
 

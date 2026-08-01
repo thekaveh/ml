@@ -53,6 +53,12 @@ def _seed(repo: Path) -> None:
         p = repo / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")
+    poster = repo / "docs/assets/ml-eng-lab-poster.png"
+    poster.parent.mkdir(parents=True, exist_ok=True)
+    poster.write_bytes(b"poster")
+    badge = repo / "docs/assets/badges/python.svg"
+    badge.parent.mkdir(parents=True, exist_ok=True)
+    badge.write_text("<svg xmlns='http://www.w3.org/2000/svg'/>", encoding="utf-8")
 
 
 def test_render_site_writes_pages_and_assets(tmp_path):
@@ -68,6 +74,8 @@ def test_render_site_writes_pages_and_assets(tmp_path):
     assert "assets/img/system.svg" in arch and "diagrams/img/system.png" not in arch
     # stylesheet copied
     assert (out / "stylesheets/extra.css").exists()
+    assert (out / "assets/ml-eng-lab-poster.png").read_bytes() == b"poster"
+    assert (out / "assets/badges/python.svg").exists()
     assert any(p.name == "index.md" for p in written)
 
 

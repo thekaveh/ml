@@ -48,6 +48,12 @@ def _seed(repo: Path) -> None:
         p = repo / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")
+    poster = repo / "docs/assets/ml-eng-lab-poster.png"
+    poster.parent.mkdir(parents=True, exist_ok=True)
+    poster.write_bytes(b"poster")
+    badge = repo / "docs/assets/badges/python.svg"
+    badge.parent.mkdir(parents=True, exist_ok=True)
+    badge.write_text("<svg xmlns='http://www.w3.org/2000/svg'/>", encoding="utf-8")
 
 
 def test_render_wiki_writes_home_sidebar_pages_and_images(tmp_path):
@@ -62,6 +68,8 @@ def test_render_wiki_writes_home_sidebar_pages_and_images(tmp_path):
     arch = (out / "2-1-System-view.md").read_text()
     assert "img/system.png" in arch and "diagrams/img/system.png" not in arch
     assert (out / "img/system.png").exists()
+    assert (out / "assets/ml-eng-lab-poster.png").read_bytes() == b"poster"
+    assert (out / "assets/badges/python.svg").exists()
 
 
 def test_render_wiki_removes_stale_generated_files(tmp_path):

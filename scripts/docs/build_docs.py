@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from scripts.docs.manifest import Manifest, load_manifest
+from scripts.docs.project_assets import copy_project_assets
 from scripts.docs.transforms import build_source_map, rewrite_for_surface
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -73,6 +74,7 @@ def render_site(manifest: Manifest, repo_root: Path, out_dir: Path) -> list[Path
         svg_dest = assets / f"{d.id}.svg"
         svg_dest.write_text(svg, encoding="utf-8")
         expected.add(svg_dest)
+    copy_project_assets(repo_root, out_dir, expected)
     for path in out_dir.rglob("*"):
         if path.is_file() and path not in expected:
             path.unlink()

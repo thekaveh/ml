@@ -16,6 +16,24 @@ _PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME|XXX)\b")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(?:\.)?(?:\s+|$)")
 _FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+_PROJECT_SUMMARY_RE = re.compile(
+    r"<!-- project-summary:start -->\s*(.*?)\s*<!-- project-summary:end -->",
+    re.DOTALL,
+)
+PROJECT_TAGLINE = "Local notebooks. Remote Atlas execution. Explicit infrastructure contracts."
+PROJECT_SUMMARY_OPENING = (
+    "`ml-eng-lab` is a portfolio of self-contained machine-learning notebook experiments built "
+    "for local editing in VS Code and recommended remote execution through JupyterHub on Atlas's "
+    "ML Engineering track."
+)
+_PROJECT_POSTERS = {
+    "README.md": "![ml-eng-lab runtime paths](docs/diagrams/img/runtime-flow.png)",
+    "docs/index.md": "![ml-eng-lab runtime paths](diagrams/img/runtime-flow.png)",
+}
+_PROJECT_TITLES = {
+    "README.md": "# ml-eng-lab — personal ML lab",
+    "docs/index.md": "# 1 ml-eng-lab — personal ML lab",
+}
 
 
 @dataclass(frozen=True)
@@ -195,6 +213,54 @@ def check_placeholders(generated_root: Path) -> list[Finding]:
     return findings
 
 
+def _normalize_prose(text: str) -> str:
+    return " ".join(text.split())
+
+
+def check_project_opening(repo_root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    summaries: dict[str, str] = {}
+    expected_tagline = f"*{PROJECT_TAGLINE}*"
+
+    for relative_path, poster in _PROJECT_POSTERS.items():
+        path = repo_root / relative_path
+        if not path.exists():
+            findings.append(Finding("error", f"project opener source missing: {relative_path}"))
+            continue
+        text = path.read_text(encoding="utf-8")
+        if not text.startswith(f"{_PROJECT_TITLES[relative_path]}\n"):
+            findings.append(Finding("error", f"canonical project title missing from {relative_path}"))
+        if poster not in text:
+            findings.append(Finding("error", f"project opener poster missing from {relative_path}"))
+        if expected_tagline not in text:
+            findings.append(Finding("error", f"canonical project tagline missing from {relative_path}"))
+
+        matches = _PROJECT_SUMMARY_RE.findall(text)
+        if len(matches) != 1:
+            findings.append(
+                Finding("error", f"project summary markers must occur exactly once in {relative_path}")
+            )
+            continue
+        summary = _normalize_prose(matches[0])
+        summaries[relative_path] = summary
+        if not summary.startswith(PROJECT_SUMMARY_OPENING):
+            findings.append(
+                Finding("error", f"canonical project summary opening missing from {relative_path}")
+            )
+        word_count = len(re.findall(r"\b[\w'-]+\b", summary))
+        if not 100 <= word_count <= 150:
+            findings.append(
+                Finding(
+                    "error",
+                    f"project summary in {relative_path} must contain 100-150 words; found {word_count}",
+                )
+            )
+
+    if len(summaries) == len(_PROJECT_POSTERS) and len(set(summaries.values())) != 1:
+        findings.append(Finding("error", "project summary differs between README.md and docs/index.md"))
+    return findings
+
+
 def check(repo_root: Path, generated_root: Path) -> int:
     from scripts.docs.build_docs import build
 
@@ -213,6 +279,7 @@ def check(repo_root: Path, generated_root: Path) -> int:
     findings += check_completeness(manifest, repo_root)
     findings += check_numbering(manifest, repo_root)
     findings += check_placeholders(generated_root)
+    findings += check_project_opening(repo_root)
     errors = [f for f in findings if f.severity == "error"]
     for f in findings:
         print(f"[{f.severity.upper()}] {f.message}", file=sys.stderr)

@@ -109,7 +109,7 @@ injected shape against papermill parser drift.
 
 ### 5.2.2 What CI runs
 
-- **Tier-A, every PR and every push to `main`:** the `tier-a-papermill` job
+- **Tier-A, every PR and every push to `develop` or `main`:** the `tier-a-papermill` job
   runs `make smoke-tier-a`, writes fresh copies under `/tmp/ml-tier-a`, then
   runs `make check-tier-a-artifacts` and `make check-tier-a-clean` to prove
   every output exists and execution did not rewrite tracked source notebooks.
@@ -198,11 +198,10 @@ pages before they reach the published site.
 
 ## 5.4 Commit & PR workflow
 
-- **Branch off `main`.** Open a feature branch off the current `main` HEAD.
-  An `origin/develop` integration branch exists for batching larger
-  workstreams — for example the documentation overhaul landed as PR #30 into
-  `develop`, then `develop` merged into `main` — but either path requires a
-  pull request.
+- **Branch off `develop`.** Open a feature branch from the current `develop`
+  HEAD and merge it there through a pull request. Promote the resulting
+  `develop` state to `main` through a separate pull request; do not merge a
+  feature branch directly to `main`.
 - **PRs are required on `main`.** Branch protection (set 2026-05-29) requires
   a pull request, allows zero approvals, and forbids force-push and deletion.
   This lets the solo maintainer self-merge while keeping every change on the

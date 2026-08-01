@@ -84,3 +84,19 @@ The change is complete only when:
 4. Fresh site and wiki generation is deterministic and leaves the tracked worktree clean except for intended committed diagram assets.
 5. Every Markdown document under `docs/` is declared in the manifest, and every diagram master has repository/site/wiki outputs.
 6. The feature branch merges through a reviewed PR to `develop`, then `develop` merges through a separate reviewed PR to `main`.
+
+## 12.3.9 Project-opener follow-up
+
+The documentation opener is a shared product artifact, not ordinary duplicated prose. `README.md`
+and `docs/index.md` must begin with the project title, the existing runtime-flow visual as the
+project poster, one exact canonical tagline, and one exact 100–150-word executive summary. The
+summary must lead with the local-editor/Atlas-JupyterHub experience, explain the explicit
+notebook-infrastructure contracts that distinguish the repository from a loose notebook
+collection, and name the local and cloud fallbacks without exposing documentation-publishing
+mechanics.
+
+`scripts.docs.check_docs` must reject a missing poster, tagline drift, summary drift, or a summary
+outside the word-count contract. The same follow-up corrects the stale deep-dive catalog, Gitflow
+and CI prose, and the documentation-publishing diagram's obsolete `wiki signpost` label. The
+diagram continues to derive its committed PNG and generated SVG/PNG surface assets from its HTML
+master.

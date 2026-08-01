@@ -369,3 +369,62 @@ Update local `develop`, confirm it is content-identical to the merged feature, p
 - [x] **Step 6: Resynchronize develop and clean up**
 
 If GitHub's merge commit makes branch SHAs differ, merge `main` back to `develop` through the repository's normal synchronization PR. Confirm main/develop trees are identical, no open remediation PR remains, and delete the merged feature branch locally and remotely when it is no longer attached to the workspace.
+
+---
+
+## 12.4.7 Task 6: Lock the project opener and correct remaining documentation drift
+
+**Files:**
+
+- Modify: `README.md`
+- Modify: `docs/index.md`
+- Modify: `docs/conventions.md`
+- Modify: `docs/diagrams/ml-eng-lab-docs-publishing.html`
+- Modify: `docs/diagrams/img/docs-publishing.png`
+- Modify: `scripts/docs/check_docs.py`
+- Modify: `tests/test_check_docs.py`
+
+**Interfaces:**
+
+- Produces: `check_project_opening(repo_root: Path) -> list[Finding]`.
+- Enforces: the canonical tagline and executive summary are identical in `README.md` and
+  `docs/index.md`, both entry points contain the runtime-flow poster, and the summary contains
+  100–150 words.
+
+- [x] **Step 1: Add failing project-opener tests**
+
+Add focused fixtures for a missing poster, divergent tagline, divergent summary, and an
+out-of-range summary. Add a real-repository assertion that the canonical opener is clean.
+
+- [x] **Step 2: Run the focused test and confirm RED**
+
+Run: `pytest tests/test_check_docs.py -q -k project_opening`
+
+Expected: collection fails because `check_project_opening` does not exist.
+
+- [x] **Step 3: Implement the minimal opener gate**
+
+Define the canonical tagline and summary opening in `scripts/docs/check_docs.py`. Extract the
+summary between `project-summary` markers, compare its complete normalized text across both files,
+count words, and require the surface-appropriate runtime-flow poster path.
+
+- [x] **Step 4: Correct all eight audited content findings**
+
+Install the shared opener in both entry points; remove publishing mechanics from the landing
+opening; state that all 21 deep-dives exist; make Gitflow mandatory; document CI pushes to
+`develop` and `main`; and relabel the wiki as a complete generated documentation mirror.
+
+- [x] **Step 5: Run focused tests and regenerate the diagram**
+
+Run: `pytest tests/test_check_docs.py -q -k project_opening`
+
+Run: `python -m scripts.docs.render_diagrams`
+
+Expected: opener tests pass and `docs/diagrams/img/docs-publishing.png` reflects the corrected
+wiki label.
+
+- [x] **Step 6: Run complete verification and independent review**
+
+Run the full documentation and repository verification suite, request an independent review, and
+resolve every Critical or Important finding before publishing the feature branch through the
+required feature-to-`develop` and `develop`-to-`main` pull requests.

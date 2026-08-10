@@ -40,10 +40,10 @@
 Run:
 
 ```bash
-rg -n "cross.?entropy|output_dim|num_classes" notebooks/sentiment-analysis-lstm-pytorch docs/notebooks/sentiment-analysis-lstm-pytorch.md
+rg -n "cross.?entropy|output_dim|num_classes|three-class" notebooks/sentiment_classification-vader-mlp-pytorch docs/notebooks/sentiment_classification-vader-mlp-pytorch.md
 rg -n "depth-3|0\.9164|0\.0904" notebooks/node_classification-reddit-gnn-pyg/README.md docs/notebooks/node_classification-reddit-gnn-pyg.md
 rg -n "class EarlyStopping|EarlyStopping" docs notebooks tests requirements.txt
-rg -n '"execution_count": null' notebooks/node_classification-reddit-gnn-pyg/phase2_advanced/4_deeper_model.ipynb
+rg -n '"execution_count": null' notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook4.ipynb
 ```
 
 Expected: sentiment is three-class cross-entropy; the Reddit README already agrees with the preserved depth-3 result; EarlyStopping exists in the consumed NNx contract; the documented Phase-2 notebook exception has unexecuted cells.

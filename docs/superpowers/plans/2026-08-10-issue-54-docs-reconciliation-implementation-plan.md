@@ -24,6 +24,9 @@
 
 ## 12.7.2 Task 1: Correct current user-facing factual claims
 
+**Completed:** Commit `364662e` corrected the five canonical sources. Independent review approved
+the task; 83 focused documentation tests passed and the docs verifier reported zero findings.
+
 **Files:**
 - Modify: `docs/concepts.md:66-69`
 - Modify: `docs/notebooks/node_classification-reddit-gnn-pyg.md:342-345,391-394`
@@ -35,7 +38,7 @@
 - Consumes: the sentiment task specification and notebook loss function; the Reddit task README and preserved result table; the shipped NNx EarlyStopping API; the intentional Reddit Phase-2 output exception.
 - Produces: current, mutually consistent canonical prose that the docs generator can project without special cases.
 
-- [ ] **Step 1: Verify each claimed contradiction against its authoritative source**
+- [x] **Step 1: Verify each claimed contradiction against its authoritative source**
 
 Run:
 
@@ -48,19 +51,19 @@ rg -n '"execution_count": null' notebooks/node_classification-reddit-gnn-pyg/pha
 
 Expected: sentiment is three-class cross-entropy; the Reddit README already agrees with the preserved depth-3 result; EarlyStopping exists in the consumed NNx contract; the documented Phase-2 notebook exception has unexecuted cells.
 
-- [ ] **Step 2: Correct the sentiment and Reddit descriptions**
+- [x] **Step 2: Correct the sentiment and Reddit descriptions**
 
 Change the BCE paragraph so sentiment is not named as a binary case; retain link prediction as the grounded BCE example. Remove the obsolete Reddit discrepancy note and the completed reconciliation extension without changing preserved metrics or experimental interpretation.
 
-- [ ] **Step 3: Correct the EarlyStopping future-work status**
+- [x] **Step 3: Correct the EarlyStopping future-work status**
 
 Keep the early-stopping example as useful future work, but remove language claiming that it awaits an upstream primitive. In the deep dive, describe it as adoption of the available callback and avoid promising a specific wall-time reduction without execution evidence.
 
-- [ ] **Step 4: Qualify committed-output coverage**
+- [x] **Step 4: Qualify committed-output coverage**
 
 Replace the README's blanket executed-cell statement with a precise rule: active notebooks normally retain outputs, while documented long-running or preservation exceptions may intentionally omit them. Retain the stronger Tier-C in-place execution warning.
 
-- [ ] **Step 5: Run focused validation**
+- [x] **Step 5: Run focused validation**
 
 Run:
 
@@ -73,7 +76,7 @@ git diff --check
 
 Expected: all commands pass, generated projections contain the corrected wording, and no unrelated notebook source/output changes appear.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add README.md docs/concepts.md docs/notebooks/node_classification-reddit-gnn-pyg.md docs/notebooks/image_classification-mnist-ffnn-pytorch.md notebooks/image_classification-mnist-ffnn-pytorch/README.md
@@ -84,6 +87,9 @@ git commit -m "docs: correct notebook and loss claims"
 
 ## 12.7.3 Task 2: Disposition completed and historical records accurately
 
+**Completed:** Commit `906b67f` closed the three stale record clusters. Independent review approved
+the task; 89 focused documentation tests passed and the docs verifier reported zero findings.
+
 **Files:**
 - Modify: `docs/superpowers/plans/2026-08-01-opener-visual-remediation-implementation-plan.md:404-462`
 - Modify: `CHANGELOG.md:22-30`
@@ -93,7 +99,7 @@ git commit -m "docs: correct notebook and loss claims"
 - Consumes: merged PRs #51 and #52, current Tier-A temporary-output CI, current Pages/wiki publication, and the Atlas migration that removed `vendor/genai-vanilla`.
 - Produces: historical records that preserve chronology while no longer presenting resolved work as pending.
 
-- [ ] **Step 1: Ground every completion status**
+- [x] **Step 1: Ground every completion status**
 
 Run:
 
@@ -106,19 +112,19 @@ rg -n "vendor/genai-vanilla|infra/|github-pages|push_wiki" .gitmodules README.md
 
 Expected: PRs #51/#52 are merged; Tier-A CI now writes execution artifacts to `/tmp`; Pages/wiki publication and Atlas migration supersede the cited deferrals.
 
-- [ ] **Step 2: Complete the opener implementation record**
+- [x] **Step 2: Complete the opener implementation record**
 
 Mark Task 6 and its six steps complete. Add a concise completion note with the merged PR numbers and publication outcome. Do not alter commands as though they had been planned differently.
 
-- [ ] **Step 3: Preserve but time-bound the v0.1.0 known issue**
+- [x] **Step 3: Preserve but time-bound the v0.1.0 known issue**
 
 Rewrite the present-tense `currently red` sentence as a historical v0.1.0 limitation and point readers to the Unreleased temporary-output design that superseded the byte-diff gate.
 
-- [ ] **Step 4: Annotate resolved maintenance deferrals**
+- [x] **Step 4: Annotate resolved maintenance deferrals**
 
 For OM-011, OM-012, and OM-053, retain the original finding and validation text but change status/disposition so later backlog extraction cannot interpret them as open. Name the resolving release/migration evidence without erasing historical context.
 
-- [ ] **Step 5: Run focused validation**
+- [x] **Step 5: Run focused validation**
 
 Run:
 
@@ -131,7 +137,7 @@ git diff --check
 
 Expected: all commands pass and every generated surface carries the updated historical disposition.
 
-- [ ] **Step 6: Commit Task 2**
+- [x] **Step 6: Commit Task 2**
 
 ```bash
 git add CHANGELOG.md docs/maintenance/overnight-2026-07-04.md docs/superpowers/plans/2026-08-01-opener-visual-remediation-implementation-plan.md

@@ -238,7 +238,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow. Key points:
 
 - Each active task is a self-contained directory under `notebooks/` using the `[task]-[dataset]-[model]-[framework]` naming convention. No `tasks/` subdirectory.
 - Shared library code lives in `nnx` (the PyPI-installed `thekaveh-nnx` package), not a local `common/`.
-- Notebooks are saved with executed cells (outputs included) for active tasks.
+- Active notebooks normally retain executed-cell outputs; documented long-running or preservation
+  exceptions may intentionally omit them.
 - Tier-C notebooks have their Aug-2023 outputs preserved; never re-execute them in place.
 - `notebooks/archive/` is read-only.
 

@@ -339,11 +339,6 @@ Four observations:
    ~16.7h (GAT, 1200 epochs) to ~56.4h (GraphSAGE depth-3, 2000 epochs), which is why Phase 3 is
    Tier-C with preserved outputs.
 
-Note: the task README's prose designates the depth-2 notebook as the best overall (citing
-different headline numbers); the *recorded* cell outputs above show the depth-3 variant measurably
-ahead on both validation error and test accuracy. The numbers in this table are the preserved
-August-2023 cell outputs.
-
 ## 8.13.7 Pitfalls
 
 - **GAT hits a memory ceiling at width ≥ 256.** Phase-2 Notebook 3 excludes GAT entirely for this
@@ -388,10 +383,6 @@ August-2023 cell outputs.
 - **Depth vs. width ablation.** The depth-3 notebook's non-monotone first-layer width
   (`[768, 1024, ...]`) edges out the monotone depth-2 stack on one run; a small ablation over
   width shapes at fixed depth would separate "depth helps" from "this width funnel helps."
-- **Reconcile Phase-3 recorded outputs with the README prose.** The README designates depth-2 as
-  best overall with headline numbers (test 0.8598, val 0.1509) that do not match the preserved
-  cell outputs (test 0.9094, val error 0.1024); re-running Phase 3 under a fixed seed budget, or
-  updating the README to match the preserved outputs, would close the discrepancy.
 - **Learning-rate scheduling.** Phase-2 Notebook 4's markdown flags persistent validation-metric
   fluctuations and suggests a scheduler; a cosine or one-cycle schedule over the 2000-epoch budget
   is the obvious follow-up for the SAGE depth stack.

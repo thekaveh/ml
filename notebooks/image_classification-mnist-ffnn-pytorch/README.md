@@ -60,4 +60,4 @@ Installed by the Atlas JupyterHub runtime or via the root `requirements.txt` + `
 ## 7. Future work
 
 - Add a CNN variant (LeNet-style) for direct comparison against the FFN.
-- Add an early-stopping callback example using `nnx` once that primitive lands upstream.
+- Add an early-stopping callback example using the available `nnx.EarlyStopping`.

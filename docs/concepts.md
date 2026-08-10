@@ -63,8 +63,8 @@ The `train_step_fn=` hook on `model.train(...)` is the seam that swaps in this L
 the same seam injects MSE for autoencoders, smooth-L1 for I-JEPA, and the contrastive DPO loss for
 preference alignment.
 
-**Binary cross-entropy (BCE)** drives the binary case — sentiment classification and link
-prediction. The Karate link-prediction notebook scores an edge as the dot product of endpoint
+**Binary cross-entropy (BCE)** drives binary tasks such as link prediction. The Karate
+link-prediction notebook scores an edge as the dot product of endpoint
 embeddings and applies `binary_cross_entropy_with_logits` on the raw scores against labels \(1\)
 (positive edge) and \(0\) (sampled negative):
 

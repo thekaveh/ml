@@ -347,10 +347,20 @@ def check_self_containment(generated_root: Path) -> list[Finding]:
     return findings
 
 
-def check_repo_self_containment(repo_root: Path) -> list[Finding]:
+def check_repo_self_containment(
+    repo_root: Path,
+    manifest: Manifest | None = None,
+) -> list[Finding]:
     findings: list[Finding] = []
-    candidates = [repo_root / "README.md", *(repo_root / "docs").rglob("*.md")]
-    for md in candidates:
+    if manifest is None and (repo_root / "docs/manifest.yaml").exists():
+        manifest = load_manifest(repo_root / "docs/manifest.yaml", repo_root)
+    candidates = {repo_root / "README.md", *(repo_root / "docs").rglob("*.md")}
+    if manifest is not None:
+        candidates.update(
+            repo_root / source
+            for source in manifest_markdown_sources(manifest)
+        )
+    for md in sorted(candidates):
         if not md.exists():
             continue
         text = md.read_text(encoding="utf-8")
@@ -486,7 +496,11 @@ def check_numbering(manifest: Manifest, repo_root: Path) -> list[Finding]:
 
 def check_completeness(manifest: Manifest, repo_root: Path) -> list[Finding]:
     findings: list[Finding] = []
-    declared = manifest_markdown_sources(manifest)
+    declared = {
+        source
+        for source in manifest_markdown_sources(manifest)
+        if source.startswith("docs/")
+    }
     actual = {
         str(path.relative_to(repo_root))
         for path in (repo_root / "docs").rglob("*.md")
@@ -725,7 +739,7 @@ def check(repo_root: Path, generated_root: Path) -> int:
         return rc
     findings = []
     findings += check_self_containment(generated_root)
-    findings += check_repo_self_containment(repo_root)
+    findings += check_repo_self_containment(repo_root, manifest)
     findings += check_completeness(manifest, repo_root)
     findings += check_numbering(manifest, repo_root)
     findings += check_placeholders(generated_root)

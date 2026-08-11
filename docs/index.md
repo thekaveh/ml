@@ -51,28 +51,32 @@ without hiding operational assumptions inside notebooks.
   renderers, checker).
 - `Makefile` owns notebook execution tiers and local validation targets.
 - `infra/` pins Atlas; its `ml-eng` JupyterHub runtime is the default remote notebook kernel.
-- `docs/` holds the canonical documentation sources plus maintenance logs and findings.
+- `docs/` holds the documentation-tree portion of the manifest-declared canonical source set;
+  root governance Markdown such as `SECURITY.md` completes that set.
 - `.github/workflows/` contains CI and documentation publishing workflows.
 
 The root `README.md` is the day-to-day entry point for contributors — it carries the task index,
-quick-start paths, and the standard make targets. This documentation collection is the focused
-reference surface that complements the README.
+quick-start paths, and the standard make targets. Its opener is hand-authored and parity-guarded
+against this landing page; it is not a manifest-generated page. This documentation collection is
+the focused reference surface that complements the README.
 
 ## 1.2 Documentation surfaces
 
-The lab maintains three synchronized documentation surfaces, all derived from one canonical
-source tree so the three never drift:
+The lab maintains three synchronized documentation surfaces from a manifest-declared canonical
+source set so the three never drift. That set includes Markdown under `docs/` and direct-root
+governance Markdown such as `SECURITY.md`:
 
 | Surface | Source | Rendered by | Audience |
 |---|---|---|---|
-| **Repository** | `docs/*.md` (checked in) | GitHub markdown rendering | Contributors browsing the repo |
+| **Repository** | Manifest sources under `docs/` plus root governance Markdown | GitHub markdown rendering | Contributors browsing the repo |
 | **Site** | `generated/site/` | MkDocs Material (`mkdocs build`) | Public readers of the published site |
 | **Wiki** | `generated/wiki/` | GitHub wiki rendering | Readers who prefer the wiki navigation |
 
 The manifest at `docs/manifest.yaml` is the single source of truth for the hierarchy, numbering,
 and page set. `scripts/docs/build_docs.py` consumes the manifest and emits both generated
 surfaces; `scripts/docs/check_docs.py` gates CI on self-containment, completeness, placeholders,
-and determinism. The canonical sources are written once; every surface is a transform of them.
+and determinism. Each manifest page is written once; the site and wiki are transforms of that
+source, while the repository renders the source directly.
 
 ## 1.3 Recommended reading path
 

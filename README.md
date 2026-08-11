@@ -60,6 +60,7 @@ A shared PyTorch toolkit (`nnx`, [`thekaveh-nnx`](https://pypi.org/project/theka
 ml-eng-lab/
 ├── README.md                                  (this file)
 ├── CONTRIBUTING.md                            (workflow + conventions)
+├── SECURITY.md                                (private reporting + support policy)
 ├── CHANGELOG.md                               (release notes)
 ├── Makefile                                   (papermill tier targets)
 ├── docs/                                      (env/runtime docs, dependency contracts, findings, maintenance log)
@@ -270,8 +271,9 @@ MIT. See [LICENSE](LICENSE).
 
 The README is the entry point; the items below are the hub's index of secondary documentation.
 
-### 10.1. Workflow + history
+### 10.1. Governance, workflow + history
 
+- [SECURITY.md](SECURITY.md) — private vulnerability reporting, supported versions, coordinated disclosure, and dependency handling.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — workflow, conventions, "Adding a new task folder" recipe, verifier+pytest gates.
 - [CHANGELOG.md](CHANGELOG.md) — Keep-a-Changelog release notes.
 

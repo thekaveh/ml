@@ -7,7 +7,9 @@ import pytest
 import yaml
 
 from scripts.docs.build_docs import build, render_mkdocs_yml, render_site
-from scripts.docs.manifest import parse_manifest
+from scripts.docs.manifest import load_manifest, parse_manifest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 MANIFEST_YAML = """
 surfaces: [repo, site, wiki]
@@ -91,6 +93,18 @@ def test_render_mkdocs_yml_has_generated_nav_and_no_repo_url(tmp_path):
     titles = [item if isinstance(item, str) else list(item)[0] for item in parsed["nav"]]
     assert any("1. Overview" in t for t in titles)
     assert any("2. Architecture" in t for t in titles)
+
+
+def test_real_manifest_renders_root_security_page_and_site_navigation(tmp_path):
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    out = tmp_path / "generated/site"
+
+    render_site(manifest, REPO_ROOT, out, trusted_output_root=tmp_path)
+    policy = (out / "SECURITY.md").read_text(encoding="utf-8")
+    nav = yaml.safe_load(render_mkdocs_yml(manifest, REPO_ROOT, out))["nav"]
+
+    assert "](dependency-contracts.md)" in policy
+    assert {"13. Security policy": "SECURITY.md"} in nav
 
 
 def test_nav_preserves_a_section_source_and_children():

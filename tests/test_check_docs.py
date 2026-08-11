@@ -424,6 +424,7 @@ def test_real_manifest_declares_every_canonical_markdown_file():
         str(path.relative_to(REPO_ROOT))
         for path in (REPO_ROOT / "docs").rglob("*.md")
     }
+    actual.add("SECURITY.md")
 
     assert manifest_markdown_sources(manifest) == actual
 

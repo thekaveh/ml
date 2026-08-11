@@ -234,14 +234,16 @@ pages before they reach the published site.
 
 ## 5.5 Documentation convention
 
-ml-eng-lab projects one canonical documentation source into two additional,
-derived surfaces. The canonical source is the only one a human edits.
+ml-eng-lab projects a canonical documentation source set into two additional,
+derived surfaces. Canonical sources are the only documentation files a human edits.
 
-- **Canonical source** — the hand-authored files under `docs/` plus the
-  per-task notebook READMEs, indexed by `docs/manifest.yaml`. This is where
-  content is written and reviewed. This page, [architecture.md](architecture.md),
+- **Canonical sources** — the root `README.md`, manifest-declared root governance
+  pages such as `SECURITY.md`, the hand-authored files under `docs/`, and the
+  per-task notebook READMEs. `docs/manifest.yaml` indexes every page projected
+  into the site and wiki, including root governance pages. This is where content
+  is written and reviewed. This page, [architecture.md](architecture.md),
   [env-setup.md](env-setup.md), [dependency-contracts.md](dependency-contracts.md),
-  and the other `docs/*.md` files all live here.
+  and the other `docs/*.md` files all live in the canonical source set.
 - **Generated MkDocs site** — `scripts/docs/build_docs --site` renders the
   manifest into a site input under `generated/`, then `mkdocs build --strict`
   produces `site/`. Published to GitHub Pages by the Pages workflow. Built
@@ -255,17 +257,17 @@ The three rules that follow from this:
 
 1. **Never hand-edit the generated trees.** `generated/`, the root `mkdocs.yml`,
    and `site/` are gitignored and rebuilt on every change. If a page looks
-   wrong in the site or wiki, fix the canonical `docs/` source (or the
-   generator in `scripts/docs/`), not the rendered output.
+   wrong in the site or wiki, fix the canonical source (or the generator in
+   `scripts/docs/`), not the rendered output.
 2. **The manifest drives both derived surfaces.** Adding a new `docs/*.md`
-   page means adding an entry to `docs/manifest.yaml`; the `check_docs`
-   completeness check fails if a manifest page is missing from the source or
-   vice versa.
-3. **The README links only to in-repo files.** The three surfaces are
-   deliberately independent: a reader of the raw repo (GitHub source view,
-   clone) never depends on the generated site or wiki to follow a link. The
-   generated surfaces link among themselves; the canonical README does not
-   link into them.
+   page or root governance page means adding an entry to `docs/manifest.yaml`;
+   the `check_docs` completeness check fails if a canonical `docs/*.md` page is
+   undeclared or if a declared source is missing.
+3. **Root entry and governance pages link only to in-repo files.** The three
+   surfaces are deliberately independent: a reader of the raw repo (GitHub
+   source view, clone) never depends on the generated site or wiki to follow a
+   link. The generated surfaces link among themselves; canonical root pages do
+   not link into them.
 
 The documentation gate (§5.3) enforces self-containment (every generated page
 must resolve its assets without leaving the site), completeness (manifest ↔

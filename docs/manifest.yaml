@@ -131,6 +131,10 @@ sections:
         number: "12.8"
         title: Issue 55 security policy implementation plan
         source: docs/superpowers/plans/2026-08-11-issue-55-security-policy-implementation-plan.md
+  - id: security
+    number: "13"
+    title: Security policy
+    source: SECURITY.md
 notebooks:
   - task: tabular_classification-iris-mlp-pytorch
     number: "8.1"

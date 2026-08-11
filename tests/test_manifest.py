@@ -1,6 +1,8 @@
 # tests/test_manifest.py
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from scripts.docs.manifest import (
@@ -9,6 +11,8 @@ from scripts.docs.manifest import (
     parse_manifest,
     load_manifest,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 VALID = """
@@ -94,3 +98,14 @@ def test_parse_manifest_wraps_missing_required_key():
     bad = VALID.replace("    depth: full\n", "")  # notebook entry missing `depth`
     with pytest.raises(ManifestError, match="missing required key"):
         parse_manifest(bad)
+
+
+def test_real_manifest_indexes_root_security_policy():
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+
+    security = next(section for section in manifest.sections if section.id == "security")
+
+    assert security.number == "13"
+    assert security.title == "Security policy"
+    assert security.source == "SECURITY.md"
+    assert not security.children

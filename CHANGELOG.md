@@ -4,6 +4,13 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ## [Unreleased]
 
+### Added
+
+- **Repository security policy:** added the root `SECURITY.md` as the canonical private-reporting,
+  supported-version, coordinated-disclosure, dependency, notebook-artifact, secret-handling, and
+  runtime-boundary policy. GitHub private vulnerability reporting is enabled, and the manifest now
+  projects the same numbered policy into the generated site and native wiki.
+
 ### Changed
 
 - **Project opener visual remediation:** replaced the runtime-diagram opener with a dedicated

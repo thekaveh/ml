@@ -79,19 +79,19 @@ Run the focused test files, then `tests/test_manifest.py`, `tests/test_build_doc
 - Consumes: the live private-vulnerability-reporting setting, current release/GitFlow practice, `docs/dependency-contracts.md`, and upstream ownership boundaries in `CONTRIBUTING.md`.
 - Produces: one native and manifest-indexed policy projected to all three documentation surfaces.
 
-- [ ] **Step 1: Enable and verify the private reporting route**
+- [x] **Step 1: Enable and verify the private reporting route**
 
 Enable GitHub private vulnerability reporting for this repository, then verify the repository setting reports enabled. Use the native `Report a vulnerability` form as the primary route; do not invent an email alias.
 
-- [ ] **Step 2: Add the concise, numbered policy**
+- [x] **Step 2: Add the concise, numbered policy**
 
 Cover supported versions, private reporting, requested report contents, best-effort response and coordinated disclosure, in-scope surfaces, NNx/Atlas upstream boundaries, dependency-advisory handling, and current limitations. Include notebook trust/arbitrary-code risk, model and data provenance, unsafe serialized artifacts, secret handling and rotation, Atlas/JupyterHub mounted-workspace boundaries, and the host-native-only Ollama rule. State explicitly that containers and mounts are not trust boundaries and that no fixed SLA, hash-enforcement, or backport promise exists.
 
-- [ ] **Step 3: Index the canonical source**
+- [x] **Step 3: Index the canonical source**
 
 Add `SECURITY.md` as standalone manifest section 13 with strictly numbered headings. Link it from the README repository tree and governance index, route vulnerability reports from `CONTRIBUTING.md` to the private policy, update `docs/conventions.md` so canonical sources include manifest-declared root governance pages, and add an Unreleased changelog entry. Keep policy links limited to exact manifest source keys so site/wiki transforms remain valid.
 
-- [ ] **Step 4: Generate and inspect both projections**
+- [x] **Step 4: Generate and inspect both projections**
 
 Run:
 
@@ -101,7 +101,7 @@ python -m scripts.docs.build_docs --site --wiki
 
 Expected: `generated/site/SECURITY.md`, `generated/wiki/13-Security-policy.md`, and both navigation entries contain the same policy after documented link transforms.
 
-- [ ] **Step 5: Run focused validation and commit**
+- [x] **Step 5: Run focused validation and commit**
 
 Run:
 

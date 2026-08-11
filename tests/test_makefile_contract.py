@@ -12,7 +12,7 @@ TEST_SUBPROCESS_TIMEOUT = 30
 
 def test_mkdocs_commands_suppress_only_the_upstream_material_banner():
     result = subprocess.run(
-        ["make", "-n", "docs-build", "docs-serve", "docs-check"],
+        ["make", "--no-print-directory", "-n", "docs-build", "docs-serve", "docs-check"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -30,6 +30,7 @@ def test_setup_targets_use_selected_python_interpreter():
     result = subprocess.run(
         [
             "make",
+            "--no-print-directory",
             "-n",
             f"PYTHON={custom_python}",
             "install-torch-stack",
@@ -57,6 +58,7 @@ def test_atlas_targets_expose_exact_lifecycle_commands():
     result = subprocess.run(
         [
             "make",
+            "--no-print-directory",
             "-n",
             "atlas-setup",
             "atlas-up",
@@ -83,7 +85,7 @@ def test_atlas_targets_expose_exact_lifecycle_commands():
 
 def test_atlas_down_only_requests_cold_shutdown_when_explicit():
     warm = subprocess.run(
-        ["make", "-n", "atlas-down"],
+        ["make", "--no-print-directory", "-n", "atlas-down"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -91,7 +93,7 @@ def test_atlas_down_only_requests_cold_shutdown_when_explicit():
         timeout=TEST_SUBPROCESS_TIMEOUT,
     )
     cold = subprocess.run(
-        ["make", "-n", "COLD=1", "atlas-down"],
+        ["make", "--no-print-directory", "-n", "COLD=1", "atlas-down"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

@@ -81,6 +81,16 @@ def test_documentation_architecture_describes_root_governance_and_readme_boundar
         assert "not a manifest-generated page" in content
 
 
+def test_system_master_names_complete_and_focused_ci_signals():
+    master = REPO_ROOT / "docs/diagrams/ml-eng-lab-system.html"
+    visible_text = _visible_svg_text(master)
+    source = master.read_text(encoding="utf-8")
+
+    assert "Full pytest + Tier-A" in visible_text
+    assert "Focused NNx + verifier" in visible_text
+    assert "CI runs complete pytest plus focused NNx, verifier, and notebook gates." in source
+
+
 def test_documentation_pipeline_masters_show_root_governance_and_readme_boundary():
     for filename in (
         "ml-eng-lab-docs-publishing.html",
@@ -99,6 +109,7 @@ def test_documentation_pipeline_masters_avoid_unsupported_status_glyphs():
     for filename in (
         "ml-eng-lab-docs-publishing.html",
         "ml-eng-lab-docs-sync.html",
+        "ml-eng-lab-system.html",
     ):
         visible_text = _visible_svg_text(REPO_ROOT / "docs/diagrams" / filename)
         assert unsupported_glyphs.isdisjoint(visible_text)

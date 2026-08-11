@@ -64,8 +64,7 @@ Notebook-local `./data/` and `./runs/` paths resolve inside each experiment dire
 targets execute notebooks by changing into each notebook directory before invoking papermill, so
 the task-local path invariant holds.
 
-`scripts/verify_repo.py`, pytest, ruff, and the CI workflows verify structure, documentation,
-and public notebook surfaces before changes are merged.
+`scripts/verify_repo.py`, the complete `make test` / `pytest-repository` contract, the focused NNx and Ruff job, documentation checks, and notebook execution tiers verify structure, documentation, library surfaces, and executable notebook behavior before changes are merged.
 
 ## 2.1.4 Boundary decisions
 

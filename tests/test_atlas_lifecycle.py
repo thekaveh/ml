@@ -488,18 +488,17 @@ def test_up_rejects_invalid_native_ollama_port_before_detach(
 def test_up_reports_missing_curl_before_detach(atlas_repo: Path, tmp_path: Path) -> None:
     command_log = write_preflight_start(atlas_repo)
     initialize_mock_atlas_git_repo(atlas_repo)
-    empty_bin = tmp_path / "empty-bin"
-    empty_bin.mkdir()
-    dirname = empty_bin / "dirname"
-    dirname.write_text(
-        f"#!/bin/sh\nexec {shutil.which('dirname')} \"$@\"\n", encoding="utf-8"
-    )
-    dirname.chmod(0o755)
+    private_bin = tmp_path / "private-bin"
+    private_bin.mkdir()
+    for command in ("bash", "dirname", "cat"):
+        resolved = shutil.which(command)
+        assert resolved is not None, f"{command} is required for the missing-curl fixture"
+        (private_bin / command).symlink_to(resolved)
     env = {
         **os.environ,
         "ATLAS_TEST_COMMAND_LOG": str(command_log),
         "ATLAS_TEST_SOURCE": "ollama-localhost",
-        "PATH": f"{empty_bin}{os.pathsep}/bin",
+        "PATH": str(private_bin),
     }
 
     result = run_script(atlas_repo, "atlas-up.sh", check=False, env=env)

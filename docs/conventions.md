@@ -109,6 +109,10 @@ injected shape against papermill parser drift.
 
 ### 5.2.2 What CI runs
 
+- **Complete pytest, every PR and every push to `develop` or `main`:** the
+  unconditional `pytest-repository` job installs the runtime and documentation
+  dependency sets, runs exact `make test`, and has a 15-minute cap. It does not
+  initialize Atlas and accepts only explicit, reason-bearing test skips.
 - **Tier-A, every PR and every push to `develop` or `main`:** the `tier-a-papermill` job
   runs `make smoke-tier-a`, writes fresh copies under `/tmp/ml-tier-a`, then
   runs `make check-tier-a-artifacts` and `make check-tier-a-clean` to prove
@@ -139,9 +143,9 @@ than by hand. Force-tagging `pre-cleanup-baseline` requires explicit approval.
 
 ## 5.3 Validation gates
 
-A change is not ready until four independent gates pass. Each catches a
-different class of regression, and CI runs them as separate jobs so a failure
-is attributable.
+A change is not ready until the repository verifier, complete pytest contract,
+Ruff, and documentation gate pass. CI keeps complete pytest separate from faster
+focused and publication signals so failures remain attributable.
 
 ### 5.3.1 Repo verifier — `make verify`
 
@@ -171,9 +175,16 @@ Runs `pytest tests/ -v`. The test tree covers the docs pipeline
 verifier and helper scripts (`test_verify_repo`,
 `test_inject_smoke_test_cell`, `test_edit_notebook_markdown`,
 `test_rewrite_imports`), the Makefile contract (`test_makefile_contract`),
-and NNx surface guards (`tests/nnx_surface/`). CI runs the NNx-surface subset
-on every PR as the `pytest-nnx-surface` job (`make test-nnx-surface`) — these
-guards inspect the installed `nnx` import surface and are exact
+and NNx surface guards (`tests/nnx_surface/`). The pytest configuration's
+`testpaths = ["tests"]` plus its `infra`, `notebooks/archive`, and `.venv`
+exclusions define collection; no fixed test count is contractual.
+
+The unconditional `pytest-repository` job runs the entire tree on every PR. Its
+setup installs `libcairo2`, the runtime dependencies, and the locked
+documentation dependencies, while its pip cache keys `requirements.txt`,
+`torch-core-requirements.txt`, `torch-requirements.txt`, and
+`docs-requirements.txt`. The existing `pytest-nnx-surface` job remains the
+focused NNx/PyPI compatibility and Ruff signal; its tests are exact
 release-contract evidence only when `nnx` resolves from the pinned PyPI wheel,
 not from an editable checkout (see [dependency-contracts.md](dependency-contracts.md)
 §6).
@@ -222,7 +233,7 @@ pages before they reach the published site.
 ### 5.4.1 Pre-PR checklist
 
 1. `make verify` (fast, <30 s) — must exit 0.
-2. `make test` locally; CI additionally runs `make test-nnx-surface`.
+2. `make test` locally; CI reruns that complete contract as `pytest-repository` and also retains the focused `pytest-nnx-surface` signal.
 3. `make lint`.
 4. If you touched a notebook: re-run it at the right tier (`make run-tier-a`
    for an intentional Tier-A snapshot refresh, `make smoke-tier-a` for a

@@ -1,6 +1,10 @@
 # tests/test_render_diagrams.py
 from __future__ import annotations
 
+import html
+import re
+from pathlib import Path
+
 import pytest
 
 cairosvg = pytest.importorskip("cairosvg")  # skips the whole module if cairosvg absent
@@ -10,6 +14,15 @@ from scripts.docs.manifest import parse_manifest  # noqa: E402
 
 SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><rect width="100" height="50" fill="#00e5ff"/></svg>'
 HTML = f"<html><body>{SVG}</body></html>"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _visible_svg_text(master: Path) -> str:
+    source = master.read_text(encoding="utf-8")
+    return " ".join(
+        html.unescape(re.sub(r"<[^>]+>", "", value)).strip()
+        for value in re.findall(r"<text\b[^>]*>(.*?)</text>", source, flags=re.DOTALL)
+    )
 
 
 def test_extract_svg_pulls_inline_svg():
@@ -50,3 +63,36 @@ diagrams:
     assert (site_img / "system.svg").exists()
     assert (png_dir / "system.png").exists()
     assert written == [tmp_path / "docs/diagrams/ml-eng-lab-system.html"]
+
+
+def test_documentation_architecture_describes_root_governance_and_readme_boundary():
+    for relative_path in ("docs/index.md", "docs/architecture.md"):
+        content = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        assert "manifest-declared canonical source set" in content
+        assert "`SECURITY.md`" in content
+        assert "`README.md`" in content
+        assert "parity-guarded" in content
+        assert "not a manifest-generated page" in content
+
+
+def test_documentation_pipeline_masters_show_root_governance_and_readme_boundary():
+    for filename in (
+        "ml-eng-lab-docs-publishing.html",
+        "ml-eng-lab-docs-sync.html",
+    ):
+        visible_text = _visible_svg_text(REPO_ROOT / "docs/diagrams" / filename)
+        assert "SECURITY.md" in visible_text
+        assert "root governance markdown" in visible_text
+        assert "README opener" in visible_text
+        assert "parity-guarded" in visible_text
+        assert "not a generated page" in visible_text
+
+
+def test_documentation_pipeline_masters_avoid_unsupported_status_glyphs():
+    unsupported_glyphs = set("→←◇✓✗")
+    for filename in (
+        "ml-eng-lab-docs-publishing.html",
+        "ml-eng-lab-docs-sync.html",
+    ):
+        visible_text = _visible_svg_text(REPO_ROOT / "docs/diagrams" / filename)
+        assert unsupported_glyphs.isdisjoint(visible_text)

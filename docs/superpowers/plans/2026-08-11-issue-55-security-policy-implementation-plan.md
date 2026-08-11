@@ -127,11 +127,11 @@ Commit the canonical policy, manifest, indexes, changelog, and completed Task 1�
 - Consumes: reviewed Tasks 1–2 and the complete three-surface audit checklist.
 - Produces: a green repository gate, reviewed GitFlow integration, live policy publication, synchronized long-lived branches, and a clean issue record.
 
-- [ ] **Step 1: Run the complete three-surface documentation audit**
+- [x] **Step 1: Run the complete three-surface documentation audit**
 
 Apply checklist A–L from `three-surface-docs-audit`, including single-source generation, self-containment, wiki configuration, CI, numbering, completeness, strict build, reproducibility separation, content grounding, and opener parity.
 
-- [ ] **Step 2: Correct all in-scope findings through the same review loop**
+- [x] **Step 2: Correct all in-scope findings through the same review loop**
 
 Apply the smallest canonical-source or tested-pipeline correction, regenerate both projections, and rerun the focused check. Never hand-edit generated output.
 

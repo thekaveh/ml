@@ -2269,8 +2269,17 @@ def test_ci_runs_complete_repository_test_contract():
     assert job["timeout-minutes"] == "15"
     assert "if" not in job
     assert "continue-on-error" not in job
+    assert "services" not in job
+    assert "container" not in job
 
     steps = job["steps"]
+    assert [step["name"] for step in steps] == [
+        "Checkout",
+        "Install system dependencies for cairosvg",
+        "Set up Python 3.11",
+        "Install dependencies",
+        "Run complete repository tests",
+    ]
     checkout = next(step for step in steps if step.get("name") == "Checkout")
     assert checkout["with"]["persist-credentials"] == "false"
     assert "submodules" not in checkout["with"]

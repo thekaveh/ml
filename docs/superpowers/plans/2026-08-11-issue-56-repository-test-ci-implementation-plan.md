@@ -96,10 +96,10 @@ def test_repository_test_collection_boundary_is_explicit():
     )
 ```
 
-Extend `test_ci_runs_atlas_workflow_contract_tests` so its exact `-k` expression ends with:
+Extend `test_ci_runs_repository_workflow_contract_tests` so its exact `-k` expression ends with:
 
 ```python
-"ci_runs_atlas_workflow_contract_tests or "
+"ci_runs_repository_workflow_contract_tests or "
 "ci_runs_complete_repository_test_contract or "
 "repository_test_collection_boundary_is_explicit'"
 ```
@@ -110,7 +110,7 @@ Run:
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_repo.py -q \
-  -k 'ci_runs_complete_repository_test_contract or repository_test_collection_boundary_is_explicit or ci_runs_atlas_workflow_contract_tests'
+  -k 'ci_runs_complete_repository_test_contract or repository_test_collection_boundary_is_explicit or ci_runs_repository_workflow_contract_tests'
 ```
 
 Expected: the collection-boundary test passes, while the workflow test fails with a missing
@@ -156,7 +156,7 @@ Insert this job before `pytest-nnx-surface` in `.github/workflows/ci.yml`:
         run: make test
 ```
 
-Append the two new test names to the `verify-repo` job's `Test Atlas workflow contracts` `-k`
+Append the two new test names to the `verify-repo` job's `Test repository workflow contracts` `-k`
 expression exactly as asserted in Step 1. Do not change the workflow triggers or any existing job.
 
 - [x] **Step 4: Verify green and inspect the parsed workflow**
@@ -165,7 +165,7 @@ Run:
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_repo.py -q \
-  -k 'ci_runs_complete_repository_test_contract or repository_test_collection_boundary_is_explicit or ci_runs_atlas_workflow_contract_tests or ci_covers_gitflow_pr_targets'
+  -k 'ci_runs_complete_repository_test_contract or repository_test_collection_boundary_is_explicit or ci_runs_repository_workflow_contract_tests or ci_covers_gitflow_pr_targets'
 python - <<'PY'
 from pathlib import Path
 import yaml

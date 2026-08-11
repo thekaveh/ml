@@ -213,7 +213,7 @@ git commit -m "ci: run complete repository pytest contract"
 - Consumes: the Task 1 workflow job, the established Makefile/pytest boundary, the three-surface manifest, and diagram renderer.
 - Produces: current contributor guidance, validation-gate prose, resolved OM-068 evidence, durable history, and a system diagram that visibly distinguishes complete pytest from focused CI signals.
 
-- [ ] **Step 1: Add the failing diagram-content regression**
+- [x] **Step 1: Add the failing diagram-content regression**
 
 Add this focused test to `tests/test_render_diagrams.py`:
 
@@ -228,7 +228,7 @@ def test_system_master_names_complete_and_focused_ci_signals():
     assert "CI runs complete pytest plus focused NNx, verifier, and notebook gates." in source
 ```
 
-- [ ] **Step 2: Run the focused test and capture the intended red state**
+- [x] **Step 2: Run the focused test and capture the intended red state**
 
 Run:
 
@@ -240,7 +240,7 @@ pytest -p no:cacheprovider tests/test_render_diagrams.py -q \
 Expected: one failure because the current system master mentions smoke tiers and Docker/docs but
 does not show the complete pytest job or the retained focused signals.
 
-- [ ] **Step 3: Replace stale contributor and validation prose with the implemented contract**
+- [x] **Step 3: Replace stale contributor and validation prose with the implemented contract**
 
 In `CONTRIBUTING.md`, replace workflow steps 4–6 with prose that states:
 
@@ -285,7 +285,7 @@ Add this Unreleased Changed entry to `CHANGELOG.md`:
 - **Complete repository pytest CI:** pull requests now run the exact `make test` contract in the required `pytest-repository` job with pinned runtime and documentation dependencies, native Cairo support, a 15-minute timeout, and a four-manifest pip download cache. Focused NNx/Ruff, verifier, documentation, and notebook-execution jobs remain separate diagnostic and reproducibility signals.
 ```
 
-- [ ] **Step 4: Update and render the system diagram**
+- [x] **Step 4: Update and render the system diagram**
 
 In the `CI Workflows` box of `docs/diagrams/ml-eng-lab-system.html`, replace the two detail labels
 with these exact visible strings:
@@ -311,7 +311,7 @@ Confirm the CI labels are readable, no text overlaps or clips, every arrow remai
 and no unsupported glyph renders as tofu. If layout changes are required, edit the HTML master and
 rerender; never patch the PNG directly.
 
-- [ ] **Step 5: Verify all canonical and projected documentation**
+- [x] **Step 5: Verify all canonical and projected documentation**
 
 Run:
 
@@ -329,7 +329,7 @@ findings; Ruff and the diff check exit zero. Inspect `generated/site` and `gener
 the conventions, architecture, OM-068, plan, and regenerated system diagram appear on both derived
 surfaces without editing them.
 
-- [ ] **Step 6: Mark Task 2 complete and commit**
+- [x] **Step 6: Mark Task 2 complete and commit**
 
 Change Task 2's checkboxes to `[x]`, rerun its focused green commands, then commit:
 

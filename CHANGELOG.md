@@ -13,6 +13,7 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Complete repository pytest CI:** pull requests now run the exact `make test` contract in the required `pytest-repository` job with pinned runtime and documentation dependencies, native Cairo support, a 15-minute timeout, and a four-manifest pip download cache. Focused NNx/Ruff, verifier, documentation, and notebook-execution jobs remain separate diagnostic and reproducibility signals.
 - **Project opener visual remediation:** replaced the runtime-diagram opener with a dedicated
   local `docs/assets/ml-eng-lab-poster.png`, a centered shared title and tagline, nineteen local
   shields arranged in four stack categories, and a synchronized two-paragraph executive summary.

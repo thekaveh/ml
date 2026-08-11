@@ -3,8 +3,7 @@ name: Docs gate
 on:
   pull_request:
     paths:
-      - 'README.md'
-      - 'SECURITY.md'
+      - '*.md'
       - 'docs/**'
       - 'docs/manifest.yaml'
       - 'notebooks/**/README.md'

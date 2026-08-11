@@ -37,12 +37,12 @@ notebooks:
 diagrams: []
 """
 
-ROOT_POLICY_MANIFEST_YAML = MANIFEST_YAML.replace(
+ROOT_GOVERNANCE_MANIFEST_YAML = MANIFEST_YAML.replace(
     "notebooks:\n",
-    "  - id: security\n"
+    "  - id: support\n"
     "    number: \"13\"\n"
-    "    title: Security policy\n"
-    "    source: SECURITY.md\n"
+    "    title: Support\n"
+    "    source: SUPPORT.md\n"
     "notebooks:\n",
 )
 
@@ -361,18 +361,18 @@ def test_repo_self_containment_allows_relative_links(tmp_path):
 def test_repo_self_containment_scans_manifest_declared_root_markdown(tmp_path):
     _write_valid_notebook_infrastructure_fixture(tmp_path)
     (tmp_path / "docs/manifest.yaml").write_text(
-        ROOT_POLICY_MANIFEST_YAML,
+        ROOT_GOVERNANCE_MANIFEST_YAML,
         encoding="utf-8",
     )
-    (tmp_path / "SECURITY.md").write_text(
-        "[wiki](https://github.com/thekaveh/ml-eng-lab/wiki/Security-policy)\n",
+    (tmp_path / "SUPPORT.md").write_text(
+        "[wiki](https://github.com/thekaveh/ml-eng-lab/wiki/Support)\n",
         encoding="utf-8",
     )
 
     findings = check_repo_self_containment(tmp_path)
 
     assert len(findings) == 1
-    assert "SECURITY.md" in findings[0].message
+    assert "SUPPORT.md" in findings[0].message
 
 
 def test_completeness_flags_missing_spec(tmp_path):
@@ -394,8 +394,8 @@ def test_completeness_flags_unmanifested_markdown(tmp_path):
 
 def test_completeness_accepts_existing_manifest_declared_root_markdown(tmp_path):
     _write_valid_notebook_infrastructure_fixture(tmp_path)
-    (tmp_path / "SECURITY.md").write_text("# 13 Security policy\n", encoding="utf-8")
-    manifest = parse_manifest(ROOT_POLICY_MANIFEST_YAML)
+    (tmp_path / "SUPPORT.md").write_text("# 13 Support\n", encoding="utf-8")
+    manifest = parse_manifest(ROOT_GOVERNANCE_MANIFEST_YAML)
 
     assert check_completeness(manifest, tmp_path) == []
 
@@ -403,9 +403,9 @@ def test_completeness_accepts_existing_manifest_declared_root_markdown(tmp_path)
 def test_load_manifest_rejects_missing_declared_root_markdown(tmp_path):
     _write_valid_notebook_infrastructure_fixture(tmp_path)
     manifest_path = tmp_path / "docs/manifest.yaml"
-    manifest_path.write_text(ROOT_POLICY_MANIFEST_YAML, encoding="utf-8")
+    manifest_path.write_text(ROOT_GOVERNANCE_MANIFEST_YAML, encoding="utf-8")
 
-    with pytest.raises(ValueError, match="section source 'SECURITY.md' does not exist"):
+    with pytest.raises(ValueError, match="section source 'SUPPORT.md' does not exist"):
         load_manifest(manifest_path, tmp_path)
 
 
@@ -420,13 +420,18 @@ def test_manifest_markdown_sources_contains_sections_and_notebooks():
 
 def test_real_manifest_declares_every_canonical_markdown_file():
     manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    declared = manifest_markdown_sources(manifest)
     actual = {
         str(path.relative_to(REPO_ROOT))
         for path in (REPO_ROOT / "docs").rglob("*.md")
     }
-    actual.add("SECURITY.md")
+    actual.update(
+        source
+        for source in declared
+        if Path(source).parent == Path(".") and source.endswith(".md")
+    )
 
-    assert manifest_markdown_sources(manifest) == actual
+    assert declared == actual
 
 
 def test_real_manifest_sections_are_source_leaves_or_children_groups():

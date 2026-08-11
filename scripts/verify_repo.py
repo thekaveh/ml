@@ -493,17 +493,43 @@ def _baseline_notebook_rel(rel: str) -> str:
 
 
 def _iter_in_scope_text_files(repo: Path) -> Iterator[Path]:
-    yield repo / "README.md"
-    yield repo / "CONTRIBUTING.md"
-    yield repo / "CHANGELOG.md"
-    yield repo / "SECURITY.md"
-    for p in sorted((repo / "docs").rglob("*.md")):
-        if p.relative_to(repo).as_posix().startswith("docs/superpowers/"):
+    candidates = [
+        repo / "README.md",
+        repo / "CONTRIBUTING.md",
+        repo / "CHANGELOG.md",
+    ]
+    manifest_path = repo / "docs" / "manifest.yaml"
+    if manifest_path.exists():
+        from scripts.docs.check_docs import manifest_markdown_sources
+        from scripts.docs.manifest import load_manifest
+
+        try:
+            manifest = load_manifest(manifest_path, repo)
+        except (OSError, ValueError):
+            manifest = None
+        if manifest is not None:
+            candidates.extend(
+                repo / source
+                for source in sorted(manifest_markdown_sources(manifest))
+                if Path(source).parent == Path(".")
+                and Path(source).suffix.lower() == ".md"
+            )
+    candidates.extend(
+        p
+        for p in sorted((repo / "docs").rglob("*.md"))
+        if not p.relative_to(repo).as_posix().startswith("docs/superpowers/")
+    )
+    candidates.extend(
+        p
+        for d in ACTIVE_TASK_DIRS
+        for p in _active_task_path(repo, d).glob("*.md")
+    )
+    seen: set[Path] = set()
+    for path in candidates:
+        if path in seen:
             continue
-        yield p
-    for d in ACTIVE_TASK_DIRS:
-        for p in _active_task_path(repo, d).glob("*.md"):
-            yield p
+        seen.add(path)
+        yield path
 
 
 def _iter_in_scope_markdown_documents(repo: Path) -> Iterator[tuple[Path, Path, str]]:

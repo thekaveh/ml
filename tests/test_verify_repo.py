@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -2253,7 +2254,67 @@ def test_ci_runs_atlas_workflow_contract_tests():
         "documentation_workflows_install_cairo_and_gate_pages_inputs or "
         "documentation_direct_dependencies_are_exactly_pinned or "
         "docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or "
-        "ci_runs_atlas_workflow_contract_tests'"
+        "ci_runs_atlas_workflow_contract_tests or "
+        "ci_runs_complete_repository_test_contract or "
+        "repository_test_collection_boundary_is_explicit'"
+    )
+
+
+def test_ci_runs_complete_repository_test_contract():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    job = workflow["jobs"]["pytest-repository"]
+
+    assert job["name"] == "pytest-repository"
+    assert job["runs-on"] == "ubuntu-24.04"
+    assert job["timeout-minutes"] == "15"
+    assert "if" not in job
+    assert "continue-on-error" not in job
+
+    steps = job["steps"]
+    checkout = next(step for step in steps if step.get("name") == "Checkout")
+    assert checkout["with"]["persist-credentials"] == "false"
+    assert "submodules" not in checkout["with"]
+
+    cairo = next(
+        step
+        for step in steps
+        if step.get("name") == "Install system dependencies for cairosvg"
+    )
+    assert "libcairo2" in cairo["run"]
+
+    python = next(step for step in steps if step.get("name") == "Set up Python 3.11")
+    assert python["with"]["python-version"] == "3.11"
+    assert python["with"]["cache"] == "pip"
+    assert set(python["with"]["cache-dependency-path"].splitlines()) == {
+        "requirements.txt",
+        "torch-core-requirements.txt",
+        "torch-requirements.txt",
+        "docs-requirements.txt",
+    }
+
+    install = next(step for step in steps if step.get("name") == "Install dependencies")
+    assert install["run"].splitlines() == [
+        "make install-torch-stack",
+        "pip install -r requirements.txt",
+        "pip install -r docs-requirements.txt",
+    ]
+    complete = next(
+        step for step in steps if step.get("name") == "Run complete repository tests"
+    )
+    assert complete["run"] == "make test"
+    assert all("continue-on-error" not in step for step in steps)
+
+
+def test_repository_test_collection_boundary_is_explicit():
+    config = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    pytest_config = config["tool"]["pytest"]["ini_options"]
+
+    assert pytest_config["testpaths"] == ["tests"]
+    assert {"infra", "notebooks/archive", ".venv"} <= set(
+        pytest_config["norecursedirs"]
+    )
+    assert "\ntest:\n\tpytest tests/ -v\n" in (REPO / "Makefile").read_text(
+        encoding="utf-8"
     )
 
 

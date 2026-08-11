@@ -36,7 +36,7 @@
 - Consumes: `Makefile` target `test`, `pyproject.toml` pytest collection settings, four dependency manifests, and the existing workflow trigger matrix.
 - Produces: unconditional workflow job `pytest-repository`, plus regression tests `test_ci_runs_complete_repository_test_contract` and `test_repository_test_collection_boundary_is_explicit` that later reviewers and CI use as the executable contract.
 
-- [ ] **Step 1: Add the failing workflow and collection-boundary tests**
+- [x] **Step 1: Add the failing workflow and collection-boundary tests**
 
 Add `import tomllib` beside the standard-library imports in `tests/test_verify_repo.py`, then add these tests beside the existing CI workflow-contract tests:
 
@@ -104,7 +104,7 @@ Extend `test_ci_runs_atlas_workflow_contract_tests` so its exact `-k` expression
 "repository_test_collection_boundary_is_explicit'"
 ```
 
-- [ ] **Step 2: Run the tests and capture the intended red state**
+- [x] **Step 2: Run the tests and capture the intended red state**
 
 Run:
 
@@ -117,7 +117,7 @@ Expected: the collection-boundary test passes, while the workflow test fails wit
 `pytest-repository` job and the existing narrow-selector test fails because it does not yet invoke
 the new contract tests. Record the exact pass/fail count in the implementation report.
 
-- [ ] **Step 3: Add the minimal unconditional job**
+- [x] **Step 3: Add the minimal unconditional job**
 
 Insert this job before `pytest-nnx-surface` in `.github/workflows/ci.yml`:
 
@@ -159,7 +159,7 @@ Insert this job before `pytest-nnx-surface` in `.github/workflows/ci.yml`:
 Append the two new test names to the `verify-repo` job's `Test Atlas workflow contracts` `-k`
 expression exactly as asserted in Step 1. Do not change the workflow triggers or any existing job.
 
-- [ ] **Step 4: Verify green and inspect the parsed workflow**
+- [x] **Step 4: Verify green and inspect the parsed workflow**
 
 Run:
 
@@ -184,7 +184,7 @@ git diff --check
 Expected: all selected tests pass; the parsed summary reports `pytest-repository`,
 `ubuntu-24.04`, and `15`; Ruff and the diff check exit zero.
 
-- [ ] **Step 5: Mark Task 1 complete and commit**
+- [x] **Step 5: Mark Task 1 complete and commit**
 
 Change Task 1's checkboxes to `[x]`, rerun the focused green command, then commit only the workflow,
 tests, and updated plan:

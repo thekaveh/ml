@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import shlex
 import subprocess
 import sys
 import tomllib
@@ -2267,16 +2266,7 @@ def test_ci_runs_repository_workflow_contract_tests():
 
 def _assert_complete_repository_test_contract(workflow: dict) -> None:
     assert "defaults" not in workflow
-    contract_altering_env = {
-        "MAKEFLAGS",
-        "MFLAGS",
-        "PYTEST_ADDOPTS",
-        "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
-        "PYTEST_PLUGINS",
-        "PYTHONPATH",
-        "SHELL",
-    }
-    assert contract_altering_env.isdisjoint(workflow.get("env", {}))
+    assert "env" not in workflow
 
     job = workflow["jobs"]["pytest-repository"]
 
@@ -2289,52 +2279,43 @@ def _assert_complete_repository_test_contract(workflow: dict) -> None:
     assert "services" not in job
     assert "container" not in job
 
-    steps = job["steps"]
-    assert [step["name"] for step in steps] == [
-        "Checkout",
-        "Install system dependencies for cairosvg",
-        "Set up Python 3.11",
-        "Install dependencies",
-        "Run complete repository tests",
+    assert job["steps"] == [
+        {
+            "name": "Checkout",
+            "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+            "with": {"persist-credentials": "false"},
+        },
+        {
+            "name": "Install system dependencies for cairosvg",
+            "run": "sudo apt-get update && sudo apt-get install -y libcairo2",
+        },
+        {
+            "name": "Set up Python 3.11",
+            "uses": "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+            "with": {
+                "python-version": "3.11",
+                "cache": "pip",
+                "cache-dependency-path": (
+                    "requirements.txt\n"
+                    "torch-core-requirements.txt\n"
+                    "torch-requirements.txt\n"
+                    "docs-requirements.txt\n"
+                ),
+            },
+        },
+        {
+            "name": "Install dependencies",
+            "run": (
+                "make install-torch-stack\n"
+                "pip install -r requirements.txt\n"
+                "pip install -r docs-requirements.txt\n"
+            ),
+        },
+        {
+            "name": "Run complete repository tests",
+            "run": "make test",
+        },
     ]
-    checkout = next(step for step in steps if step.get("name") == "Checkout")
-    assert checkout["with"]["persist-credentials"] == "false"
-    assert "submodules" not in checkout["with"]
-
-    cairo = next(
-        step
-        for step in steps
-        if step.get("name") == "Install system dependencies for cairosvg"
-    )
-    assert cairo == {
-        "name": "Install system dependencies for cairosvg",
-        "run": "sudo apt-get update && sudo apt-get install -y libcairo2",
-    }
-
-    python = next(step for step in steps if step.get("name") == "Set up Python 3.11")
-    assert python["with"]["python-version"] == "3.11"
-    assert python["with"]["cache"] == "pip"
-    assert set(python["with"]["cache-dependency-path"].splitlines()) == {
-        "requirements.txt",
-        "torch-core-requirements.txt",
-        "torch-requirements.txt",
-        "docs-requirements.txt",
-    }
-
-    install = next(step for step in steps if step.get("name") == "Install dependencies")
-    assert install["run"].splitlines() == [
-        "make install-torch-stack",
-        "pip install -r requirements.txt",
-        "pip install -r docs-requirements.txt",
-    ]
-    complete = next(
-        step for step in steps if step.get("name") == "Run complete repository tests"
-    )
-    assert complete == {
-        "name": "Run complete repository tests",
-        "run": "make test",
-    }
-    assert all("continue-on-error" not in step for step in steps)
 
 
 def test_ci_runs_complete_repository_test_contract():
@@ -2367,6 +2348,8 @@ def test_ci_runs_complete_repository_test_contract_rejects_job_level_controls(
     [
         ("defaults", {"run": {"shell": "bash"}}),
         ("env", {"PYTEST_ADDOPTS": "-k smoke"}),
+        ("env", {"BASH_ENV": "/tmp/ci-env"}),
+        ("env", {"PATH": "/tmp/bin"}),
     ],
 )
 def test_ci_runs_complete_repository_test_contract_rejects_workflow_level_controls(
@@ -2403,6 +2386,39 @@ def test_ci_runs_complete_repository_test_contract_rejects_conditional_or_masked
         _assert_complete_repository_test_contract(workflow)
 
 
+@pytest.mark.parametrize(
+    ("step_name", "field", "value"),
+    [
+        ("Checkout", "env", {"ACTIONS_STEP_DEBUG": "true"}),
+        (
+            "Install system dependencies for cairosvg",
+            "continue-on-error",
+            "true",
+        ),
+        ("Set up Python 3.11", "if", "github.ref == 'refs/heads/main'"),
+        ("Set up Python 3.11", "shell", "bash {0} || true"),
+        ("Install dependencies", "if", "github.ref == 'refs/heads/main'"),
+        ("Install dependencies", "shell", "bash {0} || true"),
+        ("Run complete repository tests", "env", {"PYTEST_ADDOPTS": "-q"}),
+    ],
+)
+def test_ci_runs_complete_repository_test_contract_rejects_extra_step_metadata(
+    step_name,
+    field,
+    value,
+):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    step = next(
+        step
+        for step in workflow["jobs"]["pytest-repository"]["steps"]
+        if step.get("name") == step_name
+    )
+    step[field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_complete_repository_test_contract(workflow)
+
+
 def test_ci_runs_complete_repository_test_contract_rejects_false_cairo_echo():
     workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
     cairo = next(
@@ -2418,7 +2434,16 @@ def test_ci_runs_complete_repository_test_contract_rejects_false_cairo_echo():
 
 def _assert_repository_test_collection_boundary(repo: Path) -> None:
     assert not [
-        name for name in ("pytest.ini", "tox.ini", "setup.cfg") if (repo / name).exists()
+        name
+        for name in (
+            "pytest.ini",
+            ".pytest.ini",
+            "pytest.toml",
+            ".pytest.toml",
+            "tox.ini",
+            "setup.cfg",
+        )
+        if (repo / name).exists()
     ]
 
     config = tomllib.loads((repo / "pyproject.toml").read_text(encoding="utf-8"))
@@ -2428,20 +2453,7 @@ def _assert_repository_test_collection_boundary(repo: Path) -> None:
     assert {"infra", "notebooks/archive", ".venv"} <= set(
         pytest_config["norecursedirs"]
     )
-    addopts = pytest_config.get("addopts", "")
-    addopt_tokens = shlex.split(addopts) if isinstance(addopts, str) else addopts
-    short_selection_options = ("-k", "-m")
-    long_selection_options = ("--deselect", "--ignore", "--ignore-glob", "--pyargs")
-    assert not any(
-        token == option or token.startswith(option)
-        for token in addopt_tokens
-        for option in short_selection_options
-    )
-    assert not any(
-        token == option or token.startswith(f"{option}=")
-        for token in addopt_tokens
-        for option in long_selection_options
-    )
+    assert pytest_config.get("addopts", "") in ("", [])
 
     make = subprocess.run(
         ["make", "--no-print-directory", "-n", "test"],
@@ -2478,15 +2490,17 @@ def test_repository_test_collection_boundary_is_explicit_for_effective_make_targ
         _assert_repository_test_collection_boundary(repo)
 
 
-def test_repository_test_collection_boundary_is_explicit_without_selection_addopts(
+@pytest.mark.parametrize("addopts", ["-k smoke", "--collect-only"])
+def test_repository_test_collection_boundary_is_explicit_without_nonempty_addopts(
     tmp_path,
+    addopts,
 ):
     repo = _copy_repository_test_collection_contract(tmp_path)
     pyproject = repo / "pyproject.toml"
     pyproject.write_text(
         pyproject.read_text(encoding="utf-8").replace(
             'pythonpath = ["."]',
-            'pythonpath = ["."]\naddopts = "-k smoke"',
+            f'pythonpath = ["."]\naddopts = "{addopts}"',
         ),
         encoding="utf-8",
     )
@@ -2495,7 +2509,31 @@ def test_repository_test_collection_boundary_is_explicit_without_selection_addop
         _assert_repository_test_collection_boundary(repo)
 
 
-@pytest.mark.parametrize("config_name", ["pytest.ini", "tox.ini", "setup.cfg"])
+def test_repository_test_collection_boundary_is_explicit_with_empty_addopts(tmp_path):
+    repo = _copy_repository_test_collection_contract(tmp_path)
+    pyproject = repo / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text(encoding="utf-8").replace(
+            'pythonpath = ["."]',
+            'pythonpath = ["."]\naddopts = ""',
+        ),
+        encoding="utf-8",
+    )
+
+    _assert_repository_test_collection_boundary(repo)
+
+
+@pytest.mark.parametrize(
+    "config_name",
+    [
+        "pytest.ini",
+        ".pytest.ini",
+        "pytest.toml",
+        ".pytest.toml",
+        "tox.ini",
+        "setup.cfg",
+    ],
+)
 def test_repository_test_collection_boundary_is_explicit_without_higher_precedence_config(
     tmp_path,
     config_name,

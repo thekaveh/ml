@@ -131,6 +131,10 @@ sections:
         number: "12.8"
         title: Issue 55 security policy implementation plan
         source: docs/superpowers/plans/2026-08-11-issue-55-security-policy-implementation-plan.md
+      - id: issue-56-repository-test-ci-design
+        number: "12.9"
+        title: Issue 56 complete repository test CI design
+        source: docs/superpowers/specs/2026-08-11-issue-56-repository-test-ci-design.md
   - id: security
     number: "13"
     title: Security policy

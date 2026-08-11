@@ -411,7 +411,11 @@ git commit -m "docs: record opener visual remediation"
 - Produces: a reviewed feature PR into `develop`, followed by a content-synchronizing PR from `develop` into `main`.
 - Consumes: the complete feature branch.
 
-- [ ] **Step 1: Run all local gates**
+**Completion:** PR #51 merged the reviewed feature into `develop`, and PR #52 merged the release into
+`main`. The main-branch Pages deployment and wiki synchronization both completed successfully, publishing
+the remediated opener to the live surfaces.
+
+- [x] **Step 1: Run all local gates**
 
 ```bash
 make docs-check
@@ -426,18 +430,18 @@ git status --short
 
 Expected: all commands pass; the final status is clean after commits.
 
-- [ ] **Step 2: Visually inspect the poster and built landing page**
+- [x] **Step 2: Visually inspect the poster and built landing page**
 
 Open the committed poster and the locally built site landing page. Confirm exact wordmark text,
 centered hierarchy, four badge categories, readable summary, no missing images, and acceptable dark
 and light theme rendering.
 
-- [ ] **Step 3: Request code review and address only verified findings**
+- [x] **Step 3: Request code review and address only verified findings**
 
 Use the requesting-code-review skill against `origin/develop...HEAD`. Re-run the affected focused
 tests after each accepted correction, then repeat the full Task 6 gate.
 
-- [ ] **Step 4: Push and open the feature-to-develop PR**
+- [x] **Step 4: Push and open the feature-to-develop PR**
 
 ```bash
 git push origin codex/docs-opener-visual-remediation
@@ -446,7 +450,7 @@ gh pr create --base develop --head codex/docs-opener-visual-remediation --title 
 
 Wait for required checks, merge the PR, and delete the remote feature branch.
 
-- [ ] **Step 5: Open and merge the develop-to-main release PR**
+- [x] **Step 5: Open and merge the develop-to-main release PR**
 
 ```bash
 gh pr create --base main --head develop --title "release: publish project opener remediation" --body "Publishes the reviewed project-opener remediation from develop to main so GitHub Pages and the wiki receive the dedicated poster, centered header, local technology badges, and synchronized executive summary."
@@ -455,7 +459,7 @@ gh pr create --base main --head develop --title "release: publish project opener
 Wait for required checks, merge the PR, and confirm `origin/develop^{tree}` equals
 `origin/main^{tree}`.
 
-- [ ] **Step 6: Verify published surfaces and clean local state**
+- [x] **Step 6: Verify published surfaces and clean local state**
 
 Confirm the Pages and wiki workflows succeed at the main merge commit; fetch the live site and wiki
 and verify the new wordmark/tagline. Switch local state to updated `main`, remove the merged local

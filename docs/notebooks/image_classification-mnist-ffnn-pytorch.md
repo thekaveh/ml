@@ -403,10 +403,10 @@ framework buys.
   vanilla SGD. The side-by-side is the cleanest illustration of what `nnx`
   provides (optimizer, scheduler, sweep, serialization, viz) versus what the
   NumPy variant makes visible (every gradient and weight update).
-- **Add an early-stopping callback.** The README lists this as future work,
-  gated on the primitive landing upstream in `nnx`. Once available, it replaces
-  the current "best-iteration" ranking with an explicit stopped-at-N-epochs
-  signal and shortens the Tier-B wall time.
+- **Add an early-stopping callback.** The README lists this as future work.
+  Adopting the available `nnx.EarlyStopping` callback with an explicit validation
+  monitor would add a stopped-at-N-epochs signal alongside the current
+  "best-iteration" ranking.
 - **Add a CNN variant (LeNet-style) for direct comparison against the FFN.**
   The other README future-work item. A pair of conv layers on top of the same
   `NNDataset` + `NNModel` plumbing should drop validation error into the

@@ -135,7 +135,7 @@ Apply checklist A–L from `three-surface-docs-audit`, including single-source g
 
 Apply the smallest canonical-source or tested-pipeline correction, regenerate both projections, and rerun the focused check. Never hand-edit generated output.
 
-- [ ] **Step 3: Run the complete local gate**
+- [x] **Step 3: Run the complete local gate**
 
 Run:
 
@@ -149,7 +149,7 @@ git diff --check
 git status --short
 ```
 
-- [ ] **Step 4: Complete independent requirements and quality reviews**
+- [x] **Step 4: Complete independent requirements and quality reviews**
 
 Fix every Critical or Important finding, rerun affected tests, then rerun the complete gate.
 

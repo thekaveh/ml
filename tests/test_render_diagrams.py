@@ -109,6 +109,7 @@ def test_documentation_pipeline_masters_avoid_unsupported_status_glyphs():
     for filename in (
         "ml-eng-lab-docs-publishing.html",
         "ml-eng-lab-docs-sync.html",
+        "ml-eng-lab-system.html",
     ):
         visible_text = _visible_svg_text(REPO_ROOT / "docs/diagrams" / filename)
         assert unsupported_glyphs.isdisjoint(visible_text)

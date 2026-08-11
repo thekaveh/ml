@@ -1180,26 +1180,36 @@ def check_docs(repo: Path) -> CheckResult:
             check_numbering,
             manifest_markdown_sources,
         )
-        from scripts.docs.manifest import load_manifest
+        from scripts.docs.manifest import ManifestError, load_manifest
 
-        manifest = load_manifest(manifest_path, repo)
-        canonical_doc_sources = manifest_markdown_sources(manifest)
-        for finding in check_notebook_infrastructure(manifest, repo):
+        try:
+            manifest = load_manifest(manifest_path, repo)
+        except (ManifestError, OSError) as error:
             result.findings.append(Finding(
-                id="D10.notebook_infrastructure",
+                id="D9.invalid_manifest",
                 check="docs",
-                severity=finding.severity,
-                location="docs/notebook-infrastructure.md",
-                message=finding.message,
+                severity="error",
+                location="docs/manifest.yaml",
+                message=f"documentation manifest is invalid: {error}",
             ))
-        for finding in check_numbering(manifest, repo):
-            result.findings.append(Finding(
-                id="D9.numbered_heading",
-                check="docs",
-                severity=finding.severity,
-                location=finding.message.split(":", 1)[0],
-                message=finding.message,
-            ))
+        else:
+            canonical_doc_sources = manifest_markdown_sources(manifest)
+            for finding in check_notebook_infrastructure(manifest, repo):
+                result.findings.append(Finding(
+                    id="D10.notebook_infrastructure",
+                    check="docs",
+                    severity=finding.severity,
+                    location="docs/notebook-infrastructure.md",
+                    message=finding.message,
+                ))
+            for finding in check_numbering(manifest, repo):
+                result.findings.append(Finding(
+                    id="D9.numbered_heading",
+                    check="docs",
+                    severity=finding.severity,
+                    location=finding.message.split(":", 1)[0],
+                    message=finding.message,
+                ))
 
     configured_notebooks = set(REQUIRED_SECTIONS)
     for nb in _iter_notebooks(repo):

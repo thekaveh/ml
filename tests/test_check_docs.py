@@ -421,17 +421,18 @@ def test_manifest_markdown_sources_contains_sections_and_notebooks():
 def test_real_manifest_declares_every_canonical_markdown_file():
     manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
     declared = manifest_markdown_sources(manifest)
-    actual = {
+    actual_docs = {
         str(path.relative_to(REPO_ROOT))
         for path in (REPO_ROOT / "docs").rglob("*.md")
     }
-    actual.update(
+    declared_root_sources = {
         source
         for source in declared
         if Path(source).parent == Path(".") and source.endswith(".md")
-    )
+    }
 
-    assert declared == actual
+    assert declared_root_sources == {"SECURITY.md"}
+    assert declared == actual_docs | declared_root_sources
 
 
 def test_real_manifest_sections_are_source_leaves_or_children_groups():

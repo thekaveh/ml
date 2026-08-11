@@ -71,6 +71,33 @@ def test_docs_adapter_skips_synthetic_fixture_without_manifest(tmp_path, monkeyp
     assert not [finding for finding in result.findings if finding.id == "D10.notebook_infrastructure"]
 
 
+def test_docs_adapter_reports_invalid_manifest_and_continues_baseline_scans(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(verify_repo, "REQUIRED_SECTIONS", {})
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/manifest.yaml").write_text("sections: [\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text(
+        "Use the Jupyter Hub deployment.\n",
+        encoding="utf-8",
+    )
+
+    result = verify_repo.check_docs(tmp_path)
+
+    assert any(
+        finding.id == "D9.invalid_manifest"
+        and finding.severity == "error"
+        and finding.location == "docs/manifest.yaml"
+        for finding in result.findings
+    ), result.findings
+    assert any(
+        finding.id == "D8.terminology"
+        and finding.location == "README.md:1"
+        for finding in result.findings
+    ), result.findings
+
+
 def test_docs_adapter_reports_drift_for_a_real_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(verify_repo, "REQUIRED_SECTIONS", {})
     (tmp_path / "docs/notebooks").mkdir(parents=True)

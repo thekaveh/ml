@@ -493,16 +493,43 @@ def _baseline_notebook_rel(rel: str) -> str:
 
 
 def _iter_in_scope_text_files(repo: Path) -> Iterator[Path]:
-    yield repo / "README.md"
-    yield repo / "CONTRIBUTING.md"
-    yield repo / "CHANGELOG.md"
-    for p in sorted((repo / "docs").rglob("*.md")):
-        if p.relative_to(repo).as_posix().startswith("docs/superpowers/"):
+    candidates = [
+        repo / "README.md",
+        repo / "CONTRIBUTING.md",
+        repo / "CHANGELOG.md",
+    ]
+    manifest_path = repo / "docs" / "manifest.yaml"
+    if manifest_path.exists():
+        from scripts.docs.check_docs import manifest_markdown_sources
+        from scripts.docs.manifest import load_manifest
+
+        try:
+            manifest = load_manifest(manifest_path, repo)
+        except (OSError, ValueError):
+            manifest = None
+        if manifest is not None:
+            candidates.extend(
+                repo / source
+                for source in sorted(manifest_markdown_sources(manifest))
+                if Path(source).parent == Path(".")
+                and Path(source).suffix.lower() == ".md"
+            )
+    candidates.extend(
+        p
+        for p in sorted((repo / "docs").rglob("*.md"))
+        if not p.relative_to(repo).as_posix().startswith("docs/superpowers/")
+    )
+    candidates.extend(
+        p
+        for d in ACTIVE_TASK_DIRS
+        for p in _active_task_path(repo, d).glob("*.md")
+    )
+    seen: set[Path] = set()
+    for path in candidates:
+        if path in seen:
             continue
-        yield p
-    for d in ACTIVE_TASK_DIRS:
-        for p in _active_task_path(repo, d).glob("*.md"):
-            yield p
+        seen.add(path)
+        yield path
 
 
 def _iter_in_scope_markdown_documents(repo: Path) -> Iterator[tuple[Path, Path, str]]:
@@ -1153,26 +1180,36 @@ def check_docs(repo: Path) -> CheckResult:
             check_numbering,
             manifest_markdown_sources,
         )
-        from scripts.docs.manifest import load_manifest
+        from scripts.docs.manifest import ManifestError, load_manifest
 
-        manifest = load_manifest(manifest_path, repo)
-        canonical_doc_sources = manifest_markdown_sources(manifest)
-        for finding in check_notebook_infrastructure(manifest, repo):
+        try:
+            manifest = load_manifest(manifest_path, repo)
+        except (ManifestError, OSError) as error:
             result.findings.append(Finding(
-                id="D10.notebook_infrastructure",
+                id="D9.invalid_manifest",
                 check="docs",
-                severity=finding.severity,
-                location="docs/notebook-infrastructure.md",
-                message=finding.message,
+                severity="error",
+                location="docs/manifest.yaml",
+                message=f"documentation manifest is invalid: {error}",
             ))
-        for finding in check_numbering(manifest, repo):
-            result.findings.append(Finding(
-                id="D9.numbered_heading",
-                check="docs",
-                severity=finding.severity,
-                location=finding.message.split(":", 1)[0],
-                message=finding.message,
-            ))
+        else:
+            canonical_doc_sources = manifest_markdown_sources(manifest)
+            for finding in check_notebook_infrastructure(manifest, repo):
+                result.findings.append(Finding(
+                    id="D10.notebook_infrastructure",
+                    check="docs",
+                    severity=finding.severity,
+                    location="docs/notebook-infrastructure.md",
+                    message=finding.message,
+                ))
+            for finding in check_numbering(manifest, repo):
+                result.findings.append(Finding(
+                    id="D9.numbered_heading",
+                    check="docs",
+                    severity=finding.severity,
+                    location=finding.message.split(":", 1)[0],
+                    message=finding.message,
+                ))
 
     configured_notebooks = set(REQUIRED_SECTIONS)
     for nb in _iter_notebooks(repo):

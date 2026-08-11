@@ -9,6 +9,10 @@ A short guide for adding new notebook experiment folders and modifying shared co
 - The `notebooks/archive/` directory holds preserved-as-is experiments. Read-only.
 - New notebooks should include a top markdown cell stating purpose and dataset, plus the canonical §1–§6 hierarchy (Overview / Setup / Data / Model / Training / Evaluation & Results). Phase-1 exploration notebooks use a variant: §1, §2, §3 Dataset deep-dive.
 
+Report suspected vulnerabilities through the private route in
+[SECURITY.md](SECURITY.md#132-report-a-vulnerability-privately). Do not open a public issue,
+discussion, or pull request containing an undisclosed vulnerability or sensitive proof of concept.
+
 ## 2. Workflow
 
 1. Open a feature branch off `develop`; merge it there first, then promote `develop` to `main` in a separate PR.

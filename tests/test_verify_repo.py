@@ -40,12 +40,62 @@ def _temp_repo(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def _write_root_governance_manifest(
+    repo: Path,
+    *,
+    source: str = "SUPPORT.md",
+    number: str = "13",
+    title: str = "Support",
+) -> None:
+    docs = repo / "docs"
+    docs.mkdir(parents=True, exist_ok=True)
+    (docs / "manifest.yaml").write_text(
+        "surfaces: [repo, site, wiki]\n"
+        "numbering: baked\n"
+        "sections:\n"
+        "  - id: support\n"
+        f"    number: '{number}'\n"
+        f"    title: {title}\n"
+        f"    source: {source}\n"
+        "notebooks: []\n"
+        "diagrams: []\n",
+        encoding="utf-8",
+    )
+
+
 def test_docs_adapter_skips_synthetic_fixture_without_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(verify_repo, "REQUIRED_SECTIONS", {})
 
     result = verify_repo.check_docs(tmp_path)
 
     assert not [finding for finding in result.findings if finding.id == "D10.notebook_infrastructure"]
+
+
+def test_docs_adapter_reports_invalid_manifest_and_continues_baseline_scans(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(verify_repo, "REQUIRED_SECTIONS", {})
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/manifest.yaml").write_text("sections: [\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text(
+        "Use the Jupyter Hub deployment.\n",
+        encoding="utf-8",
+    )
+
+    result = verify_repo.check_docs(tmp_path)
+
+    assert any(
+        finding.id == "D9.invalid_manifest"
+        and finding.severity == "error"
+        and finding.location == "docs/manifest.yaml"
+        for finding in result.findings
+    ), result.findings
+    assert any(
+        finding.id == "D8.terminology"
+        and finding.location == "README.md:1"
+        for finding in result.findings
+    ), result.findings
 
 
 def test_docs_adapter_reports_drift_for_a_real_manifest(tmp_path, monkeypatch):
@@ -957,6 +1007,40 @@ def test_structure_s3_checks_nested_docs_markdown_links(tmp_path):
     assert hits, f"expected S3.broken_link for nested docs markdown; got {data.get('findings')}"
 
 
+def test_structure_s3_checks_manifest_declared_root_markdown_links(tmp_path):
+    """Every manifest-declared root document is part of repository link hygiene."""
+    repo = _temp_repo(tmp_path)
+    _write_root_governance_manifest(repo)
+    (repo / "SUPPORT.md").write_text(
+        "# 13. Support\n\n[missing](docs/missing-support-runbook.md)\n",
+        encoding="utf-8",
+    )
+
+    r = run_verify("--repo-root", str(repo), "--check", "structure", "--fast")
+    data = json.loads(r.stdout) if r.stdout else {"findings": []}
+    hits = [
+        f for f in data["findings"]
+        if f["id"] == "S3.broken_link" and f["location"] == "SUPPORT.md"
+    ]
+    assert hits, f"expected S3.broken_link for SUPPORT.md; got {data.get('findings')}"
+
+
+def test_structure_s3_keeps_scanning_when_docs_manifest_is_invalid(tmp_path):
+    """Malformed docs metadata must not hide ordinary repository structure findings."""
+    repo = _temp_repo(tmp_path)
+    (repo / "docs").mkdir()
+    (repo / "docs/manifest.yaml").write_text("sections: [\n", encoding="utf-8")
+    (repo / "README.md").write_text("[missing](missing.md)\n", encoding="utf-8")
+
+    r = run_verify("--repo-root", str(repo), "--check", "structure", "--fast")
+    data = json.loads(r.stdout) if r.stdout else {"findings": []}
+
+    assert any(
+        finding["id"] == "S3.broken_link" and finding["location"] == "README.md"
+        for finding in data["findings"]
+    ), data.get("findings")
+
+
 def test_structure_s3_flags_relative_links_that_escape_repo(tmp_path):
     """Repo docs should not silently validate sibling-directory links."""
     repo = _temp_repo(tmp_path / "repo")
@@ -1032,6 +1116,36 @@ def test_docs_d8_terminology_consistency_known_canonicals():
     SCRIPT_TEXT = SCRIPT.read_text()
     for token in ("JupyterHub", "NumPy", "PyTorch"):
         assert token in SCRIPT_TEXT, f"D8 missing canonical {token!r}"
+
+
+def test_docs_d8_scans_manifest_declared_root_markdown(tmp_path, monkeypatch):
+    """Terminology checks cover arbitrary root governance documents."""
+    monkeypatch.setattr(verify_repo, "REQUIRED_SECTIONS", {})
+    _write_root_governance_manifest(tmp_path)
+    (tmp_path / "SUPPORT.md").write_text(
+        "# 13. Support\n\nUse the Jupyter Hub deployment.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts/verify_repo_config.yaml").write_text(
+        "active_task_dirs: []\n",
+        encoding="utf-8",
+    )
+    infrastructure = tmp_path / "docs/notebook-infrastructure.md"
+    infrastructure.write_text(
+        "<!-- atlas-task-contracts:start -->\n"
+        "| Task | Tier | Default mode | Workspace access | Required Atlas services | Artifact policy | Constraints |\n"
+        "| --- | --- | --- | --- | --- | --- | --- |\n"
+        "<!-- atlas-task-contracts:end -->\n",
+        encoding="utf-8",
+    )
+
+    result = verify_repo.check_docs(tmp_path)
+
+    assert any(
+        finding.id == "D8.terminology" and finding.location == "SUPPORT.md:3"
+        for finding in result.findings
+    ), result.findings
 
 
 def test_docs_d9_current_numbered_docs_are_consistent():
@@ -2164,7 +2278,7 @@ def test_documentation_workflows_install_cairo_and_gate_pages_inputs():
         assert any("libcairo2" in step.get("run", "") for step in steps)
 
     required_paths = {
-        "README.md",
+        "*.md",
         ".gitmodules",
         "infra",
         "atlas.consumer.yml",
@@ -2301,6 +2415,12 @@ def test_docs_workflow_covers_atlas_metadata_inputs_and_parser_tests():
     steps = workflow["jobs"]["check"]["steps"]
     unit_tests = next(step for step in steps if step.get("name") == "Unit tests (docs scripts)")
     assert "tests/test_notebook_infrastructure.py" in unit_tests["run"].split()
+
+
+def test_docs_workflow_watches_all_root_markdown():
+    workflow = _load_workflow(REPO / ".github/workflows/docs.yml")
+
+    assert "*.md" in set(workflow["on"]["pull_request"]["paths"])
 
 
 def test_e6_shellcheck_targets_include_only_parent_owned_scripts():

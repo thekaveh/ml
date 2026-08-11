@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 
 from scripts.docs.wiki import render_wiki
-from scripts.docs.manifest import parse_manifest
+from scripts.docs.manifest import load_manifest, parse_manifest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 MANIFEST_YAML = """
 surfaces: [repo, site, wiki]
@@ -72,6 +74,18 @@ def test_render_wiki_writes_home_sidebar_pages_and_images(tmp_path):
     assert (out / "img/system.png").exists()
     assert (out / "assets/ml-eng-lab-poster.png").read_bytes() == b"poster"
     assert (out / "assets/badges/python.svg").exists()
+
+
+def test_real_manifest_renders_numbered_security_page_and_sidebar_entry(tmp_path):
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    out = tmp_path / "generated/wiki"
+
+    render_wiki(manifest, REPO_ROOT, out, trusted_output_root=tmp_path)
+    policy = (out / "13-Security-policy.md").read_text(encoding="utf-8")
+    sidebar = (out / "_Sidebar.md").read_text(encoding="utf-8")
+
+    assert "](6-1-Dependency-ledger.md)" in policy
+    assert "[13. Security policy](13-Security-policy)" in sidebar
 
 
 def test_render_wiki_removes_stale_generated_files(tmp_path):

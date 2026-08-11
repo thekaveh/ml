@@ -46,6 +46,15 @@ ROOT_GOVERNANCE_MANIFEST_YAML = MANIFEST_YAML.replace(
     "notebooks:\n",
 )
 
+
+def test_documentation_convention_uses_copyable_build_module_commands():
+    conventions = (REPO_ROOT / "docs/conventions.md").read_text(encoding="utf-8")
+
+    assert "`python -m scripts.docs.build_docs --site`" in conventions
+    assert "`python -m scripts.docs.build_docs --wiki`" in conventions
+    assert "scripts/docs/build_docs" not in conventions
+
+
 BADGE_GROUPS = (
     (
         "Core ML",

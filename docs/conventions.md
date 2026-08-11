@@ -244,11 +244,11 @@ derived surfaces. Canonical sources are the only documentation files a human edi
   is written and reviewed. This page, [architecture.md](architecture.md),
   [env-setup.md](env-setup.md), [dependency-contracts.md](dependency-contracts.md),
   and the other `docs/*.md` files all live in the canonical source set.
-- **Generated MkDocs site** — `scripts/docs/build_docs --site` renders the
+- **Generated MkDocs site** — `python -m scripts.docs.build_docs --site` renders the
   manifest into a site input under `generated/`, then `mkdocs build --strict`
   produces `site/`. Published to GitHub Pages by the Pages workflow. Built
   locally with `make docs-build` or previewed with `make docs-serve`.
-- **Generated GitHub wiki** — `scripts/docs/build_docs --wiki` renders the
+- **Generated GitHub wiki** — `python -m scripts.docs.build_docs --wiki` renders the
   same manifest into wiki Markdown, and `scripts/docs/push_wiki.py` pushes it
   to the repo's wiki (which renders from `master`, not the repo default
   `main`). Previewed locally with `make docs-wiki` (a `--check` dry run).

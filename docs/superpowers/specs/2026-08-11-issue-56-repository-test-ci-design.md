@@ -1,6 +1,6 @@
 # 12.9 Issue 56 complete repository test CI design
 
-**Status:** Proposed for written-spec review
+**Status:** Approved
 **Date:** 2026-08-11
 **Decision:** Add a separate, unconditional pull-request job that runs the repository's exact
 `make test` contract while retaining the existing focused NNx, verifier, documentation, and

@@ -353,7 +353,7 @@ git commit -m "docs: document complete repository test CI"
 - Consumes: the independently committed Task 1 workflow and Task 2 documentation deliverables.
 - Produces: requirements-reviewed and quality-reviewed commits with fresh complete local evidence.
 
-- [ ] **Step 1: Run the complete local gate from a clean task boundary**
+- [x] **Step 1: Run the complete local gate from a clean task boundary**
 
 Run sequentially so diagram rasterization cannot race inspection:
 
@@ -371,7 +371,7 @@ Record pytest's actual collected, passed, failed, and skipped results plus every
 all commands exit zero, no unexplained skip exists, and status shows only intentional plan-checkbox
 changes if they have not yet been committed.
 
-- [ ] **Step 2: Dispatch a fresh requirements reviewer**
+- [x] **Step 2: Dispatch a fresh requirements reviewer**
 
 Give the reviewer the approved design, this plan, Issue #56 acceptance criteria, and the complete
 branch diff from `origin/develop`. Require a line-by-line PASS/FAIL assessment of workflow command,
@@ -379,20 +379,20 @@ runner, Python, timeout, dependency installation, Cairo, cache inputs, collectio
 submodule exclusion, skip/failure semantics, preserved job roles, canonical docs, diagram, and no
 Atlas/Ollama/ComfyUI runtime activity.
 
-- [ ] **Step 3: Fix every requirements finding test-first**
+- [x] **Step 3: Fix every requirements finding test-first**
 
 For each Critical or Important finding, add or tighten the smallest focused regression, demonstrate
 red where behavior is missing, apply the minimal correction, rerun the focused test, and commit with
 a concern-specific conventional message. If the review reports no findings, record that result and
 do not create an empty commit.
 
-- [ ] **Step 4: Dispatch a fresh code-quality reviewer**
+- [x] **Step 4: Dispatch a fresh code-quality reviewer**
 
 Require review of workflow maintainability, regression strength, selector self-protection,
 YAML parsing behavior, documentation accuracy, diagram legibility, scope discipline, and generated
 artifact hygiene. The reviewer must distinguish blocking findings from optional suggestions.
 
-- [ ] **Step 5: Fix every quality finding and rerun the complete gate**
+- [x] **Step 5: Fix every quality finding and rerun the complete gate**
 
 Use the same focused red/green loop for any Critical or Important finding, then rerun:
 

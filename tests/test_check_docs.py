@@ -37,6 +37,15 @@ notebooks:
 diagrams: []
 """
 
+ROOT_POLICY_MANIFEST_YAML = MANIFEST_YAML.replace(
+    "notebooks:\n",
+    "  - id: security\n"
+    "    number: \"13\"\n"
+    "    title: Security policy\n"
+    "    source: SECURITY.md\n"
+    "notebooks:\n",
+)
+
 BADGE_GROUPS = (
     (
         "Core ML",
@@ -349,6 +358,23 @@ def test_repo_self_containment_allows_relative_links(tmp_path):
     assert check_repo_self_containment(tmp_path) == []
 
 
+def test_repo_self_containment_scans_manifest_declared_root_markdown(tmp_path):
+    _write_valid_notebook_infrastructure_fixture(tmp_path)
+    (tmp_path / "docs/manifest.yaml").write_text(
+        ROOT_POLICY_MANIFEST_YAML,
+        encoding="utf-8",
+    )
+    (tmp_path / "SECURITY.md").write_text(
+        "[wiki](https://github.com/thekaveh/ml-eng-lab/wiki/Security-policy)\n",
+        encoding="utf-8",
+    )
+
+    findings = check_repo_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "SECURITY.md" in findings[0].message
+
+
 def test_completeness_flags_missing_spec(tmp_path):
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs/index.md").write_text("x", encoding="utf-8")
@@ -364,6 +390,23 @@ def test_completeness_flags_unmanifested_markdown(tmp_path):
     findings = check_completeness(manifest, tmp_path)
 
     assert any("docs/extra.md" in finding.message and "not declared" in finding.message for finding in findings)
+
+
+def test_completeness_accepts_existing_manifest_declared_root_markdown(tmp_path):
+    _write_valid_notebook_infrastructure_fixture(tmp_path)
+    (tmp_path / "SECURITY.md").write_text("# 13 Security policy\n", encoding="utf-8")
+    manifest = parse_manifest(ROOT_POLICY_MANIFEST_YAML)
+
+    assert check_completeness(manifest, tmp_path) == []
+
+
+def test_load_manifest_rejects_missing_declared_root_markdown(tmp_path):
+    _write_valid_notebook_infrastructure_fixture(tmp_path)
+    manifest_path = tmp_path / "docs/manifest.yaml"
+    manifest_path.write_text(ROOT_POLICY_MANIFEST_YAML, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="section source 'SECURITY.md' does not exist"):
+        load_manifest(manifest_path, tmp_path)
 
 
 def test_manifest_markdown_sources_contains_sections_and_notebooks():

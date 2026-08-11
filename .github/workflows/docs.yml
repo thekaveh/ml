@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'README.md'
+      - 'SECURITY.md'
       - 'docs/**'
       - 'docs/manifest.yaml'
       - 'notebooks/**/README.md'

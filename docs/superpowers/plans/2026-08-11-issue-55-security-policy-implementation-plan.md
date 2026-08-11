@@ -35,11 +35,11 @@
 - Consumes: manifest-declared section sources and the canonical `docs/**/*.md` inventory.
 - Produces: completeness, self-containment, link, and workflow checks that accept and validate manifest-declared root Markdown without weakening the requirement that every file under `docs/` is manifest-indexed.
 
-- [ ] **Step 1: Write a failing regression**
+- [x] **Step 1: Write a failing regression**
 
 Add fixtures with `SECURITY.md` as a manifest section source plus the existing `docs/index.md` and notebook documentation. Assert completeness accepts an existing declared root source, manifest loading still rejects a missing declared root source, an unmanifested `docs/extra.md` still fails, a forbidden site/wiki link in the root policy is caught by repository self-containment, a broken internal link in the root policy is caught by the repository verifier, and the focused documentation workflow watches `SECURITY.md`.
 
-- [ ] **Step 2: Verify the regression fails for the intended reason**
+- [x] **Step 2: Verify the regression fails for the intended reason**
 
 Run:
 
@@ -49,11 +49,11 @@ pytest -p no:cacheprovider tests/test_check_docs.py -q
 
 Expected before production changes: the new tests fail because completeness compares all declared sources only to `docs/**/*.md`, the self-containment and repository scanners omit manifest-declared root policy files, and the workflow does not watch `SECURITY.md`.
 
-- [ ] **Step 3: Implement the minimal pipeline correction**
+- [x] **Step 3: Implement the minimal pipeline correction**
 
 Validate declaration coverage against `docs/**/*.md` while allowing other manifest-declared Markdown paths to rely on `load_manifest`'s existing file-existence check. Include manifest-declared root Markdown in repository self-containment scans, include `SECURITY.md` in the verifier's in-scope text files, and add it to the focused docs workflow path filter. Do not add a broad root-file allowlist or weaken unmanifested canonical-doc detection.
 
-- [ ] **Step 4: Verify green and commit**
+- [x] **Step 4: Verify green and commit**
 
 Run the focused test files, then `tests/test_manifest.py`, `tests/test_build_docs.py`, and `tests/test_wiki.py`. Commit only the tests, checkers, and workflow change with message `docs: support root canonical manifest sources`.
 

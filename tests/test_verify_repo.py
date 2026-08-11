@@ -957,6 +957,23 @@ def test_structure_s3_checks_nested_docs_markdown_links(tmp_path):
     assert hits, f"expected S3.broken_link for nested docs markdown; got {data.get('findings')}"
 
 
+def test_structure_s3_checks_root_security_policy_links(tmp_path):
+    """The native root security policy is part of repository link hygiene."""
+    repo = _temp_repo(tmp_path)
+    (repo / "SECURITY.md").write_text(
+        "# Security policy\n\n[missing](docs/missing-security-runbook.md)\n",
+        encoding="utf-8",
+    )
+
+    r = run_verify("--repo-root", str(repo), "--check", "structure", "--fast")
+    data = json.loads(r.stdout) if r.stdout else {"findings": []}
+    hits = [
+        f for f in data["findings"]
+        if f["id"] == "S3.broken_link" and f["location"] == "SECURITY.md"
+    ]
+    assert hits, f"expected S3.broken_link for SECURITY.md; got {data.get('findings')}"
+
+
 def test_structure_s3_flags_relative_links_that_escape_repo(tmp_path):
     """Repo docs should not silently validate sibling-directory links."""
     repo = _temp_repo(tmp_path / "repo")
@@ -2301,6 +2318,12 @@ def test_docs_workflow_covers_atlas_metadata_inputs_and_parser_tests():
     steps = workflow["jobs"]["check"]["steps"]
     unit_tests = next(step for step in steps if step.get("name") == "Unit tests (docs scripts)")
     assert "tests/test_notebook_infrastructure.py" in unit_tests["run"].split()
+
+
+def test_docs_workflow_watches_root_security_policy():
+    workflow = _load_workflow(REPO / ".github/workflows/docs.yml")
+
+    assert "SECURITY.md" in set(workflow["on"]["pull_request"]["paths"])
 
 
 def test_e6_shellcheck_targets_include_only_parent_owned_scripts():

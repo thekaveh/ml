@@ -496,6 +496,7 @@ def _iter_in_scope_text_files(repo: Path) -> Iterator[Path]:
     yield repo / "README.md"
     yield repo / "CONTRIBUTING.md"
     yield repo / "CHANGELOG.md"
+    yield repo / "SECURITY.md"
     for p in sorted((repo / "docs").rglob("*.md")):
         if p.relative_to(repo).as_posix().startswith("docs/superpowers/"):
             continue

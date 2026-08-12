@@ -106,12 +106,13 @@ dependency manifest reach both checks through the `scripts/atlas-*.sh`,
 The checks keep two responsibilities separate:
 
 - `atlas-consumer-policy` runs unconditionally on every pull request and is intended to be
-  required. It ShellChecks the four parent-owned wrappers and runs `make test-atlas-consumer`
-  against the parent policy without recursively checking out `infra/`.
+  required. It ShellChecks the four parent-owned shell files (three wrappers plus the dotenv
+  helper) and runs `make test-atlas-consumer` against the parent policy without recursively
+  checking out `infra/`.
 - The path-scoped `atlas-contract` directly validates the recursive submodule and is not a
   required check. It runs only when a declared Atlas input changes, checks out `infra/`
   recursively, and validates the consumer manifest against that pinned Atlas revision.
 
-CI never starts or contacts live services. The focused checks preserve `ollama-localhost` as the
-only Ollama source; containerized Ollama and ComfyUI sources remain prohibited, while ComfyUI stays
-disabled unless a reviewed consumer change selects localhost or managed-localhost-MPS.
+CI never starts or contacts live services. For this consumer, `ollama-localhost` is the only
+allowed Ollama source. The only allowed ComfyUI modes are `disabled`, `localhost`, and
+`managed-localhost-MPS`; containerized Ollama and ComfyUI sources remain prohibited.

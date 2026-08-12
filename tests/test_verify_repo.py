@@ -2907,6 +2907,9 @@ def test_atlas_consumer_policy_docs_define_ci_boundaries():
             "path-scoped `atlas-contract` directly validates the recursive submodule and "
             "is not a required check",
             "CI never starts or contacts live services",
+            "`ollama-localhost` is the only allowed Ollama source",
+            "The only allowed ComfyUI modes are `disabled`, `localhost`, and "
+            "`managed-localhost-MPS`",
             "containerized Ollama and ComfyUI sources remain prohibited",
         ),
         "docs/architecture.md": (

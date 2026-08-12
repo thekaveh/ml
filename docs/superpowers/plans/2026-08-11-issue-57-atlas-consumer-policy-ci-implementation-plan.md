@@ -204,11 +204,11 @@ Mark Task 2 only, rerun Step 4, stage its files, run `git diff --cached --check`
 
 **Interfaces:**
 - Consumes: Task 1's focused command and Task 2's two-job role split.
-- Produces: synchronized repository/site/wiki guidance and a diagram naming the required policy signal.
+- Produces: synchronized repository/site/wiki guidance and a diagram naming the policy signal intended to become required in Task 4.
 
 - [x] **Step 1: Add failing prose and diagram regressions**
 
-Assert canonical prose contains `make test-atlas-consumer`, `atlas-consumer-policy`, the separate path-scoped `atlas-contract` responsibility, and the non-live/native-only restriction. Extend the system-master regression so visible SVG text includes `Atlas policy + contract` and the HTML summary names the required policy job without replacing `Full pytest + Tier-A` or `Focused NNx + verifier`.
+Assert canonical prose contains `make test-atlas-consumer`, `atlas-consumer-policy`, the separate path-scoped `atlas-contract` responsibility, and the non-live/native-only restriction. Extend the system-master regression so visible SVG text includes `Atlas policy + contract` and the HTML summary names the policy job intended to become required without replacing `Full pytest + Tier-A` or `Focused NNx + verifier`.
 
 - [x] **Step 2: Run and record RED**
 
@@ -218,11 +218,11 @@ pytest -p no:cacheprovider tests/test_render_diagrams.py tests/test_verify_repo.
 
 - [x] **Step 3: Update canonical prose**
 
-- `CONTRIBUTING.md`: add the focused local command and say `atlas-consumer-policy` is required on every PR while `atlas-contract` is path-scoped.
+- `CONTRIBUTING.md`: add the focused local command and say `atlas-consumer-policy` runs on every PR and is intended to become required in Task 4, while `atlas-contract` is path-scoped.
 - `docs/conventions.md`: document the five-step focused job, two-package dependency file, ShellCheck inputs, exact Make target, non-live restriction, and relation to complete pytest.
 - `docs/jupyterhub-integration.md`: map parent wrapper/probe/helper changes to both checks; reiterate native-only Ollama and non-live CI.
-- `docs/architecture.md`: include the required policy job while preserving the direct submodule boundary.
-- `CHANGELOG.md`: record the required parent-policy job, expanded direct-validator paths, focused command, and no-live-service contract.
+- `docs/architecture.md`: include the policy job intended to become required in Task 4 while preserving the direct submodule boundary.
+- `CHANGELOG.md`: record the parent-policy job intended to become required in Task 4, expanded direct-validator paths, focused command, and no-live-service contract.
 
 Do not claim path-scoped `atlas-contract` is required.
 

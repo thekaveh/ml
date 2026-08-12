@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import subprocess
 from pathlib import Path
 
@@ -8,6 +9,46 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_SUBPROCESS_TIMEOUT = 30
+
+
+def _assert_nnx_install_fixture_contract(source: str) -> None:
+    tree = ast.parse(source)
+    verifier_imports = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "scripts.verify_nnx_install"
+        and any(alias.name == "verify_nnx_install" for alias in node.names)
+    ]
+    fixtures = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_verify_nnx_installation_contract"
+    ]
+
+    assert len(verifier_imports) == 1
+    assert len(fixtures) == 1
+    fixture = fixtures[0]
+    assert len(fixture.decorator_list) == 1
+    decorator = fixture.decorator_list[0]
+    assert isinstance(decorator, ast.Call)
+    assert isinstance(decorator.func, ast.Attribute)
+    assert isinstance(decorator.func.value, ast.Name)
+    assert (decorator.func.value.id, decorator.func.attr) == ("pytest", "fixture")
+    assert not decorator.args
+    assert {keyword.arg: ast.literal_eval(keyword.value) for keyword in decorator.keywords} == {
+        "scope": "session",
+        "autouse": True,
+    }
+    assert not fixture.args.args
+    assert len(fixture.body) == 1
+    invocation = fixture.body[0]
+    assert isinstance(invocation, ast.Expr)
+    assert isinstance(invocation.value, ast.Call)
+    assert isinstance(invocation.value.func, ast.Name)
+    assert invocation.value.func.id == "verify_nnx_install"
+    assert not invocation.value.args
+    assert not invocation.value.keywords
 
 
 def test_mkdocs_commands_suppress_only_the_upstream_material_banner():
@@ -52,6 +93,65 @@ def test_setup_targets_use_selected_python_interpreter():
     assert f"{custom_python} -m spacy download en_core_web_sm" in lines
     assert any(line.startswith(f"{custom_python} -c ") for line in lines)
     assert not any(line.startswith("pip install") or line.startswith("python ") for line in lines)
+
+
+def test_verify_nnx_install_target_is_public_and_uses_selected_python():
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    phony_members = [
+        member
+        for line in makefile.splitlines()
+        if line.startswith(".PHONY:")
+        for member in line.removeprefix(".PHONY:").split()
+    ]
+
+    assert phony_members.count("verify-nnx-install") == 1
+    assert (
+        '\t@echo "  verify-nnx-install Verify the active NNx installation provenance."'
+        in makefile.splitlines()
+    )
+
+    result = subprocess.run(
+        ["make", "--no-print-directory", "-n", "verify-nnx-install"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.stdout == "python -m scripts.verify_nnx_install\n"
+    assert result.stderr == ""
+
+
+def test_nnx_surface_has_a_session_autouse_installation_verifier():
+    source = (REPO_ROOT / "tests" / "nnx_surface" / "conftest.py").read_text(encoding="utf-8")
+
+    _assert_nnx_install_fixture_contract(source)
+
+
+@pytest.mark.parametrize(
+    ("original", "mutation"),
+    (
+        ('scope="session"', 'scope="function"'),
+        ("autouse=True", "autouse=False"),
+        (
+            "    verify_nnx_install()",
+            "    try:\n        verify_nnx_install()\n    except VerificationError:\n        pass",
+        ),
+        (
+            "    verify_nnx_install()",
+            '    os.environ["NNX_ALLOW_EDITABLE"] = "1"\n    verify_nnx_install()',
+        ),
+    ),
+    ids=("function-scope", "autouse-disabled", "error-swallowed", "environment-mutated"),
+)
+def test_nnx_surface_installation_fixture_contract_rejects_mutations(original: str, mutation: str):
+    source = (REPO_ROOT / "tests" / "nnx_surface" / "conftest.py").read_text(encoding="utf-8")
+    mutated = source.replace(original, mutation, 1)
+
+    assert mutated != source
+    with pytest.raises(AssertionError):
+        _assert_nnx_install_fixture_contract(mutated)
 
 
 def test_smoke_tier_a_writes_to_temporary_outputs_without_mutating_sources(

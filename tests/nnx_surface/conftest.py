@@ -14,6 +14,12 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 import nnx
+from scripts.verify_nnx_install import verify_nnx_install
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _verify_nnx_installation_contract():
+    verify_nnx_install()
 
 
 @pytest.fixture(autouse=True)

@@ -55,7 +55,7 @@ publish the same contract to the repository, site, and wiki.
 - Consumes later: Task 2 calls exact `make verify-nnx-install`; Task 3 documents exact
   `NNX_ALLOW_EDITABLE=1 make test-nnx-surface`.
 
-- [ ] **Step 1: Add pin-parser and canonical-wheel unit tests**
+- [x] **Step 1: Add pin-parser and canonical-wheel unit tests**
 
 Create `tests/test_verify_nnx_install.py` with fixture-owned fake distributions and import specs.
 The fake distribution must expose only public-compatible members used by production:
@@ -90,7 +90,7 @@ rejected cases for wrong version, wrong normalized name, duplicate distributions
 `direct_url.json`, missing owned files, import-origin mismatch, repository ownership, and symlink
 escape. Assert diagnostics contain neither fake host paths nor direct URLs.
 
-- [ ] **Step 2: Run and record parser/canonical RED**
+- [x] **Step 2: Run and record parser/canonical RED**
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_nnx_install.py -q
@@ -99,7 +99,7 @@ pytest -p no:cacheprovider tests/test_verify_nnx_install.py -q
 Expected: collection fails because `scripts.verify_nnx_install` does not exist. Record the exact
 failure in `.superpowers/sdd/task-1-report.md` before adding production code.
 
-- [ ] **Step 3: Implement the minimal parser and canonical verifier**
+- [x] **Step 3: Implement the minimal parser and canonical verifier**
 
 Create `scripts/verify_nnx_install.py` with these public shapes:
 
@@ -144,7 +144,7 @@ NNx installation verified: thekaveh-nnx 0.2.0 (canonical-wheel)
 
 and exits nonzero with a redacted one-line error on failure.
 
-- [ ] **Step 4: Run canonical unit tests GREEN**
+- [x] **Step 4: Run canonical unit tests GREEN**
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_nnx_install.py -q
@@ -153,7 +153,7 @@ ruff check --no-cache scripts/verify_nnx_install.py tests/test_verify_nnx_instal
 
 Expected: all new tests pass and Ruff is clean.
 
-- [ ] **Step 5: Add editable-mode tests RED**
+- [x] **Step 5: Add editable-mode tests RED**
 
 Add tests requiring valid PEP 610 JSON shaped as:
 
@@ -172,7 +172,7 @@ Run the focused tests and record that editable cases fail before implementation:
 pytest -p no:cacheprovider tests/test_verify_nnx_install.py -q -k editable
 ```
 
-- [ ] **Step 6: Implement validated editable mode GREEN**
+- [x] **Step 6: Implement validated editable mode GREEN**
 
 Use `urllib.parse.urlparse()` and `urllib.request.url2pathname()` to decode only a local `file:` URL.
 Treat absent or empty `NNX_ALLOW_EDITABLE` as canonical; reject every value except `1`. Resolve the
@@ -184,7 +184,7 @@ pytest -p no:cacheprovider tests/test_verify_nnx_install.py -q
 ruff check --no-cache scripts/verify_nnx_install.py tests/test_verify_nnx_install.py
 ```
 
-- [ ] **Step 7: Add local-boundary and Make contract tests RED**
+- [x] **Step 7: Add local-boundary and Make contract tests RED**
 
 In `tests/test_makefile_contract.py`, require an exact `.PHONY` member and help entry for
 `verify-nnx-install`, and require `make -n verify-nnx-install` to emit exactly:
@@ -204,7 +204,7 @@ pytest -p no:cacheprovider tests/test_makefile_contract.py tests/test_verify_nnx
 
 Expected: the new Make/fixture contract tests fail because those surfaces do not exist.
 
-- [ ] **Step 8: Wire the local boundary GREEN**
+- [x] **Step 8: Wire the local boundary GREEN**
 
 Add `verify-nnx-install` to `.PHONY`, help output, and the Makefile:
 
@@ -237,7 +237,7 @@ Expected: default `make verify-nnx-install` fails against the currently reproduc
 environment; the explicit editable verifier and focused suite pass. Record both negative and
 positive evidence rather than treating the intentional default failure as a blocker.
 
-- [ ] **Step 9: Commit Task 1**
+- [x] **Step 9: Commit Task 1**
 
 Mark Task 1 only complete in this plan. Re-run Step 8, stage only Task 1 files, run
 `git diff --cached --check`, and commit:

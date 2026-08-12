@@ -2741,7 +2741,7 @@ def _assert_no_nnx_environment_overrides(workflow: dict) -> None:
     variables = "|".join(sorted(map(re.escape, forbidden)))
     variable_use = re.compile(
         rf"(?:"
-        rf"(?<![A-Za-z0-9_])(?:{variables})\s*="
+        rf"(?<![A-Za-z0-9_])(?:{variables})\s*\+?="
         rf"|\bexport[ \t]+(?:[A-Za-z_][A-Za-z0-9_]*(?:=[^\s;|&]*)?[ \t]+)*"
         rf"(?:{variables})(?:\s*=|\b)"
         rf"|\$(?:{variables})\b"
@@ -3064,6 +3064,24 @@ def test_ci_nnx_surface_job_enforces_canonical_wheel_contract_rejects_inline_env
         step[field] = {"args": value}
     else:
         step[field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_nnx_surface_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "NNX_ALLOW_EDITABLE+=1 make test-atlas-consumer",
+        "PYTHONPATH+=/tmp/escape make test-atlas-consumer",
+    ],
+)
+def test_ci_nnx_surface_job_enforces_canonical_wheel_contract_rejects_compound_environment_overrides(
+    command,
+):
+    workflow = _valid_nnx_contract_workflow()
+    step = workflow["jobs"]["atlas-consumer-policy"]["steps"][-1]
+    step["run"] = command
 
     with pytest.raises(AssertionError):
         _assert_nnx_surface_job_contract(workflow)

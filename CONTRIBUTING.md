@@ -18,10 +18,15 @@ discussion, or pull request containing an undisclosed vulnerability or sensitive
 1. Open a feature branch off `develop`; merge it there first, then promote `develop` to `main` in a separate PR.
 2. Make your change.
 3. Run `make verify` (wraps `python scripts/verify_repo.py --check all --fast`) — must exit 0 (no error-severity findings; warnings are OK).
-4. Run `make test` (wraps `pytest tests/`) locally. CI runs the same complete contract on every PR as the required `pytest-repository` job; `pytest-nnx-surface` remains the faster focused NNx/PyPI compatibility and Ruff signal.
-5. Before a PR that changes the parent-owned Atlas consumer policy, run `make test-atlas-consumer`. `atlas-consumer-policy` is unconditional on every pull request and is intended to be a required gate. `atlas-contract` remains a separate, path-scoped, non-required direct validator of the recursive `infra/` submodule.
-6. If you touched a notebook, re-run it at its tier (Tier-A: `make run-tier-a` only when deliberately refreshing a committed snapshot; `make smoke-tier-a` is the non-mutating CI-equivalent target; Tier-B: `make smoke-tier-b`; Tier-C: `make smoke-tier-c`). Tier-C **code cells** must remain identical to the `pre-cleanup-baseline` tag — verify check E5 enforces this (markdown and embedded outputs are not compared).
-7. Open a PR. CI runs complete pytest, Atlas consumer policy, and Tier-A automatically; Tier-B runs on schedule, on `workflow_dispatch`, and on PRs labeled `tier-b-smoke`; Tier-C runs on schedule and on `workflow_dispatch`.
+4. Run `make verify-nnx-install` to record canonical local evidence for the exact released NNx wheel.
+   Intentional upstream work may instead run
+   `NNX_ALLOW_EDITABLE=1 make test-nnx-surface`, but those results are
+   development-surface evidence, never released-wheel evidence. Return to canonical mode before
+   recording release compatibility.
+5. Run `make test` (wraps `pytest tests/`) locally. CI runs the same complete contract on every PR as the required `pytest-repository` job; `pytest-nnx-surface` remains the faster focused NNx/PyPI compatibility and Ruff signal.
+6. Before a PR that changes the parent-owned Atlas consumer policy, run `make test-atlas-consumer`. `atlas-consumer-policy` is unconditional on every pull request and is intended to be a required gate. `atlas-contract` remains a separate, path-scoped, non-required direct validator of the recursive `infra/` submodule.
+7. If you touched a notebook, re-run it at its tier (Tier-A: `make run-tier-a` only when deliberately refreshing a committed snapshot; `make smoke-tier-a` is the non-mutating CI-equivalent target; Tier-B: `make smoke-tier-b`; Tier-C: `make smoke-tier-c`). Tier-C **code cells** must remain identical to the `pre-cleanup-baseline` tag — verify check E5 enforces this (markdown and embedded outputs are not compared).
+8. Open a PR. CI runs complete pytest, Atlas consumer policy, and Tier-A automatically; Tier-B runs on schedule, on `workflow_dispatch`, and on PRs labeled `tier-b-smoke`; Tier-C runs on schedule and on `workflow_dispatch`.
 
 ## 3. Adding a new task folder
 
@@ -48,7 +53,7 @@ Convention: active experiment directory named `notebooks/[task]-[dataset]-[model
 
 - **`thekaveh-nnx` is a PyPI dep.** Don't bump the `requirements.txt` pin without a corresponding upstream release on [`thekaveh/NNx`](https://github.com/thekaveh/NNx). Workflow:
   1. Open a PR against `thekaveh/NNx` with the new feature + a smoke test.
-  2. After merge, wait for the next NNx PyPI release (or, for editable iteration: clone `thekaveh/NNx` outside the ml-eng-lab tree and `pip install -e <path>[lm]` into your venv).
+  2. After merge, wait for the next NNx PyPI release. For editable iteration, clone `thekaveh/NNx` outside the ml-eng-lab tree, `pip install -e <path>[lm]` into your venv, and run `NNX_ALLOW_EDITABLE=1 make test-nnx-surface`; this validates the development surface only.
   3. Bump `thekaveh-nnx[lm]==X.Y.Z` in ml-eng-lab's `requirements.txt` to the new version; open a PR here. Tier-A papermill CI re-runs the Tier-A list against the new version; run `make smoke-tier-b`, `make smoke-tier-c`, and manual quantization validation when the NNx change touches those surfaces.
 - **`infra/` is the pinned Atlas submodule.** Do not edit it from this repository. Consumer-owned behavior belongs in `atlas.consumer.yml`, `atlas.env.user.example`, and `compose/ml-eng-lab-atlas.yml`; runbook changes belong under `docs/`. Update the gitlink only through [docs/atlas-pin-bump-runbook.md](docs/atlas-pin-bump-runbook.md).
 - **`notebooks/archive/` is read-only.** Preserved Aug-2023 work.

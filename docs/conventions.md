@@ -179,15 +179,19 @@ and NNx surface guards (`tests/nnx_surface/`). The pytest configuration's
 `testpaths = ["tests"]` plus its `infra`, `notebooks/archive`, and `.venv`
 exclusions define collection; no fixed test count is contractual.
 
-The unconditional `pytest-repository` job runs the entire tree on every PR. Its
-setup installs `libcairo2`, the runtime dependencies, and the locked
-documentation dependencies, while its pip cache keys `requirements.txt`,
-`torch-core-requirements.txt`, `torch-requirements.txt`, and
-`docs-requirements.txt`. The existing `pytest-nnx-surface` job remains the
-focused NNx/PyPI compatibility and Ruff signal; its tests are exact
-release-contract evidence only when `nnx` resolves from the pinned PyPI wheel,
-not from an editable checkout (see [dependency-contracts.md](dependency-contracts.md)
-§6).
+Both NNx-consuming pytest jobs install `requirements.txt` with
+`--only-binary=thekaveh-nnx`. After dependency installation and immediately before their test
+workload, both run `make verify-nnx-install`: the unconditional `pytest-repository` job then runs
+`make test`, while `pytest-nnx-surface` runs `make test-nnx-surface`. No package installation may
+intervene between verification and either workload.
+
+`pytest-repository` is the required merge-blocking complete-suite contract. Its setup installs
+`libcairo2`, the runtime dependencies, and the locked documentation dependencies, while its pip
+cache keys `requirements.txt`, `torch-core-requirements.txt`, `torch-requirements.txt`, and
+`docs-requirements.txt`. `pytest-nnx-surface` is the focused diagnostic NNx/PyPI compatibility and
+Ruff signal. Both jobs validate the canonical released wheel with `make verify-nnx-install`;
+editable results are development-surface evidence only (see
+[dependency-contracts.md](dependency-contracts.md) §6).
 
 ### 5.3.3 Atlas consumer policy — `make test-atlas-consumer`
 

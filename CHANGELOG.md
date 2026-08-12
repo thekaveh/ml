@@ -13,6 +13,12 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Canonical NNx wheel evidence:** added the fail-closed `make verify-nnx-install` contract for
+  exact pin, distribution ownership, direct-URL rejection, and import-origin validation. Both
+  `pytest-repository` and `pytest-nnx-surface` now select NNx with
+  `--only-binary=thekaveh-nnx` and validate the installed wheel immediately before tests;
+  `NNX_ALLOW_EDITABLE=1` provides a validated editable-development mode whose results are not
+  released-wheel evidence.
 - **Atlas consumer policy CI:** the `atlas-consumer-policy` gate now runs unconditionally on every pull request and is the intended required parent-policy signal, while the expanded, path-scoped, non-required `atlas-contract` direct validator covers recursive-submodule inputs. The exact local reproduction is `make test-atlas-consumer`, backed by a two-package dependency lock and ShellCheck of the four parent-owned shell files (three wrappers plus the dotenv helper). The focused gate never starts or contacts live services and preserves native-only Ollama plus disabled, localhost, or managed-localhost-MPS-only ComfyUI policy.
 - **Complete repository pytest CI:** pull requests now run the exact `make test` contract in the required `pytest-repository` job with the pinned Torch stack, normal runtime requirements, and locked documentation dependencies, native Cairo support, a 15-minute timeout, and a four-manifest pip download cache. Focused NNx/Ruff, verifier, documentation, and notebook-execution jobs remain separate diagnostic and reproducibility signals.
 - **Project opener visual remediation:** replaced the runtime-diagram opener with a dedicated

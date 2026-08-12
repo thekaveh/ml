@@ -2725,6 +2725,32 @@ def _assert_no_nnx_environment_overrides(workflow: dict) -> None:
         for step in job.get("steps", []):
             assert forbidden.isdisjoint(step.get("env", {}))
 
+    def semantic_scalars(value, *, command_context=False):
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                yield from semantic_scalars(
+                    nested,
+                    command_context=command_context or key in {"run", "shell", "with"},
+                )
+        elif isinstance(value, list):
+            for nested in value:
+                yield from semantic_scalars(nested, command_context=command_context)
+        elif command_context and isinstance(value, str):
+            yield value
+
+    variables = "|".join(sorted(map(re.escape, forbidden)))
+    variable_use = re.compile(
+        rf"(?:"
+        rf"(?<![A-Za-z0-9_])(?:{variables})\s*="
+        rf"|\bexport[ \t]+(?:[A-Za-z_][A-Za-z0-9_]*(?:=[^\s;|&]*)?[ \t]+)*"
+        rf"(?:{variables})(?:\s*=|\b)"
+        rf"|\$(?:{variables})\b"
+        rf"|\$\{{(?:{variables})(?:[^}}]*)\}}"
+        rf"|\$\{{\{{\s*env\s*(?:\.\s*(?:{variables})\b|\[\s*['\"](?:{variables})['\"]\s*\])"
+        rf")"
+    )
+    assert all(not variable_use.search(value) for value in semantic_scalars(workflow))
+
 
 def _assert_complete_repository_test_contract(workflow: dict) -> None:
     _assert_no_nnx_environment_overrides(workflow)
@@ -3008,6 +3034,54 @@ def test_ci_nnx_contract_rejects_provenance_environment_overrides_in_other_jobs(
 
     with pytest.raises(AssertionError):
         _assert_nnx_surface_job_contract(workflow)
+
+
+@pytest.mark.parametrize("variable", ["NNX_ALLOW_EDITABLE", "PYTHONPATH"])
+@pytest.mark.parametrize(
+    ("field", "value_template"),
+    [
+        ("run", "{variable}=1 make test-atlas-consumer"),
+        ("run", "env {variable}=1 make test-atlas-consumer"),
+        ("run", "export {variable}=1\nmake test-atlas-consumer"),
+        ("run", "export {variable}\nmake test-atlas-consumer"),
+        ("run", "export OTHER_VARIABLE {variable}\nmake test-atlas-consumer"),
+        ("run", 'printf \'%s\\n\' "${{{variable}}}"'),
+        ("run", 'printf \'%s\\n\' "${variable}"'),
+        ("run", 'printf \'%s\\n\' "${{{{ env.{variable} }}}}"'),
+        ("shell", "env {variable}=1 bash -e {{0}}"),
+        ("with", "{variable}=1 make test-atlas-consumer"),
+    ],
+)
+def test_ci_nnx_surface_job_enforces_canonical_wheel_contract_rejects_inline_environment_escapes(
+    variable,
+    field,
+    value_template,
+):
+    workflow = _valid_nnx_contract_workflow()
+    step = workflow["jobs"]["atlas-consumer-policy"]["steps"][-1]
+    value = value_template.format(variable=variable)
+    if field == "with":
+        step[field] = {"args": value}
+    else:
+        step[field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_nnx_surface_job_contract(workflow)
+
+
+def test_ci_nnx_surface_job_enforces_canonical_wheel_contract_allows_identifier_prose():
+    workflow = _valid_nnx_contract_workflow()
+    steps = workflow["jobs"]["atlas-consumer-policy"]["steps"]
+    steps[-1]["name"] = "Test NNX_ALLOW_EDITABLE and PYTHONPATH policy"
+    steps[-1]["run"] = (
+        "pytest tests/test_verify_repo.py -q "
+        "-k 'NNX_ALLOW_EDITABLE or PYTHONPATH'"
+    )
+    steps[0]["with"]["policy-note"] = (
+        "NNX_ALLOW_EDITABLE and PYTHONPATH are forbidden in CI"
+    )
+
+    _assert_nnx_surface_job_contract(workflow)
 
 
 @pytest.mark.parametrize(

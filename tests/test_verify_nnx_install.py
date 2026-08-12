@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import scripts.verify_nnx_install as verifier_module
 from scripts.verify_nnx_install import VerificationError, parse_nnx_pin, verify_nnx_install
 
 
@@ -95,6 +96,60 @@ def test_verify_nnx_install_accepts_canonical_wheel_evidence(canonical_install):
     assert evidence.mode == "canonical-wheel"
     assert evidence.distribution == "thekaveh-nnx"
     assert evidence.version == "0.2.0"
+
+
+def _raise_sensitive_distribution_discovery_error():
+    raise RuntimeError(
+        'discovery failed at file:///Users/example/private/NNx with {"token":"secret"}'
+    )
+
+
+def test_verify_nnx_install_normalizes_default_distribution_discovery_failure(
+    canonical_install, monkeypatch
+):
+    repo_root, _, package_init, _ = canonical_install
+    requirements_path = repo_root / "requirements.txt"
+    requirements_path.write_text("thekaveh-nnx[lm]==0.2.0\n", encoding="utf-8")
+    monkeypatch.setattr(
+        verifier_module.metadata,
+        "distributions",
+        _raise_sensitive_distribution_discovery_error,
+    )
+
+    with pytest.raises(
+        VerificationError,
+        match="^NNx distribution metadata is not canonical$",
+    ) as error:
+        verifier_module.verify_nnx_install(
+            requirements_path,
+            environ={},
+            find_spec=lambda name: _spec(package_init),
+            repo_root=repo_root,
+        )
+
+    diagnostic = str(error.value)
+    assert "file:///" not in diagnostic
+    assert "/Users/example/private/NNx" not in diagnostic
+    assert '"token":"secret"' not in diagnostic
+
+
+def test_cli_redacts_default_distribution_discovery_failure(monkeypatch, capsys):
+    monkeypatch.setattr(
+        verifier_module.metadata,
+        "distributions",
+        _raise_sensitive_distribution_discovery_error,
+    )
+
+    result = verifier_module.main()
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert captured.out == ""
+    assert captured.err == "NNx distribution metadata is not canonical\n"
+    assert "Traceback" not in captured.err
+    assert "file:///" not in captured.err
+    assert "/Users/example/private/NNx" not in captured.err
+    assert '"token":"secret"' not in captured.err
 
 
 @pytest.mark.parametrize(

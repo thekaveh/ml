@@ -221,7 +221,13 @@ def verify_nnx_install(
     except Exception as error:
         raise VerificationError(_REQUIREMENT_ERROR) from error
     pin = parse_nnx_pin(requirements_text)
-    selected_distributions = metadata.distributions() if distributions is None else distributions
+    if distributions is None:
+        try:
+            selected_distributions = metadata.distributions()
+        except Exception:
+            raise VerificationError(_DISTRIBUTION_ERROR) from None
+    else:
+        selected_distributions = distributions
     if editable_override == "1":
         distribution = _matching_editable_distribution(selected_distributions, pin.version)
         source = _editable_source(distribution)

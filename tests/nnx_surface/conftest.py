@@ -13,8 +13,11 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-import nnx
 from scripts.verify_nnx_install import verify_nnx_install
+
+verify_nnx_install()
+
+import nnx  # noqa: E402  # provenance must be verified before collection imports NNx
 
 
 @pytest.fixture(scope="session", autouse=True)

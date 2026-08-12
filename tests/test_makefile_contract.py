@@ -25,8 +25,31 @@ def _assert_nnx_install_fixture_contract(source: str) -> None:
         for node in tree.body
         if isinstance(node, ast.FunctionDef) and node.name == "_verify_nnx_installation_contract"
     ]
+    initial_verifier_calls = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "verify_nnx_install"
+        and not node.value.args
+        and not node.value.keywords
+    ]
+    nnx_imports = [
+        node
+        for node in tree.body
+        if (
+            isinstance(node, ast.Import)
+            and any(alias.name == "nnx" for alias in node.names)
+        )
+        or (isinstance(node, ast.ImportFrom) and node.module == "nnx")
+    ]
 
     assert len(verifier_imports) == 1
+    assert len(initial_verifier_calls) == 1
+    assert len(nnx_imports) == 1
+    assert tree.body.index(verifier_imports[0]) < tree.body.index(initial_verifier_calls[0])
+    assert tree.body.index(initial_verifier_calls[0]) < tree.body.index(nnx_imports[0])
     assert len(fixtures) == 1
     fixture = fixtures[0]
     assert len(fixture.decorator_list) == 1
@@ -142,8 +165,20 @@ def test_nnx_surface_has_a_session_autouse_installation_verifier():
             "    verify_nnx_install()",
             '    os.environ["NNX_ALLOW_EDITABLE"] = "1"\n    verify_nnx_install()',
         ),
+        (
+            "verify_nnx_install()\n\nimport nnx",
+            "import nnx\n\nverify_nnx_install()",
+        ),
+        ("verify_nnx_install()\n\nimport nnx", "import nnx"),
     ),
-    ids=("function-scope", "autouse-disabled", "error-swallowed", "environment-mutated"),
+    ids=(
+        "function-scope",
+        "autouse-disabled",
+        "error-swallowed",
+        "environment-mutated",
+        "initial-verifier-reordered",
+        "initial-verifier-removed",
+    ),
 )
 def test_nnx_surface_installation_fixture_contract_rejects_mutations(original: str, mutation: str):
     source = (REPO_ROOT / "tests" / "nnx_surface" / "conftest.py").read_text(encoding="utf-8")

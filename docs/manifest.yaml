@@ -139,6 +139,14 @@ sections:
         number: "12.10"
         title: Issue 56 complete repository test CI implementation plan
         source: docs/superpowers/plans/2026-08-11-issue-56-repository-test-ci-implementation-plan.md
+      - id: issue-57-atlas-consumer-policy-ci-design
+        number: "12.11"
+        title: Issue 57 Atlas consumer policy CI design
+        source: docs/superpowers/specs/2026-08-11-issue-57-atlas-consumer-policy-ci-design.md
+      - id: issue-57-atlas-consumer-policy-ci-implementation
+        number: "12.12"
+        title: Issue 57 Atlas consumer policy CI implementation plan
+        source: docs/superpowers/plans/2026-08-11-issue-57-atlas-consumer-policy-ci-implementation-plan.md
   - id: security
     number: "13"
     title: Security policy

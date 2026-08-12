@@ -261,7 +261,7 @@ Mark Task 3 only, rerun Step 5, stage canonical sources and regenerated PNG, run
 
 Package the full branch diff from base `67882ac80b686f21e86b5037f03635b3207686c4`, dispatch a high-capability reviewer, send all findings to one fix subagent, require covering test evidence, and re-review until clean.
 
-- [ ] **Step 2: Run fresh final verification**
+- [x] **Step 2: Run fresh final verification**
 
 ```bash
 make test-atlas-consumer

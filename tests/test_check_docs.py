@@ -450,6 +450,91 @@ def test_real_manifest_sections_are_source_leaves_or_children_groups():
     assert all(bool(section.source) ^ bool(section.children) for section in manifest.sections)
 
 
+def test_real_manifest_declares_issue_58_design_and_implementation_records():
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    design_records = next(
+        section for section in manifest.sections if section.id == "design-records"
+    )
+    issue_58_start = next(
+        index
+        for index, child in enumerate(design_records.children)
+        if child.id == "issue-58-nnx-wheel-contract-design"
+    )
+
+    assert [
+        (child.number, child.source)
+        for child in design_records.children[issue_58_start : issue_58_start + 2]
+    ] == [
+        (
+            "12.13",
+            "docs/superpowers/specs/2026-08-12-issue-58-nnx-wheel-contract-design.md",
+        ),
+        (
+            "12.14",
+            "docs/superpowers/plans/2026-08-12-issue-58-nnx-wheel-contract-implementation-plan.md",
+        ),
+    ]
+
+
+def test_nnx_wheel_contract_is_consistent_across_canonical_user_docs():
+    docs = {
+        path: (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in (
+            "README.md",
+            "CONTRIBUTING.md",
+            "CHANGELOG.md",
+            "docs/conventions.md",
+            "docs/dependency-contracts.md",
+            "docs/nnx-library.md",
+        )
+    }
+    combined = "\n".join(docs.values())
+
+    assert "[canonical dependency contract](docs/dependency-contracts.md)" in docs["README.md"]
+    assert "`NNX_ALLOW_EDITABLE=1 make test-nnx-surface`" in docs["README.md"]
+
+    assert "`make verify-nnx-install`" in docs["CONTRIBUTING.md"]
+    assert "development-surface evidence, never released-wheel evidence" in docs["CONTRIBUTING.md"]
+
+    conventions = docs["docs/conventions.md"]
+    assert "`--only-binary=thekaveh-nnx`" in conventions
+    assert "`pytest-repository`" in conventions
+    assert "`pytest-nnx-surface`" in conventions
+    assert conventions.count("`make verify-nnx-install`") >= 2
+    assert "required merge-blocking" in conventions
+    assert "focused diagnostic" in conventions
+
+    dependency_contract = docs["docs/dependency-contracts.md"]
+    for evidence in (
+        "thekaveh-nnx[lm]==0.2.0",
+        "rejects any `direct_url.json`",
+        "`WHEEL`, `RECORD`, and `nnx/__init__.py`",
+        "distribution-owned import origin",
+        "redacted",
+        "NNX_ALLOW_EDITABLE=1 make test-nnx-surface",
+        "Issue #63",
+    ):
+        assert evidence in dependency_contract
+    assert "binary-only selection is not a cryptographic hash lock" in dependency_contract
+    assert "dist._path" not in combined
+    assert '{"editable": true}' not in combined
+
+    nnx_library = docs["docs/nnx-library.md"]
+    assert "`NNX_ALLOW_EDITABLE=1 make test-nnx-surface`" in nnx_library
+    assert "`make verify-nnx-install`" in nnx_library
+    assert "released-wheel evidence" in nnx_library
+
+    changelog = docs["CHANGELOG.md"]
+    assert "canonical nnx wheel evidence" in changelog.lower()
+    for changed_fact in (
+        "`pytest-repository`",
+        "`pytest-nnx-surface`",
+        "`--only-binary=thekaveh-nnx`",
+        "validated editable-development mode",
+    ):
+        assert changed_fact in changelog
+
+
 def test_real_user_facing_docs_match_the_atlas_runtime_contract():
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     runtime_docs = "\n".join(

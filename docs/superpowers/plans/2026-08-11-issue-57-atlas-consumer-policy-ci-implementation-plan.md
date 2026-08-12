@@ -257,7 +257,7 @@ Mark Task 3 only, rerun Step 5, stage canonical sources and regenerated PNG, run
 - Consumes: all reviewed commits and existing `gitflow` ruleset.
 - Produces: merged PRs, required enforcement, synchronized branches, closed records, and clean Git state.
 
-- [ ] **Step 1: Complete broad review**
+- [x] **Step 1: Complete broad review**
 
 Package the full branch diff from base `67882ac80b686f21e86b5037f03635b3207686c4`, dispatch a high-capability reviewer, send all findings to one fix subagent, require covering test evidence, and re-review until clean.
 

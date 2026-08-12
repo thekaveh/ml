@@ -2428,38 +2428,267 @@ def test_atlas_consumer_policy_contract_rejects_live_run_step_mutations(
         _assert_atlas_consumer_policy_contract(workflow)
 
 
-def test_atlas_contract_workflow_has_recursive_checkout_and_narrow_paths():
-    workflow = _load_workflow(REPO / ".github/workflows/atlas-contract.yml")
-    paths = set(workflow["on"]["pull_request"]["paths"])
-    assert paths == {
-        ".gitmodules",
-        "infra",
-        "atlas.consumer.yml",
-        "atlas.env.user.example",
-        "compose/ml-eng-lab-atlas.yml",
-        "scripts/atlas-*.sh",
-        "scripts/docs/notebook_infrastructure.py",
-        "docs/notebook-infrastructure.md",
-        "docs/atlas-pin-bump-runbook.md",
-        "docs/dependency-contracts.md",
-        "notebooks/**/docs/spec.yaml",
-        "scripts/verify_repo.py",
-        "scripts/verify_repo_config.yaml",
-        "tests/test_verify_repo.py",
-        "Makefile",
-        ".github/workflows/atlas-contract.yml",
-        ".github/workflows/ci.yml",
-        ".github/workflows/docs.yml",
-        "atlas-contract-requirements.txt",
-        "scripts/atlas_runtime_probe.py",
-        "scripts/lib/atlas-dotenv.sh",
-        "tests/test_atlas_*.py",
-        "tests/test_makefile_contract.py",
+_ATLAS_CONTRACT_PATHS = (
+    ".gitmodules",
+    "infra",
+    "atlas.consumer.yml",
+    "atlas.env.user.example",
+    "compose/ml-eng-lab-atlas.yml",
+    "scripts/atlas-*.sh",
+    "scripts/atlas_runtime_probe.py",
+    "scripts/lib/atlas-dotenv.sh",
+    "scripts/docs/notebook_infrastructure.py",
+    "docs/notebook-infrastructure.md",
+    "docs/atlas-pin-bump-runbook.md",
+    "docs/dependency-contracts.md",
+    "notebooks/**/docs/spec.yaml",
+    "scripts/verify_repo.py",
+    "scripts/verify_repo_config.yaml",
+    "tests/test_verify_repo.py",
+    "tests/test_atlas_*.py",
+    "tests/test_makefile_contract.py",
+    "atlas-contract-requirements.txt",
+    "Makefile",
+    ".github/workflows/atlas-contract.yml",
+    ".github/workflows/ci.yml",
+    ".github/workflows/docs.yml",
+)
+
+_ATLAS_CONTRACT_STEPS = [
+    {
+        "name": "Checkout",
+        "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+        "with": {
+            "persist-credentials": "false",
+            "submodules": "recursive",
+        },
+    },
+    {
+        "name": "Set up Python 3.11",
+        "uses": "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+        "with": {"python-version": "3.11"},
+    },
+    {
+        "name": "Install pinned Atlas runner",
+        "run": "python -m pip install uv==0.11.19",
+    },
+    {
+        "name": "Validate the non-live Atlas consumer contract",
+        "shell": "bash",
+        "run": """set -euo pipefail
+cp infra/.env.example infra/.env
+printf 'ML_ENG_LAB_REPO_PATH=%s\\n' "$GITHUB_WORKSPACE" > atlas.env.user
+(
+  cd infra
+  ./start.sh env backfill
+  ./start.sh --consumer ../atlas.consumer.yml compose validate
+  ./start.sh --consumer ../atlas.consumer.yml doctor --format json
+)
+infra_status="$(git -C infra status --porcelain --untracked-files=all --ignored=no)"
+if [[ -n "$infra_status" ]]; then
+  printf '%s\\n' "Atlas validation changed tracked or non-ignored infra files:" >&2
+  printf '%s\\n' "$infra_status" >&2
+  exit 1
+fi
+""",
+    },
+]
+
+
+def _valid_atlas_contract_workflow() -> dict:
+    return {
+        "name": "Atlas contract",
+        "on": {
+            "pull_request": {"paths": list(_ATLAS_CONTRACT_PATHS)},
+            "workflow_dispatch": "",
+        },
+        "permissions": {"contents": "read"},
+        "jobs": {
+            "atlas-contract": {
+                "runs-on": "ubuntu-24.04",
+                "timeout-minutes": "15",
+                "steps": deepcopy(_ATLAS_CONTRACT_STEPS),
+            },
+        },
     }
+
+
+def _assert_atlas_contract_workflow_contract(workflow: dict) -> None:
+    assert set(workflow) == {"name", "on", "permissions", "jobs"}
+    assert workflow["name"] == "Atlas contract"
+    assert workflow["on"] == {
+        "pull_request": {"paths": list(_ATLAS_CONTRACT_PATHS)},
+        "workflow_dispatch": "",
+    }
+    assert workflow["permissions"] == {"contents": "read"}
+    assert set(workflow["jobs"]) == {"atlas-contract"}
+
+    job = workflow["jobs"]["atlas-contract"]
+    assert set(job) == {"runs-on", "timeout-minutes", "steps"}
+    assert job["runs-on"] == "ubuntu-24.04"
+    assert job["timeout-minutes"] == "15"
+    assert job["steps"] == _ATLAS_CONTRACT_STEPS
+
+    command_body = "\n".join(
+        step["run"] for step in job["steps"] if "run" in step
+    )
+    for forbidden in (
+        "make atlas-contract",
+        "./scripts/atlas-up.sh",
+        "--detach",
+        "--track",
+        "endpoints ",
+        "atlas-connect",
+        "docker ",
+        "ollama serve",
+        "make atlas-up",
+        "make atlas-down",
+        "curl ",
+        "localhost:",
+        "127.0.0.1:",
+    ):
+        assert forbidden not in command_body.lower()
+
+
+def test_atlas_contract_workflow_contract_is_exact_and_non_live():
+    workflow = _load_workflow(REPO / ".github/workflows/atlas-contract.yml")
+
+    _assert_atlas_contract_workflow_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("defaults", {"run": {"shell": "bash"}}),
+        ("env", {"PYTEST_ADDOPTS": "-k atlas"}),
+    ],
+)
+def test_atlas_contract_workflow_rejects_workflow_level_controls(field, value):
+    workflow = _valid_atlas_contract_workflow()
+    workflow[field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_contract_workflow_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("defaults", {"run": {"shell": "bash"}}),
+        ("env", {"PYTEST_ADDOPTS": "-k atlas"}),
+        ("if", "github.ref == 'refs/heads/main'"),
+        ("needs", "verify-repo"),
+        ("services", {"ollama": {"image": "ollama/ollama"}}),
+        ("container", "python:3.11"),
+        ("continue-on-error", "true"),
+    ],
+)
+def test_atlas_contract_workflow_rejects_job_level_controls(field, value):
+    workflow = _valid_atlas_contract_workflow()
+    workflow["jobs"]["atlas-contract"][field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_contract_workflow_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("if", "github.ref == 'refs/heads/main'"),
+        ("env", {"PYTEST_ADDOPTS": "-q"}),
+        ("shell", "bash {0} || true"),
+        ("continue-on-error", "true"),
+        ("timeout-minutes", "5"),
+    ],
+)
+def test_atlas_contract_workflow_rejects_step_level_controls(field, value):
+    workflow = _valid_atlas_contract_workflow()
+    workflow["jobs"]["atlas-contract"]["steps"][2][field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_contract_workflow_contract(workflow)
+
+
+@pytest.mark.parametrize("mutation", ["extra", "reordered"])
+def test_atlas_contract_workflow_rejects_changed_step_inventory(mutation):
+    workflow = _valid_atlas_contract_workflow()
     steps = workflow["jobs"]["atlas-contract"]["steps"]
-    checkout = next(step for step in steps if step.get("name") == "Checkout")
-    assert checkout["with"]["persist-credentials"] == "false"
-    assert checkout["with"]["submodules"] == "recursive"
+    if mutation == "extra":
+        steps.append({"name": "Extra", "run": "true"})
+    else:
+        steps[0], steps[1] = steps[1], steps[0]
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_contract_workflow_contract(workflow)
+
+
+@pytest.mark.parametrize("step_index", [0, 1])
+def test_atlas_contract_workflow_rejects_unpinned_action_mutations(step_index):
+    workflow = _valid_atlas_contract_workflow()
+    step = workflow["jobs"]["atlas-contract"]["steps"][step_index]
+    step["uses"] = step["uses"].split("@", 1)[0] + "@main"
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_contract_workflow_contract(workflow)
+
+
+def test_atlas_contract_workflow_rejects_uv_pin_mutation():
+    workflow = _valid_atlas_contract_workflow()
+    install = workflow["jobs"]["atlas-contract"]["steps"][2]
+    install["run"] = "python -m pip install uv==0.11.18"
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_contract_workflow_contract(workflow)
+
+
+def test_atlas_contract_workflow_rejects_validation_body_drift():
+    workflow = _valid_atlas_contract_workflow()
+    validation = workflow["jobs"]["atlas-contract"]["steps"][3]
+    validation["run"] = f"{validation['run']}printf '%s\\n' done\n"
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_contract_workflow_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "parent_command",
+    [
+        "pip install -r atlas-contract-requirements.txt",
+        "shellcheck scripts/atlas-up.sh scripts/atlas-down.sh",
+        "pytest tests/test_atlas_consumer_contract.py",
+        "make test-atlas-consumer",
+    ],
+)
+def test_atlas_contract_workflow_rejects_parent_policy_boundary_collapse(
+    parent_command,
+):
+    workflow = _valid_atlas_contract_workflow()
+    validation = workflow["jobs"]["atlas-contract"]["steps"][3]
+    validation["run"] = f"{validation['run']}{parent_command}\n"
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_contract_workflow_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "live_command",
+    [
+        "docker ps",
+        "ollama serve",
+        "make atlas-up",
+        "make atlas-down",
+        "curl http://example.invalid",
+        "probe localhost:63030",
+        "probe 127.0.0.1:63040",
+    ],
+)
+def test_atlas_contract_workflow_rejects_live_runtime_commands(live_command):
+    workflow = _valid_atlas_contract_workflow()
+    validation = workflow["jobs"]["atlas-contract"]["steps"][3]
+    validation["run"] = f"{validation['run']}{live_command}\n"
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_contract_workflow_contract(workflow)
 
 
 def test_ci_runs_repository_workflow_contract_tests():
@@ -2931,40 +3160,6 @@ def test_atlas_consumer_policy_docs_define_ci_boundaries():
         )
         for phrase in phrases:
             assert phrase in content, f"{relative_path} is missing {phrase!r}"
-
-
-def test_atlas_contract_workflow_runs_exact_non_live_preflight_and_dirty_gate():
-    workflow = _load_workflow(REPO / ".github/workflows/atlas-contract.yml")
-    run_bodies = [
-        step["run"]
-        for step in workflow["jobs"]["atlas-contract"]["steps"]
-        if "run" in step
-    ]
-    command_body = "\n".join(run_bodies)
-    exact_preflight = """cp infra/.env.example infra/.env
-printf 'ML_ENG_LAB_REPO_PATH=%s\\n' "$GITHUB_WORKSPACE" > atlas.env.user
-(
-  cd infra
-  ./start.sh env backfill
-  ./start.sh --consumer ../atlas.consumer.yml compose validate
-  ./start.sh --consumer ../atlas.consumer.yml doctor --format json
-)"""
-    assert exact_preflight in command_body
-    assert "git -C infra status --porcelain --untracked-files=all --ignored=no" in command_body
-    assert "exit 1" in command_body
-    for forbidden in (
-        "make atlas-contract",
-        "./scripts/atlas-up.sh",
-        "--detach",
-        "--track",
-        "endpoints ",
-        "atlas-connect",
-        "docker ",
-        "curl ",
-        "localhost:",
-        "127.0.0.1:",
-    ):
-        assert forbidden not in command_body
 
 
 def test_docs_workflow_covers_atlas_metadata_inputs_and_parser_tests():

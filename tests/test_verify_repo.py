@@ -2711,11 +2711,23 @@ def test_ci_runs_repository_workflow_contract_tests():
         "docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or "
         "ci_runs_repository_workflow_contract_tests or "
         "ci_runs_complete_repository_test_contract or "
+        "ci_repository_test_contract_enforces_canonical_nnx_wheel or "
+        "ci_nnx_surface_job_enforces_canonical_wheel_contract or "
         "repository_test_collection_boundary_is_explicit'"
     )
 
 
+def _assert_no_nnx_environment_overrides(workflow: dict) -> None:
+    forbidden = {"NNX_ALLOW_EDITABLE", "PYTHONPATH"}
+    assert forbidden.isdisjoint(workflow.get("env", {}))
+    for job in workflow["jobs"].values():
+        assert forbidden.isdisjoint(job.get("env", {}))
+        for step in job.get("steps", []):
+            assert forbidden.isdisjoint(step.get("env", {}))
+
+
 def _assert_complete_repository_test_contract(workflow: dict) -> None:
+    _assert_no_nnx_environment_overrides(workflow)
     assert "defaults" not in workflow
     assert "env" not in workflow
 
@@ -2758,9 +2770,13 @@ def _assert_complete_repository_test_contract(workflow: dict) -> None:
             "name": "Install dependencies",
             "run": (
                 "make install-torch-stack\n"
-                "pip install -r requirements.txt\n"
-                "pip install -r docs-requirements.txt\n"
+                "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
+                "python -m pip install -r docs-requirements.txt\n"
             ),
+        },
+        {
+            "name": "Verify canonical NNx installation",
+            "run": "make verify-nnx-install",
         },
         {
             "name": "Run complete repository tests",
@@ -2770,6 +2786,12 @@ def _assert_complete_repository_test_contract(workflow: dict) -> None:
 
 
 def test_ci_runs_complete_repository_test_contract():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+
+    _assert_complete_repository_test_contract(workflow)
+
+
+def test_ci_repository_test_contract_enforces_canonical_nnx_wheel():
     workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
 
     _assert_complete_repository_test_contract(workflow)
@@ -2881,6 +2903,282 @@ def test_ci_runs_complete_repository_test_contract_rejects_false_cairo_echo():
 
     with pytest.raises(AssertionError):
         _assert_complete_repository_test_contract(workflow)
+
+
+def _assert_nnx_surface_job_contract(workflow: dict) -> None:
+    _assert_no_nnx_environment_overrides(workflow)
+    assert "defaults" not in workflow
+    assert "env" not in workflow
+
+    job = workflow["jobs"]["pytest-nnx-surface"]
+
+    assert set(job) == {"runs-on", "timeout-minutes", "steps"}
+    assert job["runs-on"] == "ubuntu-24.04"
+    assert job["timeout-minutes"] == "15"
+    assert job["steps"] == [
+        {
+            "name": "Checkout",
+            "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+            "with": {"persist-credentials": "false"},
+        },
+        {
+            "name": "Set up Python 3.11",
+            "uses": "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+            "with": {
+                "python-version": "3.11",
+                "cache": "pip",
+                "cache-dependency-path": (
+                    "requirements.txt\n"
+                    "torch-core-requirements.txt\n"
+                    "torch-requirements.txt\n"
+                ),
+            },
+        },
+        {
+            "name": "Install dependencies",
+            "run": (
+                "make install-torch-stack\n"
+                "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
+            ),
+        },
+        {"name": "Lint (ruff check)", "run": "make lint"},
+        {
+            "name": "Verify canonical NNx installation",
+            "run": "make verify-nnx-install",
+        },
+        {"name": "Run NNx-surface tests", "run": "make test-nnx-surface"},
+    ]
+
+
+def test_ci_nnx_surface_job_enforces_canonical_wheel_contract():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+
+    _assert_nnx_surface_job_contract(workflow)
+
+
+def _valid_nnx_contract_workflow() -> dict:
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    repository_steps = workflow["jobs"]["pytest-repository"]["steps"]
+    repository_install = next(
+        step for step in repository_steps if step.get("name") == "Install dependencies"
+    )
+    repository_install["run"] = (
+        "make install-torch-stack\n"
+        "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
+        "python -m pip install -r docs-requirements.txt\n"
+    )
+    if not any(
+        step.get("name") == "Verify canonical NNx installation"
+        for step in repository_steps
+    ):
+        repository_steps[-1:-1] = [
+            {
+                "name": "Verify canonical NNx installation",
+                "run": "make verify-nnx-install",
+            }
+        ]
+
+    surface_steps = workflow["jobs"]["pytest-nnx-surface"]["steps"]
+    surface_install = next(
+        step for step in surface_steps if step.get("name") == "Install dependencies"
+    )
+    surface_install["run"] = (
+        "make install-torch-stack\n"
+        "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
+    )
+    surface_verifier = next(
+        step
+        for step in surface_steps
+        if step.get("name") in {"Verify nnx import", "Verify canonical NNx installation"}
+    )
+    surface_verifier.clear()
+    surface_verifier.update(
+        {
+            "name": "Verify canonical NNx installation",
+            "run": "make verify-nnx-install",
+        }
+    )
+    return workflow
+
+
+@pytest.mark.parametrize("variable", ["NNX_ALLOW_EDITABLE", "PYTHONPATH"])
+def test_ci_nnx_contract_rejects_provenance_environment_overrides_in_other_jobs(variable):
+    workflow = _valid_nnx_contract_workflow()
+    workflow["jobs"]["atlas-consumer-policy"]["env"] = {variable: "1"}
+
+    with pytest.raises(AssertionError):
+        _assert_nnx_surface_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("job_name", "assert_contract"),
+    [
+        ("pytest-repository", _assert_complete_repository_test_contract),
+        ("pytest-nnx-surface", _assert_nnx_surface_job_contract),
+    ],
+)
+@pytest.mark.parametrize(
+    "install_command",
+    [
+        "python -m pip install -r requirements.txt",
+        "python -m pip install --only-binary=:all: -r requirements.txt",
+        "python -m pip install -e .",
+        "python -m pip install git+https://example.invalid/thekaveh-nnx.git",
+    ],
+)
+def test_ci_nnx_jobs_reject_noncanonical_install_commands(
+    job_name,
+    assert_contract,
+    install_command,
+):
+    workflow = _valid_nnx_contract_workflow()
+    install = next(
+        step
+        for step in workflow["jobs"][job_name]["steps"]
+        if step.get("name") == "Install dependencies"
+    )
+    lines = install["run"].splitlines()
+    lines[1] = install_command
+    install["run"] = "\n".join(lines) + "\n"
+
+    with pytest.raises(AssertionError):
+        assert_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("scope", "variable"),
+    [
+        ("workflow", "NNX_ALLOW_EDITABLE"),
+        ("workflow", "PYTHONPATH"),
+        ("job", "NNX_ALLOW_EDITABLE"),
+        ("job", "PYTHONPATH"),
+        ("step", "NNX_ALLOW_EDITABLE"),
+        ("step", "PYTHONPATH"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("job_name", "assert_contract"),
+    [
+        ("pytest-repository", _assert_complete_repository_test_contract),
+        ("pytest-nnx-surface", _assert_nnx_surface_job_contract),
+    ],
+)
+def test_ci_nnx_jobs_reject_provenance_environment_overrides(
+    job_name,
+    assert_contract,
+    scope,
+    variable,
+):
+    workflow = _valid_nnx_contract_workflow()
+    job = workflow["jobs"][job_name]
+    if scope == "workflow":
+        workflow["env"] = {variable: "1"}
+    elif scope == "job":
+        job["env"] = {variable: "1"}
+    else:
+        verifier = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Verify canonical NNx installation"
+        )
+        verifier["env"] = {variable: "1"}
+
+    with pytest.raises(AssertionError):
+        assert_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("job_name", "assert_contract"),
+    [
+        ("pytest-repository", _assert_complete_repository_test_contract),
+        ("pytest-nnx-surface", _assert_nnx_surface_job_contract),
+    ],
+)
+def test_ci_nnx_jobs_reject_removed_or_reordered_verifier(job_name, assert_contract):
+    workflow = _valid_nnx_contract_workflow()
+    steps = workflow["jobs"][job_name]["steps"]
+    verifier_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Verify canonical NNx installation"
+    )
+    verifier = steps.pop(verifier_index)
+
+    with pytest.raises(AssertionError):
+        assert_contract(workflow)
+
+    steps.insert(verifier_index, verifier)
+    install_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Install dependencies"
+    )
+    steps.insert(install_index, steps.pop(verifier_index))
+
+    with pytest.raises(AssertionError):
+        assert_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("job_name", "assert_contract", "test_step_name"),
+    [
+        (
+            "pytest-repository",
+            _assert_complete_repository_test_contract,
+            "Run complete repository tests",
+        ),
+        ("pytest-nnx-surface", _assert_nnx_surface_job_contract, "Run NNx-surface tests"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("target", "field", "value"),
+    [
+        ("job", "if", "github.ref == 'refs/heads/main'"),
+        ("job", "services", {"postgres": {"image": "postgres"}}),
+        ("job", "container", "python:3.11"),
+        ("verifier", "continue-on-error", "true"),
+        ("verifier", "shell", "bash {0} || true"),
+        ("test", "if", "github.ref == 'refs/heads/main'"),
+        ("test", "run", "pytest -q"),
+    ],
+)
+def test_ci_nnx_jobs_reject_controls_and_weakened_workloads(
+    job_name,
+    assert_contract,
+    test_step_name,
+    target,
+    field,
+    value,
+):
+    workflow = _valid_nnx_contract_workflow()
+    job = workflow["jobs"][job_name]
+    if target == "job":
+        job[field] = value
+    else:
+        step_name = (
+            "Verify canonical NNx installation" if target == "verifier" else test_step_name
+        )
+        step = next(step for step in job["steps"] if step.get("name") == step_name)
+        step[field] = value
+
+    with pytest.raises(AssertionError):
+        assert_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("job_name", "assert_contract"),
+    [
+        ("pytest-repository", _assert_complete_repository_test_contract),
+        ("pytest-nnx-surface", _assert_nnx_surface_job_contract),
+    ],
+)
+def test_ci_nnx_jobs_reject_extra_steps(job_name, assert_contract):
+    workflow = _valid_nnx_contract_workflow()
+    job = workflow["jobs"][job_name]
+    job["steps"].insert(-1, {"name": "Extra validation", "run": "true"})
+
+    with pytest.raises(AssertionError):
+        assert_contract(workflow)
 
 
 def _assert_repository_test_collection_boundary(repo: Path) -> None:

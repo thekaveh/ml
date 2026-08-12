@@ -261,7 +261,7 @@ Write the full red/green results and any concerns to `.superpowers/sdd/task-1-re
   `pytest-nnx-surface` jobs.
 - Preserves: current required GitHub contexts and every non-NNx CI job.
 
-- [ ] **Step 1: Add repository-job workflow regressions RED**
+- [x] **Step 1: Add repository-job workflow regressions RED**
 
 Extend the existing `test_ci_runs_complete_repository_test_contract` boundary or add a narrowly
 named companion that requires this exact ordered repository-job sequence:
@@ -291,7 +291,7 @@ pytest -p no:cacheprovider tests/test_verify_repo.py -q -k 'repository_test_cont
 
 Expected: fail because the current job lacks canonical validation and binary-only selection.
 
-- [ ] **Step 2: Add focused-job workflow regressions RED**
+- [x] **Step 2: Add focused-job workflow regressions RED**
 
 Add `test_ci_nnx_surface_job_enforces_canonical_wheel_contract` requiring the exact job identity,
 runner, timeout, checkout, Python/cache manifests, install command, Ruff command, verifier command,
@@ -316,7 +316,7 @@ pytest -p no:cacheprovider tests/test_verify_repo.py -q -k 'nnx_surface_job or r
 
 Expected: fail against the print-only smoke and missing selector terms.
 
-- [ ] **Step 3: Update CI minimally GREEN**
+- [x] **Step 3: Update CI minimally GREEN**
 
 In only `pytest-repository` and `pytest-nnx-surface`:
 
@@ -332,7 +332,7 @@ In only `pytest-repository` and `pytest-nnx-surface`:
 Do not alter triggers, permissions, required contexts, action pins, cache files, unrelated jobs,
 or the focused Ruff/API test roles.
 
-- [ ] **Step 4: Run workflow mutation tests GREEN**
+- [x] **Step 4: Run workflow mutation tests GREEN**
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_repo.py -q -k 'nnx or repository_workflow_contract_tests'
@@ -348,7 +348,7 @@ git diff --check
 
 Expected: all verifier tests pass, YAML parses, Ruff and diff checks are clean.
 
-- [ ] **Step 5: Mutation-audit the contract**
+- [x] **Step 5: Mutation-audit the contract**
 
 Using an isolated temporary copy of `.github/workflows/ci.yml`, demonstrate at least these
 independent RED mutations before restoring the exact file each time: remove
@@ -356,7 +356,7 @@ independent RED mutations before restoring the exact file each time: remove
 replace the verifier with `python -c "import nnx"`; and add `continue-on-error: true`. Run the
 focused workflow tests for each mutation and record the expected failure in the task report.
 
-- [ ] **Step 6: Commit Task 2**
+- [x] **Step 6: Commit Task 2**
 
 Mark Task 2 only complete, rerun Steps 4–5, stage only Task 2 files, run
 `git diff --cached --check`, and commit:

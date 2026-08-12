@@ -30,6 +30,7 @@ _REQUIREMENT_ERROR = "NNx requirement is not an exact pin"
 _DISTRIBUTION_ERROR = "NNx distribution metadata is not canonical"
 _IMPORT_ERROR = "NNx import is not owned by the installed distribution"
 _EDITABLE_ERROR = "NNx editable metadata is not valid"
+_OVERRIDE_ERROR = "NNx editable override is invalid"
 
 
 @dataclass(frozen=True)
@@ -96,8 +97,8 @@ def _matching_distribution(
         return distribution
     except VerificationError:
         raise
-    except Exception as error:
-        raise VerificationError(_DISTRIBUTION_ERROR) from error
+    except Exception:
+        raise VerificationError(_DISTRIBUTION_ERROR) from None
 
 
 def _matching_editable_distribution(
@@ -118,8 +119,8 @@ def _matching_editable_distribution(
         return pinned[0]
     except VerificationError:
         raise
-    except Exception as error:
-        raise VerificationError(_DISTRIBUTION_ERROR) from error
+    except Exception:
+        raise VerificationError(_DISTRIBUTION_ERROR) from None
 
 
 def _canonical_owned_init(distribution: metadata.Distribution) -> Path:
@@ -130,17 +131,23 @@ def _canonical_owned_init(distribution: metadata.Distribution) -> Path:
         if files is None:
             raise VerificationError(_DISTRIBUTION_ERROR)
         file_paths = tuple(Path(file) for file in files)
+        distribution_name = str(distribution.metadata["Name"])
+        distribution_version = str(distribution.version)
+        dist_info_directory = Path(
+            f"{re.sub(r'[-_.]+', '_', distribution_name).lower()}-"
+            f"{distribution_version}.dist-info"
+        )
         if (
-            not any(path.name == "WHEEL" for path in file_paths)
-            or not any(path.name == "RECORD" for path in file_paths)
+            dist_info_directory / "WHEEL" not in file_paths
+            or dist_info_directory / "RECORD" not in file_paths
             or Path("nnx/__init__.py") not in file_paths
         ):
             raise VerificationError(_DISTRIBUTION_ERROR)
         return Path(distribution.locate_file(Path("nnx/__init__.py"))).resolve()
     except VerificationError:
         raise
-    except Exception as error:
-        raise VerificationError(_DISTRIBUTION_ERROR) from error
+    except Exception:
+        raise VerificationError(_DISTRIBUTION_ERROR) from None
 
 
 def _resolved_import_origin(find_spec: Callable[[str], ModuleSpec | None]) -> Path:
@@ -151,8 +158,8 @@ def _resolved_import_origin(find_spec: Callable[[str], ModuleSpec | None]) -> Pa
         return Path(spec.origin).resolve()
     except VerificationError:
         raise
-    except Exception as error:
-        raise VerificationError(_IMPORT_ERROR) from error
+    except Exception:
+        raise VerificationError(_IMPORT_ERROR) from None
 
 
 def _editable_source(distribution: metadata.Distribution) -> Path:
@@ -184,8 +191,8 @@ def _editable_source(distribution: metadata.Distribution) -> Path:
         return source
     except VerificationError:
         raise
-    except Exception as error:
-        raise VerificationError(_EDITABLE_ERROR) from error
+    except Exception:
+        raise VerificationError(_EDITABLE_ERROR) from None
 
 
 def _verify_editable_import(source: Path, find_spec: Callable[[str], ModuleSpec | None]) -> None:
@@ -199,8 +206,8 @@ def _verify_editable_import(source: Path, find_spec: Callable[[str], ModuleSpec 
             raise VerificationError(_IMPORT_ERROR)
     except VerificationError:
         raise
-    except Exception as error:
-        raise VerificationError(_IMPORT_ERROR) from error
+    except Exception:
+        raise VerificationError(_IMPORT_ERROR) from None
 
 
 def verify_nnx_install(
@@ -213,14 +220,22 @@ def verify_nnx_install(
 ) -> NnxInstallEvidence:
     """Verify canonical named-release NNx installation and import ownership."""
     selected_environ = os.environ if environ is None else environ
-    editable_override = selected_environ.get("NNX_ALLOW_EDITABLE")
+    try:
+        editable_override = selected_environ.get("NNX_ALLOW_EDITABLE")
+    except Exception:
+        raise VerificationError(_OVERRIDE_ERROR) from None
     if editable_override not in (None, "", "1"):
-        raise VerificationError("NNx editable override is invalid")
+        raise VerificationError(_OVERRIDE_ERROR)
     try:
         requirements_text = requirements_path.read_text(encoding="utf-8")
-    except Exception as error:
-        raise VerificationError(_REQUIREMENT_ERROR) from error
-    pin = parse_nnx_pin(requirements_text)
+    except Exception:
+        raise VerificationError(_REQUIREMENT_ERROR) from None
+    try:
+        pin = parse_nnx_pin(requirements_text)
+    except VerificationError:
+        raise
+    except Exception:
+        raise VerificationError(_REQUIREMENT_ERROR) from None
     if distributions is None:
         try:
             selected_distributions = metadata.distributions()
@@ -242,8 +257,8 @@ def verify_nnx_install(
             raise VerificationError(_IMPORT_ERROR)
     except VerificationError:
         raise
-    except Exception as error:
-        raise VerificationError(_IMPORT_ERROR) from error
+    except Exception:
+        raise VerificationError(_IMPORT_ERROR) from None
     return NnxInstallEvidence(mode="canonical-wheel", distribution=_DISTRIBUTION_NAME, version=pin.version)
 
 

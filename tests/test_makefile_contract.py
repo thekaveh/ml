@@ -40,9 +40,16 @@ def _assert_nnx_install_fixture_contract(source: str) -> None:
         for node in tree.body
         if (
             isinstance(node, ast.Import)
-            and any(alias.name == "nnx" for alias in node.names)
+            and any(
+                alias.name == "nnx" or alias.name.startswith("nnx.")
+                for alias in node.names
+            )
         )
-        or (isinstance(node, ast.ImportFrom) and node.module == "nnx")
+        or (
+            isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and (node.module == "nnx" or node.module.startswith("nnx."))
+        )
     ]
 
     assert len(verifier_imports) == 1
@@ -170,6 +177,14 @@ def test_nnx_surface_has_a_session_autouse_installation_verifier():
             "import nnx\n\nverify_nnx_install()",
         ),
         ("verify_nnx_install()\n\nimport nnx", "import nnx"),
+        (
+            "verify_nnx_install()\n\nimport nnx",
+            "from nnx.utils import seed\n\nverify_nnx_install()\n\nimport nnx",
+        ),
+        (
+            "verify_nnx_install()\n\nimport nnx",
+            "import nnx.utils\n\nverify_nnx_install()\n\nimport nnx",
+        ),
     ),
     ids=(
         "function-scope",
@@ -178,6 +193,8 @@ def test_nnx_surface_has_a_session_autouse_installation_verifier():
         "environment-mutated",
         "initial-verifier-reordered",
         "initial-verifier-removed",
+        "submodule-from-import-before-verifier",
+        "submodule-import-before-verifier",
     ),
 )
 def test_nnx_surface_installation_fixture_contract_rejects_mutations(original: str, mutation: str):

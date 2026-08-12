@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import traceback
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from scripts.verify_nnx_install import VerificationError, parse_nnx_pin, verify_
 
 
 CANONICAL_FILES = ("thekaveh_nnx-0.2.0.dist-info/WHEEL", "thekaveh_nnx-0.2.0.dist-info/RECORD", "nnx/__init__.py")
+SENSITIVE_DETAIL = "file:///Users/example/private/NNx?token=secret"
 
 
 class FakeDistribution:
@@ -152,6 +154,170 @@ def test_cli_redacts_default_distribution_discovery_failure(monkeypatch, capsys)
     assert '"token":"secret"' not in captured.err
 
 
+class _ExplodingRequirementsPath:
+    def read_text(self, *, encoding):
+        raise RuntimeError(SENSITIVE_DETAIL)
+
+
+class _ExplodingMapping:
+    def get(self, key):
+        raise RuntimeError(SENSITIVE_DETAIL)
+
+
+class _ExplodingIterable:
+    def __iter__(self):
+        raise RuntimeError(SENSITIVE_DETAIL)
+
+
+class _ExplodingDistribution:
+    metadata = {"Name": "thekaveh-nnx"}
+    version = "0.2.0"
+
+    @property
+    def files(self):
+        raise RuntimeError(SENSITIVE_DETAIL)
+
+    def read_text(self, filename):
+        raise RuntimeError(SENSITIVE_DETAIL)
+
+    def locate_file(self, path):
+        raise RuntimeError(SENSITIVE_DETAIL)
+
+
+class _ExplodingVersionDistribution:
+    metadata = {"Name": "thekaveh-nnx"}
+
+    @property
+    def version(self):
+        raise RuntimeError(SENSITIVE_DETAIL)
+
+
+class _ExplodingPath:
+    def __fspath__(self):
+        raise RuntimeError(SENSITIVE_DETAIL)
+
+
+class _ExplodingRepoRoot:
+    def resolve(self):
+        raise RuntimeError(SENSITIVE_DETAIL)
+
+
+def _assert_formatted_failure_is_redacted(call, expected_message: str) -> None:
+    with pytest.raises(VerificationError, match=f"^{expected_message}$") as caught:
+        call()
+
+    formatted = "".join(
+        traceback.format_exception(caught.type, caught.value, caught.tb)
+    )
+    assert expected_message in formatted
+    assert SENSITIVE_DETAIL not in formatted
+    assert "RuntimeError" not in formatted
+
+
+@pytest.mark.parametrize(
+    ("boundary", "expected_message"),
+    (
+        ("environment", "NNx editable override is invalid"),
+        ("requirements-read", "NNx requirement is not an exact pin"),
+        ("requirements-parse", "NNx requirement is not an exact pin"),
+        ("distribution-discovery", "NNx distribution metadata is not canonical"),
+        ("distribution-iteration", "NNx distribution metadata is not canonical"),
+        ("distribution-metadata", "NNx distribution metadata is not canonical"),
+        ("distribution-version", "NNx distribution metadata is not canonical"),
+        ("owned-direct-url", "NNx distribution metadata is not canonical"),
+        ("owned-files", "NNx distribution metadata is not canonical"),
+        ("owned-locate-file", "NNx distribution metadata is not canonical"),
+        ("find-spec", "NNx import is not owned by the installed distribution"),
+        ("import-path", "NNx import is not owned by the installed distribution"),
+        ("repo-root", "NNx import is not owned by the installed distribution"),
+        ("editable-direct-url", "NNx editable metadata is not valid"),
+        ("editable-path", "NNx editable metadata is not valid"),
+    ),
+)
+def test_verifier_exception_boundaries_redact_formatted_tracebacks(
+    canonical_install, monkeypatch, boundary: str, expected_message: str
+):
+    repo_root, install_root, package_init, canonical = canonical_install
+    requirements_path = repo_root / "requirements.txt"
+    requirements_path.write_text("thekaveh-nnx[lm]==0.2.0\n", encoding="utf-8")
+    kwargs = {
+        "environ": {},
+        "distributions": [canonical],
+        "find_spec": lambda name: _spec(package_init),
+        "repo_root": repo_root,
+    }
+    selected_requirements_path = requirements_path
+
+    if boundary == "environment":
+        kwargs["environ"] = _ExplodingMapping()
+    elif boundary == "requirements-read":
+        selected_requirements_path = _ExplodingRequirementsPath()
+    elif boundary == "requirements-parse":
+        monkeypatch.setattr(
+            verifier_module,
+            "parse_nnx_pin",
+            lambda text: (_ for _ in ()).throw(RuntimeError(SENSITIVE_DETAIL)),
+        )
+    elif boundary == "distribution-discovery":
+        kwargs["distributions"] = None
+        monkeypatch.setattr(
+            verifier_module.metadata,
+            "distributions",
+            _raise_sensitive_distribution_discovery_error,
+        )
+    elif boundary == "distribution-iteration":
+        kwargs["distributions"] = _ExplodingIterable()
+    elif boundary == "distribution-metadata":
+        hostile = _ExplodingDistribution()
+        hostile.metadata = {"Name": type("HostileName", (), {"__str__": lambda self: (_ for _ in ()).throw(RuntimeError(SENSITIVE_DETAIL))})()}
+        kwargs["distributions"] = [hostile]
+    elif boundary == "distribution-version":
+        kwargs["distributions"] = [_ExplodingVersionDistribution()]
+    elif boundary == "owned-direct-url":
+        kwargs["distributions"] = [_ExplodingDistribution()]
+    elif boundary == "owned-files":
+        hostile = _ExplodingDistribution()
+        hostile.read_text = lambda filename: None
+        kwargs["distributions"] = [hostile]
+    elif boundary == "owned-locate-file":
+        hostile = _ExplodingDistribution()
+        hostile.read_text = lambda filename: None
+        hostile.__dict__["files"] = list(CANONICAL_FILES)
+        monkeypatch.setattr(type(hostile), "files", list(CANONICAL_FILES))
+        kwargs["distributions"] = [hostile]
+    elif boundary == "find-spec":
+        kwargs["find_spec"] = lambda name: (_ for _ in ()).throw(
+            RuntimeError(SENSITIVE_DETAIL)
+        )
+    elif boundary == "import-path":
+        hostile_spec = ModuleSpec("nnx", loader=None)
+        hostile_spec.origin = _ExplodingPath()
+        kwargs["find_spec"] = lambda name: hostile_spec
+    elif boundary == "repo-root":
+        kwargs["repo_root"] = _ExplodingRepoRoot()
+    elif boundary == "editable-direct-url":
+        kwargs["environ"] = {"NNX_ALLOW_EDITABLE": "1"}
+        kwargs["distributions"] = [_ExplodingDistribution()]
+    elif boundary == "editable-path":
+        source = install_root / "editable"
+        source.mkdir()
+        kwargs["environ"] = {"NNX_ALLOW_EDITABLE": "1"}
+        kwargs["distributions"] = [_editable_distribution(source)]
+        monkeypatch.setattr(
+            verifier_module,
+            "url2pathname",
+            lambda value: (_ for _ in ()).throw(RuntimeError(SENSITIVE_DETAIL)),
+        )
+
+    _assert_formatted_failure_is_redacted(
+        lambda: verifier_module.verify_nnx_install(
+            selected_requirements_path,
+            **kwargs,
+        ),
+        expected_message,
+    )
+
+
 @pytest.mark.parametrize(
     ("distributions", "files"),
     (
@@ -194,6 +360,39 @@ def test_verify_nnx_install_rejects_noncanonical_distribution_metadata(
 
     assert str(install_root) not in str(error.value)
     assert "file:///secret/editable/NNx" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "files",
+    (
+        (
+            "attacker.dist-info/WHEEL",
+            "attacker.dist-info/RECORD",
+            "nnx/__init__.py",
+        ),
+        (
+            "thekaveh_nnx-0.2.0.dist-info/WHEEL",
+            "attacker.dist-info/RECORD",
+            "nnx/__init__.py",
+        ),
+    ),
+    ids=("wrong-dist-info", "split-dist-info"),
+)
+def test_verify_nnx_install_requires_markers_in_canonical_distribution_directory(
+    canonical_install, files
+):
+    _, install_root, _, _ = canonical_install
+    distribution = FakeDistribution(root=install_root, files=files)
+
+    with pytest.raises(
+        VerificationError,
+        match="^NNx distribution metadata is not canonical$",
+    ):
+        _verify(
+            "thekaveh-nnx[lm]==0.2.0\n",
+            canonical_install,
+            distributions=[distribution],
+        )
 
 
 def test_verify_nnx_install_rejects_import_origin_mismatch(canonical_install, tmp_path: Path):

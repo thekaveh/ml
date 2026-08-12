@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -2712,6 +2713,9 @@ def test_ci_runs_repository_workflow_contract_tests():
         if step.get("name") == "Test repository workflow contracts"
     )
     assert contract_tests["run"] == (
+        "pytest "
+        "tests/test_verify_repo.py::test_ci_repository_test_contract_enforces_canonical_nnx_wheel "
+        "tests/test_verify_repo.py::test_ci_nnx_surface_job_enforces_canonical_wheel_contract -q\n"
         "pytest tests/test_verify_repo.py -q -k "
         "'atlas_consumer_policy_contract or "
         "atlas_contract_workflow or "
@@ -2725,8 +2729,64 @@ def test_ci_runs_repository_workflow_contract_tests():
         "ci_runs_complete_repository_test_contract or "
         "ci_repository_test_contract_enforces_canonical_nnx_wheel or "
         "ci_nnx_surface_job_enforces_canonical_wheel_contract or "
-        "repository_test_collection_boundary_is_explicit'"
+        "repository_test_collection_boundary_is_explicit'\n"
     )
+
+
+@pytest.mark.parametrize(
+    ("positive_test", "job_name"),
+    (
+        (
+            "test_ci_repository_test_contract_enforces_canonical_nnx_wheel",
+            "pytest-repository",
+        ),
+        (
+            "test_ci_nnx_surface_job_enforces_canonical_wheel_contract",
+            "pytest-nnx-surface",
+        ),
+    ),
+    ids=("repository-gate", "focused-gate"),
+)
+@pytest.mark.parametrize("mutation", ("delete", "rename"))
+def test_ci_workflow_contract_self_test_resists_positive_test_deletion(
+    tmp_path: Path, positive_test: str, job_name: str, mutation: str
+):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["verify-repo"]["steps"]
+        if step.get("name") == "Test repository workflow contracts"
+    ).splitlines()[0]
+    source = (REPO / "tests" / "test_verify_repo.py").read_text(encoding="utf-8")
+    function_header = f"def {positive_test}():"
+    assert source.count(function_header) == 1
+    if mutation == "rename":
+        source = source.replace(function_header, f"def removed_{positive_test}():", 1)
+    else:
+        source = source.replace(function_header, f"def _deleted_{positive_test}():", 1)
+
+    test_file = tmp_path / "tests" / "test_verify_repo.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(source, encoding="utf-8")
+    workflow_path = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow_path.parent.mkdir(parents=True)
+    workflow["jobs"][job_name]["steps"] = [
+        step
+        for step in workflow["jobs"][job_name]["steps"]
+        if step.get("name") != "Verify canonical NNx installation"
+    ]
+    workflow_path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
+
+    result = subprocess.run(
+        shlex.split(command),
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode != 0
+    assert positive_test in result.stdout + result.stderr
 
 
 def _assert_no_nnx_environment_overrides(workflow: dict) -> None:

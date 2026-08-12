@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -16,6 +17,44 @@ REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "verify_repo.py"
 ACTIVE_FIXTURE_DIR = "notebooks/image_classification-mnist-ffnn-numpy"
 TEST_SUBPROCESS_TIMEOUT = 30
+
+
+def _parse_exact_direct_pins(path: Path) -> dict[str, str]:
+    pins: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"([a-z0-9][a-z0-9._-]*)==([^\s\\;@]+)", line, re.IGNORECASE)
+        assert match, f"{path.name} must contain only exact package pins: {line!r}"
+        package, version = match.groups()
+        package = package.lower()
+        assert package not in pins, f"{path.name} repeats {package}"
+        pins[package] = version
+    return pins
+
+
+def _documentation_pin(package: str) -> str:
+    matches = [
+        match.group(1)
+        for line in (REPO / "docs-requirements.txt").read_text(encoding="utf-8").splitlines()
+        if (
+            match := re.fullmatch(
+                rf"{re.escape(package)}==([^\s\\;@]+) " + re.escape(chr(92)),
+                line,
+                re.IGNORECASE,
+            )
+        )
+    ]
+    assert len(matches) == 1, f"docs-requirements.txt must pin {package} exactly once"
+    return matches[0]
+
+
+def test_atlas_contract_direct_dependencies_match_documentation_pins():
+    requirements_path = REPO / "atlas-contract-requirements.txt"
+
+    assert requirements_path.is_file(), "atlas-contract-requirements.txt is missing"
+    assert _parse_exact_direct_pins(requirements_path) == {
+        "pytest": _documentation_pin("pytest"),
+        "pyyaml": _documentation_pin("pyyaml"),
+    }
 
 
 def run_verify(*args: str) -> subprocess.CompletedProcess:

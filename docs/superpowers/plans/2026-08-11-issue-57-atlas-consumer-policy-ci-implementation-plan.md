@@ -41,7 +41,7 @@
 - Consumes: the existing Atlas consumer, lifecycle, runtime-probe, and public Make target tests.
 - Produces: exact Make target `test-atlas-consumer`, a four-module focused pytest boundary, and a two-package pinned manifest consumed by Task 2.
 
-- [ ] **Step 1: Move the three Atlas Makefile tests into a focused module**
+- [x] **Step 1: Move the three Atlas Makefile tests into a focused module**
 
 Move `test_atlas_targets_expose_exact_lifecycle_commands`, `test_atlas_down_only_requests_cold_shutdown_when_explicit`, and `test_atlas_targets_are_documented_and_phony`, with their needed imports/constants, from `tests/test_makefile_contract.py` to new `tests/test_atlas_makefile_contract.py`. Keep assertions unchanged. Run:
 
@@ -51,7 +51,7 @@ pytest -p no:cacheprovider tests/test_makefile_contract.py tests/test_atlas_make
 
 Expected: green, with exactly three tests in the new module.
 
-- [ ] **Step 2: Add failing focused-target and dependency-contract tests**
+- [x] **Step 2: Add failing focused-target and dependency-contract tests**
 
 Add tests that define this exact boundary:
 
@@ -66,7 +66,7 @@ ATLAS_TEST_FILES = (
 
 Assert `make --no-print-directory -n test-atlas-consumer` emits exactly `pytest <four files> -v`; assert the target appears in `.PHONY` and `make help`; and assert `atlas-contract-requirements.txt` contains only exact pytest and PyYAML pins matching `docs-requirements.txt`. Reuse existing requirement parsers when possible; otherwise add narrow helpers that reject options, ranges, duplicates, continuations, and extra packages.
 
-- [ ] **Step 3: Run and record RED**
+- [x] **Step 3: Run and record RED**
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_repo.py tests/test_atlas_makefile_contract.py -q -k 'atlas_consumer_make_target or atlas_contract_direct_dependencies'
@@ -74,7 +74,7 @@ pytest -p no:cacheprovider tests/test_verify_repo.py tests/test_atlas_makefile_c
 
 Expected: fail because the target and manifest do not exist. Record exact failures before production edits.
 
-- [ ] **Step 4: Add the minimal implementation**
+- [x] **Step 4: Add the minimal implementation**
 
 Create `atlas-contract-requirements.txt`:
 
@@ -97,7 +97,7 @@ test-atlas-consumer:
 
 Add the target to `.PHONY` and help output. Keep `make test` unchanged.
 
-- [ ] **Step 5: Verify GREEN**
+- [x] **Step 5: Verify GREEN**
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_repo.py tests/test_atlas_makefile_contract.py -q -k 'atlas_consumer_make_target or atlas_contract_direct_dependencies'
@@ -107,7 +107,7 @@ ruff check --no-cache tests/test_verify_repo.py tests/test_makefile_contract.py 
 git diff --check
 ```
 
-- [ ] **Step 6: Mark Task 1 complete and commit**
+- [x] **Step 6: Mark Task 1 complete and commit**
 
 Mark Task 1 only, rerun Step 5, stage its files, run `git diff --cached --check`, and commit `test: define focused Atlas consumer contract`.
 

@@ -19,8 +19,9 @@ discussion, or pull request containing an undisclosed vulnerability or sensitive
 2. Make your change.
 3. Run `make verify` (wraps `python scripts/verify_repo.py --check all --fast`) — must exit 0 (no error-severity findings; warnings are OK).
 4. Run `make test` (wraps `pytest tests/`) locally. CI runs the same complete contract on every PR as the required `pytest-repository` job; `pytest-nnx-surface` remains the faster focused NNx/PyPI compatibility and Ruff signal.
-5. If you touched a notebook, re-run it at its tier (Tier-A: `make run-tier-a` only when deliberately refreshing a committed snapshot; `make smoke-tier-a` is the non-mutating CI-equivalent target; Tier-B: `make smoke-tier-b`; Tier-C: `make smoke-tier-c`). Tier-C **code cells** must remain identical to the `pre-cleanup-baseline` tag — verify check E5 enforces this (markdown and embedded outputs are not compared).
-6. Open a PR. CI runs complete pytest and Tier-A automatically; Tier-B runs on schedule, on `workflow_dispatch`, and on PRs labeled `tier-b-smoke`; Tier-C runs on schedule and on `workflow_dispatch`.
+5. Before a PR that changes the parent-owned Atlas consumer policy, run `make test-atlas-consumer`. `atlas-consumer-policy` is unconditional on every pull request and is intended to be a required gate. `atlas-contract` remains a separate, path-scoped, non-required direct validator of the recursive `infra/` submodule.
+6. If you touched a notebook, re-run it at its tier (Tier-A: `make run-tier-a` only when deliberately refreshing a committed snapshot; `make smoke-tier-a` is the non-mutating CI-equivalent target; Tier-B: `make smoke-tier-b`; Tier-C: `make smoke-tier-c`). Tier-C **code cells** must remain identical to the `pre-cleanup-baseline` tag — verify check E5 enforces this (markdown and embedded outputs are not compared).
+7. Open a PR. CI runs complete pytest, Atlas consumer policy, and Tier-A automatically; Tier-B runs on schedule, on `workflow_dispatch`, and on PRs labeled `tier-b-smoke`; Tier-C runs on schedule and on `workflow_dispatch`.
 
 ## 3. Adding a new task folder
 

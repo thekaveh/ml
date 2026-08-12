@@ -54,57 +54,6 @@ def test_setup_targets_use_selected_python_interpreter():
     assert not any(line.startswith("pip install") or line.startswith("python ") for line in lines)
 
 
-def test_atlas_targets_expose_exact_lifecycle_commands():
-    result = subprocess.run(
-        [
-            "make",
-            "--no-print-directory",
-            "-n",
-            "atlas-setup",
-            "atlas-up",
-            "atlas-down",
-            "atlas-connect",
-            "atlas-contract",
-        ],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=TEST_SUBPROCESS_TIMEOUT,
-    )
-
-    assert result.stdout.splitlines() == [
-        "git submodule update --init --recursive infra",
-        "./scripts/atlas-up.sh --prepare",
-        "./scripts/atlas-up.sh",
-        "./scripts/atlas-down.sh ",
-        "./scripts/atlas-connect.sh",
-        "./scripts/atlas-up.sh --validate",
-    ]
-
-
-def test_atlas_down_only_requests_cold_shutdown_when_explicit():
-    warm = subprocess.run(
-        ["make", "--no-print-directory", "-n", "atlas-down"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=TEST_SUBPROCESS_TIMEOUT,
-    )
-    cold = subprocess.run(
-        ["make", "--no-print-directory", "-n", "COLD=1", "atlas-down"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=TEST_SUBPROCESS_TIMEOUT,
-    )
-
-    assert "--cold" not in warm.stdout
-    assert cold.stdout.splitlines() == ["./scripts/atlas-down.sh --cold"]
-
-
 def test_smoke_tier_a_writes_to_temporary_outputs_without_mutating_sources(
     tmp_path: Path,
 ) -> None:
@@ -214,25 +163,3 @@ def test_check_tier_a_artifacts_reports_a_missing_or_empty_mirrored_output(
 
     assert result.returncode != 0
     assert "missing expected Tier-A notebook output" in result.stderr
-
-
-def test_atlas_targets_are_documented_and_phony():
-    help_result = subprocess.run(
-        ["make", "help"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=TEST_SUBPROCESS_TIMEOUT,
-    )
-    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
-
-    for target in (
-        "atlas-setup",
-        "atlas-up",
-        "atlas-down",
-        "atlas-connect",
-        "atlas-contract",
-    ):
-        assert target in help_result.stdout
-        assert target in makefile.split(".PHONY:", 1)[1].splitlines()[0]

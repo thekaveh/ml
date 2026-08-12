@@ -72,11 +72,16 @@ TIER_C := \
     notebooks/node_classification-reddit-gnn-pyg/phase3-main-model-training-and-eval-notebook3.ipynb \
     notebooks/node_classification-reddit-gnn-pyg/phase3-main-model-training-and-eval-notebook4.ipynb
 
+ATLAS_CONSUMER_TESTS := tests/test_atlas_consumer_contract.py \
+	tests/test_atlas_lifecycle.py \
+	tests/test_atlas_runtime_probe.py \
+	tests/test_atlas_makefile_contract.py
+
 SMOKE_OUT := /tmp/ml-smoke
 TIER_A_OUT ?= /tmp/ml-tier-a
 TIER_A_OUT_ABS := $(abspath $(TIER_A_OUT))
 
-.PHONY: help run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test test-nnx-surface lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
+.PHONY: help run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test test-nnx-surface test-atlas-consumer lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
 
 help:
 	@echo "Targets:"
@@ -88,6 +93,7 @@ help:
 	@echo "  smoke-tier-c      Papermill Tier-C notebooks with SMOKE_TEST=1 to $(SMOKE_OUT)/."
 	@echo "  test              Run pytest on tests/ directory."
 	@echo "  test-nnx-surface  Run only tests/nnx_surface (matches the CI pytest-nnx-surface job)."
+	@echo "  test-atlas-consumer Run the focused Atlas consumer contract tests."
 	@echo "  lint              Run ruff check . using the [tool.ruff] config in pyproject.toml."
 	@echo "  docs-build        Build the MkDocs site: render diagrams, generate the site input, then mkdocs build --strict."
 	@echo "  docs-serve        Render diagrams + generate the site input, then mkdocs serve for live preview."
@@ -171,6 +177,9 @@ test:
 
 test-nnx-surface:
 	pytest tests/nnx_surface -v
+
+test-atlas-consumer:
+	pytest $(ATLAS_CONSUMER_TESTS) -v
 
 lint:
 	ruff check .

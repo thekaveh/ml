@@ -189,7 +189,27 @@ release-contract evidence only when `nnx` resolves from the pinned PyPI wheel,
 not from an editable checkout (see [dependency-contracts.md](dependency-contracts.md)
 §6).
 
-### 5.3.3 Lint — `make lint`
+### 5.3.3 Atlas consumer policy — `make test-atlas-consumer`
+
+The five-step `atlas-consumer-policy` job runs unconditionally on every pull request and is
+intended to be a required gate. It checks out the parent repository without recursively fetching
+the submodule, sets up Python 3.11, installs the focused dependency file, runs ShellCheck, and
+executes the focused Make target. `atlas-contract-requirements.txt` contains exactly
+`pytest==9.0.3` and `pyyaml==6.0.3`; this is the complete direct Python dependency boundary for
+the focused policy tests.
+
+The fourth step runs
+`shellcheck scripts/atlas-up.sh scripts/atlas-down.sh scripts/atlas-connect.sh scripts/lib/atlas-dotenv.sh`.
+The fifth runs exact `make test-atlas-consumer`, which selects the consumer contract, lifecycle,
+runtime-probe, and Makefile-contract test modules. The job does not start, stop, or contact Atlas,
+JupyterHub, Ollama, ComfyUI, Docker Compose, or unrelated containers. It is a focused parent-policy
+signal inside complete `make test`, not a replacement for the required `pytest-repository` job.
+
+The separate `atlas-contract` workflow is path-scoped and non-required. It recursively checks out
+`infra/` and directly validates the Atlas consumer manifest against that pinned submodule when an
+Atlas input changes; it is not the unconditional parent-policy gate.
+
+### 5.3.4 Lint — `make lint`
 
 `ruff check .` using the `[tool.ruff]` config in `pyproject.toml`: line length
 120, target py311, rules `E`/`F`/`W` selected, `E501` (line too long) ignored
@@ -197,7 +217,7 @@ because much of the code is notebook-derived and under gradual cleanup.
 Tier-C phase3 notebooks carry per-file ignores because their source is locked
 to the baseline tag.
 
-### 5.3.4 Docs gate — `make docs-check`
+### 5.3.5 Docs gate — `make docs-check`
 
 Render diagrams (`scripts/docs.render_diagrams`) → run `check_docs` →
 `mkdocs build --strict`. The dedicated `.github/workflows/docs.yml` workflow
@@ -234,14 +254,15 @@ pages before they reach the published site.
 
 1. `make verify` (fast, <30 s) — must exit 0.
 2. `make test` locally; CI reruns that complete contract as `pytest-repository` and also retains the focused `pytest-nnx-surface` signal.
-3. `make lint`.
-4. If you touched a notebook: re-run it at the right tier (`make run-tier-a`
+3. If you changed the Atlas consumer policy, run `make test-atlas-consumer` before opening the PR.
+4. `make lint`.
+5. If you touched a notebook: re-run it at the right tier (`make run-tier-a`
    for an intentional Tier-A snapshot refresh, `make smoke-tier-a` for a
    non-mutating Tier-A execution, `make smoke-tier-b`, `make smoke-tier-c`).
    After `make smoke-tier-a`, run `make check-tier-a-artifacts` and
    `make check-tier-a-clean` to confirm the generated copies exist and sources
    remained unchanged.
-5. If you touched docs: `make docs-check`.
+6. If you touched docs: `make docs-check`.
 
 ## 5.5 Documentation convention
 

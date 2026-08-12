@@ -275,13 +275,17 @@ git diff --check
 git status --short
 ```
 
-- [ ] **Step 3: Open and validate feature → develop PR**
+- [x] **Step 3: Open and validate feature → develop PR**
 
 Push, open a ready PR closing #57, and wait for green `atlas-consumer-policy`, `atlas-contract`, and `pytest-repository`. Record live URLs, conclusions, durations, focused results, and skip reasons.
 
-- [ ] **Step 4: Require the stable context**
+PR [#95](https://github.com/thekaveh/ml-eng-lab/pull/95) supplied the live evidence: `atlas-consumer-policy` passed in 56 seconds ([job](https://github.com/thekaveh/ml-eng-lab/actions/runs/31559897438/job/93999901866)), path-scoped `atlas-contract` passed in 21 seconds ([job](https://github.com/thekaveh/ml-eng-lab/actions/runs/31559897451/job/93999901925)), and `pytest-repository` passed in 4 minutes 45 seconds ([job](https://github.com/thekaveh/ml-eng-lab/actions/runs/31559897438/job/93999901807)). The focused job ran all 96 Atlas consumer tests without starting or contacting Atlas, JupyterHub, Ollama, or ComfyUI. The local full suite passed 841 tests and recorded three explicit macOS/ARM PyG `NeighborLoader` skips plus three third-party deprecation warnings; the Linux repository job passed its complete collection.
+
+- [x] **Step 4: Require the stable context**
 
 Update the existing `gitflow` ruleset in place, preserving all targets, bypass actors, enforcement, and rules, so required contexts are exactly `pytest-repository` and `atlas-consumer-policy`. Read it back and verify. Never require path-scoped `atlas-contract`.
+
+Ruleset `gitflow` (`18620095`) was updated in place after the first successful live policy job. Its readback preserved active enforcement, the `main` and `develop` targets, empty bypass actors, pull-request/deletion/non-fast-forward rules, and the existing non-strict required-check settings; the required contexts are exactly `pytest-repository` and `atlas-consumer-policy`. Path-scoped `atlas-contract` remains deliberately non-required.
 
 - [ ] **Step 5: Merge through GitFlow and synchronize**
 

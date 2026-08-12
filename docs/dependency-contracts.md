@@ -158,34 +158,37 @@ update this section.
 ## 6.1.6 NNx PyPI Pin and Editable Override Boundary
 
 `requirements.txt` pins `thekaveh-nnx[lm]==0.2.0`. That PyPI distribution is
-the canonical contract for ml-eng-lab notebook verification and CI. The static
-NNx surface tests intentionally inspect the installed `nnx` import surface, so
-they are only exact release-contract evidence when the environment resolves
-`nnx` from the pinned PyPI wheel.
-
-Editable installs are allowed only for active upstream NNx development, using
-the workflow in README §6. When an
-editable checkout is active, local tests are development-surface evidence, not
-release-contract evidence. Before treating local `tests/nnx_surface` results as
-release evidence, confirm:
+the canonical contract for ml-eng-lab notebook verification and CI. Record canonical local
+evidence with:
 
 ```bash
-python - <<'PY'
-import importlib.metadata as md
-import json
-from pathlib import Path
-
-dist = md.distribution("thekaveh-nnx")
-direct_url = Path(dist._path) / "direct_url.json"
-print(md.version("thekaveh-nnx"))
-print(json.loads(direct_url.read_text()) if direct_url.exists() else "wheel install")
-PY
+make verify-nnx-install
 ```
 
-Expected release-contract state: version `0.2.0` and no editable
-`direct_url.json`. If the output reports `{"editable": true}`, reinstall from
-`requirements.txt` before recording exact pinned-contract evidence, or document
-that the run intentionally used a local NNx development checkout.
+The fail-closed verifier reads the one exact `[lm]` manifest pin and requires one matching installed
+`thekaveh-nnx` distribution at that version. Canonical mode rejects any `direct_url.json`, requires
+the distribution file inventory to own `WHEEL`, `RECORD`, and `nnx/__init__.py`, and proves that the
+resolved `nnx` module is the same distribution-owned import origin outside this repository.
+Diagnostics are redacted to stable contract categories; local paths and direct URLs are not emitted.
+
+CI selects the NNx wheel with `--only-binary=thekaveh-nnx` in both `pytest-repository` and
+`pytest-nnx-surface`, then runs `make verify-nnx-install` after installation and immediately before
+tests. This binary-only selection is not a cryptographic hash lock and does not lock the whole
+dependency graph; Issue #63 owns future NNx wheel hash locking.
+
+Editable installs are allowed only for intentional upstream NNx development. After installing an
+external checkout editable, run:
+
+```bash
+NNX_ALLOW_EDITABLE=1 make test-nnx-surface
+```
+
+Only the exact value `1` selects editable-development mode. The verifier still requires the exact
+manifest and distribution versions, valid PEP 610 JSON with a local `file:` URL and
+`dir_info.editable` set to true, and an `nnx` import beneath that declared source directory. It
+rejects malformed metadata, non-editable or VCS direct references, and unrelated shadow imports.
+An editable result is development-surface evidence, never released-wheel evidence; return to
+canonical mode and rerun `make verify-nnx-install` before recording release compatibility.
 
 ## 6.1.7 Atlas Infra Submodule Contract
 

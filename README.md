@@ -227,11 +227,17 @@ Throughout this README, `NNx` refers to the [GitHub project](https://github.com/
 
 The library is consumed via PyPI — `thekaveh-nnx[lm]==0.2.0` is pinned in `requirements.txt` (since 2026-06-14, replacing the prior git-submodule editable install). The `[lm]` extra pulls the BPE tokenizer + datasets backbone for the two notebooks that call `train_bpe`/`NNTokenizerParams` (`notebooks/text_generation-tinyshakespeare-transformer-pytorch/notebook.ipynb` and `notebooks/preference_alignment-toy-dpo-pytorch/notebook.ipynb`); without it both `ImportError` (issue #12). Notebooks import via `from nnx.X import Y` exactly as before — only the distribution name and install mechanism changed.
 
+Released-wheel evidence is defined by the [canonical dependency contract](docs/dependency-contracts.md)
+and checked locally with `make verify-nnx-install`. For intentional upstream development, install
+the external NNx checkout editable and run
+`NNX_ALLOW_EDITABLE=1 make test-nnx-surface`; that result is development-surface evidence, not
+released-wheel evidence.
+
 To extend `nnx` for a new task:
 
 1. Open a PR against [`thekaveh/NNx`](https://github.com/thekaveh/NNx) with the new feature + a smoke test.
-2. After merge, wait for the next NNx release cut (or, for editable iteration during the design phase: clone `thekaveh/NNx` outside the ml-eng-lab tree and `pip install -e <path-to-clone>[lm]` into your venv).
-3. Bump the pinned version in `requirements.txt` here (e.g. `thekaveh-nnx[lm]==0.2.1`); open a PR. Tier-A papermill CI re-runs the Tier-A list against the new version; run `make smoke-tier-b`, `make smoke-tier-c`, and manual quantization validation when the NNx change touches those surfaces — same validation discipline as the prior submodule-pointer-bump workflow.
+2. After merge, wait for the next NNx release cut (or, for editable iteration during the design phase: clone `thekaveh/NNx` outside the ml-eng-lab tree, `pip install -e <path-to-clone>[lm]` into your venv, then run `NNX_ALLOW_EDITABLE=1 make test-nnx-surface`).
+3. After the release exists, update the exact pin in `requirements.txt` and open a PR. Tier-A papermill CI re-runs the Tier-A list against the new version; run `make smoke-tier-b`, `make smoke-tier-c`, and manual quantization validation when the NNx change touches those surfaces — same validation discipline as the prior submodule-pointer-bump workflow.
 
 ## 7. Repository conventions
 

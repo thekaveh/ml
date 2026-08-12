@@ -170,6 +170,18 @@ def test_docs_adapter_reports_drift_for_a_real_manifest(tmp_path, monkeypatch):
     assert [finding.id for finding in result.findings if finding.id == "D10.notebook_infrastructure"] == ["D10.notebook_infrastructure"]
 
 
+def test_om_006_is_resolved_by_nnx_verifier_and_ci_contract():
+    maintenance = (REPO / "docs/maintenance/overnight-2026-07-04.md").read_text(
+        encoding="utf-8"
+    )
+    om_006 = next(line for line in maintenance.splitlines() if line.startswith("| OM-006 |"))
+
+    assert "| Resolved |" in om_006
+    assert "verifier and CI contract" in om_006
+    assert "live evidence is recorded on Issue #58 after rollout" in om_006
+    assert "already live" not in om_006
+
+
 def test_help_lists_all_checks():
     r = run_verify("--help")
     assert r.returncode == 0

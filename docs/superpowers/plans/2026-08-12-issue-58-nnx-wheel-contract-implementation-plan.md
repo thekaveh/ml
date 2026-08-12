@@ -386,7 +386,7 @@ Write `.superpowers/sdd/task-2-report.md` with exact RED/GREEN and mutation evid
 - Consumes: Task 1 public commands and Task 2 exact job roles.
 - Produces: synchronized repository/site/wiki contract documentation and a resolved OM-006 record.
 
-- [ ] **Step 1: Add documentation regressions RED**
+- [x] **Step 1: Add documentation regressions RED**
 
 Add focused assertions that canonical sources state all of these exact facts:
 
@@ -408,7 +408,7 @@ pytest -p no:cacheprovider tests/test_check_docs.py tests/test_verify_repo.py -q
 
 Expected: fail against stale canonical prose and the missing plan manifest entry.
 
-- [ ] **Step 2: Update canonical documentation**
+- [x] **Step 2: Update canonical documentation**
 
 - `README.md`: keep the concise NNx overview, link to `docs/dependency-contracts.md`, and name the
   explicit editable test invocation.
@@ -428,7 +428,7 @@ Expected: fail against stale canonical prose and the missing plan manifest entry
 Do not add a diagram, a hash, a new required context, or a claim that the whole dependency graph is
 locked.
 
-- [ ] **Step 3: Verify three documentation surfaces GREEN**
+- [x] **Step 3: Verify three documentation surfaces GREEN**
 
 ```bash
 pytest -p no:cacheprovider tests/test_check_docs.py tests/test_verify_repo.py -q -k 'nnx_wheel or om_006 or manifest'
@@ -442,7 +442,7 @@ git diff --check
 Inspect generated site and wiki copies of the changed canonical pages. Confirm manifest numbering,
 link rewrites, and byte-equivalent content. Do not commit generated output.
 
-- [ ] **Step 4: Commit Task 3**
+- [x] **Step 4: Commit Task 3**
 
 Mark Task 3 only complete, rerun Step 3, stage canonical sources and tests, run
 `git diff --cached --check`, and commit:

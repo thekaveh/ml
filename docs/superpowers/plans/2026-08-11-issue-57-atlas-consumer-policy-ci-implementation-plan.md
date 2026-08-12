@@ -206,17 +206,17 @@ Mark Task 2 only, rerun Step 4, stage its files, run `git diff --cached --check`
 - Consumes: Task 1's focused command and Task 2's two-job role split.
 - Produces: synchronized repository/site/wiki guidance and a diagram naming the required policy signal.
 
-- [ ] **Step 1: Add failing prose and diagram regressions**
+- [x] **Step 1: Add failing prose and diagram regressions**
 
 Assert canonical prose contains `make test-atlas-consumer`, `atlas-consumer-policy`, the separate path-scoped `atlas-contract` responsibility, and the non-live/native-only restriction. Extend the system-master regression so visible SVG text includes `Atlas policy + contract` and the HTML summary names the required policy job without replacing `Full pytest + Tier-A` or `Focused NNx + verifier`.
 
-- [ ] **Step 2: Run and record RED**
+- [x] **Step 2: Run and record RED**
 
 ```bash
 pytest -p no:cacheprovider tests/test_render_diagrams.py tests/test_verify_repo.py -q -k 'atlas_consumer_policy_docs or system_master_names'
 ```
 
-- [ ] **Step 3: Update canonical prose**
+- [x] **Step 3: Update canonical prose**
 
 - `CONTRIBUTING.md`: add the focused local command and say `atlas-consumer-policy` is required on every PR while `atlas-contract` is path-scoped.
 - `docs/conventions.md`: document the five-step focused job, two-package dependency file, ShellCheck inputs, exact Make target, non-live restriction, and relation to complete pytest.
@@ -226,11 +226,11 @@ pytest -p no:cacheprovider tests/test_render_diagrams.py tests/test_verify_repo.
 
 Do not claim path-scoped `atlas-contract` is required.
 
-- [ ] **Step 4: Update and inspect the system diagram**
+- [x] **Step 4: Update and inspect the system diagram**
 
 Edit the HTML/SVG master so the CI box retains existing signals and visibly adds `Atlas policy + contract`; update accessible summary text. Run `python -m scripts.docs.render_diagrams`, inspect the PNG at original resolution, and confirm no overlap, clipping, tofu, or disconnected flow.
 
-- [ ] **Step 5: Verify all surfaces GREEN**
+- [x] **Step 5: Verify all surfaces GREEN**
 
 ```bash
 pytest -p no:cacheprovider tests/test_render_diagrams.py tests/test_verify_repo.py -q -k 'atlas_consumer_policy_docs or system_master_names'
@@ -243,7 +243,7 @@ git diff --check
 
 Expected wiki count after manifest addition: 56 entries. Inspect generated copies of the changed canonical pages.
 
-- [ ] **Step 6: Mark Task 3 complete and commit**
+- [x] **Step 6: Mark Task 3 complete and commit**
 
 Mark Task 3 only, rerun Step 5, stage canonical sources and regenerated PNG, run `git diff --cached --check`, and commit `docs: document Atlas consumer policy gate`.
 

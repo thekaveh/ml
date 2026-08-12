@@ -64,7 +64,16 @@ Notebook-local `./data/` and `./runs/` paths resolve inside each experiment dire
 targets execute notebooks by changing into each notebook directory before invoking papermill, so
 the task-local path invariant holds.
 
-`scripts/verify_repo.py`, the complete `make test` / `pytest-repository` contract, the focused NNx and Ruff job, documentation checks, and notebook execution tiers verify structure, documentation, library surfaces, and executable notebook behavior before changes are merged.
+The validation path keeps Atlas parent policy distinct from direct submodule validation. The
+unconditional `atlas-consumer-policy` job is intended to be a required gate on every pull request;
+it ShellChecks the parent wrappers and runs `make test-atlas-consumer` without live services. The
+path-scoped `atlas-contract` remains the non-required direct recursive-submodule validator for
+declared Atlas inputs.
+
+`scripts/verify_repo.py`, the complete `make test` / `pytest-repository` contract, the focused NNx
+and Ruff job, documentation checks, and notebook execution tiers retain their separate checks of
+structure, documentation, library surfaces, and executable notebook behavior before changes are
+merged.
 
 ## 2.1.4 Boundary decisions
 
@@ -76,5 +85,9 @@ the task-local path invariant holds.
   `torchao>=0.17`.
 - `infra/` is a reviewed Atlas gitlink. Consumer configuration remains outside the submodule, and
   host-native Ollama is mandatory; a containerized Ollama service is not an approved runtime.
+- Atlas CI preserves the ownership boundary: unconditional `atlas-consumer-policy` enforces the
+  intended-required parent policy, while path-scoped, non-required `atlas-contract` validates the
+  pinned submodule directly. Neither check starts or contacts Atlas, JupyterHub, Ollama, ComfyUI,
+  Docker Compose, or unrelated containers.
 - The manifest-declared canonical source set under `docs/` and at approved root governance paths
   is the documentation source of truth; the generated site and wiki are never edited by hand.

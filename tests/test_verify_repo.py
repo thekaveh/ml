@@ -2879,6 +2879,57 @@ def test_atlas_docs_preserve_mounted_workspace_and_track_ownership():
     assert "future-service admission" in contributing
 
 
+def test_atlas_consumer_policy_docs_define_ci_boundaries():
+    expected_phrases = {
+        "CONTRIBUTING.md": (
+            "`make test-atlas-consumer`",
+            "`atlas-consumer-policy` is unconditional on every pull request and is "
+            "intended to be a required gate",
+            "`atlas-contract` remains a separate, path-scoped, non-required direct "
+            "validator of the recursive `infra/` submodule",
+        ),
+        "docs/conventions.md": (
+            "five-step `atlas-consumer-policy` job",
+            "`atlas-contract-requirements.txt` contains exactly `pytest==9.0.3` and "
+            "`pyyaml==6.0.3`",
+            "`shellcheck scripts/atlas-up.sh scripts/atlas-down.sh "
+            "scripts/atlas-connect.sh scripts/lib/atlas-dotenv.sh`",
+            "`make test-atlas-consumer`",
+            "does not start, stop, or contact Atlas, JupyterHub, Ollama, ComfyUI, "
+            "Docker Compose, or unrelated containers",
+            "complete `make test`",
+        ),
+        "docs/jupyterhub-integration.md": (
+            "Changes to the parent wrapper, runtime probe, dotenv helper, Atlas policy "
+            "tests, or focused dependency manifest reach both checks",
+            "`atlas-consumer-policy` runs unconditionally on every pull request and is "
+            "intended to be required",
+            "path-scoped `atlas-contract` directly validates the recursive submodule and "
+            "is not a required check",
+            "CI never starts or contacts live services",
+            "containerized Ollama and ComfyUI sources remain prohibited",
+        ),
+        "docs/architecture.md": (
+            "unconditional `atlas-consumer-policy` job is intended to be a required gate",
+            "path-scoped `atlas-contract` remains the non-required direct "
+            "recursive-submodule validator",
+        ),
+        "CHANGELOG.md": (
+            "`atlas-consumer-policy` gate now runs unconditionally on every pull request",
+            "path-scoped, non-required `atlas-contract` direct validator",
+            "`make test-atlas-consumer`",
+            "never starts or contacts live services",
+        ),
+    }
+
+    for relative_path, phrases in expected_phrases.items():
+        content = " ".join(
+            (REPO / relative_path).read_text(encoding="utf-8").split()
+        )
+        for phrase in phrases:
+            assert phrase in content, f"{relative_path} is missing {phrase!r}"
+
+
 def test_atlas_contract_workflow_runs_exact_non_live_preflight_and_dirty_gate():
     workflow = _load_workflow(REPO / ".github/workflows/atlas-contract.yml")
     run_bodies = [

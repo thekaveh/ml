@@ -123,7 +123,7 @@ Mark Task 1 only, rerun Step 5, stage its files, run `git diff --cached --check`
 - Consumes: Task 1's dependency file and `make test-atlas-consumer`.
 - Produces: unconditional `atlas-consumer-policy` and complete input paths for the separate direct Atlas validator.
 
-- [ ] **Step 1: Add failing workflow-contract tests**
+- [x] **Step 1: Add failing workflow-contract tests**
 
 Require this exact five-step job:
 
@@ -161,7 +161,7 @@ tests/test_makefile_contract.py
 
 Extend the verifier job's self-referential selector with `atlas_consumer_policy_contract`.
 
-- [ ] **Step 2: Run and record RED**
+- [x] **Step 2: Run and record RED**
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_repo.py -q -k 'atlas_consumer_policy_contract or atlas_contract_workflow or ci_runs_repository_workflow_contract_tests'
@@ -169,11 +169,11 @@ pytest -p no:cacheprovider tests/test_verify_repo.py -q -k 'atlas_consumer_polic
 
 Expected: failures for the missing job, incomplete paths, and stale selector.
 
-- [ ] **Step 3: Implement the workflow changes**
+- [x] **Step 3: Implement the workflow changes**
 
 Insert the exact job above in `.github/workflows/ci.yml` without changing triggers or existing jobs. Expand only the Atlas path list and append the selector keyword without removing another contract.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_repo.py -q -k 'atlas_consumer_policy_contract or atlas_contract_workflow or ci_runs_repository_workflow_contract_tests or ci_covers_gitflow_pr_targets'
@@ -184,7 +184,7 @@ ruff check --no-cache tests/test_verify_repo.py
 git diff --check
 ```
 
-- [ ] **Step 5: Mark Task 2 complete and commit**
+- [x] **Step 5: Mark Task 2 complete and commit**
 
 Mark Task 2 only, rerun Step 4, stage its files, run `git diff --cached --check`, and commit `ci: require Atlas consumer policy tests`.
 

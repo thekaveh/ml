@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 import tomllib
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -2251,6 +2252,182 @@ def _load_workflow(path: Path) -> dict:
     return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
+_ATLAS_CONSUMER_POLICY_JOB = {
+    "name": "atlas-consumer-policy",
+    "runs-on": "ubuntu-24.04",
+    "timeout-minutes": "15",
+    "steps": [
+        {
+            "name": "Checkout",
+            "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+            "with": {"persist-credentials": "false"},
+        },
+        {
+            "name": "Set up Python 3.11",
+            "uses": "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+            "with": {
+                "python-version": "3.11",
+                "cache": "pip",
+                "cache-dependency-path": "atlas-contract-requirements.txt",
+            },
+        },
+        {
+            "name": "Install focused Atlas contract dependencies",
+            "run": "pip install -r atlas-contract-requirements.txt",
+        },
+        {
+            "name": "ShellCheck parent-owned Atlas wrappers",
+            "run": (
+                "shellcheck scripts/atlas-up.sh scripts/atlas-down.sh "
+                "scripts/atlas-connect.sh scripts/lib/atlas-dotenv.sh"
+            ),
+        },
+        {
+            "name": "Run Atlas consumer policy tests",
+            "run": "make test-atlas-consumer",
+        },
+    ],
+}
+
+
+def _valid_atlas_consumer_policy_workflow() -> dict:
+    return {"jobs": {"atlas-consumer-policy": deepcopy(_ATLAS_CONSUMER_POLICY_JOB)}}
+
+
+def _assert_atlas_consumer_policy_contract(workflow: dict) -> None:
+    assert "defaults" not in workflow
+    assert "env" not in workflow
+    assert "atlas-consumer-policy" in workflow["jobs"]
+
+    job = workflow["jobs"]["atlas-consumer-policy"]
+    assert set(job) == {"name", "runs-on", "timeout-minutes", "steps"}
+    assert job["name"] == "atlas-consumer-policy"
+    assert job["runs-on"] == "ubuntu-24.04"
+    assert job["timeout-minutes"] == "15"
+    assert job["steps"] == _ATLAS_CONSUMER_POLICY_JOB["steps"]
+
+    command_body = "\n".join(
+        step["run"] for step in job["steps"] if "run" in step
+    ).lower()
+    for forbidden in (
+        "docker",
+        "ollama serve",
+        "make atlas-up",
+        "make atlas-down",
+        "curl",
+        "localhost",
+        "127.0.0.1",
+    ):
+        assert forbidden not in command_body
+
+
+def test_atlas_consumer_policy_contract_is_exact_and_unconditional():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+
+    _assert_atlas_consumer_policy_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("defaults", {"run": {"shell": "bash"}}),
+        ("env", {"PYTEST_ADDOPTS": "-k smoke"}),
+    ],
+)
+def test_atlas_consumer_policy_contract_rejects_workflow_level_controls(
+    field,
+    value,
+):
+    workflow = _valid_atlas_consumer_policy_workflow()
+    workflow[field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_consumer_policy_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("defaults", {"run": {"shell": "bash"}}),
+        ("env", {"PYTEST_ADDOPTS": "-k smoke"}),
+        ("if", "github.ref == 'refs/heads/main'"),
+        ("needs", "verify-repo"),
+        ("services", {"ollama": {"image": "ollama/ollama"}}),
+        ("container", "python:3.11"),
+        ("continue-on-error", "true"),
+    ],
+)
+def test_atlas_consumer_policy_contract_rejects_job_level_controls(field, value):
+    workflow = _valid_atlas_consumer_policy_workflow()
+    workflow["jobs"]["atlas-consumer-policy"][field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_consumer_policy_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("if", "github.ref == 'refs/heads/main'"),
+        ("env", {"PYTEST_ADDOPTS": "-q"}),
+        ("continue-on-error", "true"),
+        ("timeout-minutes", "5"),
+        ("shell", "bash {0} || true"),
+    ],
+)
+def test_atlas_consumer_policy_contract_rejects_step_level_controls(field, value):
+    workflow = _valid_atlas_consumer_policy_workflow()
+    workflow["jobs"]["atlas-consumer-policy"]["steps"][-1][field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_consumer_policy_contract(workflow)
+
+
+@pytest.mark.parametrize("mutation", ["extra", "reordered"])
+def test_atlas_consumer_policy_contract_rejects_changed_step_inventory(mutation):
+    workflow = _valid_atlas_consumer_policy_workflow()
+    steps = workflow["jobs"]["atlas-consumer-policy"]["steps"]
+    if mutation == "extra":
+        steps.append({"name": "Extra", "run": "true"})
+    else:
+        steps[0], steps[1] = steps[1], steps[0]
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_consumer_policy_contract(workflow)
+
+
+def test_atlas_consumer_policy_contract_rejects_checkout_submodules():
+    workflow = _valid_atlas_consumer_policy_workflow()
+    checkout = workflow["jobs"]["atlas-consumer-policy"]["steps"][0]
+    checkout["with"]["submodules"] = "recursive"
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_consumer_policy_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "live_command",
+    [
+        "docker ps",
+        "ollama serve",
+        "make atlas-up",
+        "make atlas-down",
+        "curl http://example.invalid",
+        "probe localhost",
+        "probe 127.0.0.1",
+    ],
+)
+def test_atlas_consumer_policy_contract_rejects_live_run_step_mutations(
+    live_command,
+):
+    workflow = _valid_atlas_consumer_policy_workflow()
+    install = workflow["jobs"]["atlas-consumer-policy"]["steps"][2]
+    install["run"] = f"{install['run']}\n{live_command}"
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_consumer_policy_contract(workflow)
+
+
 def test_atlas_contract_workflow_has_recursive_checkout_and_narrow_paths():
     workflow = _load_workflow(REPO / ".github/workflows/atlas-contract.yml")
     paths = set(workflow["on"]["pull_request"]["paths"])
@@ -2273,6 +2450,11 @@ def test_atlas_contract_workflow_has_recursive_checkout_and_narrow_paths():
         ".github/workflows/atlas-contract.yml",
         ".github/workflows/ci.yml",
         ".github/workflows/docs.yml",
+        "atlas-contract-requirements.txt",
+        "scripts/atlas_runtime_probe.py",
+        "scripts/lib/atlas-dotenv.sh",
+        "tests/test_atlas_*.py",
+        "tests/test_makefile_contract.py",
     }
     steps = workflow["jobs"]["atlas-contract"]["steps"]
     checkout = next(step for step in steps if step.get("name") == "Checkout")
@@ -2290,7 +2472,8 @@ def test_ci_runs_repository_workflow_contract_tests():
     )
     assert contract_tests["run"] == (
         "pytest tests/test_verify_repo.py -q -k "
-        "'atlas_contract_workflow or "
+        "'atlas_consumer_policy_contract or "
+        "atlas_contract_workflow or "
         "atlas_docs_preserve_mounted_workspace_and_track_ownership or "
         "ci_covers_gitflow_pr_targets or "
         "ci_tier_a_uses_temporary_outputs_and_preserves_sources or "

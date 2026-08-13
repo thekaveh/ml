@@ -1280,6 +1280,92 @@ def test_docs_d10_dependency_ledger_counts_match_current_doc():
     assert d10 == [], f"D10 reported dependency-ledger issues: {d10}"
 
 
+def _dependency_snapshot(*, summary_count=2, advisory_rows=None):
+    rows = advisory_rows or [
+        "| `torch` | `PYSEC-2025-41` | 1 | `2.6.0` |",
+        "| `torch` | `PYSEC-2025-191` | 1 | `2.7.1rc1` |",
+    ]
+    return (
+        "# 6.1 Dependency Contracts\n\n"
+        "## 6.1.1 Audit Snapshot\n\n"
+        "### 6.1.1.2 Current accepted advisories\n\n"
+        f"Result: {summary_count} known vulnerabilities across one resolved package.\n\n"
+        "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
+        "| --- | --- | ---: | ---: | --- |\n"
+        f"| `torch` | `torch==2.4.1` | `2.4.1` | {summary_count} | Accepted temporarily. |\n\n"
+        "| Package | Advisory ID | Feed Records | Fix Versions |\n"
+        "| --- | --- | ---: | --- |\n"
+        + "\n".join(rows)
+        + "\n"
+    )
+
+
+def _d10_count_findings(tmp_path, text):
+    repo = _temp_repo(tmp_path)
+    docs = repo / "docs"
+    docs.mkdir()
+    (docs / "dependency-contracts.md").write_text(text, encoding="utf-8")
+    verify_repo = _load_verify_module()
+    return [
+        finding
+        for finding in verify_repo._dependency_ledger_findings(repo)
+        if finding.id == "D10.dependency_ledger_count"
+    ]
+
+
+def test_docs_d10_ignores_parser_compatible_historical_rows(tmp_path):
+    historical = (
+        "\n### 6.1.1.3 Historical reconciliation\n\n"
+        "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Disposition |\n"
+        "| --- | --- | ---: | ---: | --- |\n"
+        "| `nltk` | `nltk>=3.9.3` | `3.9.4` | 7 | Archived. |\n\n"
+        "| Package | Advisory ID | Feed Records | Fix Versions |\n"
+        "| --- | --- | ---: | --- |\n"
+        "| `nltk` | `CVE-2099-9999` | 7 | none listed |\n"
+    )
+    assert _d10_count_findings(tmp_path, _dependency_snapshot() + historical) == []
+
+
+def test_docs_d10_flags_missing_current_advisory_section(tmp_path):
+    text = _dependency_snapshot().replace(
+        "### 6.1.1.2 Current accepted advisories",
+        "### 6.1.1.2 Historical advisories",
+    )
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("section is missing" in finding.message for finding in findings)
+
+
+def test_docs_d10_flags_malformed_current_summary_table(tmp_path):
+    text = _dependency_snapshot().replace(
+        "| `torch` | `torch==2.4.1` | `2.4.1` | 2 | Accepted temporarily. |\n",
+        "",
+    )
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("summary table" in finding.message for finding in findings)
+
+
+def test_docs_d10_flags_malformed_current_advisory_table(tmp_path):
+    text = _dependency_snapshot(advisory_rows=["| no parseable advisory row |"])
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("advisory table" in finding.message for finding in findings)
+
+
+def test_docs_d10_flags_current_package_count_drift(tmp_path):
+    rows = ["| `torch` | `PYSEC-2025-41` | 1 | `2.6.0` |"]
+    findings = _d10_count_findings(
+        tmp_path, _dependency_snapshot(summary_count=2, advisory_rows=rows)
+    )
+    assert any("torch advisory feed-record count" in finding.message for finding in findings)
+
+
+def test_docs_d10_flags_current_total_count_drift(tmp_path):
+    text = _dependency_snapshot().replace(
+        "Result: 2 known vulnerabilities", "Result: 3 known vulnerabilities"
+    )
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("advisory feed-record total" in finding.message for finding in findings)
+
+
 def test_docs_d10_current_atlas_infra_gitlink_matches_ledger():
     r = run_verify("--check", "docs", "--fast")
     data = json.loads(r.stdout) if r.stdout else {"findings": []}

@@ -952,6 +952,11 @@ _ATLAS_INFRA_GITLINK_SHA_RE = re.compile(
     r"^Current Atlas `infra` gitlink SHA:[ \t]*`([0-9a-f]{40})`\.[ \t]*$",
     re.MULTILINE,
 )
+_DEPENDENCY_CURRENT_SNAPSHOT_RE = re.compile(
+    r"^###[ \t]+6[.]1[.]1[.]2[ \t]+Current accepted advisories[ \t]*\r?$"
+    r"(?P<body>.*?)(?=^#{2,3}[ \t]|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
 
 
 def _dependency_ledger_findings(repo: Path) -> list[Finding]:
@@ -971,46 +976,69 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
             ),
         )]
     text = _read_text(path)
-    package_counts = {
-        package: int(count)
-        for package, count in re.findall(
-            r"^\| `([^`]+)` \| `[^`]+` \| `[^`]+` \| (\d+) \|", text, re.M
-        )
-    }
-    advisory_counts: dict[str, int] = {}
-    for package, count in re.findall(
-        r"^\| `([^`]+)` \| `(?:PYSEC|CVE)-[^`]+` \| (\d+) \|", text, re.M
-    ):
-        advisory_counts[package] = advisory_counts.get(package, 0) + int(count)
-
     findings: list[Finding] = []
-    for package, expected in package_counts.items():
-        actual = advisory_counts.get(package, 0)
-        if actual != expected:
+    snapshot_match = _DEPENDENCY_CURRENT_SNAPSHOT_RE.search(text)
+    if not snapshot_match:
+        findings.append(Finding(
+            id="D10.dependency_ledger_count", check="docs", severity="error",
+            location="docs/dependency-contracts.md",
+            message="current accepted-advisories section is missing",
+        ))
+    else:
+        body = snapshot_match.group("body")
+        package_rows = re.findall(
+            r"^\| `([^`]+)` \| `[^`]+` \| `[^`]+` \| (\d+) \|", body, re.M
+        )
+        advisory_rows = re.findall(
+            r"^\| `([^`]+)` \| `(?:PYSEC|CVE)-[^`]+` \| (\d+) \|", body, re.M
+        )
+        if not package_rows:
             findings.append(Finding(
                 id="D10.dependency_ledger_count", check="docs", severity="error",
                 location="docs/dependency-contracts.md",
-                message=(
-                    f"{package} advisory feed-record count is {actual}; "
-                    f"expected {expected} from audit summary"
-                ),
-                detail={"package": package, "expected": expected, "actual": actual},
+                message="current accepted-advisories summary table is malformed",
             ))
+        if not advisory_rows:
+            findings.append(Finding(
+                id="D10.dependency_ledger_count", check="docs", severity="error",
+                location="docs/dependency-contracts.md",
+                message="current accepted-advisories advisory table is malformed",
+            ))
+        if package_rows and advisory_rows:
+            package_counts = {
+                package: int(count) for package, count in package_rows
+            }
+            advisory_counts: dict[str, int] = {}
+            for package, count in advisory_rows:
+                advisory_counts[package] = advisory_counts.get(package, 0) + int(count)
 
-    total_match = re.search(r"Result: (\d+) known vulnerabilities", text)
-    if total_match:
-        expected_total = int(total_match.group(1))
-        actual_total = sum(advisory_counts.values())
-        if actual_total != expected_total:
-            findings.append(Finding(
-                id="D10.dependency_ledger_count", check="docs", severity="error",
-                location="docs/dependency-contracts.md",
-                message=(
-                    f"advisory feed-record total is {actual_total}; "
-                    f"expected {expected_total} from audit summary"
-                ),
-                detail={"expected": expected_total, "actual": actual_total},
-            ))
+            for package, expected in package_counts.items():
+                actual = advisory_counts.get(package, 0)
+                if actual != expected:
+                    findings.append(Finding(
+                        id="D10.dependency_ledger_count", check="docs", severity="error",
+                        location="docs/dependency-contracts.md",
+                        message=(
+                            f"{package} advisory feed-record count is {actual}; "
+                            f"expected {expected} from audit summary"
+                        ),
+                        detail={"package": package, "expected": expected, "actual": actual},
+                    ))
+
+            total_match = re.search(r"Result: (\d+) known vulnerabilities", body)
+            if total_match:
+                expected_total = int(total_match.group(1))
+                actual_total = sum(advisory_counts.values())
+                if actual_total != expected_total:
+                    findings.append(Finding(
+                        id="D10.dependency_ledger_count", check="docs", severity="error",
+                        location="docs/dependency-contracts.md",
+                        message=(
+                            f"advisory feed-record total is {actual_total}; "
+                            f"expected {expected_total} from audit summary"
+                        ),
+                        detail={"expected": expected_total, "actual": actual_total},
+                    ))
     if not infra_exists:
         return findings
 

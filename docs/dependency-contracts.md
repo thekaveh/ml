@@ -28,9 +28,10 @@ Manifest SHA-256 values:
 | `docs-requirements.txt` | `9af475ff61cafc56f0edd75e28d9ca41463f87f0790523d5e077a1d71323b9cc` |
 | `atlas-contract-requirements.txt` | `e786c8e7d940a97ae41ce880d5f5bbc62dc4f90ff03fd8c7718849e1c11412b0` |
 
-The four final commands were run separately from the repository root. Exit `0` means no known
-vulnerabilities were reported; exit `1` means the emitted findings form a complete observation.
-Any exit other than 0/1, missing output, or malformed JSON invalidates the observation.
+The commands below are historical capture evidence for this dated snapshot; current enforcement
+uses the selector-free projection described in [the enforcement boundary](#6114-enforcement-boundary).
+They were run separately from the repository root. Exit `0` means no known vulnerabilities were
+reported; exit `1` means the emitted findings form a complete observation. Any exit other than 0/1, missing output, or malformed JSON invalidates the observation.
 
 ```bash
 AUDIT_DIR="$(mktemp -d /private/tmp/ml-eng-lab-issue59-audit.XXXXXX)"
@@ -162,6 +163,13 @@ The audit does not initialize Atlas or start a service. Issue #62 owns the coord
 upgrade, and Issue #63 owns complete dependency locks; the direct `pip-audit` tool pin is only the
 focused exception needed for this comparison.
 
+`torch-audit-requirements.txt` is the selector-free audit projection of the local/CI PyG runtime
+manifest used by strict PyPI audit. Before any audit subprocess runs, semantic requirement/include
+lines must match `torch-requirements.txt` after removing exactly its approved PyG `--find-links`
+selector. The projection must contain no other option lines or duplicate/ambiguous requirements;
+missing, extra, or changed pins fail closed. Runtime installation continues to use
+`torch-requirements.txt` and its PyG wheel selector.
+
 ### 6.1.1.5 Removal and reconciliation runbook
 
 An accepted ID absent from valid audit output is evidence only, not proof of remediation,
@@ -197,6 +205,9 @@ non-reachability, or an upstream fix. Remove it only through this reviewed seque
 - `torch-cluster==1.6.3`
 - `torch-spline-conv==1.2.2`
 - `torch_geometric==2.6.1`
+
+`torch-audit-requirements.txt` repeats the same core include and five PyG pins without the PyG
+wheel selector. It is consumed only by `make audit-advisories`, never by runtime installation.
 
 Reason: this is the deliberately stable local/CI compatibility baseline. It is
 not required to match the separately pinned Atlas JupyterHub runtime.

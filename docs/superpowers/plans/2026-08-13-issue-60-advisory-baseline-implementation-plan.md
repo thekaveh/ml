@@ -641,3 +641,16 @@ confirm one worktree, no open/superseded PRs, a clean tracked tree, and no scope
 
 Move Issue #61 to In Progress, create and push its feature branch from synchronized `develop`, then
 begin its design/research cycle without reopening completed Issue #60 work.
+
+## 12.18.7 Portability Amendment: Selector-Free PyG Audit Projection
+
+Linux PyG wheel resolution can produce local `+pt24cpu` versions that are valid runtime artifacts
+but unsupported by strict PyPI pip-audit resolution. Keep `torch-requirements.txt` unchanged for
+runtime installation. Add `torch-audit-requirements.txt` with the same core include and five PyG
+pins, omitting only the approved PyG `--find-links` selector. Before launching any audit surface,
+the comparator must fail closed unless the semantic non-comment requirement/include lines of the
+projection equal the runtime manifest after removing exactly that selector. Missing, extra,
+changed, duplicate, ambiguous, or extra-option lines are invalid. The combined-runtime and Torch
+audit surfaces use the projection; strict mode, PyPI service selection, baseline semantics, and
+the remaining surfaces stay unchanged. Cache and docs workflow path contracts include the new
+manifest, and canonical docs describe the install-versus-audit boundary.

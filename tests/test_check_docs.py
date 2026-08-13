@@ -542,6 +542,9 @@ def test_real_user_docs_publish_advisory_baseline_contract():
     assert "does not claim an automated vulnerability-baseline gate" not in docs["SECURITY.md"]
     assert "`security/accepted-advisories.json` is the policy artifact" in ledger
     assert "`make audit-advisories` runs all four audit surfaces without suppression" in ledger
+    assert "`torch-audit-requirements.txt` is the selector-free audit projection" in ledger
+    assert "semantic requirement/include lines must match `torch-requirements.txt`" in ledger
+    assert "The commands below are historical capture evidence" in ledger
     assert "New primary advisory IDs and accepted-version drift fail the gate." in ledger
     assert "reconciliation evidence, not proof of remediation" in ledger
     assert "JSON policy and current Markdown ledger rows together through review" in ledger
@@ -552,6 +555,9 @@ def test_real_user_docs_publish_advisory_baseline_contract():
     assert "Issue #63 owns complete dependency locks" in ledger
     assert "does not initialize Atlas or start a service" in ledger
     assert "`dependency-audit`" in docs["docs/conventions.md"]
+    assert "selector-free `torch-audit-requirements.txt` projection" in " ".join(
+        docs["docs/conventions.md"].split()
+    )
     assert "isolated `dependency-audit` signal" in docs["docs/architecture.md"]
     assert "| OM-047 |" in docs["docs/maintenance/overnight-2026-07-04.md"]
     assert "| Fixed | Issue #60 added the reviewed JSON policy" in docs[

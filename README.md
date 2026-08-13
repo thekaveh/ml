@@ -65,7 +65,7 @@ ml-eng-lab/
 ├── Makefile                                   (papermill tier targets)
 ├── security/                                  (accepted-advisory policy)
 ├── docs/                                      (env/runtime docs, dependency contracts, findings, maintenance log)
-├── requirements.txt + torch-*.txt             (pip deps; thekaveh-nnx[lm]==0.2.0)
+├── requirements.txt + torch-*.txt             (runtime pins plus selector-free audit projection; thekaveh-nnx[lm]==0.2.0)
 ├── infra/                                     (Atlas git submodule; pinned infrastructure)
 ├── atlas.consumer.yml                         (ml-eng Atlas consumer contract)
 ├── compose/                                   (parent-owned Atlas compose overlays)

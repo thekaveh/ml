@@ -20,6 +20,11 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
   reconciliation and do not prove remediation. The GitHub ruleset controller update makes the
   job the third required context alongside `pytest-repository` and `atlas-consumer-policy` after
   its live update.
+- **Portable PyG advisory projection:** added selector-free
+  `torch-audit-requirements.txt` for strict PyPI pip-audit resolution. The gate validates its
+  exact semantic parity with the runtime PyG manifest after removing only the approved wheel
+  selector, so runtime installation remains unchanged while unsupported local wheel versions do
+  not block the audit.
 - **Four-surface vulnerability ledger refresh:** recorded the dated combined-runtime, Torch,
   documentation-lock, and Atlas-contract observations in the canonical dependency ledger, with an
   alias-aware reconciliation of historical identities and a static integrity check for the current

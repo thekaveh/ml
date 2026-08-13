@@ -414,21 +414,101 @@ def _read_text(path: Path) -> str:
 
 
 def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
+    def code_fragment(value: str, *, crosses_lines: bool = False) -> str:
+        return " " * len(value) if strip_inline or crosses_lines else value
+
+    def mask_html_comments(
+        line: str, in_comment: bool, inline_marker: str | None
+    ) -> tuple[str, bool, str | None]:
+        masked: list[str] = []
+        index = 0
+        crosses_lines = inline_marker is not None
+        while index < len(line):
+            if in_comment:
+                close = line.find("-->", index)
+                if close == -1:
+                    masked.append(" " * (len(line) - index))
+                    return "".join(masked), True, inline_marker
+                masked.append(" " * (close + 3 - index))
+                index = close + 3
+                in_comment = False
+                continue
+            if inline_marker is not None:
+                code_span = re.search(r"`+", line[index:])
+                if code_span is None:
+                    masked.append(code_fragment(line[index:], crosses_lines=crosses_lines))
+                    return "".join(masked), in_comment, inline_marker
+                end = index + code_span.end()
+                masked.append(code_fragment(line[index:end], crosses_lines=crosses_lines))
+                index = end
+                if len(code_span.group(0)) == len(inline_marker):
+                    inline_marker = None
+                continue
+            code_span = re.match(r"`+", line[index:])
+            if code_span:
+                inline_marker = code_span.group(0)
+                end = index + len(inline_marker)
+                masked.append(code_fragment(line[index:end]))
+                index = end
+                continue
+            if line.startswith("<!--", index):
+                in_comment = True
+                continue
+            masked.append(line[index])
+            index += 1
+        return "".join(masked), in_comment, inline_marker
+
     stripped: list[str] = []
-    in_fence = False
+    fence: tuple[str, int] | None = None
+    raw_html_block: str | None = None
+    in_comment = False
+    inline_marker: str | None = None
     for line in text.splitlines():
-        if re.match(r"^\s*(?:```|~~~)", line):
-            in_fence = not in_fence
-            stripped.append(" " * len(line))
-            continue
-        if in_fence:
-            stripped.append(" " * len(line))
-            continue
-        stripped.append(
-            _INLINE_CODE_RE.sub(lambda m: " " * len(m.group(0)), line)
-            if strip_inline
-            else line
+        opener = re.match(r"^ {0,3}(?P<marker>`{3,}|~{3,})", line)
+        invalid_backtick_fence = bool(
+            not in_comment
+            and inline_marker is None
+            and opener
+            and opener["marker"].startswith("`")
+            and "`" in line[opener.end():]
         )
+        if (
+            fence is None
+            and not in_comment
+            and inline_marker is None
+            and opener
+            and not invalid_backtick_fence
+        ):
+            marker = opener["marker"]
+            fence = (marker[0], len(marker))
+            stripped.append(" " * len(line))
+            continue
+        if fence is not None:
+            marker, minimum_length = fence
+            if re.fullmatch(rf" {{0,3}}{re.escape(marker)}{{{minimum_length},}}\s*", line):
+                fence = None
+            stripped.append(" " * len(line))
+            continue
+        if raw_html_block is not None:
+            if re.search(rf"</{raw_html_block}\s*>", line, re.IGNORECASE):
+                raw_html_block = None
+            stripped.append(" " * len(line))
+            continue
+        line, in_comment, inline_marker = mask_html_comments(
+            line, in_comment, inline_marker
+        )
+        raw_html_opener = re.match(
+            r"^ {0,3}<(script|style|pre|textarea)(?=\s|>|$)",
+            line,
+            re.IGNORECASE,
+        )
+        if raw_html_opener is not None:
+            raw_html_block = raw_html_opener.group(1).lower()
+            if re.search(rf"</{raw_html_block}\s*>", line[raw_html_opener.end():], re.IGNORECASE):
+                raw_html_block = None
+            stripped.append(" " * len(line))
+            continue
+        stripped.append(line)
     return "\n".join(stripped)
 
 
@@ -980,10 +1060,21 @@ _DEPENDENCY_ADVISORY_ROW_RE = re.compile(
     r"(?:`[^`]+`|None listed) \| `[^`]+` \| "
     r"(?:`[^`]+`(?:, `[^`]+`)*|None listed) \| [^|]+ \|"
 )
+_DEPENDENCY_ADVISORY_IDENTITY_ROW_RE = re.compile(
+    r"\| `(?P<package>[^`]+)` \| `(?P<advisory_id>(?:PYSEC|CVE)-[^`]+)` \| "
+    r"[1-9]\d* \| (?:`[^`]+`|None listed) \| `(?P<accepted_version>[^`]+)` \| "
+    r"(?:`[^`]+`(?:, `[^`]+`)*|None listed) \| (?P<surfaces>[^|]+) \|"
+)
 _DEPENDENCY_RESULT_RE = re.compile(
     r"Result: ([1-9]\d*) known vulnerabilities across "
     r"[1-9]\d* resolved packages?[.]"
 )
+_MARKDOWN_ADVISORY_SURFACES = {
+    "Combined runtime": "combined-runtime",
+    "Torch": "torch",
+    "Documentation": "documentation",
+    "Atlas contract": "atlas-contract",
+}
 
 
 def _dependency_table_rows(
@@ -1004,13 +1095,139 @@ def _dependency_table_rows(
     return rows or None
 
 
+def _markdown_advisory_surfaces(value: str, *, canonical_order: tuple[str, ...]) -> tuple[str, ...]:
+    labels = tuple(label.strip() for label in value.split(";"))
+    if not labels or any(not label for label in labels):
+        raise ValueError("advisory surface labels are malformed")
+    try:
+        surfaces = tuple(_MARKDOWN_ADVISORY_SURFACES[label] for label in labels)
+    except KeyError as error:
+        raise ValueError(f"unknown advisory surface label: {error.args[0]}") from error
+    if len(set(surfaces)) != len(surfaces):
+        raise ValueError("advisory surface labels must be unique")
+    return tuple(surface for surface in canonical_order if surface in surfaces)
+
+
+def _format_advisory_identity(
+    identity: tuple[str, str, str], surfaces: tuple[str, ...]
+) -> str:
+    package, advisory_id, accepted_version = identity
+    return f"{package} {accepted_version} {advisory_id} on [{', '.join(surfaces)}]"
+
+
+def _dependency_advisory_baseline_findings(
+    repo: Path, advisory_lines: list[str] | None
+) -> list[Finding]:
+    location = "docs/dependency-contracts.md"
+    try:
+        from scripts.advisory_baseline import (
+            AdvisoryBaselineError,
+            advisory_identity,
+            load_baseline,
+            normalize_package_name,
+        )
+    except (ImportError, OSError):
+        return [Finding(
+            id="D10.dependency_advisory_baseline",
+            check="docs",
+            severity="error",
+            location="security/accepted-advisories.json",
+            message="accepted advisory baseline loader is unavailable",
+        )]
+    try:
+        baseline = load_baseline(repo / "security" / "accepted-advisories.json")
+    except (AdvisoryBaselineError, OSError) as error:
+        return [Finding(
+            id="D10.dependency_advisory_baseline",
+            check="docs",
+            severity="error",
+            location="security/accepted-advisories.json",
+            message=f"accepted advisory baseline is invalid: {error}",
+        )]
+
+    if not advisory_lines:
+        return [Finding(
+            id="D10.dependency_advisory_baseline",
+            check="docs",
+            severity="error",
+            location=location,
+            message="current accepted-advisories table cannot be compared to the baseline",
+        )]
+
+    markdown_items: set[tuple[tuple[str, str, str], tuple[str, ...]]] = set()
+    for line in advisory_lines:
+        row = _DEPENDENCY_ADVISORY_IDENTITY_ROW_RE.fullmatch(line)
+        if row is None:
+            return [Finding(
+                id="D10.dependency_advisory_baseline",
+                check="docs",
+                severity="error",
+                location=location,
+                message="current accepted-advisories row cannot be compared to the baseline",
+            )]
+        try:
+            surfaces = _markdown_advisory_surfaces(
+                row["surfaces"], canonical_order=baseline.audited_surfaces
+            )
+        except ValueError as error:
+            return [Finding(
+                id="D10.dependency_advisory_baseline",
+                check="docs",
+                severity="error",
+                location=location,
+                message=f"current accepted-advisories row is malformed: {error}",
+            )]
+        identity = (
+            normalize_package_name(row["package"]),
+            row["advisory_id"],
+            row["accepted_version"],
+        )
+        markdown_items.add((identity, surfaces))
+
+    baseline_items = {
+        (advisory_identity(item), item.surfaces)
+        for item in baseline.accepted_advisories
+    }
+    findings: list[Finding] = []
+    for identity, surfaces in sorted(baseline_items - markdown_items):
+        findings.append(Finding(
+            id="D10.dependency_advisory_baseline",
+            check="docs",
+            severity="error",
+            location=location,
+            message=(
+                "accepted advisory baseline identity is missing from the current Markdown ledger: "
+                f"{_format_advisory_identity(identity, surfaces)}"
+            ),
+        ))
+    for identity, surfaces in sorted(markdown_items - baseline_items):
+        findings.append(Finding(
+            id="D10.dependency_advisory_baseline",
+            check="docs",
+            severity="error",
+            location=location,
+            message=(
+                "current Markdown ledger identity is missing from accepted advisory baseline JSON: "
+                f"{_format_advisory_identity(identity, surfaces)}"
+            ),
+        ))
+    return findings
+
+
 def _dependency_ledger_findings(repo: Path) -> list[Finding]:
     path = repo / "docs" / "dependency-contracts.md"
     infra_exists = (repo / "infra").exists()
     if not path.exists():
+        baseline_finding = Finding(
+            id="D10.dependency_advisory_baseline",
+            check="docs",
+            severity="error",
+            location="docs/dependency-contracts.md",
+            message="current accepted-advisories section is missing",
+        )
         if not infra_exists:
-            return []
-        return [Finding(
+            return [baseline_finding]
+        return [baseline_finding, Finding(
             id="D10.dependency_ledger_submodule_sha",
             check="docs",
             severity="error",
@@ -1030,9 +1247,22 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
             location="docs/dependency-contracts.md",
             message="current accepted-advisories section is missing",
         ))
+        findings.append(Finding(
+            id="D10.dependency_advisory_baseline", check="docs", severity="error",
+            location="docs/dependency-contracts.md",
+            message="current accepted-advisories section is missing",
+        ))
     elif len(snapshot_matches) != 1:
         findings.append(Finding(
             id="D10.dependency_ledger_count", check="docs", severity="error",
+            location="docs/dependency-contracts.md",
+            message=(
+                "current accepted-advisories heading must appear exactly once; "
+                f"found {len(snapshot_matches)}"
+            ),
+        ))
+        findings.append(Finding(
+            id="D10.dependency_advisory_baseline", check="docs", severity="error",
             location="docs/dependency-contracts.md",
             message=(
                 "current accepted-advisories heading must appear exactly once; "
@@ -1051,6 +1281,7 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
             header=_DEPENDENCY_ADVISORY_HEADER,
             separator=_DEPENDENCY_ADVISORY_SEPARATOR,
         )
+        findings.extend(_dependency_advisory_baseline_findings(repo, advisory_lines))
         package_rows = (
             [_DEPENDENCY_SUMMARY_ROW_RE.fullmatch(line) for line in summary_lines]
             if summary_lines

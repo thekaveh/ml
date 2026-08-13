@@ -28,9 +28,10 @@ Manifest SHA-256 values:
 | `docs-requirements.txt` | `9af475ff61cafc56f0edd75e28d9ca41463f87f0790523d5e077a1d71323b9cc` |
 | `atlas-contract-requirements.txt` | `e786c8e7d940a97ae41ce880d5f5bbc62dc4f90ff03fd8c7718849e1c11412b0` |
 
-The four final commands were run separately from the repository root. Exit `0` means no known
-vulnerabilities were reported; exit `1` means the emitted findings form a complete observation.
-Any exit other than 0/1, missing output, or malformed JSON invalidates the observation.
+The commands below are historical capture evidence for this dated snapshot; current enforcement
+uses the selector-free projection described in [the enforcement boundary](#6114-enforcement-boundary).
+They were run separately from the repository root. Exit `0` means no known vulnerabilities were
+reported; exit `1` means the emitted findings form a complete observation. Any exit other than 0/1, missing output, or malformed JSON invalidates the observation.
 
 ```bash
 AUDIT_DIR="$(mktemp -d /private/tmp/ml-eng-lab-issue59-audit.XXXXXX)"
@@ -147,11 +148,46 @@ Aliases identify re-keyed records; an alias is not an additional vulnerability.
 
 This manually reviewed ledger is the canonical record for the
 [current accepted-advisories snapshot](#6112-current-accepted-advisories). The repository's
-[security policy](../SECURITY.md) describes how new advisory uncertainty is triaged. Issue #60
-owns a future checked-in machine-readable baseline and automated CI gate;
-this snapshot does not create either. Issue #62 owns the coordinated Torch-stack upgrade. Until
-those changes land, rerun all four explicit surfaces after requirement or relevant feed changes
-and review any difference before updating this ledger.
+[security policy](../SECURITY.md) describes how new advisory uncertainty is triaged.
+`security/accepted-advisories.json` is the policy artifact. `make audit-advisories` runs all four
+audit surfaces without suppression: combined runtime, Torch, documentation, and the parent-owned
+Atlas contract. New primary advisory IDs and accepted-version drift fail the gate. A disappeared
+accepted primary ID is reconciliation evidence, not proof of remediation, reachability, or an
+upstream fix.
+
+Review changes the JSON policy and current Markdown ledger rows together through review, including
+the associated aliases, risk language, and historical reconciliation. Do not treat feed absence as
+permission for an automatic removal: rerun all four surfaces, verify the resolved version and
+primary-ID/alias relationship, then make the reviewed JSON and current-ledger update together.
+The audit does not initialize Atlas or start a service. Issue #62 owns the coordinated Torch-stack
+upgrade, and Issue #63 owns complete dependency locks; the direct `pip-audit` tool pin is only the
+focused exception needed for this comparison.
+
+`torch-audit-requirements.txt` and `pyg-extension-audit-requirements.txt` form the selector-free
+audit projection of the local/CI PyG runtime manifest. The resolver-safe projection contains the
+core include and `torch_geometric`; the pre-resolved supplement contains the four compiled PyG
+extension pins and runs with `--disable-pip --no-deps`. Before any audit subprocess runs, their
+canonical semantic partition must reconstruct `torch-requirements.txt` after removing exactly its
+approved PyG `--find-links` selector; this does not depend on physical file concatenation.
+Missing, extra, changed, duplicate, ambiguous, or option lines fail closed. Runtime installation
+continues to use `torch-requirements.txt` and its PyG wheel selector.
+
+### 6.1.1.5 Removal and reconciliation runbook
+
+An accepted ID absent from valid audit output is evidence only, not proof of remediation,
+non-reachability, or an upstream fix. Remove it only through this reviewed sequence:
+
+1. Run `make audit-advisories` across all four audit surfaces.
+2. Confirm the resolved package and version and the primary-ID/alias relationship.
+3. Change the JSON baseline and current Markdown ledger row together through review.
+4. Refresh snapshot metadata, raw JSON hashes and counts, summary, and current tables whenever
+   the audit observation changes. Metadata includes the as-of date, repository commit, auditor
+   version, platform, and exact commands.
+5. Preserve the removed record in historical reconciliation with the evidence-only disclaimer and
+   update its risk language.
+6. Run focused comparator tests, full `make test`, `make verify`, `make lint`, `make docs-check`,
+   `make docs-wiki`, and live `make audit-advisories`.
+7. Integrate through a feature-to-`develop` pull request, then a `develop`-to-`main` pull request.
 
 ## 6.1.2 Torch Stack Pin
 
@@ -171,6 +207,10 @@ and review any difference before updating this ledger.
 - `torch-cluster==1.6.3`
 - `torch-spline-conv==1.2.2`
 - `torch_geometric==2.6.1`
+
+`torch-audit-requirements.txt` contains the core include and `torch_geometric==2.6.1`; the
+pre-resolved `pyg-extension-audit-requirements.txt` contains the four compiled extension pins.
+They are consumed only by `make audit-advisories`, never by runtime installation.
 
 Reason: this is the deliberately stable local/CI compatibility baseline. It is
 not required to match the separately pinned Atlas JupyterHub runtime.
@@ -360,8 +400,8 @@ or build-isolation changes as dependency-contract findings.
 ## 6.1.12 Deferred Reproducibility Hardening
 
 The current manifests still include floating and ranged Python dependencies, and
-the Docker/devcontainer bases are tag-pinned rather than digest-pinned. A full
-lockfile, CI install against that lock, `pip-audit` comparison against accepted
-advisory IDs, and base-image digest pinning are intentionally deferred to a
-coordinated dependency-refresh pass because they can change every notebook
-runtime at once.
+the Docker/devcontainer bases are tag-pinned rather than digest-pinned. The
+implemented `pip-audit` comparison is intentionally separate from `make verify`
+so repository verification stays offline and network-independent. A full lockfile,
+CI install against that lock, and base-image digest pinning remain Issue #63 work
+because they can change every notebook runtime at once.

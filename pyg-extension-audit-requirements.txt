@@ -1,0 +1,6 @@
+# Pre-resolved compiled PyG extension supplement for the strict audit.
+# Runtime source: torch-requirements.txt retains the approved PyG wheel selector.
+torch-scatter==2.1.2
+torch-sparse==0.6.18
+torch-cluster==1.6.3
+torch-spline-conv==1.2.2

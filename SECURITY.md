@@ -70,17 +70,18 @@ reachable or changes its impact. Atlas ownership and admission rules are defined
 ## 13.6 Dependency advisories
 
 Dependency reports are triaged against the exact version and execution surface that ml-eng-lab
-actually consumes. The [dependency contract ledger](docs/dependency-contracts.md) is manually
-refreshed from the explicit repository install surfaces and records the local/CI Torch stack, the
-independently pinned Atlas runtime, manual exceptions, audit evidence, and coordinated upgrade
-criteria. A new advisory remains actionable even when the vulnerable code path is not known to be
-exercised; the report should state the reachable path or uncertainty.
+actually consumes. `security/accepted-advisories.json` is the reviewed policy artifact, and the
+[dependency contract ledger](docs/dependency-contracts.md) supplies its current Markdown evidence,
+local/CI Torch-stack context, Atlas boundary, and coordinated-upgrade criteria. The unsuppressed
+four-surface `make audit-advisories` comparison fails on new primary IDs and accepted-version
+drift; a disappeared accepted ID is reconciliation evidence, not proof of remediation. Review a
+policy change together with its current ledger row and its risk/reconciliation context.
 
-The broader development dependency graph is not fully locked, and the repository
-does not claim an automated vulnerability-baseline gate. Dependency pin changes require the tests
-appropriate to the affected local, CI, notebook, and Atlas surfaces rather than a version-only
-edit; coordinated stack upgrades and Atlas-owned runtime changes retain their separate ownership
-boundaries.
+The broader development dependency graph is not fully locked; Issue #63 owns complete dependency
+locks. Dependency pin changes require the tests appropriate to the affected local, CI, notebook,
+and Atlas surfaces rather than a version-only edit. The audit only evaluates the parent-owned
+Atlas contract and does not initialize Atlas or start a service; coordinated stack upgrades and
+Atlas-owned runtime changes retain their separate ownership boundaries.
 
 ## 13.7 Notebook, model, data, and artifact safety
 

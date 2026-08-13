@@ -81,7 +81,7 @@ SMOKE_OUT := /tmp/ml-smoke
 TIER_A_OUT ?= /tmp/ml-tier-a
 TIER_A_OUT_ABS := $(abspath $(TIER_A_OUT))
 
-.PHONY: help run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-nnx-install test-nnx-surface test-atlas-consumer lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
+.PHONY: help run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
 
 help:
 	@echo "Targets:"
@@ -95,6 +95,7 @@ help:
 	@echo "  verify-nnx-install Verify the active NNx installation provenance."
 	@echo "  test-nnx-surface  Run only tests/nnx_surface (matches the CI pytest-nnx-surface job)."
 	@echo "  test-atlas-consumer Run the focused Atlas consumer contract tests."
+	@echo "  audit-advisories Run the accepted-advisory policy audit."
 	@echo "  lint              Run ruff check . using the [tool.ruff] config in pyproject.toml."
 	@echo "  docs-build        Build the MkDocs site: render diagrams, generate the site input, then mkdocs build --strict."
 	@echo "  docs-serve        Render diagrams + generate the site input, then mkdocs serve for live preview."
@@ -184,6 +185,9 @@ test-nnx-surface:
 
 test-atlas-consumer:
 	pytest $(ATLAS_CONSUMER_TESTS) -v
+
+audit-advisories:
+	$(PYTHON) -m scripts.advisory_baseline
 
 lint:
 	ruff check .

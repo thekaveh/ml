@@ -1752,7 +1752,22 @@ def test_docs_d10_invalid_backtick_fence_info_leaves_duplicate_snapshot_live(tmp
     ledger = repo / "docs/dependency-contracts.md"
     text = ledger.read_text(encoding="utf-8")
     ledger.write_text(
-        f"{text}\n```bad`info\n{_current_advisory_snapshot(text)}\n",
+        f"{text}\n```bad```info\n{_current_advisory_snapshot(text)}\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_docs_d10_invalid_backtick_fence_composes_with_multiline_inline_code(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n```bad`info\n<!--\n```\n{_current_advisory_snapshot(text)}\n-->\n",
         encoding="utf-8",
     )
 

@@ -488,9 +488,6 @@ def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
                 fence = None
             stripped.append(" " * len(line))
             continue
-        if invalid_backtick_fence:
-            stripped.append(line)
-            continue
         line, in_comment, inline_marker = mask_html_comments(
             line, in_comment, inline_marker
         )

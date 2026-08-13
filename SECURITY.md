@@ -70,14 +70,17 @@ reachable or changes its impact. Atlas ownership and admission rules are defined
 ## 13.6 Dependency advisories
 
 Dependency reports are triaged against the exact version and execution surface that ml-eng-lab
-actually consumes. The [dependency contract ledger](docs/dependency-contracts.md) records the
-local/CI Torch stack, the independently pinned Atlas runtime, manual exceptions, audit evidence,
-and coordinated upgrade criteria. A new advisory remains actionable even when the vulnerable code
-path is not known to be exercised; the report should state the reachable path or uncertainty.
+actually consumes. The [dependency contract ledger](docs/dependency-contracts.md) is manually
+refreshed from the explicit repository install surfaces and records the local/CI Torch stack, the
+independently pinned Atlas runtime, manual exceptions, audit evidence, and coordinated upgrade
+criteria. A new advisory remains actionable even when the vulnerable code path is not known to be
+exercised; the report should state the reachable path or uncertainty.
 
-The broader development dependency graph is not fully locked, and the repository does not claim an
-automated vulnerability-baseline gate. Dependency pin changes require the tests appropriate to the
-affected local, CI, notebook, and Atlas surfaces rather than a version-only edit.
+The broader development dependency graph is not fully locked, and the repository
+does not claim an automated vulnerability-baseline gate. Dependency pin changes require the tests
+appropriate to the affected local, CI, notebook, and Atlas surfaces rather than a version-only
+edit; coordinated stack upgrades and Atlas-owned runtime changes retain their separate ownership
+boundaries.
 
 ## 13.7 Notebook, model, data, and artifact safety
 

@@ -100,6 +100,20 @@ def test_real_manifest_projects_current_vulnerability_snapshot_to_wiki(tmp_path)
     assert "](#6112-current-accepted-advisories)" in ledger
 
 
+def test_real_manifest_projects_advisory_baseline_contract_to_wiki(tmp_path):
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    out = tmp_path / "generated/wiki"
+    render_wiki(manifest, REPO_ROOT, out, trusted_output_root=tmp_path)
+
+    ledger = (
+        (out / "6-1-Dependency-ledger.md").read_text(encoding="utf-8").replace("\n", " ")
+    )
+    assert "`security/accepted-advisories.json` is the policy artifact" in ledger
+    assert "`make audit-advisories` runs all four audit surfaces without suppression" in ledger
+    assert "reconciliation evidence, not proof of remediation" in ledger
+    assert "JSON policy and current Markdown ledger rows together through review" in ledger
+
+
 def test_render_wiki_removes_stale_generated_files(tmp_path):
     _seed(tmp_path)
     out = tmp_path / "generated/wiki"

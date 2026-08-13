@@ -70,6 +70,13 @@ it ShellChecks the parent wrappers and runs `make test-atlas-consumer` without l
 path-scoped `atlas-contract` remains the non-required direct recursive-submodule validator for
 declared Atlas inputs.
 
+The unconditional `dependency-audit` job is an isolated `dependency-audit` signal: it runs
+`make audit-advisories` against the reviewed JSON policy without starting Atlas or any service.
+It remains separate from `pytest-repository` and `atlas-consumer-policy` so a live advisory-feed
+failure is attributable and isolated. The final GitHub ruleset controller update makes it the
+third required context alongside those existing two; that external setting is Task 5 work, not a
+local documentation change.
+
 `scripts/verify_repo.py`, the complete `make test` / `pytest-repository` contract, the focused NNx
 and Ruff job, documentation checks, and notebook execution tiers retain their separate checks of
 structure, documentation, library surfaces, and executable notebook behavior before changes are
@@ -89,5 +96,7 @@ merged.
   intended-required parent policy, while path-scoped, non-required `atlas-contract` validates the
   pinned submodule directly. Neither check starts or contacts Atlas, JupyterHub, Ollama, ComfyUI,
   Docker Compose, or unrelated containers.
+- Dependency audit preserves the same boundary: its parent-owned Atlas contract does not initialize
+  Atlas or start services, and Issue #63 retains ownership of complete locks.
 - The manifest-declared canonical source set under `docs/` and at approved root governance paths
   is the documentation source of truth; the generated site and wiki are never edited by hand.

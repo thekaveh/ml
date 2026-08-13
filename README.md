@@ -63,6 +63,7 @@ ml-eng-lab/
 ├── SECURITY.md                                (private reporting + support policy)
 ├── CHANGELOG.md                               (release notes)
 ├── Makefile                                   (papermill tier targets)
+├── security/                                  (accepted-advisory policy)
 ├── docs/                                      (env/runtime docs, dependency contracts, findings, maintenance log)
 ├── requirements.txt + torch-*.txt             (pip deps; thekaveh-nnx[lm]==0.2.0)
 ├── infra/                                     (Atlas git submodule; pinned infrastructure)

@@ -213,7 +213,21 @@ The separate `atlas-contract` workflow is path-scoped and non-required. It recur
 `infra/` and directly validates the Atlas consumer manifest against that pinned submodule when an
 Atlas input changes; it is not the unconditional parent-policy gate.
 
-### 5.3.4 Lint — `make lint`
+### 5.3.4 Dependency advisory policy — `make audit-advisories`
+
+`make audit-advisories` runs the unsuppressed comparison of the combined-runtime, Torch,
+documentation, and parent-owned Atlas-contract surfaces against
+`security/accepted-advisories.json`. New primary IDs and accepted-version drift fail; a disappeared
+accepted ID is a reconciliation notice, not proof of remediation. Update the JSON policy and the
+current Markdown ledger rows together through review. The focused audit does not initialize Atlas
+or start any service.
+
+The unconditional `dependency-audit` job is isolated from `pytest-repository` and
+`atlas-consumer-policy` for attribution and timeout isolation. The controller makes it the third
+required GitHub context alongside those two existing contexts after its live ruleset update; the
+job itself does not make a ruleset change. Issue #63 retains ownership of full dependency locks.
+
+### 5.3.5 Lint — `make lint`
 
 `ruff check .` using the `[tool.ruff]` config in `pyproject.toml`: line length
 120, target py311, rules `E`/`F`/`W` selected, `E501` (line too long) ignored
@@ -221,7 +235,7 @@ because much of the code is notebook-derived and under gradual cleanup.
 Tier-C phase3 notebooks carry per-file ignores because their source is locked
 to the baseline tag.
 
-### 5.3.5 Docs gate — `make docs-check`
+### 5.3.6 Docs gate — `make docs-check`
 
 Render diagrams (`scripts/docs.render_diagrams`) → run `check_docs` →
 `mkdocs build --strict`. The dedicated `.github/workflows/docs.yml` workflow
@@ -259,14 +273,15 @@ pages before they reach the published site.
 1. `make verify` (fast, <30 s) — must exit 0.
 2. `make test` locally; CI reruns that complete contract as `pytest-repository` and also retains the focused `pytest-nnx-surface` signal.
 3. If you changed the Atlas consumer policy, run `make test-atlas-consumer` before opening the PR.
-4. `make lint`.
-5. If you touched a notebook: re-run it at the right tier (`make run-tier-a`
+4. If you changed an audited manifest or accepted advisory, run `make audit-advisories`.
+5. `make lint`.
+6. If you touched a notebook: re-run it at the right tier (`make run-tier-a`
    for an intentional Tier-A snapshot refresh, `make smoke-tier-a` for a
    non-mutating Tier-A execution, `make smoke-tier-b`, `make smoke-tier-c`).
    After `make smoke-tier-a`, run `make check-tier-a-artifacts` and
    `make check-tier-a-clean` to confirm the generated copies exist and sources
    remained unchanged.
-6. If you touched docs: `make docs-check`.
+7. If you touched docs: `make docs-check`.
 
 ## 5.5 Documentation convention
 

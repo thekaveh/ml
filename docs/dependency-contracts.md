@@ -147,11 +147,20 @@ Aliases identify re-keyed records; an alias is not an additional vulnerability.
 
 This manually reviewed ledger is the canonical record for the
 [current accepted-advisories snapshot](#6112-current-accepted-advisories). The repository's
-[security policy](../SECURITY.md) describes how new advisory uncertainty is triaged. Issue #60
-owns a future checked-in machine-readable baseline and automated CI gate;
-this snapshot does not create either. Issue #62 owns the coordinated Torch-stack upgrade. Until
-those changes land, rerun all four explicit surfaces after requirement or relevant feed changes
-and review any difference before updating this ledger.
+[security policy](../SECURITY.md) describes how new advisory uncertainty is triaged.
+`security/accepted-advisories.json` is the policy artifact. `make audit-advisories` runs all four
+audit surfaces without suppression: combined runtime, Torch, documentation, and the parent-owned
+Atlas contract. New primary advisory IDs and accepted-version drift fail the gate. A disappeared
+accepted primary ID is reconciliation evidence, not proof of remediation, reachability, or an
+upstream fix.
+
+Review changes the JSON policy and current Markdown ledger rows together through review, including
+the associated aliases, risk language, and historical reconciliation. Do not treat feed absence as
+permission for an automatic removal: rerun all four surfaces, verify the resolved version and
+primary-ID/alias relationship, then make the reviewed JSON and current-ledger update together.
+The audit does not initialize Atlas or start a service. Issue #62 owns the coordinated Torch-stack
+upgrade, and Issue #63 owns complete dependency locks; the direct `pip-audit` tool pin is only the
+focused exception needed for this comparison.
 
 ## 6.1.2 Torch Stack Pin
 
@@ -360,8 +369,8 @@ or build-isolation changes as dependency-contract findings.
 ## 6.1.12 Deferred Reproducibility Hardening
 
 The current manifests still include floating and ranged Python dependencies, and
-the Docker/devcontainer bases are tag-pinned rather than digest-pinned. A full
-lockfile, CI install against that lock, `pip-audit` comparison against accepted
-advisory IDs, and base-image digest pinning are intentionally deferred to a
-coordinated dependency-refresh pass because they can change every notebook
-runtime at once.
+the Docker/devcontainer bases are tag-pinned rather than digest-pinned. The
+implemented `pip-audit` comparison is intentionally separate from `make verify`
+so repository verification stays offline and network-independent. A full lockfile,
+CI install against that lock, and base-image digest pinning remain Issue #63 work
+because they can change every notebook runtime at once.

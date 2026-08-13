@@ -147,8 +147,10 @@ def load_baseline(path: Path) -> Baseline:
             ("advisory_id", "package", "accepted_version", "surfaces"),
             item=True,
         )
+        package = _require_string(item["package"], "advisory package must be a string")
+        normalized_package = normalize_package_name(package)
         accepted_item = AcceptedAdvisory(
-            package=normalize_package_name(_require_string(item["package"], "advisory package must be a string")),
+            package=normalized_package,
             advisory_id=_require_string(item["advisory_id"], "advisory id must be a string"),
             accepted_version=_require_string(item["accepted_version"], "accepted version must be a string"),
             surfaces=_require_surface_list(item["surfaces"]),
@@ -156,6 +158,8 @@ def load_baseline(path: Path) -> Baseline:
         identity = advisory_identity(accepted_item)
         if identity in identities:
             raise AdvisoryBaselineError("duplicate advisory identity")
+        if package != normalized_package:
+            raise AdvisoryBaselineError("advisory package must use canonical package spelling")
         identities.add(identity)
         accepted.append(accepted_item)
 
@@ -230,27 +234,27 @@ def compare_baseline(baseline: Baseline, observations: Sequence[Observation]) ->
         if surface not in observations_by_surface:
             errors.append(f"missing audit surface: {surface}")
 
-    observed_versions: dict[str, set[str]] = {}
     observed_advisories: dict[tuple[str, str], set[tuple[str, str]]] = {}
     baseline_by_primary: dict[tuple[str, str], list[AcceptedAdvisory]] = {}
+    expected_versions_by_surface: dict[tuple[str, str], set[str]] = {}
     for accepted in baseline.accepted_advisories:
         baseline_by_primary.setdefault((accepted.package, accepted.advisory_id), []).append(accepted)
+        for surface in accepted.surfaces:
+            expected_versions_by_surface.setdefault((surface, accepted.package), set()).add(accepted.accepted_version)
     for surface, observation in observations_by_surface.items():
         for package, version in observation.resolved_versions:
-            observed_versions.setdefault(package, set()).add(version)
+            expected_versions = expected_versions_by_surface.get((surface, package))
+            if expected_versions is not None and version not in expected_versions:
+                expected = ", ".join(sorted(expected_versions))
+                errors.append(f"accepted version drift: {package} expected {expected}; observed {version}")
         for package, version, advisory_id in observation.advisories:
             observed_advisories.setdefault((package, advisory_id), set()).add((surface, version))
-            if (package, advisory_id) not in baseline_by_primary:
+            accepted = baseline_by_primary.get((package, advisory_id))
+            if accepted is None:
                 errors.append(f"new advisory: {package} {version} {advisory_id} on {surface}")
-
-    expected_versions: dict[str, set[str]] = {}
-    for accepted in baseline.accepted_advisories:
-        expected_versions.setdefault(accepted.package, set()).add(accepted.accepted_version)
-    for package, versions in expected_versions.items():
-        unexpected = sorted(observed_versions.get(package, set()) - versions)
-        if unexpected:
-            expected = ", ".join(sorted(versions))
-            errors.append(f"accepted version drift: {package} expected {expected}; observed {unexpected[0]}")
+            elif version not in {item.accepted_version for item in accepted}:
+                expected = ", ".join(sorted({item.accepted_version for item in accepted}))
+                errors.append(f"accepted version drift: {package} expected {expected}; observed {version}")
 
     notices: list[str] = []
     for accepted in baseline.accepted_advisories:

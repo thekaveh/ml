@@ -20,6 +20,16 @@ SURFACE_ORDER = (
     "documentation",
     "atlas-contract",
 )
+AUDIT_FAILURE_CATEGORIES = frozenset(
+    {
+        "unexpected-exit",
+        "execution-error",
+        "missing-output",
+        "unavailable-output",
+        "invalid-json",
+        "invalid-schema",
+    }
+)
 
 
 class AdvisoryBaselineError(RuntimeError):
@@ -30,6 +40,8 @@ class AuditSurfaceError(AdvisoryBaselineError):
     """A safe, fixed-category failure for one audit surface."""
 
     def __init__(self, surface: str, category: str) -> None:
+        if surface not in SURFACE_ORDER or category not in AUDIT_FAILURE_CATEGORIES:
+            raise ValueError("invalid audit failure category")
         self.surface = surface
         self.category = category
         super().__init__(f"{surface}: {category}")
@@ -351,20 +363,25 @@ def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tupl
         output_directory = Path(temporary_directory)
         for surface in AUDIT_SURFACES:
             output = output_directory / f"{surface.name}.json"
-            result = runner(
-                _audit_command(surface, output),
-                cwd=repo,
-                check=False,
-                capture_output=True,
-                text=True,
-            )
+            try:
+                result = runner(
+                    _audit_command(surface, output),
+                    cwd=repo,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+            except (OSError, UnicodeError) as error:
+                raise AuditSurfaceError(surface.name, "execution-error") from error
             if result.returncode not in (0, 1):
                 raise AuditSurfaceError(surface.name, "unexpected-exit")
             try:
                 payload = _load_pip_audit_output(output)
-            except OSError as error:
+            except FileNotFoundError as error:
                 raise AuditSurfaceError(surface.name, "missing-output") from error
-            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            except OSError as error:
+                raise AuditSurfaceError(surface.name, "unavailable-output") from error
+            except (UnicodeError, json.JSONDecodeError) as error:
                 raise AuditSurfaceError(surface.name, "invalid-json") from error
             except AdvisoryBaselineError as error:
                 raise AuditSurfaceError(surface.name, "invalid-schema") from error

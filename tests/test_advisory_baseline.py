@@ -10,7 +10,6 @@ import pytest
 from scripts.advisory_baseline import (
     AcceptedAdvisory,
     AdvisoryBaselineError,
-    AuditSurfaceError,
     Baseline,
     compare_baseline,
     load_baseline,
@@ -768,71 +767,100 @@ def test_audit_other_exit_missing_output_and_malformed_json_fail_closed(tmp_path
         run_audit_surfaces(tmp_path, runner=runner)
 
 
+def _assert_safe_audit_failure_output(
+    captured: pytest.CaptureResult[str],
+    *,
+    surface: str,
+    category: str,
+) -> None:
+    assert captured.out == ""
+    assert captured.err == f"advisory audit failed: {surface}: {category}\n"
+
+
 @pytest.mark.parametrize(
-    ("returncode", "payload", "write_output", "raw_output", "expected_category"),
+    ("failure", "failure_index", "expected_surface", "expected_category"),
     [
-        (2, None, True, None, "unexpected-exit"),
-        (1, None, False, None, "missing-output"),
-        (1, None, True, "not-json", "invalid-json"),
-        (1, [], True, None, "invalid-schema"),
+        ("unexpected-exit", 0, "combined-runtime", "unexpected-exit"),
+        ("runner-oserror", 1, "torch", "execution-error"),
+        ("runner-unicode-error", 2, "documentation", "execution-error"),
+        ("missing-output", 3, "atlas-contract", "missing-output"),
+        ("unavailable-output", 1, "torch", "unavailable-output"),
+        ("invalid-json", 2, "documentation", "invalid-json"),
+        ("invalid-schema", 3, "atlas-contract", "invalid-schema"),
     ],
 )
-def test_audit_failures_report_only_fixed_surface_categories(
-    tmp_path: Path,
-    returncode: int,
-    payload: object,
-    write_output: bool,
-    raw_output: str | None,
-    expected_category: str,
-) -> None:
-    unsafe = "https://user:secret@example.test /private/tmp/audit.json --index-url"
-    _, runner = _audit_runner(
-        returncode=returncode,
-        payload=payload,
-        write_output=write_output,
-        raw_output=raw_output,
-    )
-
-    def unsafe_runner(command: list[str], **kwargs: object) -> SimpleNamespace:
-        result = runner(command, **kwargs)
-        return SimpleNamespace(returncode=result.returncode, stdout=unsafe, stderr=unsafe)
-
-    with pytest.raises(AuditSurfaceError) as error:
-        run_audit_surfaces(tmp_path, runner=unsafe_runner)
-
-    assert (error.value.surface, error.value.category) == ("combined-runtime", expected_category)
-    assert str(error.value) == f"combined-runtime: {expected_category}"
-    assert all(
-        value not in str(error.value)
-        for value in ("secret", "/private/tmp", "--index-url", "advisory-baseline-")
-    )
-
-
-def test_cli_reports_only_safe_surface_failure_category(
+def test_cli_reports_every_audit_failure_with_only_fixed_safe_output(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    failure: str,
+    failure_index: int,
+    expected_surface: str,
+    expected_category: str,
 ) -> None:
     import scripts.advisory_baseline as module
 
     unsafe = "https://user:secret@example.test /private/tmp/audit.json --index-url"
-    _, runner = _audit_runner(returncode=1, write_output=False)
+    calls = 0
+    load_calls = 0
+    original_load = module._load_pip_audit_output
 
-    def unsafe_runner(command: list[str], **kwargs: object) -> SimpleNamespace:
-        result = runner(command, **kwargs)
-        return SimpleNamespace(returncode=result.returncode, stdout=unsafe, stderr=unsafe)
+    def runner(command: list[str], **kwargs: object) -> SimpleNamespace:
+        nonlocal calls
+        index = calls
+        calls += 1
+        if index == failure_index and failure == "runner-oserror":
+            raise OSError(unsafe)
+        if index == failure_index and failure == "runner-unicode-error":
+            raise UnicodeDecodeError("utf-8", b"\\xff", 0, 1, unsafe)
+        output = Path(command[command.index("--output") + 1])
+        if index == failure_index and failure == "missing-output":
+            return SimpleNamespace(returncode=1, stdout=unsafe, stderr=unsafe)
+        if index == failure_index and failure == "invalid-json":
+            output.write_text("not-json", encoding="utf-8")
+        elif index == failure_index and failure == "invalid-schema":
+            output.write_text("[]", encoding="utf-8")
+        else:
+            output.write_text(json.dumps(_payload()), encoding="utf-8")
+        return SimpleNamespace(
+            returncode=2 if index == failure_index and failure == "unexpected-exit" else 1,
+            stdout=unsafe,
+            stderr=unsafe,
+        )
 
-    with pytest.raises(AuditSurfaceError) as captured:
-        run_audit_surfaces(Path("."), runner=unsafe_runner)
+    def unavailable_loader(path: Path) -> object:
+        nonlocal load_calls
+        index = load_calls
+        load_calls += 1
+        if index == failure_index and failure == "unavailable-output":
+            raise PermissionError(unsafe)
+        return original_load(path)
 
     monkeypatch.setattr(module, "load_baseline", lambda path: _baseline())
-    monkeypatch.setattr(
-        module,
-        "run_audit_surfaces",
-        lambda repo: (_ for _ in ()).throw(captured.value),
-    )
+    monkeypatch.setattr(module, "_load_pip_audit_output", unavailable_loader)
+    monkeypatch.setattr(module, "run_audit_surfaces", lambda repo: run_audit_surfaces(repo, runner=runner))
 
     assert main(["--repo-root", "."]) == 1
-    assert capsys.readouterr().err == "advisory audit failed: combined-runtime: missing-output\n"
+    captured = capsys.readouterr()
+    _assert_safe_audit_failure_output(captured, surface=expected_surface, category=expected_category)
+    assert calls == failure_index + 1
+    assert all(value not in captured.out + captured.err for value in ("secret", "/private/tmp", "--index-url"))
+
+
+def test_safe_audit_failure_output_assertions_reject_stdout_and_category_mutations() -> None:
+    expected = "advisory audit failed: torch: execution-error\n"
+
+    with pytest.raises(AssertionError):
+        _assert_safe_audit_failure_output(
+            SimpleNamespace(out="unsafe stdout\n", err=expected),
+            surface="torch",
+            category="execution-error",
+        )
+    with pytest.raises(AssertionError):
+        _assert_safe_audit_failure_output(
+            SimpleNamespace(out="", err="advisory audit failed: torch: invalid-json\n"),
+            surface="torch",
+            category="execution-error",
+        )
 
 
 def test_audit_rejects_duplicate_pip_audit_root_keys_from_serialized_output(tmp_path: Path) -> None:

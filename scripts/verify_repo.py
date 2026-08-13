@@ -953,10 +953,50 @@ _ATLAS_INFRA_GITLINK_SHA_RE = re.compile(
     re.MULTILINE,
 )
 _DEPENDENCY_CURRENT_SNAPSHOT_RE = re.compile(
-    r"^###[ \t]+6[.]1[.]1[.]2[ \t]+Current accepted advisories[ \t]*\r?$"
+    r"^### 6[.]1[.]1[.]2 Current accepted advisories\r?$"
     r"(?P<body>.*?)(?=^#{2,3}[ \t]|\Z)",
     re.MULTILINE | re.DOTALL,
 )
+_DEPENDENCY_SUMMARY_HEADER = (
+    "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | "
+    "Current Disposition |"
+)
+_DEPENDENCY_SUMMARY_SEPARATOR = "| --- | --- | ---: | ---: | --- |"
+_DEPENDENCY_ADVISORY_HEADER = (
+    "| Package | Advisory ID | Feed Records | Fix Versions | Audited Version | "
+    "Aliases | Surface |"
+)
+_DEPENDENCY_ADVISORY_SEPARATOR = "| --- | --- | ---: | --- | ---: | --- | --- |"
+_DEPENDENCY_SUMMARY_ROW_RE = re.compile(
+    r"\| `([^`]+)` \| `[^`]+` \| `[^`]+` \| ([1-9]\d*) \| [^|]+ \|"
+)
+_DEPENDENCY_ADVISORY_ROW_RE = re.compile(
+    r"\| `([^`]+)` \| `(?:PYSEC|CVE)-[^`]+` \| ([1-9]\d*) \| "
+    r"(?:`[^`]+`|None listed) \| `[^`]+` \| "
+    r"(?:`[^`]+`(?:, `[^`]+`)*|None listed) \| [^|]+ \|"
+)
+_DEPENDENCY_RESULT_RE = re.compile(
+    r"Result: ([1-9]\d*) known vulnerabilities across "
+    r"[1-9]\d* resolved packages?[.]"
+)
+
+
+def _dependency_table_rows(
+    body: str, *, header: str, separator: str
+) -> list[str] | None:
+    lines = body.splitlines()
+    header_indexes = [index for index, line in enumerate(lines) if line == header]
+    if len(header_indexes) != 1:
+        return None
+    header_index = header_indexes[0]
+    if header_index + 1 >= len(lines) or lines[header_index + 1] != separator:
+        return None
+    rows: list[str] = []
+    for line in lines[header_index + 2:]:
+        if not line.startswith("|"):
+            break
+        rows.append(line)
+    return rows or None
 
 
 def _dependency_ledger_findings(repo: Path) -> list[Finding]:
@@ -977,41 +1017,83 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
         )]
     text = _read_text(path)
     findings: list[Finding] = []
-    snapshot_match = _DEPENDENCY_CURRENT_SNAPSHOT_RE.search(text)
-    if not snapshot_match:
+    snapshot_matches = list(_DEPENDENCY_CURRENT_SNAPSHOT_RE.finditer(text))
+    if not snapshot_matches:
         findings.append(Finding(
             id="D10.dependency_ledger_count", check="docs", severity="error",
             location="docs/dependency-contracts.md",
             message="current accepted-advisories section is missing",
         ))
+    elif len(snapshot_matches) != 1:
+        findings.append(Finding(
+            id="D10.dependency_ledger_count", check="docs", severity="error",
+            location="docs/dependency-contracts.md",
+            message=(
+                "current accepted-advisories heading must appear exactly once; "
+                f"found {len(snapshot_matches)}"
+            ),
+        ))
     else:
-        body = snapshot_match.group("body")
-        package_rows = re.findall(
-            r"^\| `([^`]+)` \| `[^`]+` \| `[^`]+` \| (\d+) \|", body, re.M
+        body = snapshot_matches[0].group("body")
+        summary_lines = _dependency_table_rows(
+            body,
+            header=_DEPENDENCY_SUMMARY_HEADER,
+            separator=_DEPENDENCY_SUMMARY_SEPARATOR,
         )
-        advisory_rows = re.findall(
-            r"^\| `([^`]+)` \| `(?:PYSEC|CVE)-[^`]+` \| (\d+) \|", body, re.M
+        advisory_lines = _dependency_table_rows(
+            body,
+            header=_DEPENDENCY_ADVISORY_HEADER,
+            separator=_DEPENDENCY_ADVISORY_SEPARATOR,
         )
-        if not package_rows:
+        package_rows = (
+            [_DEPENDENCY_SUMMARY_ROW_RE.fullmatch(line) for line in summary_lines]
+            if summary_lines
+            else []
+        )
+        advisory_rows = (
+            [_DEPENDENCY_ADVISORY_ROW_RE.fullmatch(line) for line in advisory_lines]
+            if advisory_lines
+            else []
+        )
+        summary_valid = bool(package_rows) and all(package_rows)
+        advisory_valid = bool(advisory_rows) and all(advisory_rows)
+        if not summary_valid:
             findings.append(Finding(
                 id="D10.dependency_ledger_count", check="docs", severity="error",
                 location="docs/dependency-contracts.md",
                 message="current accepted-advisories summary table is malformed",
             ))
-        if not advisory_rows:
+        if not advisory_valid:
             findings.append(Finding(
                 id="D10.dependency_ledger_count", check="docs", severity="error",
                 location="docs/dependency-contracts.md",
                 message="current accepted-advisories advisory table is malformed",
             ))
-        if package_rows and advisory_rows:
-            package_counts = {
-                package: int(count) for package, count in package_rows
-            }
-            advisory_counts: dict[str, int] = {}
-            for package, count in advisory_rows:
+        advisory_counts: dict[str, int] = {}
+        if advisory_valid:
+            for row in advisory_rows:
+                assert row is not None
+                package, count = row.groups()
                 advisory_counts[package] = advisory_counts.get(package, 0) + int(count)
-
+        if summary_valid and advisory_valid:
+            parsed_package_rows = [row.groups() for row in package_rows if row]
+            package_names = [package for package, _ in parsed_package_rows]
+            duplicate_packages = sorted({
+                package for package in package_names if package_names.count(package) > 1
+            })
+            if duplicate_packages:
+                findings.append(Finding(
+                    id="D10.dependency_ledger_count", check="docs", severity="error",
+                    location="docs/dependency-contracts.md",
+                    message=(
+                        "current accepted-advisories summary table has duplicate "
+                        f"package rows: {', '.join(duplicate_packages)}"
+                    ),
+                    detail={"packages": duplicate_packages},
+                ))
+            package_counts = {
+                package: int(count) for package, count in parsed_package_rows
+            }
             for package, expected in package_counts.items():
                 actual = advisory_counts.get(package, 0)
                 if actual != expected:
@@ -1025,14 +1107,35 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
                         detail={"package": package, "expected": expected, "actual": actual},
                     ))
 
-            total_match = re.search(r"Result: (\d+) known vulnerabilities", body)
+            for package in sorted(advisory_counts.keys() - package_counts.keys()):
+                findings.append(Finding(
+                    id="D10.dependency_ledger_count", check="docs", severity="error",
+                    location="docs/dependency-contracts.md",
+                    message=f"{package} advisory package is absent from audit summary",
+                    detail={"package": package},
+                ))
+
+        result_lines = [
+            line for line in body.splitlines() if line.startswith("Result:")
+        ]
+        if len(result_lines) != 1:
+            findings.append(Finding(
+                id="D10.dependency_ledger_count", check="docs", severity="error",
+                location="docs/dependency-contracts.md",
+                message=(
+                    "current accepted-advisories section requires exactly one Result "
+                    f"line; found {len(result_lines)}"
+                ),
+            ))
+        else:
+            total_match = _DEPENDENCY_RESULT_RE.fullmatch(result_lines[0])
             if not total_match:
                 findings.append(Finding(
                     id="D10.dependency_ledger_count", check="docs", severity="error",
                     location="docs/dependency-contracts.md",
-                    message="current accepted-advisories Result total is missing",
+                    message="current accepted-advisories Result line is malformed",
                 ))
-            else:
+            elif advisory_valid:
                 expected_total = int(total_match.group(1))
                 actual_total = sum(advisory_counts.values())
                 if actual_total != expected_total:

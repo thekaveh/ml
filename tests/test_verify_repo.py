@@ -1282,19 +1282,25 @@ def test_docs_d10_dependency_ledger_counts_match_current_doc():
 
 def _dependency_snapshot(*, summary_count=2, advisory_rows=None):
     rows = advisory_rows or [
-        "| `torch` | `PYSEC-2025-41` | 1 | `2.6.0` |",
-        "| `torch` | `PYSEC-2025-191` | 1 | `2.7.1rc1` |",
+        (
+            "| `torch` | `PYSEC-2025-41` | 1 | `2.6.0` | `2.4.1` | "
+            "`CVE-2025-32434` | Combined runtime; Torch |"
+        ),
+        (
+            "| `torch` | `PYSEC-2025-191` | 1 | `2.7.1rc1` | `2.4.1` | "
+            "`CVE-2025-2953` | Combined runtime; Torch |"
+        ),
     ]
     return (
         "# 6.1 Dependency Contracts\n\n"
         "## 6.1.1 Audit Snapshot\n\n"
         "### 6.1.1.2 Current accepted advisories\n\n"
-        f"Result: {summary_count} known vulnerabilities across one resolved package.\n\n"
+        f"Result: {summary_count} known vulnerabilities across 1 resolved package.\n\n"
         "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
         "| --- | --- | ---: | ---: | --- |\n"
         f"| `torch` | `torch==2.4.1` | `2.4.1` | {summary_count} | Accepted temporarily. |\n\n"
-        "| Package | Advisory ID | Feed Records | Fix Versions |\n"
-        "| --- | --- | ---: | --- |\n"
+        "| Package | Advisory ID | Feed Records | Fix Versions | Audited Version | Aliases | Surface |\n"
+        "| --- | --- | ---: | --- | ---: | --- | --- |\n"
         + "\n".join(rows)
         + "\n"
     )
@@ -1350,8 +1356,86 @@ def test_docs_d10_flags_malformed_current_advisory_table(tmp_path):
     assert any("advisory table" in finding.message for finding in findings)
 
 
+def test_docs_d10_flags_headerless_current_summary_table(tmp_path):
+    text = _dependency_snapshot().replace(
+        "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
+        "| --- | --- | ---: | ---: | --- |\n",
+        "",
+    )
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("summary table" in finding.message for finding in findings)
+
+
+def test_docs_d10_flags_headerless_current_advisory_table(tmp_path):
+    text = _dependency_snapshot().replace(
+        "| Package | Advisory ID | Feed Records | Fix Versions | Audited Version | Aliases | Surface |\n"
+        "| --- | --- | ---: | --- | ---: | --- | --- |\n",
+        "",
+    )
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("advisory table" in finding.message for finding in findings)
+
+
+def test_docs_d10_flags_malformed_current_summary_separator(tmp_path):
+    text = _dependency_snapshot().replace(
+        "| --- | --- | ---: | ---: | --- |",
+        "| --- | --- | --- | --- | --- |",
+    )
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("summary table" in finding.message for finding in findings)
+
+
+def test_docs_d10_flags_malformed_current_advisory_separator(tmp_path):
+    text = _dependency_snapshot().replace(
+        "| --- | --- | ---: | --- | ---: | --- | --- |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    )
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("advisory table" in finding.message for finding in findings)
+
+
+def test_docs_d10_flags_duplicate_current_summary_package(tmp_path):
+    row = (
+        "| `torch` | `torch==2.4.1` | `2.4.1` | 2 | "
+        "Accepted temporarily. |"
+    )
+    text = _dependency_snapshot().replace(row, f"{row}\n{row}")
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("duplicate" in finding.message for finding in findings)
+
+
+def test_docs_d10_flags_advisory_package_absent_from_summary(tmp_path):
+    torch_row = (
+        "| `torch` | `PYSEC-2025-191` | 1 | `2.7.1rc1` | `2.4.1` | "
+        "`CVE-2025-2953` | Combined runtime; Torch |"
+    )
+    nltk_row = (
+        "| `nltk` | `PYSEC-2099-1` | 1 | None listed | `3.10.3` | "
+        "`CVE-2099-1` | Combined runtime |"
+    )
+    text = _dependency_snapshot().replace(torch_row, f"{torch_row}\n{nltk_row}")
+    text = text.replace(
+        "Result: 2 known vulnerabilities", "Result: 3 known vulnerabilities"
+    )
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("absent from audit summary" in finding.message for finding in findings)
+
+
+def test_docs_d10_flags_duplicate_exact_current_heading(tmp_path):
+    text = (
+        _dependency_snapshot()
+        + "\n### 6.1.1.2 Current accepted advisories\n\n"
+        + "Duplicate current section.\n"
+    )
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("exactly once" in finding.message for finding in findings)
+
+
 def test_docs_d10_flags_current_package_count_drift(tmp_path):
-    rows = ["| `torch` | `PYSEC-2025-41` | 1 | `2.6.0` |"]
+    rows = [
+        "| `torch` | `PYSEC-2025-41` | 1 | `2.6.0` | `2.4.1` | "
+        "`CVE-2025-32434` | Combined runtime; Torch |"
+    ]
     findings = _d10_count_findings(
         tmp_path, _dependency_snapshot(summary_count=2, advisory_rows=rows)
     )
@@ -1368,10 +1452,27 @@ def test_docs_d10_flags_current_total_count_drift(tmp_path):
 
 def test_docs_d10_flags_missing_current_total(tmp_path):
     text = _dependency_snapshot().replace(
-        "Result: 2 known vulnerabilities across one resolved package.\n\n", ""
+        "Result: 2 known vulnerabilities across 1 resolved package.\n\n", ""
     )
     findings = _d10_count_findings(tmp_path, text)
     assert any("Result" in finding.message for finding in findings)
+
+
+@pytest.mark.parametrize(
+    "duplicate_total",
+    [
+        "Result: 2 known vulnerabilities across 1 resolved package.",
+        "Result: 3 known vulnerabilities across 1 resolved package.",
+    ],
+)
+def test_docs_d10_flags_duplicate_current_total(tmp_path, duplicate_total):
+    text = _dependency_snapshot().replace(
+        "Result: 2 known vulnerabilities across 1 resolved package.",
+        "Result: 2 known vulnerabilities across 1 resolved package.\n"
+        f"{duplicate_total}",
+    )
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("exactly one Result" in finding.message for finding in findings)
 
 
 def test_docs_d10_current_atlas_infra_gitlink_matches_ledger():
@@ -1397,9 +1498,10 @@ def test_docs_d10_flags_dependency_ledger_count_drift(tmp_path):
         "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
         "| --- | --- | ---: | ---: | --- |\n"
         "| `torch` | `torch==2.4.1` | `2.4.1` | 2 | Accepted temporarily. |\n\n"
-        "| Package | Advisory ID | Feed Records | Fix Versions |\n"
-        "| --- | --- | ---: | --- |\n"
-        "| `torch` | `PYSEC-2025-41` | 1 | `2.6.0` |\n",
+        "| Package | Advisory ID | Feed Records | Fix Versions | Audited Version | Aliases | Surface |\n"
+        "| --- | --- | ---: | --- | ---: | --- | --- |\n"
+        "| `torch` | `PYSEC-2025-41` | 1 | `2.6.0` | `2.4.1` | "
+        "`CVE-2025-32434` | Combined runtime; Torch |\n",
         encoding="utf-8",
     )
     r = run_verify("--repo-root", str(repo), "--check", "docs", "--fast")

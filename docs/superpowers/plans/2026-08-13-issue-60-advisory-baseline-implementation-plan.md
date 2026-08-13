@@ -590,12 +590,12 @@ Use the subagent-driven workflow's per-task review packages and final whole-bran
 Critical or Important finding in one focused final-review fix wave, rerun affected tests, and obtain
 a clean re-review before publishing.
 
-- [ ] **Step 4: Push and open feature-to-develop PR**
+- [x] **Step 4: Push and open feature-to-develop PR**
 
 Push `codex/issue-60-advisory-baseline`, open a ready PR to `develop`, and include Issue #60 scope,
 tests, no-service statement, baseline semantics, and rollback boundary.
 
-- [ ] **Step 5: Establish and require the live context**
+- [x] **Step 5: Establish and require the live context**
 
 Wait for the feature PR's `dependency-audit` job to appear and pass. Read ruleset `18620095`, then
 update only `required_status_checks` so the exact contexts are:

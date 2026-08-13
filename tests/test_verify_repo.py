@@ -1716,6 +1716,66 @@ def test_markdown_masking_multiline_inline_code_requires_equal_backtick_length()
     assert "# visible" in masked
 
 
+def test_docs_d10_multiline_inline_code_hides_only_advisory_snapshot(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    snapshot = _current_advisory_snapshot(ledger.read_text(encoding="utf-8"))
+    ledger.write_text(f"prefix ``\n{snapshot}\n``\n", encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == ["current accepted-advisories section is missing"]
+
+
+def test_docs_d10_multiline_inline_code_hides_duplicate_advisory_snapshot(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\nprefix ``\n{_current_advisory_snapshot(text)}\n``\n",
+        encoding="utf-8",
+    )
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
+def test_markdown_masking_multiline_inline_code_resumes_after_midline_closer():
+    masked = verify_repo._strip_markdown_code(
+        "prefix ``\n# hidden\n`` live suffix", strip_inline=False
+    )
+
+    assert "# hidden" not in masked
+    assert masked.endswith("  live suffix")
+
+
+def test_docs_d10_invalid_backtick_fence_info_leaves_duplicate_snapshot_live(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n```bad`info\n{_current_advisory_snapshot(text)}\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+@pytest.mark.parametrize("fence", ["```valid-info", "~~~valid`info"])
+def test_docs_d10_valid_fence_info_hides_duplicate_snapshot(tmp_path, fence):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    closer = fence[:3]
+    ledger.write_text(
+        f"{text}\n{fence}\n{_current_advisory_snapshot(text)}\n{closer}\n",
+        encoding="utf-8",
+    )
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
 def _dependency_snapshot(*, summary_count=2, advisory_rows=None):
     rows = advisory_rows or [
         (

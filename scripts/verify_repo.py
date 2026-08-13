@@ -414,14 +414,15 @@ def _read_text(path: Path) -> str:
 
 
 def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
-    def code_fragment(value: str) -> str:
-        return " " * len(value) if strip_inline else value
+    def code_fragment(value: str, *, crosses_lines: bool = False) -> str:
+        return " " * len(value) if strip_inline or crosses_lines else value
 
     def mask_html_comments(
         line: str, in_comment: bool, inline_marker: str | None
     ) -> tuple[str, bool, str | None]:
         masked: list[str] = []
         index = 0
+        crosses_lines = inline_marker is not None
         while index < len(line):
             if in_comment:
                 close = line.find("-->", index)
@@ -435,10 +436,10 @@ def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
             if inline_marker is not None:
                 code_span = re.search(r"`+", line[index:])
                 if code_span is None:
-                    masked.append(code_fragment(line[index:]))
+                    masked.append(code_fragment(line[index:], crosses_lines=crosses_lines))
                     return "".join(masked), in_comment, inline_marker
                 end = index + code_span.end()
-                masked.append(code_fragment(line[index:end]))
+                masked.append(code_fragment(line[index:end], crosses_lines=crosses_lines))
                 index = end
                 if len(code_span.group(0)) == len(inline_marker):
                     inline_marker = None
@@ -463,7 +464,20 @@ def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
     inline_marker: str | None = None
     for line in text.splitlines():
         opener = re.match(r"^ {0,3}(?P<marker>`{3,}|~{3,})", line)
-        if fence is None and not in_comment and inline_marker is None and opener:
+        invalid_backtick_fence = bool(
+            not in_comment
+            and inline_marker is None
+            and opener
+            and opener["marker"].startswith("`")
+            and "`" in line[opener.end():]
+        )
+        if (
+            fence is None
+            and not in_comment
+            and inline_marker is None
+            and opener
+            and not invalid_backtick_fence
+        ):
             marker = opener["marker"]
             fence = (marker[0], len(marker))
             stripped.append(" " * len(line))
@@ -473,6 +487,9 @@ def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
             if re.fullmatch(rf" {{0,3}}{re.escape(marker)}{{{minimum_length},}}\s*", line):
                 fence = None
             stripped.append(" " * len(line))
+            continue
+        if invalid_backtick_fence:
+            stripped.append(line)
             continue
         line, in_comment, inline_marker = mask_html_comments(
             line, in_comment, inline_marker

@@ -1412,8 +1412,16 @@ def test_docs_d10_dependency_advisory_baseline_flags_missing_ledger(tmp_path, wi
     assert hits[0].message == "current accepted-advisories section is missing"
 
 
-@pytest.mark.parametrize("heading", ["missing", "duplicate"])
-def test_docs_d10_dependency_advisory_baseline_flags_invalid_current_heading(tmp_path, heading):
+@pytest.mark.parametrize(
+    ("heading", "expected"),
+    [
+        ("missing", "current accepted-advisories section is missing"),
+        ("duplicate", "current accepted-advisories heading must appear exactly once; found 2"),
+    ],
+)
+def test_docs_d10_dependency_advisory_baseline_flags_invalid_current_heading(
+    tmp_path, heading, expected
+):
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     text = ledger.read_text(encoding="utf-8")
@@ -1426,9 +1434,7 @@ def test_docs_d10_dependency_advisory_baseline_flags_invalid_current_heading(tmp
 
     hits = _d10_advisory_baseline_findings(repo)
     assert len(hits) == 1
-    assert hits[0].message == "current accepted-advisories section is missing" if heading == "missing" else (
-        "current accepted-advisories heading must appear exactly once; found 2"
-    )
+    assert hits[0].message == expected
 
 
 def test_docs_d10_flags_baseline_advisory_id_drift_dependency_advisory_baseline(tmp_path):
@@ -1600,6 +1606,60 @@ def test_docs_d10_unclosed_or_mismatched_fence_hides_advisory_snapshot(tmp_path,
     hits = _d10_advisory_baseline_findings(repo)
     assert len(hits) == 1
     assert hits[0].message == "current accepted-advisories section is missing"
+
+
+def _current_advisory_snapshot(text: str) -> str:
+    marker = "### 6.1.1.2 Current accepted advisories"
+    return marker + text.split(marker, 1)[1]
+
+
+def test_docs_d10_comment_opener_inside_fence_cannot_mask_later_duplicate_heading(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n```markdown\n<!--\n```\n{_current_advisory_snapshot(text)}\n-->\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_docs_d10_comment_opener_inside_inline_code_cannot_mask_later_duplicate_heading(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n`<!--`\n{_current_advisory_snapshot(text)}\n-->\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_docs_d10_four_space_fence_pseudo_closer_keeps_advisory_snapshot_hidden(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    snapshot = _current_advisory_snapshot(ledger.read_text(encoding="utf-8"))
+    ledger.write_text(f"````markdown\n    ````\n{snapshot}\n", encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == ["current accepted-advisories section is missing"]
+
+
+def test_docs_d10_three_space_fence_closer_exposes_advisory_snapshot(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    snapshot = _current_advisory_snapshot(ledger.read_text(encoding="utf-8"))
+    ledger.write_text(f"````markdown\n   ````\n{snapshot}\n", encoding="utf-8")
+
+    assert _d10_advisory_baseline_findings(repo) == []
 
 
 def _dependency_snapshot(*, summary_count=2, advisory_rows=None):

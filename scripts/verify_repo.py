@@ -414,14 +414,40 @@ def _read_text(path: Path) -> str:
 
 
 def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
-    def mask_comment(match: re.Match[str]) -> str:
-        return re.sub(r"[^\n]", " ", match.group(0))
+    def mask_html_comments(line: str, in_comment: bool) -> tuple[str, bool]:
+        masked: list[str] = []
+        index = 0
+        while index < len(line):
+            if in_comment:
+                close = line.find("-->", index)
+                if close == -1:
+                    masked.append(" " * (len(line) - index))
+                    return "".join(masked), True
+                masked.append(" " * (close + 3 - index))
+                index = close + 3
+                in_comment = False
+                continue
+            code_span = re.match(r"`+", line[index:])
+            if code_span:
+                marker = code_span.group(0)
+                close = line.find(marker, index + len(marker))
+                if close != -1:
+                    end = close + len(marker)
+                    masked.append(line[index:end])
+                    index = end
+                    continue
+            if line.startswith("<!--", index):
+                in_comment = True
+                continue
+            masked.append(line[index])
+            index += 1
+        return "".join(masked), in_comment
 
-    text = re.sub(r"<!--.*?(?:-->|\Z)", mask_comment, text, flags=re.DOTALL)
     stripped: list[str] = []
     fence: tuple[str, int] | None = None
+    in_comment = False
     for line in text.splitlines():
-        opener = re.match(r"^\s*(?P<marker>`{3,}|~{3,})", line)
+        opener = re.match(r"^ {0,3}(?P<marker>`{3,}|~{3,})", line)
         if fence is None and opener:
             marker = opener["marker"]
             fence = (marker[0], len(marker))
@@ -429,10 +455,11 @@ def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
             continue
         if fence is not None:
             marker, minimum_length = fence
-            if re.fullmatch(rf"\s*{re.escape(marker)}{{{minimum_length},}}\s*", line):
+            if re.fullmatch(rf" {{0,3}}{re.escape(marker)}{{{minimum_length},}}\s*", line):
                 fence = None
             stripped.append(" " * len(line))
             continue
+        line, in_comment = mask_html_comments(line, in_comment)
         stripped.append(
             _INLINE_CODE_RE.sub(lambda m: " " * len(m.group(0)), line)
             if strip_inline

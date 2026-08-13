@@ -980,10 +980,21 @@ _DEPENDENCY_ADVISORY_ROW_RE = re.compile(
     r"(?:`[^`]+`|None listed) \| `[^`]+` \| "
     r"(?:`[^`]+`(?:, `[^`]+`)*|None listed) \| [^|]+ \|"
 )
+_DEPENDENCY_ADVISORY_IDENTITY_ROW_RE = re.compile(
+    r"\| `(?P<package>[^`]+)` \| `(?P<advisory_id>(?:PYSEC|CVE)-[^`]+)` \| "
+    r"[1-9]\d* \| (?:`[^`]+`|None listed) \| `(?P<accepted_version>[^`]+)` \| "
+    r"(?:`[^`]+`(?:, `[^`]+`)*|None listed) \| (?P<surfaces>[^|]+) \|"
+)
 _DEPENDENCY_RESULT_RE = re.compile(
     r"Result: ([1-9]\d*) known vulnerabilities across "
     r"[1-9]\d* resolved packages?[.]"
 )
+_MARKDOWN_ADVISORY_SURFACES = {
+    "Combined runtime": "combined-runtime",
+    "Torch": "torch",
+    "Documentation": "documentation",
+    "Atlas contract": "atlas-contract",
+}
 
 
 def _dependency_table_rows(
@@ -1002,6 +1013,125 @@ def _dependency_table_rows(
             break
         rows.append(line)
     return rows or None
+
+
+def _markdown_advisory_surfaces(value: str, *, canonical_order: tuple[str, ...]) -> tuple[str, ...]:
+    labels = tuple(label.strip() for label in value.split(";"))
+    if not labels or any(not label for label in labels):
+        raise ValueError("advisory surface labels are malformed")
+    try:
+        surfaces = tuple(_MARKDOWN_ADVISORY_SURFACES[label] for label in labels)
+    except KeyError as error:
+        raise ValueError(f"unknown advisory surface label: {error.args[0]}") from error
+    if len(set(surfaces)) != len(surfaces):
+        raise ValueError("advisory surface labels must be unique")
+    return tuple(surface for surface in canonical_order if surface in surfaces)
+
+
+def _format_advisory_identity(
+    identity: tuple[str, str, str], surfaces: tuple[str, ...]
+) -> str:
+    package, advisory_id, accepted_version = identity
+    return f"{package} {accepted_version} {advisory_id} on [{', '.join(surfaces)}]"
+
+
+def _dependency_advisory_baseline_findings(
+    repo: Path, advisory_lines: list[str] | None
+) -> list[Finding]:
+    location = "docs/dependency-contracts.md"
+    try:
+        from scripts.advisory_baseline import (
+            AdvisoryBaselineError,
+            advisory_identity,
+            load_baseline,
+            normalize_package_name,
+        )
+    except ImportError:
+        return [Finding(
+            id="D10.dependency_advisory_baseline",
+            check="docs",
+            severity="error",
+            location="security/accepted-advisories.json",
+            message="accepted advisory baseline loader is unavailable",
+        )]
+    try:
+        baseline = load_baseline(repo / "security" / "accepted-advisories.json")
+    except AdvisoryBaselineError as error:
+        return [Finding(
+            id="D10.dependency_advisory_baseline",
+            check="docs",
+            severity="error",
+            location="security/accepted-advisories.json",
+            message=f"accepted advisory baseline is invalid: {error}",
+        )]
+
+    if not advisory_lines:
+        return [Finding(
+            id="D10.dependency_advisory_baseline",
+            check="docs",
+            severity="error",
+            location=location,
+            message="current accepted-advisories table cannot be compared to the baseline",
+        )]
+
+    markdown_items: set[tuple[tuple[str, str, str], tuple[str, ...]]] = set()
+    for line in advisory_lines:
+        row = _DEPENDENCY_ADVISORY_IDENTITY_ROW_RE.fullmatch(line)
+        if row is None:
+            return [Finding(
+                id="D10.dependency_advisory_baseline",
+                check="docs",
+                severity="error",
+                location=location,
+                message="current accepted-advisories row cannot be compared to the baseline",
+            )]
+        try:
+            surfaces = _markdown_advisory_surfaces(
+                row["surfaces"], canonical_order=baseline.audited_surfaces
+            )
+        except ValueError as error:
+            return [Finding(
+                id="D10.dependency_advisory_baseline",
+                check="docs",
+                severity="error",
+                location=location,
+                message=f"current accepted-advisories row is malformed: {error}",
+            )]
+        identity = (
+            normalize_package_name(row["package"]),
+            row["advisory_id"],
+            row["accepted_version"],
+        )
+        markdown_items.add((identity, surfaces))
+
+    baseline_items = {
+        (advisory_identity(item), item.surfaces)
+        for item in baseline.accepted_advisories
+    }
+    findings: list[Finding] = []
+    for identity, surfaces in sorted(baseline_items - markdown_items):
+        findings.append(Finding(
+            id="D10.dependency_advisory_baseline",
+            check="docs",
+            severity="error",
+            location=location,
+            message=(
+                "accepted advisory baseline identity is missing from the current Markdown ledger: "
+                f"{_format_advisory_identity(identity, surfaces)}"
+            ),
+        ))
+    for identity, surfaces in sorted(markdown_items - baseline_items):
+        findings.append(Finding(
+            id="D10.dependency_advisory_baseline",
+            check="docs",
+            severity="error",
+            location=location,
+            message=(
+                "current Markdown ledger identity is missing from the accepted advisory baseline: "
+                f"{_format_advisory_identity(identity, surfaces)}"
+            ),
+        ))
+    return findings
 
 
 def _dependency_ledger_findings(repo: Path) -> list[Finding]:
@@ -1051,6 +1181,7 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
             header=_DEPENDENCY_ADVISORY_HEADER,
             separator=_DEPENDENCY_ADVISORY_SEPARATOR,
         )
+        findings.extend(_dependency_advisory_baseline_findings(repo, advisory_lines))
         package_rows = (
             [_DEPENDENCY_SUMMARY_ROW_RE.fullmatch(line) for line in summary_lines]
             if summary_lines

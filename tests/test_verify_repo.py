@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -1278,6 +1279,161 @@ def test_docs_d10_dependency_ledger_counts_match_current_doc():
     data = json.loads(r.stdout) if r.stdout else {"findings": []}
     d10 = [f for f in data["findings"] if f["id"] == "D10.dependency_ledger_count"]
     assert d10 == [], f"D10 reported dependency-ledger issues: {d10}"
+
+
+def _advisory_baseline_repo(tmp_path: Path) -> Path:
+    repo = _temp_repo(tmp_path)
+    (repo / "docs").mkdir()
+    shutil.copyfile(REPO / "docs/dependency-contracts.md", repo / "docs/dependency-contracts.md")
+    (repo / "security").mkdir()
+    shutil.copyfile(
+        REPO / "security/accepted-advisories.json",
+        repo / "security/accepted-advisories.json",
+    )
+    return repo
+
+
+def _d10_advisory_baseline_findings(repo: Path):
+    return [
+        finding
+        for finding in _load_verify_module()._dependency_ledger_findings(repo)
+        if finding.id == "D10.dependency_advisory_baseline"
+    ]
+
+
+def _write_canonical_baseline(repo: Path, document: dict) -> None:
+    (repo / "security/accepted-advisories.json").write_text(
+        json.dumps(document, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_docs_d10_dependency_advisory_baseline_matches_current_doc():
+    r = run_verify("--check", "docs", "--fast")
+    data = json.loads(r.stdout) if r.stdout else {"findings": []}
+    hits = [
+        finding
+        for finding in data["findings"]
+        if finding["id"] == "D10.dependency_advisory_baseline"
+    ]
+    assert hits == [], f"D10 reported advisory-baseline issues: {hits}"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "malformed",
+        "unsupported_schema",
+        "unknown_key",
+        "duplicate_key",
+        "duplicate_identity",
+        "unsorted_identity",
+        "noncanonical_bytes",
+    ],
+)
+def test_docs_d10_dependency_advisory_baseline_fails_closed_for_invalid_policy(tmp_path, mutation):
+    repo = _advisory_baseline_repo(tmp_path)
+    policy = repo / "security/accepted-advisories.json"
+    if mutation == "missing":
+        policy.unlink()
+    elif mutation == "malformed":
+        policy.write_text("{", encoding="utf-8")
+    elif mutation == "noncanonical_bytes":
+        policy.write_bytes(policy.read_bytes() + b"\n")
+    elif mutation == "duplicate_key":
+        policy.write_text(
+            policy.read_text(encoding="utf-8").replace(
+                '  "schema_version": 1,\n',
+                '  "schema_version": 1,\n  "schema_version": 1,\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+    else:
+        document = json.loads(policy.read_text(encoding="utf-8"))
+        if mutation == "unsupported_schema":
+            document["schema_version"] = 2
+        elif mutation == "unknown_key":
+            document["unexpected"] = True
+        elif mutation == "duplicate_identity":
+            document["accepted_advisories"].append(document["accepted_advisories"][0])
+        else:
+            document["accepted_advisories"].reverse()
+        _write_canonical_baseline(repo, document)
+
+    assert _d10_advisory_baseline_findings(repo)
+
+
+def test_docs_d10_flags_baseline_advisory_id_drift_dependency_advisory_baseline(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    document = json.loads((repo / "security/accepted-advisories.json").read_text())
+    document["accepted_advisories"][0]["advisory_id"] = "PYSEC-2099-1"
+    _write_canonical_baseline(repo, document)
+
+    assert _d10_advisory_baseline_findings(repo)
+
+
+def test_docs_d10_flags_baseline_package_drift_dependency_advisory_baseline(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    document = json.loads((repo / "security/accepted-advisories.json").read_text())
+    document["accepted_advisories"][0]["package"] = "lightning"
+    _write_canonical_baseline(repo, document)
+
+    assert _d10_advisory_baseline_findings(repo)
+
+
+def test_docs_d10_flags_baseline_accepted_version_drift_dependency_advisory_baseline(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    document = json.loads((repo / "security/accepted-advisories.json").read_text())
+    document["accepted_advisories"][0]["accepted_version"] = "9.9.9"
+    _write_canonical_baseline(repo, document)
+
+    assert _d10_advisory_baseline_findings(repo)
+
+
+def test_docs_d10_flags_baseline_surface_drift_dependency_advisory_baseline(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    document = json.loads((repo / "security/accepted-advisories.json").read_text())
+    document["accepted_advisories"][0]["surfaces"] = ["torch"]
+    _write_canonical_baseline(repo, document)
+
+    assert _d10_advisory_baseline_findings(repo)
+
+
+def test_docs_d10_collapses_duplicate_raw_rows_for_dependency_advisory_baseline_identity_parity(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
+def test_docs_d10_excludes_historical_rows_from_dependency_advisory_baseline_parity(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    ledger.write_text(
+        ledger.read_text(encoding="utf-8")
+        + "\n### Historical records\n\n"
+        + "| Package | Advisory ID | Feed Records | Fix Versions | Audited Version | Aliases | Surface |\n"
+        + "| --- | --- | ---: | --- | ---: | --- | --- |\n"
+        + "| `nltk` | `PYSEC-2099-1` | 1 | None listed | `3.10.3` | None listed | Combined runtime |\n",
+        encoding="utf-8",
+    )
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
+def test_docs_d10_dependency_advisory_baseline_flags_unknown_current_surface(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    ledger.write_text(
+        ledger.read_text(encoding="utf-8").replace(
+            "Combined runtime; Torch |",
+            "Combined runtime; Unknown |",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    assert _d10_advisory_baseline_findings(repo)
 
 
 def _dependency_snapshot(*, summary_count=2, advisory_rows=None):

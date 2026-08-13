@@ -13,11 +13,21 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Machine-readable advisory baseline gate:** added the reviewed
+  `security/accepted-advisories.json` policy, fail-closed four-surface `make audit-advisories`
+  comparison, JSON-to-current-ledger verification, and isolated `dependency-audit` CI job. New
+  primary advisory IDs and accepted-version drift fail; disappeared IDs require reviewed
+  reconciliation and do not prove remediation. The GitHub ruleset controller update makes the
+  job the third required context alongside `pytest-repository` and `atlas-consumer-policy` after
+  its live update.
+- **Portable PyG advisory projections:** added resolver-safe `torch-audit-requirements.txt` and
+  pre-resolved `pyg-extension-audit-requirements.txt`. Their strict results merge into the same
+  logical audit surfaces, while exact canonical partition validation keeps runtime installation
+  unchanged and avoids resolving compiled PyG extensions before Torch exists.
 - **Four-surface vulnerability ledger refresh:** recorded the dated combined-runtime, Torch,
   documentation-lock, and Atlas-contract observations in the canonical dependency ledger, with an
   alias-aware reconciliation of historical identities and a static integrity check for the current
-  package/advisory tables. Automated vulnerability-baseline enforcement remains deferred to Issue
-  #60.
+  package/advisory tables.
 - **Canonical NNx wheel evidence:** added the fail-closed `make verify-nnx-install` contract for
   exact pin, distribution ownership, direct-URL rejection, and import-origin validation. Both
   `pytest-repository` and `pytest-nnx-surface` now select NNx with

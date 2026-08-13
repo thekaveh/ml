@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import json
+import builtins
+import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -1280,6 +1283,596 @@ def test_docs_d10_dependency_ledger_counts_match_current_doc():
     assert d10 == [], f"D10 reported dependency-ledger issues: {d10}"
 
 
+def _advisory_baseline_repo(tmp_path: Path) -> Path:
+    repo = _temp_repo(tmp_path)
+    (repo / "docs").mkdir()
+    shutil.copyfile(REPO / "docs/dependency-contracts.md", repo / "docs/dependency-contracts.md")
+    (repo / "security").mkdir()
+    shutil.copyfile(
+        REPO / "security/accepted-advisories.json",
+        repo / "security/accepted-advisories.json",
+    )
+    return repo
+
+
+def _d10_advisory_baseline_findings(repo: Path):
+    return [
+        finding
+        for finding in _load_verify_module()._dependency_ledger_findings(repo)
+        if finding.id == "D10.dependency_advisory_baseline"
+    ]
+
+
+def _write_canonical_baseline(repo: Path, document: dict) -> None:
+    (repo / "security/accepted-advisories.json").write_text(
+        json.dumps(document, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_docs_d10_dependency_advisory_baseline_matches_current_doc():
+    r = run_verify("--check", "docs", "--fast")
+    data = json.loads(r.stdout) if r.stdout else {"findings": []}
+    hits = [
+        finding
+        for finding in data["findings"]
+        if finding["id"] == "D10.dependency_advisory_baseline"
+    ]
+    assert hits == [], f"D10 reported advisory-baseline issues: {hits}"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "malformed",
+        "unsupported_schema",
+        "unknown_key",
+        "duplicate_key",
+        "duplicate_identity",
+        "unsorted_identity",
+        "noncanonical_bytes",
+    ],
+)
+def test_docs_d10_dependency_advisory_baseline_fails_closed_for_invalid_policy(tmp_path, mutation):
+    repo = _advisory_baseline_repo(tmp_path)
+    policy = repo / "security/accepted-advisories.json"
+    if mutation == "missing":
+        policy.unlink()
+    elif mutation == "malformed":
+        policy.write_text("{", encoding="utf-8")
+    elif mutation == "noncanonical_bytes":
+        policy.write_bytes(policy.read_bytes() + b"\n")
+    elif mutation == "duplicate_key":
+        policy.write_text(
+            policy.read_text(encoding="utf-8").replace(
+                '  "schema_version": 1,\n',
+                '  "schema_version": 1,\n  "schema_version": 1,\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+    else:
+        document = json.loads(policy.read_text(encoding="utf-8"))
+        if mutation == "unsupported_schema":
+            document["schema_version"] = 2
+        elif mutation == "unknown_key":
+            document["unexpected"] = True
+        elif mutation == "duplicate_identity":
+            document["accepted_advisories"].append(document["accepted_advisories"][0])
+        else:
+            document["accepted_advisories"].reverse()
+        _write_canonical_baseline(repo, document)
+
+    assert _d10_advisory_baseline_findings(repo)
+
+
+def test_docs_d10_dependency_advisory_baseline_converts_import_os_error(tmp_path, monkeypatch):
+    repo = _advisory_baseline_repo(tmp_path)
+    original_import = builtins.__import__
+
+    def fail_advisory_loader_import(name, *args, **kwargs):
+        if name == "scripts.advisory_baseline":
+            raise OSError("injected loader import failure")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fail_advisory_loader_import)
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == ["accepted advisory baseline loader is unavailable"]
+
+
+def test_docs_d10_dependency_advisory_baseline_converts_loader_os_error(tmp_path, monkeypatch):
+    repo = _advisory_baseline_repo(tmp_path)
+    from scripts import advisory_baseline
+
+    def fail_load_baseline(_path):
+        raise OSError("injected policy read failure")
+
+    monkeypatch.setattr(advisory_baseline, "load_baseline", fail_load_baseline)
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert hits[0].id == "D10.dependency_advisory_baseline"
+    assert hits[0].message == "accepted advisory baseline is invalid: injected policy read failure"
+
+
+@pytest.mark.parametrize("with_infra", [False, True])
+def test_docs_d10_dependency_advisory_baseline_flags_missing_ledger(tmp_path, with_infra):
+    repo = _temp_repo(tmp_path)
+    (repo / "security").mkdir()
+    shutil.copyfile(
+        REPO / "security/accepted-advisories.json",
+        repo / "security/accepted-advisories.json",
+    )
+    if with_infra:
+        (repo / "infra").mkdir()
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert hits[0].message == "current accepted-advisories section is missing"
+
+
+@pytest.mark.parametrize(
+    ("heading", "expected"),
+    [
+        ("missing", "current accepted-advisories section is missing"),
+        ("duplicate", "current accepted-advisories heading must appear exactly once; found 2"),
+    ],
+)
+def test_docs_d10_dependency_advisory_baseline_flags_invalid_current_heading(
+    tmp_path, heading, expected
+):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    marker = "### 6.1.1.2 Current accepted advisories"
+    if heading == "missing":
+        text = text.replace(marker, "### 6.1.1.2 Historical advisories", 1)
+    else:
+        text += f"\n{marker}\n\nDuplicate.\n"
+    ledger.write_text(text, encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert hits[0].message == expected
+
+
+def test_docs_d10_flags_baseline_advisory_id_drift_dependency_advisory_baseline(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    document = json.loads((repo / "security/accepted-advisories.json").read_text())
+    document["accepted_advisories"][0]["advisory_id"] = "PYSEC-2099-1"
+    _write_canonical_baseline(repo, document)
+
+    assert [finding.message for finding in _d10_advisory_baseline_findings(repo)] == [
+        "accepted advisory baseline identity is missing from the current Markdown ledger: "
+        "pytorch-lightning 2.4.0 PYSEC-2099-1 on [combined-runtime, torch]",
+        "current Markdown ledger identity is missing from accepted advisory baseline JSON: "
+        "pytorch-lightning 2.4.0 PYSEC-2026-3043 on [combined-runtime, torch]",
+    ]
+
+
+def test_docs_d10_flags_baseline_package_drift_dependency_advisory_baseline(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    document = json.loads((repo / "security/accepted-advisories.json").read_text())
+    document["accepted_advisories"][0]["package"] = "lightning"
+    _write_canonical_baseline(repo, document)
+
+    assert any(
+        "accepted advisory baseline identity is missing from the current Markdown ledger: "
+        "lightning 2.4.0 PYSEC-2026-3043" in finding.message
+        for finding in _d10_advisory_baseline_findings(repo)
+    )
+
+
+def test_docs_d10_flags_baseline_accepted_version_drift_dependency_advisory_baseline(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    document = json.loads((repo / "security/accepted-advisories.json").read_text())
+    document["accepted_advisories"][0]["accepted_version"] = "9.9.9"
+    _write_canonical_baseline(repo, document)
+
+    assert any(
+        "accepted advisory baseline identity is missing from the current Markdown ledger: "
+        "pytorch-lightning 9.9.9 PYSEC-2026-3043" in finding.message
+        for finding in _d10_advisory_baseline_findings(repo)
+    )
+
+
+def test_docs_d10_flags_baseline_surface_drift_dependency_advisory_baseline(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    document = json.loads((repo / "security/accepted-advisories.json").read_text())
+    document["accepted_advisories"][0]["surfaces"] = ["torch"]
+    _write_canonical_baseline(repo, document)
+
+    assert any(
+        "accepted advisory baseline identity is missing from the current Markdown ledger: "
+        "pytorch-lightning 2.4.0 PYSEC-2026-3043 on [torch]" == finding.message
+        for finding in _d10_advisory_baseline_findings(repo)
+    )
+
+
+def test_docs_d10_collapses_duplicate_raw_rows_for_dependency_advisory_baseline_identity_parity(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
+def test_docs_d10_excludes_historical_rows_from_dependency_advisory_baseline_parity(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    ledger.write_text(
+        ledger.read_text(encoding="utf-8")
+        + "\n### Historical records\n\n"
+        + "| Package | Advisory ID | Feed Records | Fix Versions | Audited Version | Aliases | Surface |\n"
+        + "| --- | --- | ---: | --- | ---: | --- | --- |\n"
+        + "| `nltk` | `PYSEC-2099-1` | 1 | None listed | `3.10.3` | None listed | Combined runtime |\n",
+        encoding="utf-8",
+    )
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
+def test_docs_d10_dependency_advisory_baseline_flags_unknown_current_surface(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    ledger.write_text(
+        ledger.read_text(encoding="utf-8").replace(
+            "Combined runtime; Torch |",
+            "Combined runtime; Unknown |",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    assert _d10_advisory_baseline_findings(repo)
+
+
+@pytest.mark.parametrize("surface", ["Combined runtime; Combined runtime", "Combined runtime; "])
+def test_docs_d10_dependency_advisory_baseline_flags_duplicate_or_empty_current_surface(tmp_path, surface):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    ledger.write_text(
+        ledger.read_text(encoding="utf-8").replace("Combined runtime; Torch", surface, 1),
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert "malformed" in hits[0].message
+
+
+def test_docs_d10_dependency_advisory_baseline_reports_markdown_only_identity(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    line = (
+        "| `torch` | `PYSEC-2099-1` | 1 | None listed | `2.4.1` | None listed | "
+        "Combined runtime; Torch |\n"
+    )
+    final_row = (
+        "| `pytorch-lightning` | `PYSEC-2026-3043` | 1 | None listed | `2.4.0` | "
+        "`GHSA-75m9-98v2-hjpm`, `CVE-2026-31221` | Combined runtime; Torch |"
+    )
+    ledger.write_text(
+        ledger.read_text(encoding="utf-8").replace(final_row, f"{final_row}\n{line}"),
+        encoding="utf-8",
+    )
+
+    messages = [finding.message for finding in _d10_advisory_baseline_findings(repo)]
+    assert messages == [
+        "current Markdown ledger identity is missing from accepted advisory baseline JSON: "
+        "torch 2.4.1 PYSEC-2099-1 on [combined-runtime, torch]"
+    ]
+
+
+def test_docs_d10_dependency_advisory_baseline_reports_policy_only_identity(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    final_row = (
+        "| `pytorch-lightning` | `PYSEC-2026-3043` | 1 | None listed | `2.4.0` | "
+        "`GHSA-75m9-98v2-hjpm`, `CVE-2026-31221` | Combined runtime; Torch |\n"
+    )
+    ledger.write_text(ledger.read_text(encoding="utf-8").replace(final_row, ""), encoding="utf-8")
+
+    messages = [finding.message for finding in _d10_advisory_baseline_findings(repo)]
+    assert messages == [
+        "accepted advisory baseline identity is missing from the current Markdown ledger: "
+        "pytorch-lightning 2.4.0 PYSEC-2026-3043 on [combined-runtime, torch]"
+    ]
+
+
+def test_docs_d10_html_comment_does_not_satisfy_advisory_baseline(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    ledger.write_text(f"<!--\n{ledger.read_text(encoding='utf-8')}\n-->\n", encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert hits[0].message == "current accepted-advisories section is missing"
+
+
+@pytest.mark.parametrize("tag", ["script", "style", "pre", "textarea"])
+def test_docs_d10_raw_html_block_hides_the_only_advisory_snapshot(tmp_path, tag):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    snapshot = _current_advisory_snapshot(ledger.read_text(encoding="utf-8"))
+    ledger.write_text(f"<{tag}>\n{snapshot}\n</{tag}>\n", encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == ["current accepted-advisories section is missing"]
+
+
+@pytest.mark.parametrize("tag", ["script", "style", "pre", "textarea"])
+def test_docs_d10_raw_html_block_hides_a_duplicate_advisory_snapshot(tmp_path, tag):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(f"{text}\n<{tag}>\n{_current_advisory_snapshot(text)}\n</{tag}>\n", encoding="utf-8")
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
+@pytest.mark.parametrize("opener", ["<script", '<script type="x"'])
+def test_docs_d10_partial_raw_html_opener_hides_the_only_advisory_snapshot(tmp_path, opener):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    snapshot = _current_advisory_snapshot(ledger.read_text(encoding="utf-8"))
+    ledger.write_text(f"{opener}\n{snapshot}\n</script>\n", encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == ["current accepted-advisories section is missing"]
+
+
+@pytest.mark.parametrize("opener", ["<script", '<script type="x"'])
+def test_docs_d10_partial_raw_html_opener_hides_a_duplicate_advisory_snapshot(tmp_path, opener):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(f"{text}\n{opener}\n{_current_advisory_snapshot(text)}\n</script>\n", encoding="utf-8")
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
+def test_docs_d10_partial_raw_html_opener_preserves_visible_duplicate_control(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"<script\nhidden\n</script>\n{text}\n{_current_advisory_snapshot(text)}\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_docs_d10_four_space_indented_partial_raw_html_is_not_an_opener(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    snapshot = _current_advisory_snapshot(ledger.read_text(encoding="utf-8"))
+    ledger.write_text(f"    <script\n{snapshot}\n", encoding="utf-8")
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
+def test_docs_d10_visible_advisory_snapshot_still_counts_after_raw_html_block_control(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"<script>hidden</script>\n{text}\n{_current_advisory_snapshot(text)}\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+@pytest.mark.parametrize(
+    "fence",
+    [
+        "````markdown\n```\n{snapshot}\n",
+        "```markdown\n~~~\n{snapshot}\n",
+    ],
+)
+def test_docs_d10_unclosed_or_mismatched_fence_hides_advisory_snapshot(tmp_path, fence):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    marker = "### 6.1.1.2 Current accepted advisories"
+    snapshot = marker + text.split(marker, 1)[1]
+    ledger.write_text(fence.format(snapshot=snapshot), encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert hits[0].message == "current accepted-advisories section is missing"
+
+
+def _current_advisory_snapshot(text: str) -> str:
+    marker = "### 6.1.1.2 Current accepted advisories"
+    return marker + text.split(marker, 1)[1]
+
+
+def test_docs_d10_comment_opener_inside_fence_cannot_mask_later_duplicate_heading(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n```markdown\n<!--\n```\n{_current_advisory_snapshot(text)}\n-->\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_docs_d10_comment_opener_inside_inline_code_cannot_mask_later_duplicate_heading(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n`<!--`\n{_current_advisory_snapshot(text)}\n-->\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_docs_d10_four_space_fence_pseudo_closer_keeps_advisory_snapshot_hidden(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    snapshot = _current_advisory_snapshot(ledger.read_text(encoding="utf-8"))
+    ledger.write_text(f"````markdown\n    ````\n{snapshot}\n", encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == ["current accepted-advisories section is missing"]
+
+
+def test_docs_d10_three_space_fence_closer_exposes_advisory_snapshot(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    snapshot = _current_advisory_snapshot(ledger.read_text(encoding="utf-8"))
+    ledger.write_text(f"````markdown\n   ````\n{snapshot}\n", encoding="utf-8")
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
+def test_docs_d10_active_comment_ignores_fence_marker_before_later_duplicate_heading(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n<!--\n```markdown\n-->\n{_current_advisory_snapshot(text)}\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_docs_d10_comment_closing_midline_resumes_live_heading_parsing(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n<!-- ignored --> visible text\n{_current_advisory_snapshot(text)}\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_docs_d10_multiline_inline_code_comment_delimiter_is_inert_before_duplicate_heading(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n`\n<!--\n`\n{_current_advisory_snapshot(text)}\n-->\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_markdown_masking_multiline_inline_code_requires_equal_backtick_length():
+    masked = verify_repo._strip_markdown_code(
+        "``\n<!--\n`\n# hidden\n``\n# visible"
+    )
+
+    assert "# hidden" not in masked
+    assert "# visible" in masked
+
+
+def test_docs_d10_multiline_inline_code_hides_only_advisory_snapshot(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    snapshot = _current_advisory_snapshot(ledger.read_text(encoding="utf-8"))
+    ledger.write_text(f"prefix ``\n{snapshot}\n``\n", encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == ["current accepted-advisories section is missing"]
+
+
+def test_docs_d10_multiline_inline_code_hides_duplicate_advisory_snapshot(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\nprefix ``\n{_current_advisory_snapshot(text)}\n``\n",
+        encoding="utf-8",
+    )
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
+def test_markdown_masking_multiline_inline_code_resumes_after_midline_closer():
+    masked = verify_repo._strip_markdown_code(
+        "prefix ``\n# hidden\n`` live suffix", strip_inline=False
+    )
+
+    assert "# hidden" not in masked
+    assert masked.endswith("  live suffix")
+
+
+def test_docs_d10_invalid_backtick_fence_info_leaves_duplicate_snapshot_live(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n```bad```info\n{_current_advisory_snapshot(text)}\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_docs_d10_invalid_backtick_fence_composes_with_multiline_inline_code(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n```bad`info\n<!--\n```\n{_current_advisory_snapshot(text)}\n-->\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+@pytest.mark.parametrize("fence", ["```valid-info", "~~~valid`info"])
+def test_docs_d10_valid_fence_info_hides_duplicate_snapshot(tmp_path, fence):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    closer = fence[:3]
+    ledger.write_text(
+        f"{text}\n{fence}\n{_current_advisory_snapshot(text)}\n{closer}\n",
+        encoding="utf-8",
+    )
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
 def _dependency_snapshot(*, summary_count=2, advisory_rows=None):
     rows = advisory_rows or [
         (
@@ -2501,6 +3094,258 @@ def _load_workflow(path: Path) -> dict:
     return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
+_DEPENDENCY_AUDIT_JOB = {
+    "name": "dependency-audit",
+    "runs-on": "ubuntu-24.04",
+    "timeout-minutes": "20",
+    "steps": [
+        {
+            "name": "Checkout",
+            "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+            "with": {"persist-credentials": "false"},
+        },
+        {
+            "name": "Set up Python 3.11",
+            "uses": "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+            "with": {
+                "python-version": "3.11",
+                "cache": "pip",
+                "cache-dependency-path": (
+                    "vulnerability-audit-requirements.txt\n"
+                    "requirements.txt\n"
+                    "torch-core-requirements.txt\n"
+                    "torch-requirements.txt\n"
+                    "torch-audit-requirements.txt\n"
+                    "pyg-extension-audit-requirements.txt\n"
+                    "docs-requirements.txt\n"
+                    "atlas-contract-requirements.txt\n"
+                ),
+            },
+        },
+        {
+            "name": "Install vulnerability audit tool",
+            "run": "python -m pip install -r vulnerability-audit-requirements.txt",
+        },
+        {
+            "name": "Compare dependency advisories with accepted baseline",
+            "run": "make audit-advisories",
+        },
+    ],
+}
+
+
+def _assert_dependency_audit_job_contract(workflow: dict) -> None:
+    assert "defaults" not in workflow
+    assert "env" not in workflow
+    assert "dependency-audit" in workflow["jobs"]
+
+    job = workflow["jobs"]["dependency-audit"]
+    assert set(job) == {"name", "runs-on", "timeout-minutes", "steps"}
+    assert job == _DEPENDENCY_AUDIT_JOB
+
+
+def _assert_dependency_audit_ci_envelope(workflow: dict) -> None:
+    assert workflow["on"] == {
+        "push": {"branches": ["develop", "main"]},
+        "pull_request": {"branches": ["develop", "main"]},
+        "workflow_dispatch": "",
+        "schedule": [{"cron": "0 7 * * 1"}],
+    }
+    assert workflow["permissions"] == {"contents": "read"}
+
+
+def test_ci_dependency_audit_job_contract():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+
+    _assert_dependency_audit_ci_envelope(workflow)
+    _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "remove-schedule",
+        "remove-dispatch",
+        "change-cron",
+        "add-write-permission",
+    ),
+)
+def test_ci_dependency_audit_envelope_rejects_trigger_or_permission_mutations(mutation):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    if mutation == "remove-schedule":
+        del workflow["on"]["schedule"]
+    elif mutation == "remove-dispatch":
+        del workflow["on"]["workflow_dispatch"]
+    elif mutation == "change-cron":
+        workflow["on"]["schedule"][0]["cron"] = "17 3 * * 1"
+    else:
+        workflow["permissions"]["pull-requests"] = "write"
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_ci_envelope(workflow)
+
+
+@pytest.mark.parametrize("mutation", ("deleted", "renamed"))
+def test_ci_dependency_audit_job_contract_rejects_deleted_or_renamed_job(mutation):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    job = workflow["jobs"].pop("dependency-audit")
+    if mutation == "renamed":
+        workflow["jobs"]["renamed-dependency-audit"] = job
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("if", "github.ref == 'refs/heads/main'"),
+        ("needs", "verify-repo"),
+        ("services", {"postgres": {"image": "postgres"}}),
+        ("container", "python:3.11"),
+        ("env", {"PYTEST_ADDOPTS": "-q"}),
+        ("defaults", {"run": {"shell": "bash"}}),
+        ("continue-on-error", "true"),
+    ],
+)
+def test_ci_dependency_audit_job_contract_rejects_job_level_controls(field, value):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    workflow["jobs"]["dependency-audit"][field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("if", "github.ref == 'refs/heads/main'"),
+        ("continue-on-error", "true"),
+        ("shell", "bash {0} || true"),
+        ("env", {"PYTEST_ADDOPTS": "-q"}),
+    ],
+)
+def test_ci_dependency_audit_job_contract_rejects_step_level_controls(field, value):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    workflow["jobs"]["dependency-audit"]["steps"][-1][field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize("mutation", ("extra", "reordered"))
+def test_ci_dependency_audit_job_contract_rejects_changed_step_inventory(mutation):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    steps = workflow["jobs"]["dependency-audit"]["steps"]
+    if mutation == "extra":
+        steps.append({"name": "Extra validation", "run": "true"})
+    else:
+        steps[0], steps[1] = steps[1], steps[0]
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize("step_index", range(len(_DEPENDENCY_AUDIT_JOB["steps"])))
+def test_ci_dependency_audit_job_contract_rejects_omitted_step(step_index):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    del workflow["jobs"]["dependency-audit"]["steps"][step_index]
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+def test_ci_dependency_audit_job_contract_rejects_checkout_submodules():
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    workflow["jobs"]["dependency-audit"]["steps"][0]["with"]["submodules"] = "recursive"
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    (
+        "vulnerability-audit-requirements.txt",
+        "requirements.txt",
+        "torch-core-requirements.txt",
+        "torch-requirements.txt",
+        "torch-audit-requirements.txt",
+        "pyg-extension-audit-requirements.txt",
+        "docs-requirements.txt",
+        "atlas-contract-requirements.txt",
+    ),
+)
+def test_ci_dependency_audit_job_contract_rejects_missing_cache_manifest(manifest):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    setup = workflow["jobs"]["dependency-audit"]["steps"][1]
+    setup["with"]["cache-dependency-path"] = setup["with"][
+        "cache-dependency-path"
+    ].replace(f"{manifest}\n", "")
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        "pip install -r vulnerability-audit-requirements.txt",
+        "python -m pip install pip-audit",
+        "python -m pip install pip-audit==2.10.0",
+        "python -m pip install -r requirements.txt",
+        "python -m pip install -r vulnerability-audit-requirements.txt --ignore-vuln CVE-0000",
+    ),
+)
+def test_ci_dependency_audit_job_contract_rejects_alternate_tool_install(command):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    workflow["jobs"]["dependency-audit"]["steps"][2]["run"] = command
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        "make audit-advisories --ignore-vuln CVE-0000",
+        "python -m pip_audit -r requirements.txt",
+        "make audit-advisories || true",
+    ),
+)
+def test_ci_dependency_audit_job_contract_rejects_alternate_audit_command(command):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    workflow["jobs"]["dependency-audit"]["steps"][3]["run"] = command
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "live_command",
+    (
+        "docker ps",
+        "docker compose ps",
+        "make atlas-setup",
+        "make atlas-up",
+        "make atlas-down",
+        "./scripts/atlas-up.sh",
+        "jupyterhub --version",
+        "ollama serve",
+        "comfyui --version",
+        "curl localhost:8000",
+        "curl 127.0.0.1:8000",
+    ),
+)
+def test_ci_dependency_audit_job_contract_rejects_live_runtime_commands(live_command):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    audit = workflow["jobs"]["dependency-audit"]["steps"][3]
+    audit["run"] = f"{audit['run']}\n{live_command}"
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
 _ATLAS_CONSUMER_POLICY_JOB = {
     "name": "atlas-consumer-policy",
     "runs-on": "ubuntu-24.04",
@@ -2951,10 +3796,12 @@ def test_ci_runs_repository_workflow_contract_tests():
     assert contract_tests["run"] == (
         "pytest "
         "tests/test_verify_repo.py::test_ci_repository_test_contract_enforces_canonical_nnx_wheel "
-        "tests/test_verify_repo.py::test_ci_nnx_surface_job_enforces_canonical_wheel_contract -q\n"
+        "tests/test_verify_repo.py::test_ci_nnx_surface_job_enforces_canonical_wheel_contract "
+        "tests/test_verify_repo.py::test_ci_dependency_audit_job_contract -q\n"
         "pytest tests/test_verify_repo.py -q -k "
         "'atlas_consumer_policy_contract or "
         "atlas_contract_workflow or "
+        "dependency_audit or "
         "atlas_docs_preserve_mounted_workspace_and_track_ownership or "
         "ci_covers_gitflow_pr_targets or "
         "ci_tier_a_uses_temporary_outputs_and_preserves_sources or "
@@ -2970,22 +3817,17 @@ def test_ci_runs_repository_workflow_contract_tests():
 
 
 @pytest.mark.parametrize(
-    ("positive_test", "job_name"),
+    "positive_test",
     (
-        (
-            "test_ci_repository_test_contract_enforces_canonical_nnx_wheel",
-            "pytest-repository",
-        ),
-        (
-            "test_ci_nnx_surface_job_enforces_canonical_wheel_contract",
-            "pytest-nnx-surface",
-        ),
+        "test_ci_repository_test_contract_enforces_canonical_nnx_wheel",
+        "test_ci_nnx_surface_job_enforces_canonical_wheel_contract",
+        "test_ci_dependency_audit_job_contract",
     ),
-    ids=("repository-gate", "focused-gate"),
+    ids=("repository-gate", "focused-gate", "dependency-audit-gate"),
 )
 @pytest.mark.parametrize("mutation", ("delete", "rename"))
 def test_ci_workflow_contract_self_test_resists_positive_test_deletion(
-    tmp_path: Path, positive_test: str, job_name: str, mutation: str
+    tmp_path: Path, positive_test: str, mutation: str
 ):
     workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
     command = next(
@@ -2996,22 +3838,38 @@ def test_ci_workflow_contract_self_test_resists_positive_test_deletion(
     source = (REPO / "tests" / "test_verify_repo.py").read_text(encoding="utf-8")
     function_header = f"def {positive_test}():"
     assert source.count(function_header) == 1
-    if mutation == "rename":
-        source = source.replace(function_header, f"def removed_{positive_test}():", 1)
-    else:
-        source = source.replace(function_header, f"def _deleted_{positive_test}():", 1)
+    assert "tests/test_verify_repo.py::test_ci_dependency_audit_job_contract" in command
 
     test_file = tmp_path / "tests" / "test_verify_repo.py"
     test_file.parent.mkdir(parents=True)
     test_file.write_text(source, encoding="utf-8")
     workflow_path = tmp_path / ".github" / "workflows" / "ci.yml"
     workflow_path.parent.mkdir(parents=True)
-    workflow["jobs"][job_name]["steps"] = [
-        step
-        for step in workflow["jobs"][job_name]["steps"]
-        if step.get("name") != "Verify canonical NNx installation"
-    ]
     workflow_path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
+
+    environment = os.environ.copy()
+    source_path = str(REPO)
+    existing_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = (
+        source_path
+        if not existing_pythonpath
+        else f"{source_path}{os.pathsep}{existing_pythonpath}"
+    )
+    control = subprocess.run(
+        shlex.split(command),
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+        env=environment,
+    )
+    assert control.returncode == 0, control.stdout + control.stderr
+
+    if mutation == "rename":
+        source = source.replace(function_header, f"def removed_{positive_test}():", 1)
+    else:
+        source = source.replace(function_header, f"def _deleted_{positive_test}():", 1)
+    test_file.write_text(source, encoding="utf-8")
 
     result = subprocess.run(
         shlex.split(command),
@@ -3019,10 +3877,16 @@ def test_ci_workflow_contract_self_test_resists_positive_test_deletion(
         capture_output=True,
         text=True,
         timeout=TEST_SUBPROCESS_TIMEOUT,
+        env=environment,
     )
 
+    output = result.stdout + result.stderr
     assert result.returncode != 0
-    assert positive_test in result.stdout + result.stderr
+    assert positive_test in output
+    assert "not found:" in output.lower()
+    assert "modulenotfounderror" not in output.lower()
+    assert "importerror" not in output.lower()
+    assert "error collecting" not in output.lower()
 
 
 def _assert_no_nnx_environment_overrides(workflow: dict) -> None:
@@ -3725,6 +4589,12 @@ def test_documentation_workflows_install_cairo_and_gate_pages_inputs():
         "scripts/lib/atlas-dotenv.sh",
         "docs-requirements.in",
         ".github/workflows/pages.yml",
+        "security/accepted-advisories.json",
+        "vulnerability-audit-requirements.txt",
+        "torch-audit-requirements.txt",
+        "pyg-extension-audit-requirements.txt",
+        "scripts/advisory_baseline.py",
+        "tests/test_advisory_baseline.py",
     }
     assert required_paths <= set(docs["on"]["pull_request"]["paths"])
     assert any(

@@ -498,6 +498,77 @@ def test_real_manifest_declares_issue_59_design_and_implementation_records():
     ]
 
 
+def test_real_manifest_declares_issue_60_design_and_implementation_records_consecutively():
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    records = next(section for section in manifest.sections if section.id == "design-records")
+    start = next(
+        index
+        for index, child in enumerate(records.children)
+        if child.id == "issue-60-advisory-baseline-design"
+    )
+    assert [
+        (child.number, child.source) for child in records.children[start : start + 2]
+    ] == [
+        (
+            "12.17",
+            "docs/superpowers/specs/2026-08-13-issue-60-advisory-baseline-design.md",
+        ),
+        (
+            "12.18",
+            "docs/superpowers/plans/2026-08-13-issue-60-advisory-baseline-implementation-plan.md",
+        ),
+    ]
+
+
+def test_real_user_docs_publish_advisory_baseline_contract():
+    docs = {
+        path: (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in (
+            "README.md",
+            "CONTRIBUTING.md",
+            "SECURITY.md",
+            "CHANGELOG.md",
+            "docs/dependency-contracts.md",
+            "docs/conventions.md",
+            "docs/architecture.md",
+            "docs/maintenance/overnight-2026-07-04.md",
+        )
+    }
+    ledger = " ".join(docs["docs/dependency-contracts.md"].split())
+
+    assert "security/                                  (accepted-advisory policy)" in docs["README.md"]
+    assert "`make audit-advisories`" in docs["CONTRIBUTING.md"]
+    assert "`dependency-audit`" in docs["CONTRIBUTING.md"]
+    assert "does not claim an automated vulnerability-baseline gate" not in docs["SECURITY.md"]
+    assert "`security/accepted-advisories.json` is the policy artifact" in ledger
+    assert "`make audit-advisories` runs all four audit surfaces without suppression" in ledger
+    assert "`torch-audit-requirements.txt` and `pyg-extension-audit-requirements.txt` form the selector-free" in ledger
+    assert "canonical semantic partition must reconstruct `torch-requirements.txt`" in ledger
+    assert "The commands below are historical capture evidence" in ledger
+    assert "New primary advisory IDs and accepted-version drift fail the gate." in ledger
+    assert "reconciliation evidence, not proof of remediation" in ledger
+    assert "JSON policy and current Markdown ledger rows together through review" in ledger
+    assert "Refresh snapshot metadata, raw JSON hashes and counts, summary, and current tables" in ledger
+    assert "Run focused comparator tests, full `make test`, `make verify`, `make lint`" in ledger
+    assert "`make docs-check`, `make docs-wiki`, and live `make audit-advisories`" in ledger
+    assert "feature-to-`develop` pull request, then a `develop`-to-`main` pull request" in ledger
+    assert "Issue #63 owns complete dependency locks" in ledger
+    assert "does not initialize Atlas or start a service" in ledger
+    assert "`dependency-audit`" in docs["docs/conventions.md"]
+    assert "pre-resolved `pyg-extension-audit-requirements.txt` supplement" in " ".join(
+        docs["docs/conventions.md"].split()
+    )
+    assert "canonical semantic partition" in ledger
+    assert "pyg-extension-audit-requirements.txt" in docs["README.md"]
+    assert "isolated `dependency-audit` signal" in docs["docs/architecture.md"]
+    assert "| OM-047 |" in docs["docs/maintenance/overnight-2026-07-04.md"]
+    assert "| Fixed | Issue #60 added the reviewed JSON policy" in docs[
+        "docs/maintenance/overnight-2026-07-04.md"
+    ]
+    assert "Machine-readable advisory baseline gate" in docs["CHANGELOG.md"]
+    assert "Automated vulnerability-baseline enforcement remains deferred to Issue\n  #60." not in docs["CHANGELOG.md"]
+
+
 def test_real_user_docs_publish_current_vulnerability_snapshot():
     ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
     security = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
@@ -516,7 +587,7 @@ def test_real_user_docs_publish_current_vulnerability_snapshot():
     assert (
         "Absent from the 2026-08-12 snapshot; archived audit provenance only" in ledger
     )
-    assert "does not claim an automated vulnerability-baseline gate" in security
+    assert "`security/accepted-advisories.json` is the reviewed policy artifact" in security
     assert "Four-surface vulnerability ledger refresh" in changelog
 
 

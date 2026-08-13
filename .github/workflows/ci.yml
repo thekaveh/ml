@@ -40,6 +40,37 @@ jobs:
       - name: Run Atlas consumer policy tests
         run: make test-atlas-consumer
 
+  dependency-audit:
+    name: dependency-audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            vulnerability-audit-requirements.txt
+            requirements.txt
+            torch-core-requirements.txt
+            torch-requirements.txt
+            torch-audit-requirements.txt
+            pyg-extension-audit-requirements.txt
+            docs-requirements.txt
+            atlas-contract-requirements.txt
+
+      - name: Install vulnerability audit tool
+        run: python -m pip install -r vulnerability-audit-requirements.txt
+
+      - name: Compare dependency advisories with accepted baseline
+        run: make audit-advisories
+
   pytest-repository:
     name: pytest-repository
     runs-on: ubuntu-24.04
@@ -137,8 +168,8 @@ jobs:
 
       - name: Test repository workflow contracts
         run: |
-          pytest tests/test_verify_repo.py::test_ci_repository_test_contract_enforces_canonical_nnx_wheel tests/test_verify_repo.py::test_ci_nnx_surface_job_enforces_canonical_wheel_contract -q
-          pytest tests/test_verify_repo.py -q -k 'atlas_consumer_policy_contract or atlas_contract_workflow or atlas_docs_preserve_mounted_workspace_and_track_ownership or ci_covers_gitflow_pr_targets or ci_tier_a_uses_temporary_outputs_and_preserves_sources or documentation_workflows_install_cairo_and_gate_pages_inputs or documentation_direct_dependencies_are_exactly_pinned or docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or ci_runs_repository_workflow_contract_tests or ci_runs_complete_repository_test_contract or ci_repository_test_contract_enforces_canonical_nnx_wheel or ci_nnx_surface_job_enforces_canonical_wheel_contract or repository_test_collection_boundary_is_explicit'
+          pytest tests/test_verify_repo.py::test_ci_repository_test_contract_enforces_canonical_nnx_wheel tests/test_verify_repo.py::test_ci_nnx_surface_job_enforces_canonical_wheel_contract tests/test_verify_repo.py::test_ci_dependency_audit_job_contract -q
+          pytest tests/test_verify_repo.py -q -k 'atlas_consumer_policy_contract or atlas_contract_workflow or dependency_audit or atlas_docs_preserve_mounted_workspace_and_track_ownership or ci_covers_gitflow_pr_targets or ci_tier_a_uses_temporary_outputs_and_preserves_sources or documentation_workflows_install_cairo_and_gate_pages_inputs or documentation_direct_dependencies_are_exactly_pinned or docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or ci_runs_repository_workflow_contract_tests or ci_runs_complete_repository_test_contract or ci_repository_test_contract_enforces_canonical_nnx_wheel or ci_nnx_surface_job_enforces_canonical_wheel_contract or repository_test_collection_boundary_is_explicit'
 
       - name: Run repo verifier
         run: make verify

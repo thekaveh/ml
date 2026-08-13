@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import subprocess
 from pathlib import Path
 
@@ -9,6 +10,39 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_SUBPROCESS_TIMEOUT = 30
+
+
+def _assert_audit_advisories_contract(makefile: Path, cwd: Path) -> None:
+    source = makefile.read_text(encoding="utf-8")
+    lines = source.splitlines()
+    target_lines = [line for line in lines if line.startswith("audit-advisories:")]
+    assert target_lines == ["audit-advisories:"]
+    target_index = lines.index("audit-advisories:")
+    assert lines[target_index + 1] == "\t$(PYTHON) -m scripts.advisory_baseline"
+    for line in lines:
+        directive = line.split("#", 1)[0].strip()
+        ignore_match = re.fullmatch(r"\.IGNORE\s*:\s*(.*)", directive)
+        if ignore_match is not None:
+            ignored_targets = ignore_match.group(1).split()
+            assert ignored_targets and "audit-advisories" not in ignored_targets
+    result = subprocess.run(
+        ["make", "-f", str(makefile), "--no-print-directory", "-n", "audit-advisories"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+    assert result.stdout == "python -m scripts.advisory_baseline\n"
+    assert result.stderr == ""
+    failure_probe = subprocess.run(
+        ["make", "-f", str(makefile), "--no-print-directory", "audit-advisories", "PYTHON=false"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+    assert failure_probe.returncode != 0
 
 
 def _assert_nnx_install_fixture_contract(source: str) -> None:
@@ -151,6 +185,56 @@ def test_verify_nnx_install_target_is_public_and_uses_selected_python():
 
     assert result.stdout == "python -m scripts.verify_nnx_install\n"
     assert result.stderr == ""
+
+
+def test_audit_advisories_target_is_one_unsuppressed_command() -> None:
+    _assert_audit_advisories_contract(REPO_ROOT / "Makefile", REPO_ROOT)
+
+
+@pytest.mark.parametrize(
+    "original,mutation",
+    [
+        ("\t$(PYTHON) -m scripts.advisory_baseline", "\t$(PYTHON) -m scripts.advisory_baseline || true"),
+        ("\t$(PYTHON) -m scripts.advisory_baseline", "\t-$(PYTHON) -m scripts.advisory_baseline"),
+        ("\t$(PYTHON) -m scripts.advisory_baseline", "\t@$(PYTHON) -m scripts.advisory_baseline"),
+        ("\t$(PYTHON) -m scripts.advisory_baseline", "\t+$(PYTHON) -m scripts.advisory_baseline"),
+        ("audit-advisories:\n", "audit-advisories: requirements.txt\n"),
+        ("\t$(PYTHON) -m scripts.advisory_baseline", "\t$(PYTHON) -m scripts.advisory_baseline\n\t@echo extra"),
+        ("\n\nlint:\n", "\n\naudit-advisories:\n\t@echo duplicate\n\nlint:\n"),
+        ("\n\nlint:\n", "\n\n.IGNORE: audit-advisories # fail-open\nlint:\n"),
+        ("\n\nlint:\n", "\n\n  .IGNORE: # fail-open\nlint:\n"),
+        ("\n\nlint:\n", "\n\n.IGNORE : audit-advisories # fail-open\nlint:\n"),
+        ("\n\nlint:\n", "\n\n.IGNORE: \\\n  audit-advisories\nlint:\n"),
+        ("\n\nlint:\n", "\n\nAUDIT_TARGET := audit-advisories\n.IGNORE: $(AUDIT_TARGET)\nlint:\n"),
+        ("\n\nlint:\n", "\n\n.IGNORE: harmless\\#name audit-advisories\nlint:\n"),
+    ],
+    ids=(
+        "failure-suppressed",
+        "recipe-error-prefix",
+        "recipe-silent-prefix",
+        "recipe-recursive-prefix",
+        "prerequisite-added",
+        "extra-recipe",
+        "duplicate-target",
+        "target-ignore-directive",
+        "global-ignore-directive",
+        "spaced-target-ignore-directive",
+        "continued-target-ignore-directive",
+        "expanded-target-ignore-directive",
+        "escaped-comment-target-ignore-directive",
+    ),
+)
+def test_audit_advisories_contract_rejects_makefile_mutations(
+    tmp_path: Path, original: str, mutation: str
+) -> None:
+    source = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    mutated = source.replace(original, mutation, 1)
+    assert mutated != source
+    makefile = tmp_path / "Makefile"
+    makefile.write_text(mutated, encoding="utf-8")
+
+    with pytest.raises(AssertionError):
+        _assert_audit_advisories_contract(makefile, tmp_path)
 
 
 def test_nnx_surface_has_a_session_autouse_installation_verifier():
@@ -315,3 +399,11 @@ def test_check_tier_a_artifacts_reports_a_missing_or_empty_mirrored_output(
 
     assert result.returncode != 0
     assert "missing expected Tier-A notebook output" in result.stderr
+
+
+def test_audit_advisories_target_uses_the_focused_pinned_tool() -> None:
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert (REPO_ROOT / "vulnerability-audit-requirements.txt").read_text(encoding="utf-8") == "pip-audit==2.10.0\n"
+    assert "audit-advisories:" in makefile
+    assert "$(PYTHON) -m scripts.advisory_baseline" in makefile

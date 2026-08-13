@@ -3116,6 +3116,7 @@ _DEPENDENCY_AUDIT_JOB = {
                     "torch-core-requirements.txt\n"
                     "torch-requirements.txt\n"
                     "torch-audit-requirements.txt\n"
+                    "pyg-extension-audit-requirements.txt\n"
                     "docs-requirements.txt\n"
                     "atlas-contract-requirements.txt\n"
                 ),
@@ -3270,6 +3271,7 @@ def test_ci_dependency_audit_job_contract_rejects_checkout_submodules():
         "torch-core-requirements.txt",
         "torch-requirements.txt",
         "torch-audit-requirements.txt",
+        "pyg-extension-audit-requirements.txt",
         "docs-requirements.txt",
         "atlas-contract-requirements.txt",
     ),
@@ -4590,6 +4592,7 @@ def test_documentation_workflows_install_cairo_and_gate_pages_inputs():
         "security/accepted-advisories.json",
         "vulnerability-audit-requirements.txt",
         "torch-audit-requirements.txt",
+        "pyg-extension-audit-requirements.txt",
         "scripts/advisory_baseline.py",
         "tests/test_advisory_baseline.py",
     }

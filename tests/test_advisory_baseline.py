@@ -32,20 +32,24 @@ TORCH_RUNTIME_REQUIREMENTS = (
 )
 TORCH_AUDIT_REQUIREMENTS = (
     "-r torch-core-requirements.txt\n"
+    "torch_geometric==2.6.1\n"
+)
+PYG_EXTENSION_AUDIT_REQUIREMENTS = (
     "torch-scatter==2.1.2\n"
     "torch-sparse==0.6.18\n"
     "torch-cluster==1.6.3\n"
     "torch-spline-conv==1.2.2\n"
-    "torch_geometric==2.6.1\n"
 )
 
 
-def _write_torch_requirements(repo: Path) -> tuple[Path, Path]:
+def _write_torch_requirements(repo: Path) -> tuple[Path, Path, Path]:
     runtime = repo / "torch-requirements.txt"
     audit = repo / "torch-audit-requirements.txt"
+    extensions = repo / "pyg-extension-audit-requirements.txt"
     runtime.write_text(TORCH_RUNTIME_REQUIREMENTS, encoding="utf-8")
     audit.write_text(TORCH_AUDIT_REQUIREMENTS, encoding="utf-8")
-    return runtime, audit
+    extensions.write_text(PYG_EXTENSION_AUDIT_REQUIREMENTS, encoding="utf-8")
+    return runtime, audit, extensions
 
 
 @pytest.fixture(autouse=True)
@@ -657,8 +661,11 @@ def _audit_runner(
         commands.append((tuple(command), kwargs))
         if write_output:
             output = Path(command[command.index("--output") + 1])
+            audit_payload = _payload() if payload is None else payload
+            if "pyg-extension-audit-requirements.txt" in command:
+                audit_payload = _payload()
             output.write_text(
-                raw_output if raw_output is not None else json.dumps(_payload() if payload is None else payload),
+                raw_output if raw_output is not None else json.dumps(audit_payload),
                 encoding="utf-8",
             )
         return SimpleNamespace(returncode=returncode, stdout="", stderr="")
@@ -668,8 +675,10 @@ def _audit_runner(
 
 def _assert_exact_audit_commands(commands: list[tuple[tuple[str, ...], dict[str, object]]], repo: Path) -> None:
     expected_inputs = (
-        ("combined-runtime.json", ("-r", "requirements.txt", "-r", "torch-audit-requirements.txt")),
-        ("torch.json", ("-r", "torch-audit-requirements.txt")),
+        ("combined-runtime-resolver.json", ("-r", "requirements.txt", "-r", "torch-audit-requirements.txt")),
+        ("combined-runtime-pyg-extensions.json", ("--disable-pip", "--no-deps", "-r", "pyg-extension-audit-requirements.txt")),
+        ("torch-resolver.json", ("-r", "torch-audit-requirements.txt")),
+        ("torch-pyg-extensions.json", ("--disable-pip", "--no-deps", "-r", "pyg-extension-audit-requirements.txt")),
         ("documentation.json", ("--disable-pip", "-r", "docs-requirements.txt")),
         ("atlas-contract.json", ("-r", "atlas-contract-requirements.txt")),
     )
@@ -714,21 +723,26 @@ def test_real_torch_audit_projection_is_the_selector_free_runtime_mirror() -> No
     assert tuple(line for line in text.splitlines() if line and not line.startswith("#")) == tuple(
         TORCH_AUDIT_REQUIREMENTS.splitlines()
     )
+    extension_text = (REPO_ROOT / "pyg-extension-audit-requirements.txt").read_text(encoding="utf-8")
+    assert "# Pre-resolved compiled PyG extension supplement for the strict audit." in extension_text
+    assert tuple(line for line in extension_text.splitlines() if line and not line.startswith("#")) == tuple(
+        PYG_EXTENSION_AUDIT_REQUIREMENTS.splitlines()
+    )
 
 
 @pytest.mark.parametrize(
     "mutation",
     [
-        lambda runtime, audit: audit.write_text(
-            audit.read_text(encoding="utf-8").replace("torch-cluster==1.6.3\n", ""),
+        lambda runtime, audit: runtime.write_text(
+            runtime.read_text(encoding="utf-8").replace("torch-cluster==1.6.3\n", ""),
             encoding="utf-8",
         ),
         lambda runtime, audit: audit.write_text(
             audit.read_text(encoding="utf-8") + "rogue-package==1.0\n",
             encoding="utf-8",
         ),
-        lambda runtime, audit: audit.write_text(
-            audit.read_text(encoding="utf-8").replace("torch-sparse==0.6.18", "torch-sparse==9.9.9"),
+        lambda runtime, audit: runtime.write_text(
+            runtime.read_text(encoding="utf-8").replace("torch-sparse==0.6.18", "torch-sparse==9.9.9"),
             encoding="utf-8",
         ),
         lambda runtime, audit: audit.write_text(
@@ -783,7 +797,7 @@ def test_real_torch_audit_projection_is_the_selector_free_runtime_mirror() -> No
     ),
 )
 def test_audit_rejects_torch_projection_drift_before_running_audit(tmp_path: Path, mutation) -> None:
-    runtime, audit = _write_torch_requirements(tmp_path)
+    runtime, audit, _ = _write_torch_requirements(tmp_path)
     mutation(runtime, audit)
     _, runner = _audit_runner()
 
@@ -792,7 +806,7 @@ def test_audit_rejects_torch_projection_drift_before_running_audit(tmp_path: Pat
 
 
 def test_torch_projection_ignores_comments_but_preserves_semantic_parity(tmp_path: Path) -> None:
-    runtime, audit = _write_torch_requirements(tmp_path)
+    runtime, audit, _ = _write_torch_requirements(tmp_path)
     runtime.write_text("# runtime comment\n" + runtime.read_text(encoding="utf-8"), encoding="utf-8")
     audit.write_text(audit.read_text(encoding="utf-8") + "# audit comment\n", encoding="utf-8")
     _, runner = _audit_runner()
@@ -800,12 +814,31 @@ def test_torch_projection_ignores_comments_but_preserves_semantic_parity(tmp_pat
     assert len(run_audit_surfaces(tmp_path, runner=runner)) == 4
 
 
+@pytest.mark.parametrize("line", ("torch_geometric==2.6.1\\\n", "torch_geometric==2.6.1#hidden"))
+def test_torch_projection_rejects_continuations_and_tricky_comments(tmp_path: Path, line: str) -> None:
+    _, audit, _ = _write_torch_requirements(tmp_path)
+    audit.write_text(audit.read_text(encoding="utf-8").replace("torch_geometric==2.6.1", line), encoding="utf-8")
+    _, runner = _audit_runner()
+
+    with pytest.raises(AdvisoryBaselineError, match="torch audit projection"):
+        run_audit_surfaces(tmp_path, runner=runner)
+
+
+def test_torch_projection_rejects_non_utf8_input(tmp_path: Path) -> None:
+    _, _, extensions = _write_torch_requirements(tmp_path)
+    extensions.write_bytes(b"\xff")
+    _, runner = _audit_runner()
+
+    with pytest.raises(AdvisoryBaselineError, match="torch audit projection"):
+        run_audit_surfaces(tmp_path, runner=runner)
+
+
 @pytest.mark.parametrize(
     "command_index,mutation",
     [
         (0, lambda command: command.__setitem__(command.index("off", command.index("--progress-spinner")), "on")),
-        (1, lambda command: command.__setitem__(command.index("torch-audit-requirements.txt"), "requirements.txt")),
-        (3, lambda command: command.__setitem__(command.index("atlas-contract-requirements.txt"), "requirements.txt")),
+        (2, lambda command: command.__setitem__(command.index("torch-audit-requirements.txt"), "requirements.txt")),
+        (5, lambda command: command.__setitem__(command.index("atlas-contract-requirements.txt"), "requirements.txt")),
         (0, lambda command: command.remove("--strict")),
         (0, lambda command: command.insert(command.index("--format"), "--ignore-vuln")),
         (
@@ -845,12 +878,9 @@ def test_audit_commands_cover_exact_four_surfaces_and_flags(tmp_path: Path) -> N
         "documentation",
         "atlas-contract",
     ]
-    assert [command[:3] for command, _ in commands] == [(sys.executable, "-m", "pip_audit")] * 4
+    assert [command[:3] for command, _ in commands] == [(sys.executable, "-m", "pip_audit")] * 6
     assert [("-r", "requirements.txt", "-r", "torch-audit-requirements.txt") == command[3:7] for command, _ in commands] == [
-        True,
-        False,
-        False,
-        False,
+        True, False, False, False, False, False,
     ]
     for command, kwargs in commands:
         assert kwargs["cwd"] == tmp_path
@@ -865,7 +895,7 @@ def test_documentation_audit_uses_disable_pip(tmp_path: Path) -> None:
 
     run_audit_surfaces(tmp_path, runner=runner)
 
-    documentation = commands[2][0]
+    documentation = commands[4][0]
     assert documentation[3:6] == ("--disable-pip", "-r", "docs-requirements.txt")
 
 
@@ -906,16 +936,16 @@ def _assert_safe_audit_failure_output(
     ("failure", "failure_index", "expected_surface", "expected_category"),
     [
         ("unexpected-exit", 0, "combined-runtime", "unexpected-exit"),
-        ("runner-oserror", 1, "torch", "execution-error"),
-        ("runner-unicode-error", 2, "documentation", "execution-error"),
-        ("missing-output", 3, "atlas-contract", "missing-output"),
-        ("bootstrap-error", 1, "torch", "bootstrap-error"),
-        ("resolution-error", 2, "documentation", "resolution-error"),
-        ("service-error", 2, "documentation", "service-error"),
-        ("unsupported-package", 3, "atlas-contract", "unsupported-package"),
-        ("unavailable-output", 1, "torch", "unavailable-output"),
-        ("invalid-json", 2, "documentation", "invalid-json"),
-        ("invalid-schema", 3, "atlas-contract", "invalid-schema"),
+        ("runner-oserror", 2, "torch", "execution-error"),
+        ("runner-unicode-error", 4, "documentation", "execution-error"),
+        ("missing-output", 5, "atlas-contract", "missing-output"),
+        ("bootstrap-error", 2, "torch", "bootstrap-error"),
+        ("resolution-error", 4, "documentation", "resolution-error"),
+        ("service-error", 4, "documentation", "service-error"),
+        ("unsupported-package", 5, "atlas-contract", "unsupported-package"),
+        ("unavailable-output", 2, "torch", "unavailable-output"),
+        ("invalid-json", 4, "documentation", "invalid-json"),
+        ("invalid-schema", 5, "atlas-contract", "invalid-schema"),
     ],
 )
 def test_cli_reports_every_audit_failure_with_only_fixed_safe_output(

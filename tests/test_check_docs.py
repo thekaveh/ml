@@ -542,8 +542,8 @@ def test_real_user_docs_publish_advisory_baseline_contract():
     assert "does not claim an automated vulnerability-baseline gate" not in docs["SECURITY.md"]
     assert "`security/accepted-advisories.json` is the policy artifact" in ledger
     assert "`make audit-advisories` runs all four audit surfaces without suppression" in ledger
-    assert "`torch-audit-requirements.txt` is the selector-free audit projection" in ledger
-    assert "semantic requirement/include lines must match `torch-requirements.txt`" in ledger
+    assert "`torch-audit-requirements.txt` and `pyg-extension-audit-requirements.txt` form the selector-free" in ledger
+    assert "semantic requirement/include union must match `torch-requirements.txt`" in ledger
     assert "The commands below are historical capture evidence" in ledger
     assert "New primary advisory IDs and accepted-version drift fail the gate." in ledger
     assert "reconciliation evidence, not proof of remediation" in ledger

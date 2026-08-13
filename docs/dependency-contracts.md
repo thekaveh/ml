@@ -163,12 +163,14 @@ The audit does not initialize Atlas or start a service. Issue #62 owns the coord
 upgrade, and Issue #63 owns complete dependency locks; the direct `pip-audit` tool pin is only the
 focused exception needed for this comparison.
 
-`torch-audit-requirements.txt` is the selector-free audit projection of the local/CI PyG runtime
-manifest used by strict PyPI audit. Before any audit subprocess runs, semantic requirement/include
-lines must match `torch-requirements.txt` after removing exactly its approved PyG `--find-links`
-selector. The projection must contain no other option lines or duplicate/ambiguous requirements;
-missing, extra, or changed pins fail closed. Runtime installation continues to use
-`torch-requirements.txt` and its PyG wheel selector.
+`torch-audit-requirements.txt` and `pyg-extension-audit-requirements.txt` form the selector-free
+audit projection of the local/CI PyG runtime manifest. The resolver-safe projection contains the
+core include and `torch_geometric`; the pre-resolved supplement contains the four compiled PyG
+extension pins and runs with `--disable-pip --no-deps`. Before any audit subprocess runs, their
+ordered semantic requirement/include union must match `torch-requirements.txt` after removing
+exactly its approved PyG `--find-links` selector. Missing, extra, changed, duplicate, ambiguous,
+or option lines fail closed. Runtime installation continues to use `torch-requirements.txt` and
+its PyG wheel selector.
 
 ### 6.1.1.5 Removal and reconciliation runbook
 
@@ -206,8 +208,9 @@ non-reachability, or an upstream fix. Remove it only through this reviewed seque
 - `torch-spline-conv==1.2.2`
 - `torch_geometric==2.6.1`
 
-`torch-audit-requirements.txt` repeats the same core include and five PyG pins without the PyG
-wheel selector. It is consumed only by `make audit-advisories`, never by runtime installation.
+`torch-audit-requirements.txt` contains the core include and `torch_geometric==2.6.1`; the
+pre-resolved `pyg-extension-audit-requirements.txt` contains the four compiled extension pins.
+They are consumed only by `make audit-advisories`, never by runtime installation.
 
 Reason: this is the deliberately stable local/CI compatibility baseline. It is
 not required to match the separately pinned Atlas JupyterHub runtime.

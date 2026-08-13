@@ -16,8 +16,17 @@ from typing import Callable, Sequence
 SCHEMA_VERSION = 1
 TORCH_RUNTIME_REQUIREMENTS = "torch-requirements.txt"
 TORCH_AUDIT_REQUIREMENTS = "torch-audit-requirements.txt"
+PYG_EXTENSION_AUDIT_REQUIREMENTS = "pyg-extension-audit-requirements.txt"
 TORCH_CORE_REQUIREMENTS = "-r torch-core-requirements.txt"
 PYG_FIND_LINKS = "--find-links https://data.pyg.org/whl/torch-2.4.0+cpu.html"
+TORCH_RUNTIME_LINES = (
+    TORCH_CORE_REQUIREMENTS, PYG_FIND_LINKS, "torch-scatter==2.1.2", "torch-sparse==0.6.18",
+    "torch-cluster==1.6.3", "torch-spline-conv==1.2.2", "torch_geometric==2.6.1",
+)
+TORCH_AUDIT_LINES = (TORCH_CORE_REQUIREMENTS, "torch_geometric==2.6.1")
+PYG_EXTENSION_AUDIT_LINES = (
+    "torch-scatter==2.1.2", "torch-sparse==0.6.18", "torch-cluster==1.6.3", "torch-spline-conv==1.2.2",
+)
 SURFACE_ORDER = (
     "combined-runtime",
     "torch",
@@ -88,11 +97,15 @@ class AuditSurface:
     name: str
     requirements: tuple[str, ...]
     disable_pip: bool = False
+    no_deps: bool = False
+    output_name: str | None = None
 
 
 AUDIT_SURFACES = (
-    AuditSurface("combined-runtime", ("requirements.txt", TORCH_AUDIT_REQUIREMENTS)),
-    AuditSurface("torch", (TORCH_AUDIT_REQUIREMENTS,)),
+    AuditSurface("combined-runtime", ("requirements.txt", TORCH_AUDIT_REQUIREMENTS), output_name="combined-runtime-resolver"),
+    AuditSurface("combined-runtime", (PYG_EXTENSION_AUDIT_REQUIREMENTS,), True, True, "combined-runtime-pyg-extensions"),
+    AuditSurface("torch", (TORCH_AUDIT_REQUIREMENTS,), output_name="torch-resolver"),
+    AuditSurface("torch", (PYG_EXTENSION_AUDIT_REQUIREMENTS,), True, True, "torch-pyg-extensions"),
     AuditSurface("documentation", ("docs-requirements.txt",), disable_pip=True),
     AuditSurface("atlas-contract", ("atlas-contract-requirements.txt",)),
 )
@@ -337,6 +350,8 @@ def _audit_command(surface: AuditSurface, output: Path) -> list[str]:
     command = [sys.executable, "-m", "pip_audit"]
     if surface.disable_pip:
         command.append("--disable-pip")
+    if surface.no_deps:
+        command.append("--no-deps")
     for requirement in surface.requirements:
         command.extend(("-r", requirement))
     command.extend(
@@ -389,6 +404,8 @@ def _semantic_requirement_lines(path: Path) -> tuple[str, ...]:
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
+        if "\\" in line or ("#" in line and " #" not in line):
+            raise AdvisoryBaselineError("torch audit projection has an invalid requirement line")
         line = line.split(" #", 1)[0].rstrip()
         if line:
             lines.append(line)
@@ -399,27 +416,19 @@ def _validate_torch_audit_projection(repo: Path) -> None:
     """Require the selector-free audit manifest to exactly mirror the runtime pins."""
     runtime = _semantic_requirement_lines(repo / TORCH_RUNTIME_REQUIREMENTS)
     audit = _semantic_requirement_lines(repo / TORCH_AUDIT_REQUIREMENTS)
-    if runtime.count(PYG_FIND_LINKS) != 1 or runtime.count(TORCH_CORE_REQUIREMENTS) != 1:
-        raise AdvisoryBaselineError("torch audit projection has an invalid runtime selector")
-    expected = tuple(line for line in runtime if line != PYG_FIND_LINKS)
-    if (
-        len(runtime) != len(set(runtime))
-        or len(audit) != len(set(audit))
-        or audit.count(TORCH_CORE_REQUIREMENTS) != 1
-        or any(line.startswith("-") and line != TORCH_CORE_REQUIREMENTS for line in audit)
-        or audit != expected
-    ):
+    extensions = _semantic_requirement_lines(repo / PYG_EXTENSION_AUDIT_REQUIREMENTS)
+    if runtime != TORCH_RUNTIME_LINES or audit != TORCH_AUDIT_LINES or extensions != PYG_EXTENSION_AUDIT_LINES:
         raise AdvisoryBaselineError("torch audit projection does not match runtime requirements")
 
 
 def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tuple[Observation, ...]:
     """Run the fixed four-surface audit contract and normalize every result."""
     _validate_torch_audit_projection(repo)
-    observations: list[Observation] = []
+    observations: dict[str, Observation] = {}
     with tempfile.TemporaryDirectory(prefix="advisory-baseline-") as temporary_directory:
         output_directory = Path(temporary_directory)
         for surface in AUDIT_SURFACES:
-            output = output_directory / f"{surface.name}.json"
+            output = output_directory / f"{surface.output_name or surface.name}.json"
             try:
                 result = runner(
                     _audit_command(surface, output),
@@ -446,10 +455,23 @@ def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tupl
             except AdvisoryBaselineError as error:
                 raise AuditSurfaceError(surface.name, "invalid-schema") from error
             try:
-                observations.append(normalize_pip_audit(surface.name, payload))
+                observation = normalize_pip_audit(surface.name, payload)
             except AdvisoryBaselineError as error:
                 raise AuditSurfaceError(surface.name, "invalid-schema") from error
-    return tuple(observations)
+            prior = observations.get(surface.name)
+            if prior is None:
+                observations[surface.name] = observation
+                continue
+            versions = dict(prior.resolved_versions)
+            if set(versions) & {package for package, _ in observation.resolved_versions}:
+                raise AuditSurfaceError(surface.name, "invalid-schema")
+            versions.update(observation.resolved_versions)
+            advisories = set(prior.advisories)
+            if advisories & set(observation.advisories):
+                raise AuditSurfaceError(surface.name, "invalid-schema")
+            advisories.update(observation.advisories)
+            observations[surface.name] = Observation(surface.name, tuple(sorted(versions.items())), tuple(sorted(advisories)))
+    return tuple(observations[name] for name in SURFACE_ORDER)
 
 
 def _parser() -> argparse.ArgumentParser:

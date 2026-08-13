@@ -28,6 +28,7 @@ on:
       - 'security/accepted-advisories.json'
       - 'vulnerability-audit-requirements.txt'
       - 'torch-audit-requirements.txt'
+      - 'pyg-extension-audit-requirements.txt'
       - 'scripts/advisory_baseline.py'
       - 'tests/test_advisory_baseline.py'
       - 'docs-requirements.in'

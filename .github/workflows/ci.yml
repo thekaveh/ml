@@ -61,6 +61,7 @@ jobs:
             torch-core-requirements.txt
             torch-requirements.txt
             torch-audit-requirements.txt
+            pyg-extension-audit-requirements.txt
             docs-requirements.txt
             atlas-contract-requirements.txt
 

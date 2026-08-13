@@ -315,3 +315,11 @@ def test_check_tier_a_artifacts_reports_a_missing_or_empty_mirrored_output(
 
     assert result.returncode != 0
     assert "missing expected Tier-A notebook output" in result.stderr
+
+
+def test_audit_advisories_target_uses_the_focused_pinned_tool() -> None:
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert (REPO_ROOT / "vulnerability-audit-requirements.txt").read_text(encoding="utf-8") == "pip-audit==2.10.0\n"
+    assert "audit-advisories:" in makefile
+    assert "$(PYTHON) -m scripts.advisory_baseline" in makefile

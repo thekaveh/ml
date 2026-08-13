@@ -59,7 +59,7 @@ Actions, existing MkDocs/wiki documentation pipeline.
 - Task 2 consumes `load_baseline`, canonical identity/surface helpers, and the baseline dataclasses.
 - Task 3 consumes the exact Make target and tool manifest.
 
-- [ ] **Step 1: Write canonical-schema RED tests**
+- [x] **Step 1: Write canonical-schema RED tests**
 
 Create tests that write temporary JSON and assert:
 
@@ -102,7 +102,7 @@ The real-identity assertion must compare exactly this set:
 }
 ```
 
-- [ ] **Step 2: Run schema tests and capture RED**
+- [x] **Step 2: Run schema tests and capture RED**
 
 Run:
 
@@ -112,7 +112,7 @@ pytest -p no:cacheprovider tests/test_advisory_baseline.py -q -k 'load_baseline 
 
 Expected: collection or assertions fail because the module, policy, and interfaces do not exist.
 
-- [ ] **Step 3: Implement the canonical baseline loader**
+- [x] **Step 3: Implement the canonical baseline loader**
 
 Use frozen dataclasses and exact constants:
 
@@ -147,11 +147,11 @@ Normalize package names with `re.sub(r"[-_.]+", "-", value).lower()`. Parse with
 Populate the checked JSON with the 21 identities from Step 1. Every entry currently has surfaces
 `["combined-runtime", "torch"]`.
 
-- [ ] **Step 4: Run schema tests and capture GREEN**
+- [x] **Step 4: Run schema tests and capture GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass.
 
-- [ ] **Step 5: Write observation and comparator RED tests**
+- [x] **Step 5: Write observation and comparator RED tests**
 
 Add focused tests for:
 
@@ -172,7 +172,7 @@ def test_alias_only_and_fix_version_changes_do_not_change_policy_identity(): ...
 The `Comparison` object must expose deterministic `errors` and `notices` tuples; success is
 `not errors`. Removed identities belong only in `notices`.
 
-- [ ] **Step 6: Run comparator tests and capture RED**
+- [x] **Step 6: Run comparator tests and capture RED**
 
 Run:
 
@@ -182,7 +182,7 @@ pytest -p no:cacheprovider tests/test_advisory_baseline.py -q -k 'normalize or c
 
 Expected: failures identify the missing observation/comparison behavior.
 
-- [ ] **Step 7: Implement observation normalization and comparison**
+- [x] **Step 7: Implement observation normalization and comparison**
 
 Track both resolved versions and observed identity/surface membership. Version drift is detected
 from the full dependency list, not only vulnerable rows, so a package upgraded to a clean but
@@ -197,7 +197,7 @@ surface drift: <package> <version> <id> expected [...]; observed [...]
 reconcile removed advisory: <package> <version> <id>
 ```
 
-- [ ] **Step 8: Write audit-runner and CLI RED tests**
+- [x] **Step 8: Write audit-runner and CLI RED tests**
 
 Use a fake subprocess runner to assert:
 
@@ -211,7 +211,7 @@ def test_cli_has_no_accept_or_in_place_write_option(): ...
 def test_cli_diagnostics_do_not_disclose_index_credentials_or_temp_paths(): ...
 ```
 
-- [ ] **Step 9: Run audit-runner tests and capture RED**
+- [x] **Step 9: Run audit-runner tests and capture RED**
 
 Run:
 
@@ -221,13 +221,13 @@ pytest -p no:cacheprovider tests/test_advisory_baseline.py -q -k 'audit or cli'
 
 Expected: failures identify missing commands, exit handling, or CLI behavior.
 
-- [ ] **Step 10: Implement exact audit surfaces and CLI**
+- [x] **Step 10: Implement exact audit surfaces and CLI**
 
 Each command must begin with `sys.executable -m pip_audit`, write JSON to a unique temporary
 directory, retain the Issue #59 strict flags, and never include `--ignore-vuln`. Delete temporary
 outputs through `TemporaryDirectory` cleanup after parsing.
 
-- [ ] **Step 11: Add focused tool manifest and Make contract with RED first**
+- [x] **Step 11: Add focused tool manifest and Make contract with RED first**
 
 Add tests asserting:
 
@@ -239,7 +239,7 @@ assert "$(PYTHON) -m scripts.advisory_baseline" in makefile
 
 Run the selected tests before editing the manifest/Makefile, then add the exact pin and target.
 
-- [ ] **Step 12: Run Task 1 GREEN gates**
+- [x] **Step 12: Run Task 1 GREEN gates**
 
 Run:
 
@@ -250,7 +250,7 @@ python -m scripts.advisory_baseline --help
 git diff --check
 ```
 
-- [ ] **Step 13: Commit Task 1**
+- [x] **Step 13: Commit Task 1**
 
 ```bash
 git add security/accepted-advisories.json vulnerability-audit-requirements.txt \
@@ -272,25 +272,25 @@ git commit -m "security: add accepted advisory baseline"
 - Produces D10 findings under `D10.dependency_advisory_baseline`.
 - Retains existing `D10.dependency_ledger_count`, Atlas gitlink, and workflow action-pin behavior.
 
-- [ ] **Step 1: Write JSON-policy integrity RED tests**
+- [x] **Step 1: Write JSON-policy integrity RED tests**
 
 Create temporary-repository tests for missing policy, malformed JSON, unsupported schema, unknown
 keys, duplicate or unsorted identities, wrong package/version/ID, and non-canonical bytes. Assert
 all produce `D10.dependency_advisory_baseline` and that the current repository produces none.
 
-- [ ] **Step 2: Run focused verifier tests and capture RED**
+- [x] **Step 2: Run focused verifier tests and capture RED**
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_repo.py -q \
   -k 'dependency_advisory_baseline or dependency_ledger_counts_match_current_doc'
 ```
 
-- [ ] **Step 3: Add offline policy loading to D10**
+- [x] **Step 3: Add offline policy loading to D10**
 
 Import Task 1's public loader rather than duplicating schema logic. Convert loader failures to
 structured D10 findings; do not propagate exceptions and do not execute any network audit.
 
-- [ ] **Step 4: Write unique Markdown identity parity RED tests**
+- [x] **Step 4: Write unique Markdown identity parity RED tests**
 
 Mutate the current accepted table one dimension at a time:
 
@@ -307,24 +307,24 @@ Map Markdown `Combined runtime; Torch` to `("combined-runtime", "torch")`. Parse
 version and primary advisory ID from every current advisory row. The two duplicated raw IDs must
 collapse to one unique identity before comparing with JSON.
 
-- [ ] **Step 5: Run parity tests and capture RED**
+- [x] **Step 5: Run parity tests and capture RED**
 
 Run the Step 2 selection. Expected: new mutation tests fail because D10 does not yet compare
 unique identities.
 
-- [ ] **Step 6: Implement exact two-way parity**
+- [x] **Step 6: Implement exact two-way parity**
 
 Report identities missing from JSON and identities missing from Markdown separately. A current
 Markdown row with an unknown surface label is malformed rather than silently normalized. Keep all
 existing raw-count reconciliation intact.
 
-- [ ] **Step 7: Mutation-audit the fail-closed boundary**
+- [x] **Step 7: Mutation-audit the fail-closed boundary**
 
 Temporarily mutate each of JSON ID, package, version, surface, duplicate key, ordering, and
 serialization in isolated copies. Confirm each mutation produces at least one D10 error and restore
 the original bytes after every probe.
 
-- [ ] **Step 8: Run Task 2 GREEN gates**
+- [x] **Step 8: Run Task 2 GREEN gates**
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_repo.py -q \
@@ -335,7 +335,7 @@ ruff check scripts/verify_repo.py tests/test_verify_repo.py
 git diff --check
 ```
 
-- [ ] **Step 9: Commit Task 2**
+- [x] **Step 9: Commit Task 2**
 
 ```bash
 git add scripts/verify_repo.py tests/test_verify_repo.py
@@ -357,7 +357,7 @@ git commit -m "test: enforce advisory policy ledger parity"
 - Produces explicit positive workflow-contract node ID executed by `verify-repo`.
 - Controller updates GitHub ruleset only after a live PR establishes the context.
 
-- [ ] **Step 1: Write exact job-contract RED test**
+- [x] **Step 1: Write exact job-contract RED test**
 
 Assert job key/name `dependency-audit`, `ubuntu-24.04`, Python `3.11`, timeout `20`, no job-level
 `if`, `needs`, `services`, `container`, `env`, `defaults`, or `continue-on-error`, and exact steps:
@@ -383,18 +383,18 @@ atlas-contract-requirements.txt
 Install command is exact `python -m pip install -r vulnerability-audit-requirements.txt`; comparison
 is exact `make audit-advisories`.
 
-- [ ] **Step 2: Run job-contract test and capture RED**
+- [x] **Step 2: Run job-contract test and capture RED**
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_repo.py -q \
   -k 'dependency_audit_job_contract'
 ```
 
-- [ ] **Step 3: Add the minimal CI job**
+- [x] **Step 3: Add the minimal CI job**
 
 Add it alongside existing unconditional jobs without modifying their semantics or workflow triggers.
 
-- [ ] **Step 4: Write mutation and self-contract RED tests**
+- [x] **Step 4: Write mutation and self-contract RED tests**
 
 Reject independently:
 
@@ -407,18 +407,18 @@ Reject independently:
 - Docker/Compose, Atlas lifecycle, JupyterHub, Ollama, ComfyUI, or localhost commands; and
 - removal of the positive node ID from `verify-repo`'s first explicit pytest invocation.
 
-- [ ] **Step 5: Run mutation tests and capture RED**
+- [x] **Step 5: Run mutation tests and capture RED**
 
 Run the Step 2 selection plus the existing repository-workflow self-contract tests.
 
-- [ ] **Step 6: Complete the workflow contract**
+- [x] **Step 6: Complete the workflow contract**
 
 Add exact
 `tests/test_verify_repo.py::test_ci_dependency_audit_job_contract`
 to the explicit node-ID command before the broad selector. Add `dependency_audit` keywords to the
 supplemental selector without relying on that selector as the only guard.
 
-- [ ] **Step 7: Add docs-workflow path coverage with RED first**
+- [x] **Step 7: Add docs-workflow path coverage with RED first**
 
 Require the docs workflow to watch:
 
@@ -431,7 +431,7 @@ tests/test_advisory_baseline.py
 
 Extend the existing workflow path regression, observe RED, then update `.github/workflows/docs.yml`.
 
-- [ ] **Step 8: Run Task 3 GREEN gates**
+- [x] **Step 8: Run Task 3 GREEN gates**
 
 ```bash
 pytest -p no:cacheprovider tests/test_verify_repo.py -q \
@@ -442,7 +442,7 @@ ruff check tests/test_verify_repo.py
 git diff --check
 ```
 
-- [ ] **Step 9: Commit Task 3**
+- [x] **Step 9: Commit Task 3**
 
 ```bash
 git add .github/workflows/ci.yml .github/workflows/docs.yml tests/test_verify_repo.py
@@ -472,7 +472,7 @@ git commit -m "ci: require dependency advisory audit"
 - Produces manifest entry `12.18` immediately after design entry `12.17`.
 - Produces identical canonical enforcement/removal language on repository, site, and wiki surfaces.
 
-- [ ] **Step 1: Write documentation-contract RED tests**
+- [x] **Step 1: Write documentation-contract RED tests**
 
 Require the canonical docs to state:
 
@@ -489,14 +489,14 @@ Require manifest entries `12.17` and `12.18` to be consecutive and require the s
 in generated site `dependency-contracts.md` and wiki `6-1-Dependency-ledger.md` (use the actual
 transform filename returned by the existing test helpers).
 
-- [ ] **Step 2: Run documentation tests and capture RED**
+- [x] **Step 2: Run documentation tests and capture RED**
 
 ```bash
 pytest -p no:cacheprovider tests/test_check_docs.py tests/test_build_docs.py tests/test_wiki.py -q \
   -k 'advisory or manifest or dependency'
 ```
 
-- [ ] **Step 3: Update canonical documents**
+- [x] **Step 3: Update canonical documents**
 
 Make these exact semantic changes:
 
@@ -510,7 +510,7 @@ Make these exact semantic changes:
 - CHANGELOG adds the new gate and removes the Issue #59 entry's stale future-Issue-#60 sentence.
 - Historical Issue #59 design/plan records remain unchanged.
 
-- [ ] **Step 4: Add manifest entry 12.18**
+- [x] **Step 4: Add manifest entry 12.18**
 
 ```yaml
 - id: issue-60-advisory-baseline-implementation
@@ -519,7 +519,7 @@ Make these exact semantic changes:
   source: docs/superpowers/plans/2026-08-13-issue-60-advisory-baseline-implementation-plan.md
 ```
 
-- [ ] **Step 5: Run documentation GREEN gates and inspect projections**
+- [x] **Step 5: Run documentation GREEN gates and inspect projections**
 
 ```bash
 make docs-check
@@ -533,7 +533,7 @@ git diff --check
 Inspect generated site/wiki dependency-contract pages and navigation, then leave generated trees
 ignored and uncommitted.
 
-- [ ] **Step 6: Commit Task 4**
+- [x] **Step 6: Commit Task 4**
 
 ```bash
 git add README.md CONTRIBUTING.md SECURITY.md CHANGELOG.md \
@@ -556,7 +556,7 @@ git commit -m "docs: document required advisory baseline gate"
 - Consumes all prior tasks.
 - Produces reviewed feature branch, live `dependency-audit` context, updated GitHub ruleset, feature-to-develop PR, develop-to-main PR, main-to-develop sync PR when ancestry requires it, and clean local/remote state.
 
-- [ ] **Step 1: Run the real live comparator**
+- [x] **Step 1: Run the real live comparator**
 
 Use the exact current manifests and fixed PyPI service:
 
@@ -567,7 +567,7 @@ make audit-advisories
 Expected: exit 0, all four surfaces observed, no new identity/version/surface error. Reconciliation
 notices are acceptable only if their corresponding ledger update is reviewed before merge.
 
-- [ ] **Step 2: Run full local verification**
+- [x] **Step 2: Run full local verification**
 
 In a canonical NNx wheel environment:
 
@@ -584,7 +584,7 @@ git status --short
 
 Record exact pass/skip counts and warnings. An editable NNx run is supplemental only.
 
-- [ ] **Step 3: Perform task and broad review**
+- [x] **Step 3: Perform task and broad review**
 
 Use the subagent-driven workflow's per-task review packages and final whole-branch review. Fix every
 Critical or Important finding in one focused final-review fix wave, rerun affected tests, and obtain

@@ -120,8 +120,8 @@ reading executable command strings from JSON:
 
 | Surface | Inputs | Special behavior |
 | --- | --- | --- |
-| `combined-runtime` | `requirements.txt`, `torch-requirements.txt` | Normal strict resolution |
-| `torch` | `torch-requirements.txt` | Normal strict resolution |
+| `combined-runtime` | `requirements.txt`, resolver-safe projection + compiled-extension supplement | Strict resolution plus `--disable-pip --no-deps` supplement merged into one observation |
+| `torch` | resolver-safe projection + compiled-extension supplement | Strict resolution plus `--disable-pip --no-deps` supplement merged into one observation |
 | `documentation` | `docs-requirements.txt` | `--disable-pip` against the hash-locked file |
 | `atlas-contract` | `atlas-contract-requirements.txt` | Parent-owned focused contract only |
 
@@ -129,6 +129,9 @@ Every command uses `python -m pip_audit`, `--strict`, the PyPI vulnerability ser
 aliases on, descriptions off, and the progress spinner off. Audit exits `0` and `1` are completed
 observations. Any other exit, missing output, malformed JSON, missing surface, or skipped dependency
 resolution fails closed.
+
+The two audit manifests form an exact canonical partition of the runtime PyG manifest after
+removing its approved wheel selector; this is reconstruction validation, not physical concatenation.
 
 The Atlas surface does not initialize the `infra/` submodule, inspect Atlas image dependencies,
 contact JupyterHub, or start a service.

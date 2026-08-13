@@ -222,10 +222,10 @@ accepted ID is a reconciliation notice, not proof of remediation. Update the JSO
 current Markdown ledger rows together through review. The focused audit does not initialize Atlas
 or start any service.
 
-The combined-runtime and Torch audit inputs use the selector-free `torch-audit-requirements.txt`
-projection rather than the runtime PyG wheel source. The gate validates it against
-`torch-requirements.txt` before invoking pip-audit: every semantic
-requirement/include line must match after removing only the approved `--find-links` selector.
+The combined-runtime and Torch surfaces use a resolver-safe `torch-audit-requirements.txt`
+projection plus the pre-resolved `pyg-extension-audit-requirements.txt` supplement. The latter
+runs with `--disable-pip --no-deps`; both strict results merge into the same logical surface. The
+gate validates their canonical semantic partition against `torch-requirements.txt` before network.
 
 The unconditional `dependency-audit` job is isolated from `pytest-repository` and
 `atlas-consumer-policy` for attribution and timeout isolation. The controller makes it the third

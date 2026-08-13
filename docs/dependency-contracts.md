@@ -167,10 +167,10 @@ focused exception needed for this comparison.
 audit projection of the local/CI PyG runtime manifest. The resolver-safe projection contains the
 core include and `torch_geometric`; the pre-resolved supplement contains the four compiled PyG
 extension pins and runs with `--disable-pip --no-deps`. Before any audit subprocess runs, their
-ordered semantic requirement/include union must match `torch-requirements.txt` after removing
-exactly its approved PyG `--find-links` selector. Missing, extra, changed, duplicate, ambiguous,
-or option lines fail closed. Runtime installation continues to use `torch-requirements.txt` and
-its PyG wheel selector.
+canonical semantic partition must reconstruct `torch-requirements.txt` after removing exactly its
+approved PyG `--find-links` selector; this does not depend on physical file concatenation.
+Missing, extra, changed, duplicate, ambiguous, or option lines fail closed. Runtime installation
+continues to use `torch-requirements.txt` and its PyG wheel selector.
 
 ### 6.1.1.5 Removal and reconciliation runbook
 

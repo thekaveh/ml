@@ -646,11 +646,10 @@ begin its design/research cycle without reopening completed Issue #60 work.
 
 Linux PyG wheel resolution can produce local `+pt24cpu` versions that are valid runtime artifacts
 but unsupported by strict PyPI pip-audit resolution. Keep `torch-requirements.txt` unchanged for
-runtime installation. Add `torch-audit-requirements.txt` with the same core include and five PyG
-pins, omitting only the approved PyG `--find-links` selector. Before launching any audit surface,
-the comparator must fail closed unless the semantic non-comment requirement/include lines of the
-projection equal the runtime manifest after removing exactly that selector. Missing, extra,
-changed, duplicate, ambiguous, or extra-option lines are invalid. The combined-runtime and Torch
-audit surfaces use the projection; strict mode, PyPI service selection, baseline semantics, and
-the remaining surfaces stay unchanged. Cache and docs workflow path contracts include the new
-manifest, and canonical docs describe the install-versus-audit boundary.
+runtime installation. Split audit input into resolver-safe `torch-audit-requirements.txt` (core
+include plus `torch_geometric`) and pre-resolved `pyg-extension-audit-requirements.txt` (the four
+compiled extension pins). Each logical combined-runtime/Torch surface runs strict normal resolution
+then strict `--disable-pip --no-deps` supplement resolution and merges the observations. Before
+network, canonical semantic partition validation reconstructs the exact runtime manifest after
+removing its selector; missing, extra, changed, duplicate, ambiguous, option, continuation, or
+non-UTF-8 input fails closed. Cache and docs workflow path contracts include both manifests.

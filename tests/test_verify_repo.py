@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import builtins
+import os
 import re
 import shlex
 import shutil
@@ -3060,10 +3061,45 @@ def _assert_dependency_audit_job_contract(workflow: dict) -> None:
     assert job == _DEPENDENCY_AUDIT_JOB
 
 
+def _assert_dependency_audit_ci_envelope(workflow: dict) -> None:
+    assert workflow["on"] == {
+        "push": {"branches": ["develop", "main"]},
+        "pull_request": {"branches": ["develop", "main"]},
+        "workflow_dispatch": "",
+        "schedule": [{"cron": "0 7 * * 1"}],
+    }
+    assert workflow["permissions"] == {"contents": "read"}
+
+
 def test_ci_dependency_audit_job_contract():
     workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
 
+    _assert_dependency_audit_ci_envelope(workflow)
     _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "remove-schedule",
+        "remove-dispatch",
+        "change-cron",
+        "add-write-permission",
+    ),
+)
+def test_ci_dependency_audit_envelope_rejects_trigger_or_permission_mutations(mutation):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    if mutation == "remove-schedule":
+        del workflow["on"]["schedule"]
+    elif mutation == "remove-dispatch":
+        del workflow["on"]["workflow_dispatch"]
+    elif mutation == "change-cron":
+        workflow["on"]["schedule"][0]["cron"] = "17 3 * * 1"
+    else:
+        workflow["permissions"]["pull-requests"] = "write"
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_ci_envelope(workflow)
 
 
 @pytest.mark.parametrize("mutation", ("deleted", "renamed"))
@@ -3127,6 +3163,15 @@ def test_ci_dependency_audit_job_contract_rejects_changed_step_inventory(mutatio
         _assert_dependency_audit_job_contract(workflow)
 
 
+@pytest.mark.parametrize("step_index", range(len(_DEPENDENCY_AUDIT_JOB["steps"])))
+def test_ci_dependency_audit_job_contract_rejects_omitted_step(step_index):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    del workflow["jobs"]["dependency-audit"]["steps"][step_index]
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
 def test_ci_dependency_audit_job_contract_rejects_checkout_submodules():
     workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
     workflow["jobs"]["dependency-audit"]["steps"][0]["with"]["submodules"] = "recursive"
@@ -3161,6 +3206,7 @@ def test_ci_dependency_audit_job_contract_rejects_missing_cache_manifest(manifes
     "command",
     (
         "pip install -r vulnerability-audit-requirements.txt",
+        "python -m pip install pip-audit",
         "python -m pip install pip-audit==2.10.0",
         "python -m pip install -r requirements.txt",
         "python -m pip install -r vulnerability-audit-requirements.txt --ignore-vuln CVE-0000",
@@ -3686,29 +3732,17 @@ def test_ci_runs_repository_workflow_contract_tests():
 
 
 @pytest.mark.parametrize(
-    ("positive_test", "job_name", "required_step"),
+    "positive_test",
     (
-        (
-            "test_ci_repository_test_contract_enforces_canonical_nnx_wheel",
-            "pytest-repository",
-            "Verify canonical NNx installation",
-        ),
-        (
-            "test_ci_nnx_surface_job_enforces_canonical_wheel_contract",
-            "pytest-nnx-surface",
-            "Verify canonical NNx installation",
-        ),
-        (
-            "test_ci_dependency_audit_job_contract",
-            "dependency-audit",
-            "Compare dependency advisories with accepted baseline",
-        ),
+        "test_ci_repository_test_contract_enforces_canonical_nnx_wheel",
+        "test_ci_nnx_surface_job_enforces_canonical_wheel_contract",
+        "test_ci_dependency_audit_job_contract",
     ),
     ids=("repository-gate", "focused-gate", "dependency-audit-gate"),
 )
 @pytest.mark.parametrize("mutation", ("delete", "rename"))
 def test_ci_workflow_contract_self_test_resists_positive_test_deletion(
-    tmp_path: Path, positive_test: str, job_name: str, required_step: str, mutation: str
+    tmp_path: Path, positive_test: str, mutation: str
 ):
     workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
     command = next(
@@ -3719,22 +3753,38 @@ def test_ci_workflow_contract_self_test_resists_positive_test_deletion(
     source = (REPO / "tests" / "test_verify_repo.py").read_text(encoding="utf-8")
     function_header = f"def {positive_test}():"
     assert source.count(function_header) == 1
-    if mutation == "rename":
-        source = source.replace(function_header, f"def removed_{positive_test}():", 1)
-    else:
-        source = source.replace(function_header, f"def _deleted_{positive_test}():", 1)
+    assert "tests/test_verify_repo.py::test_ci_dependency_audit_job_contract" in command
 
     test_file = tmp_path / "tests" / "test_verify_repo.py"
     test_file.parent.mkdir(parents=True)
     test_file.write_text(source, encoding="utf-8")
     workflow_path = tmp_path / ".github" / "workflows" / "ci.yml"
     workflow_path.parent.mkdir(parents=True)
-    workflow["jobs"][job_name]["steps"] = [
-        step
-        for step in workflow["jobs"][job_name]["steps"]
-        if step.get("name") != required_step
-    ]
     workflow_path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
+
+    environment = os.environ.copy()
+    source_path = str(REPO)
+    existing_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = (
+        source_path
+        if not existing_pythonpath
+        else f"{source_path}{os.pathsep}{existing_pythonpath}"
+    )
+    control = subprocess.run(
+        shlex.split(command),
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+        env=environment,
+    )
+    assert control.returncode == 0, control.stdout + control.stderr
+
+    if mutation == "rename":
+        source = source.replace(function_header, f"def removed_{positive_test}():", 1)
+    else:
+        source = source.replace(function_header, f"def _deleted_{positive_test}():", 1)
+    test_file.write_text(source, encoding="utf-8")
 
     result = subprocess.run(
         shlex.split(command),
@@ -3742,10 +3792,16 @@ def test_ci_workflow_contract_self_test_resists_positive_test_deletion(
         capture_output=True,
         text=True,
         timeout=TEST_SUBPROCESS_TIMEOUT,
+        env=environment,
     )
 
+    output = result.stdout + result.stderr
     assert result.returncode != 0
-    assert positive_test in result.stdout + result.stderr
+    assert positive_test in output
+    assert "not found:" in output.lower()
+    assert "modulenotfounderror" not in output.lower()
+    assert "importerror" not in output.lower()
+    assert "error collecting" not in output.lower()
 
 
 def _assert_no_nnx_environment_overrides(workflow: dict) -> None:

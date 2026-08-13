@@ -414,14 +414,23 @@ def _read_text(path: Path) -> str:
 
 
 def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
+    def mask_comment(match: re.Match[str]) -> str:
+        return re.sub(r"[^\n]", " ", match.group(0))
+
+    text = re.sub(r"<!--.*?(?:-->|\Z)", mask_comment, text, flags=re.DOTALL)
     stripped: list[str] = []
-    in_fence = False
+    fence: tuple[str, int] | None = None
     for line in text.splitlines():
-        if re.match(r"^\s*(?:```|~~~)", line):
-            in_fence = not in_fence
+        opener = re.match(r"^\s*(?P<marker>`{3,}|~{3,})", line)
+        if fence is None and opener:
+            marker = opener["marker"]
+            fence = (marker[0], len(marker))
             stripped.append(" " * len(line))
             continue
-        if in_fence:
+        if fence is not None:
+            marker, minimum_length = fence
+            if re.fullmatch(rf"\s*{re.escape(marker)}{{{minimum_length},}}\s*", line):
+                fence = None
             stripped.append(" " * len(line))
             continue
         stripped.append(
@@ -1046,7 +1055,7 @@ def _dependency_advisory_baseline_findings(
             load_baseline,
             normalize_package_name,
         )
-    except ImportError:
+    except (ImportError, OSError):
         return [Finding(
             id="D10.dependency_advisory_baseline",
             check="docs",
@@ -1056,7 +1065,7 @@ def _dependency_advisory_baseline_findings(
         )]
     try:
         baseline = load_baseline(repo / "security" / "accepted-advisories.json")
-    except AdvisoryBaselineError as error:
+    except (AdvisoryBaselineError, OSError) as error:
         return [Finding(
             id="D10.dependency_advisory_baseline",
             check="docs",
@@ -1127,7 +1136,7 @@ def _dependency_advisory_baseline_findings(
             severity="error",
             location=location,
             message=(
-                "current Markdown ledger identity is missing from the accepted advisory baseline: "
+                "current Markdown ledger identity is missing from accepted advisory baseline JSON: "
                 f"{_format_advisory_identity(identity, surfaces)}"
             ),
         ))
@@ -1138,9 +1147,16 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
     path = repo / "docs" / "dependency-contracts.md"
     infra_exists = (repo / "infra").exists()
     if not path.exists():
+        baseline_finding = Finding(
+            id="D10.dependency_advisory_baseline",
+            check="docs",
+            severity="error",
+            location="docs/dependency-contracts.md",
+            message="current accepted-advisories section is missing",
+        )
         if not infra_exists:
-            return []
-        return [Finding(
+            return [baseline_finding]
+        return [baseline_finding, Finding(
             id="D10.dependency_ledger_submodule_sha",
             check="docs",
             severity="error",
@@ -1160,9 +1176,22 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
             location="docs/dependency-contracts.md",
             message="current accepted-advisories section is missing",
         ))
+        findings.append(Finding(
+            id="D10.dependency_advisory_baseline", check="docs", severity="error",
+            location="docs/dependency-contracts.md",
+            message="current accepted-advisories section is missing",
+        ))
     elif len(snapshot_matches) != 1:
         findings.append(Finding(
             id="D10.dependency_ledger_count", check="docs", severity="error",
+            location="docs/dependency-contracts.md",
+            message=(
+                "current accepted-advisories heading must appear exactly once; "
+                f"found {len(snapshot_matches)}"
+            ),
+        ))
+        findings.append(Finding(
+            id="D10.dependency_advisory_baseline", check="docs", severity="error",
             location="docs/dependency-contracts.md",
             message=(
                 "current accepted-advisories heading must appear exactly once; "

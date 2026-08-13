@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import builtins
 import re
 import shlex
 import shutil
@@ -1365,13 +1366,83 @@ def test_docs_d10_dependency_advisory_baseline_fails_closed_for_invalid_policy(t
     assert _d10_advisory_baseline_findings(repo)
 
 
+def test_docs_d10_dependency_advisory_baseline_converts_import_os_error(tmp_path, monkeypatch):
+    repo = _advisory_baseline_repo(tmp_path)
+    original_import = builtins.__import__
+
+    def fail_advisory_loader_import(name, *args, **kwargs):
+        if name == "scripts.advisory_baseline":
+            raise OSError("injected loader import failure")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fail_advisory_loader_import)
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == ["accepted advisory baseline loader is unavailable"]
+
+
+def test_docs_d10_dependency_advisory_baseline_converts_loader_os_error(tmp_path, monkeypatch):
+    repo = _advisory_baseline_repo(tmp_path)
+    from scripts import advisory_baseline
+
+    def fail_load_baseline(_path):
+        raise OSError("injected policy read failure")
+
+    monkeypatch.setattr(advisory_baseline, "load_baseline", fail_load_baseline)
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert hits[0].id == "D10.dependency_advisory_baseline"
+    assert hits[0].message == "accepted advisory baseline is invalid: injected policy read failure"
+
+
+@pytest.mark.parametrize("with_infra", [False, True])
+def test_docs_d10_dependency_advisory_baseline_flags_missing_ledger(tmp_path, with_infra):
+    repo = _temp_repo(tmp_path)
+    (repo / "security").mkdir()
+    shutil.copyfile(
+        REPO / "security/accepted-advisories.json",
+        repo / "security/accepted-advisories.json",
+    )
+    if with_infra:
+        (repo / "infra").mkdir()
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert hits[0].message == "current accepted-advisories section is missing"
+
+
+@pytest.mark.parametrize("heading", ["missing", "duplicate"])
+def test_docs_d10_dependency_advisory_baseline_flags_invalid_current_heading(tmp_path, heading):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    marker = "### 6.1.1.2 Current accepted advisories"
+    if heading == "missing":
+        text = text.replace(marker, "### 6.1.1.2 Historical advisories", 1)
+    else:
+        text += f"\n{marker}\n\nDuplicate.\n"
+    ledger.write_text(text, encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert hits[0].message == "current accepted-advisories section is missing" if heading == "missing" else (
+        "current accepted-advisories heading must appear exactly once; found 2"
+    )
+
+
 def test_docs_d10_flags_baseline_advisory_id_drift_dependency_advisory_baseline(tmp_path):
     repo = _advisory_baseline_repo(tmp_path)
     document = json.loads((repo / "security/accepted-advisories.json").read_text())
     document["accepted_advisories"][0]["advisory_id"] = "PYSEC-2099-1"
     _write_canonical_baseline(repo, document)
 
-    assert _d10_advisory_baseline_findings(repo)
+    assert [finding.message for finding in _d10_advisory_baseline_findings(repo)] == [
+        "accepted advisory baseline identity is missing from the current Markdown ledger: "
+        "pytorch-lightning 2.4.0 PYSEC-2099-1 on [combined-runtime, torch]",
+        "current Markdown ledger identity is missing from accepted advisory baseline JSON: "
+        "pytorch-lightning 2.4.0 PYSEC-2026-3043 on [combined-runtime, torch]",
+    ]
 
 
 def test_docs_d10_flags_baseline_package_drift_dependency_advisory_baseline(tmp_path):
@@ -1380,7 +1451,11 @@ def test_docs_d10_flags_baseline_package_drift_dependency_advisory_baseline(tmp_
     document["accepted_advisories"][0]["package"] = "lightning"
     _write_canonical_baseline(repo, document)
 
-    assert _d10_advisory_baseline_findings(repo)
+    assert any(
+        "accepted advisory baseline identity is missing from the current Markdown ledger: "
+        "lightning 2.4.0 PYSEC-2026-3043" in finding.message
+        for finding in _d10_advisory_baseline_findings(repo)
+    )
 
 
 def test_docs_d10_flags_baseline_accepted_version_drift_dependency_advisory_baseline(tmp_path):
@@ -1389,7 +1464,11 @@ def test_docs_d10_flags_baseline_accepted_version_drift_dependency_advisory_base
     document["accepted_advisories"][0]["accepted_version"] = "9.9.9"
     _write_canonical_baseline(repo, document)
 
-    assert _d10_advisory_baseline_findings(repo)
+    assert any(
+        "accepted advisory baseline identity is missing from the current Markdown ledger: "
+        "pytorch-lightning 9.9.9 PYSEC-2026-3043" in finding.message
+        for finding in _d10_advisory_baseline_findings(repo)
+    )
 
 
 def test_docs_d10_flags_baseline_surface_drift_dependency_advisory_baseline(tmp_path):
@@ -1398,7 +1477,11 @@ def test_docs_d10_flags_baseline_surface_drift_dependency_advisory_baseline(tmp_
     document["accepted_advisories"][0]["surfaces"] = ["torch"]
     _write_canonical_baseline(repo, document)
 
-    assert _d10_advisory_baseline_findings(repo)
+    assert any(
+        "accepted advisory baseline identity is missing from the current Markdown ledger: "
+        "pytorch-lightning 2.4.0 PYSEC-2026-3043 on [torch]" == finding.message
+        for finding in _d10_advisory_baseline_findings(repo)
+    )
 
 
 def test_docs_d10_collapses_duplicate_raw_rows_for_dependency_advisory_baseline_identity_parity(tmp_path):
@@ -1434,6 +1517,89 @@ def test_docs_d10_dependency_advisory_baseline_flags_unknown_current_surface(tmp
     )
 
     assert _d10_advisory_baseline_findings(repo)
+
+
+@pytest.mark.parametrize("surface", ["Combined runtime; Combined runtime", "Combined runtime; "])
+def test_docs_d10_dependency_advisory_baseline_flags_duplicate_or_empty_current_surface(tmp_path, surface):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    ledger.write_text(
+        ledger.read_text(encoding="utf-8").replace("Combined runtime; Torch", surface, 1),
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert "malformed" in hits[0].message
+
+
+def test_docs_d10_dependency_advisory_baseline_reports_markdown_only_identity(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    line = (
+        "| `torch` | `PYSEC-2099-1` | 1 | None listed | `2.4.1` | None listed | "
+        "Combined runtime; Torch |\n"
+    )
+    final_row = (
+        "| `pytorch-lightning` | `PYSEC-2026-3043` | 1 | None listed | `2.4.0` | "
+        "`GHSA-75m9-98v2-hjpm`, `CVE-2026-31221` | Combined runtime; Torch |"
+    )
+    ledger.write_text(
+        ledger.read_text(encoding="utf-8").replace(final_row, f"{final_row}\n{line}"),
+        encoding="utf-8",
+    )
+
+    messages = [finding.message for finding in _d10_advisory_baseline_findings(repo)]
+    assert messages == [
+        "current Markdown ledger identity is missing from accepted advisory baseline JSON: "
+        "torch 2.4.1 PYSEC-2099-1 on [combined-runtime, torch]"
+    ]
+
+
+def test_docs_d10_dependency_advisory_baseline_reports_policy_only_identity(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    final_row = (
+        "| `pytorch-lightning` | `PYSEC-2026-3043` | 1 | None listed | `2.4.0` | "
+        "`GHSA-75m9-98v2-hjpm`, `CVE-2026-31221` | Combined runtime; Torch |\n"
+    )
+    ledger.write_text(ledger.read_text(encoding="utf-8").replace(final_row, ""), encoding="utf-8")
+
+    messages = [finding.message for finding in _d10_advisory_baseline_findings(repo)]
+    assert messages == [
+        "accepted advisory baseline identity is missing from the current Markdown ledger: "
+        "pytorch-lightning 2.4.0 PYSEC-2026-3043 on [combined-runtime, torch]"
+    ]
+
+
+def test_docs_d10_html_comment_does_not_satisfy_advisory_baseline(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    ledger.write_text(f"<!--\n{ledger.read_text(encoding='utf-8')}\n-->\n", encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert hits[0].message == "current accepted-advisories section is missing"
+
+
+@pytest.mark.parametrize(
+    "fence",
+    [
+        "````markdown\n```\n{snapshot}\n",
+        "```markdown\n~~~\n{snapshot}\n",
+    ],
+)
+def test_docs_d10_unclosed_or_mismatched_fence_hides_advisory_snapshot(tmp_path, fence):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    marker = "### 6.1.1.2 Current accepted advisories"
+    snapshot = marker + text.split(marker, 1)[1]
+    ledger.write_text(fence.format(snapshot=snapshot), encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert hits[0].message == "current accepted-advisories section is missing"
 
 
 def _dependency_snapshot(*, summary_count=2, advisory_rows=None):

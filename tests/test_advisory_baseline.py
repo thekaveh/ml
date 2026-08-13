@@ -10,6 +10,7 @@ import pytest
 from scripts.advisory_baseline import (
     AcceptedAdvisory,
     AdvisoryBaselineError,
+    AuditSurfaceError,
     Baseline,
     compare_baseline,
     load_baseline,
@@ -613,14 +614,23 @@ def test_alias_only_and_fix_version_changes_do_not_change_policy_identity() -> N
     assert result.notices == ()
 
 
-def _audit_runner(*, returncode: int = 0, payload: object = None, write_output: bool = True):
+def _audit_runner(
+    *,
+    returncode: int = 0,
+    payload: object = None,
+    write_output: bool = True,
+    raw_output: str | None = None,
+):
     commands: list[tuple[tuple[str, ...], dict[str, object]]] = []
 
     def run(command: list[str], **kwargs: object) -> SimpleNamespace:
         commands.append((tuple(command), kwargs))
         if write_output:
             output = Path(command[command.index("--output") + 1])
-            output.write_text(json.dumps(_payload() if payload is None else payload), encoding="utf-8")
+            output.write_text(
+                raw_output if raw_output is not None else json.dumps(_payload() if payload is None else payload),
+                encoding="utf-8",
+            )
         return SimpleNamespace(returncode=returncode, stdout="", stderr="")
 
     return commands, run
@@ -756,6 +766,73 @@ def test_audit_exit_zero_and_one_are_completed_observations(tmp_path: Path, retu
 def test_audit_other_exit_missing_output_and_malformed_json_fail_closed(tmp_path: Path, runner) -> None:
     with pytest.raises(AdvisoryBaselineError):
         run_audit_surfaces(tmp_path, runner=runner)
+
+
+@pytest.mark.parametrize(
+    ("returncode", "payload", "write_output", "raw_output", "expected_category"),
+    [
+        (2, None, True, None, "unexpected-exit"),
+        (1, None, False, None, "missing-output"),
+        (1, None, True, "not-json", "invalid-json"),
+        (1, [], True, None, "invalid-schema"),
+    ],
+)
+def test_audit_failures_report_only_fixed_surface_categories(
+    tmp_path: Path,
+    returncode: int,
+    payload: object,
+    write_output: bool,
+    raw_output: str | None,
+    expected_category: str,
+) -> None:
+    unsafe = "https://user:secret@example.test /private/tmp/audit.json --index-url"
+    _, runner = _audit_runner(
+        returncode=returncode,
+        payload=payload,
+        write_output=write_output,
+        raw_output=raw_output,
+    )
+
+    def unsafe_runner(command: list[str], **kwargs: object) -> SimpleNamespace:
+        result = runner(command, **kwargs)
+        return SimpleNamespace(returncode=result.returncode, stdout=unsafe, stderr=unsafe)
+
+    with pytest.raises(AuditSurfaceError) as error:
+        run_audit_surfaces(tmp_path, runner=unsafe_runner)
+
+    assert (error.value.surface, error.value.category) == ("combined-runtime", expected_category)
+    assert str(error.value) == f"combined-runtime: {expected_category}"
+    assert all(
+        value not in str(error.value)
+        for value in ("secret", "/private/tmp", "--index-url", "advisory-baseline-")
+    )
+
+
+def test_cli_reports_only_safe_surface_failure_category(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.advisory_baseline as module
+
+    unsafe = "https://user:secret@example.test /private/tmp/audit.json --index-url"
+    _, runner = _audit_runner(returncode=1, write_output=False)
+
+    def unsafe_runner(command: list[str], **kwargs: object) -> SimpleNamespace:
+        result = runner(command, **kwargs)
+        return SimpleNamespace(returncode=result.returncode, stdout=unsafe, stderr=unsafe)
+
+    with pytest.raises(AuditSurfaceError) as captured:
+        run_audit_surfaces(Path("."), runner=unsafe_runner)
+
+    monkeypatch.setattr(module, "load_baseline", lambda path: _baseline())
+    monkeypatch.setattr(
+        module,
+        "run_audit_surfaces",
+        lambda repo: (_ for _ in ()).throw(captured.value),
+    )
+
+    assert main(["--repo-root", "."]) == 1
+    assert capsys.readouterr().err == "advisory audit failed: combined-runtime: missing-output\n"
 
 
 def test_audit_rejects_duplicate_pip_audit_root_keys_from_serialized_output(tmp_path: Path) -> None:

@@ -26,6 +26,15 @@ class AdvisoryBaselineError(RuntimeError):
     """The advisory policy or an audit observation is invalid."""
 
 
+class AuditSurfaceError(AdvisoryBaselineError):
+    """A safe, fixed-category failure for one audit surface."""
+
+    def __init__(self, surface: str, category: str) -> None:
+        self.surface = surface
+        self.category = category
+        super().__init__(f"{surface}: {category}")
+
+
 @dataclass(frozen=True, order=True)
 class AcceptedAdvisory:
     package: str
@@ -332,10 +341,7 @@ def _audit_command(surface: AuditSurface, output: Path) -> list[str]:
 
 def _load_pip_audit_output(path: Path) -> object:
     """Parse one pip-audit JSON document without silently accepting duplicate keys."""
-    try:
-        return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, AdvisoryBaselineError) as error:
-        raise AdvisoryBaselineError("pip-audit produced an invalid observation") from error
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
 
 
 def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tuple[Observation, ...]:
@@ -353,11 +359,19 @@ def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tupl
                 text=True,
             )
             if result.returncode not in (0, 1):
-                raise AdvisoryBaselineError("pip-audit did not complete")
+                raise AuditSurfaceError(surface.name, "unexpected-exit")
             try:
-                observations.append(normalize_pip_audit(surface.name, _load_pip_audit_output(output)))
+                payload = _load_pip_audit_output(output)
+            except OSError as error:
+                raise AuditSurfaceError(surface.name, "missing-output") from error
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise AuditSurfaceError(surface.name, "invalid-json") from error
             except AdvisoryBaselineError as error:
-                raise AdvisoryBaselineError("pip-audit produced an invalid observation") from error
+                raise AuditSurfaceError(surface.name, "invalid-schema") from error
+            try:
+                observations.append(normalize_pip_audit(surface.name, payload))
+            except AdvisoryBaselineError as error:
+                raise AuditSurfaceError(surface.name, "invalid-schema") from error
     return tuple(observations)
 
 
@@ -373,6 +387,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         baseline = load_baseline(args.repo_root / "security" / "accepted-advisories.json")
         comparison = compare_baseline(baseline, run_audit_surfaces(args.repo_root))
+    except AuditSurfaceError as error:
+        print(f"advisory audit failed: {error.surface}: {error.category}", file=sys.stderr)
+        return 1
     except (AdvisoryBaselineError, OSError):
         print("advisory audit failed", file=sys.stderr)
         return 1

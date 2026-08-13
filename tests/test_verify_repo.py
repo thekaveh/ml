@@ -3012,6 +3012,209 @@ def _load_workflow(path: Path) -> dict:
     return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
+_DEPENDENCY_AUDIT_JOB = {
+    "name": "dependency-audit",
+    "runs-on": "ubuntu-24.04",
+    "timeout-minutes": "20",
+    "steps": [
+        {
+            "name": "Checkout",
+            "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+            "with": {"persist-credentials": "false"},
+        },
+        {
+            "name": "Set up Python 3.11",
+            "uses": "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+            "with": {
+                "python-version": "3.11",
+                "cache": "pip",
+                "cache-dependency-path": (
+                    "vulnerability-audit-requirements.txt\n"
+                    "requirements.txt\n"
+                    "torch-core-requirements.txt\n"
+                    "torch-requirements.txt\n"
+                    "docs-requirements.txt\n"
+                    "atlas-contract-requirements.txt\n"
+                ),
+            },
+        },
+        {
+            "name": "Install vulnerability audit tool",
+            "run": "python -m pip install -r vulnerability-audit-requirements.txt",
+        },
+        {
+            "name": "Compare dependency advisories with accepted baseline",
+            "run": "make audit-advisories",
+        },
+    ],
+}
+
+
+def _assert_dependency_audit_job_contract(workflow: dict) -> None:
+    assert "defaults" not in workflow
+    assert "env" not in workflow
+    assert "dependency-audit" in workflow["jobs"]
+
+    job = workflow["jobs"]["dependency-audit"]
+    assert set(job) == {"name", "runs-on", "timeout-minutes", "steps"}
+    assert job == _DEPENDENCY_AUDIT_JOB
+
+
+def test_ci_dependency_audit_job_contract():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+
+    _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize("mutation", ("deleted", "renamed"))
+def test_ci_dependency_audit_job_contract_rejects_deleted_or_renamed_job(mutation):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    job = workflow["jobs"].pop("dependency-audit")
+    if mutation == "renamed":
+        workflow["jobs"]["renamed-dependency-audit"] = job
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("if", "github.ref == 'refs/heads/main'"),
+        ("needs", "verify-repo"),
+        ("services", {"postgres": {"image": "postgres"}}),
+        ("container", "python:3.11"),
+        ("env", {"PYTEST_ADDOPTS": "-q"}),
+        ("defaults", {"run": {"shell": "bash"}}),
+        ("continue-on-error", "true"),
+    ],
+)
+def test_ci_dependency_audit_job_contract_rejects_job_level_controls(field, value):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    workflow["jobs"]["dependency-audit"][field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("if", "github.ref == 'refs/heads/main'"),
+        ("continue-on-error", "true"),
+        ("shell", "bash {0} || true"),
+        ("env", {"PYTEST_ADDOPTS": "-q"}),
+    ],
+)
+def test_ci_dependency_audit_job_contract_rejects_step_level_controls(field, value):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    workflow["jobs"]["dependency-audit"]["steps"][-1][field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize("mutation", ("extra", "reordered"))
+def test_ci_dependency_audit_job_contract_rejects_changed_step_inventory(mutation):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    steps = workflow["jobs"]["dependency-audit"]["steps"]
+    if mutation == "extra":
+        steps.append({"name": "Extra validation", "run": "true"})
+    else:
+        steps[0], steps[1] = steps[1], steps[0]
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+def test_ci_dependency_audit_job_contract_rejects_checkout_submodules():
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    workflow["jobs"]["dependency-audit"]["steps"][0]["with"]["submodules"] = "recursive"
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    (
+        "vulnerability-audit-requirements.txt",
+        "requirements.txt",
+        "torch-core-requirements.txt",
+        "torch-requirements.txt",
+        "docs-requirements.txt",
+        "atlas-contract-requirements.txt",
+    ),
+)
+def test_ci_dependency_audit_job_contract_rejects_missing_cache_manifest(manifest):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    setup = workflow["jobs"]["dependency-audit"]["steps"][1]
+    setup["with"]["cache-dependency-path"] = setup["with"][
+        "cache-dependency-path"
+    ].replace(f"{manifest}\n", "")
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        "pip install -r vulnerability-audit-requirements.txt",
+        "python -m pip install pip-audit==2.10.0",
+        "python -m pip install -r requirements.txt",
+        "python -m pip install -r vulnerability-audit-requirements.txt --ignore-vuln CVE-0000",
+    ),
+)
+def test_ci_dependency_audit_job_contract_rejects_alternate_tool_install(command):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    workflow["jobs"]["dependency-audit"]["steps"][2]["run"] = command
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        "make audit-advisories --ignore-vuln CVE-0000",
+        "python -m pip_audit -r requirements.txt",
+        "make audit-advisories || true",
+    ),
+)
+def test_ci_dependency_audit_job_contract_rejects_alternate_audit_command(command):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    workflow["jobs"]["dependency-audit"]["steps"][3]["run"] = command
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
+@pytest.mark.parametrize(
+    "live_command",
+    (
+        "docker ps",
+        "docker compose ps",
+        "make atlas-setup",
+        "make atlas-up",
+        "make atlas-down",
+        "./scripts/atlas-up.sh",
+        "jupyterhub --version",
+        "ollama serve",
+        "comfyui --version",
+        "curl localhost:8000",
+        "curl 127.0.0.1:8000",
+    ),
+)
+def test_ci_dependency_audit_job_contract_rejects_live_runtime_commands(live_command):
+    workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
+    audit = workflow["jobs"]["dependency-audit"]["steps"][3]
+    audit["run"] = f"{audit['run']}\n{live_command}"
+
+    with pytest.raises(AssertionError):
+        _assert_dependency_audit_job_contract(workflow)
+
+
 _ATLAS_CONSUMER_POLICY_JOB = {
     "name": "atlas-consumer-policy",
     "runs-on": "ubuntu-24.04",
@@ -3462,10 +3665,12 @@ def test_ci_runs_repository_workflow_contract_tests():
     assert contract_tests["run"] == (
         "pytest "
         "tests/test_verify_repo.py::test_ci_repository_test_contract_enforces_canonical_nnx_wheel "
-        "tests/test_verify_repo.py::test_ci_nnx_surface_job_enforces_canonical_wheel_contract -q\n"
+        "tests/test_verify_repo.py::test_ci_nnx_surface_job_enforces_canonical_wheel_contract "
+        "tests/test_verify_repo.py::test_ci_dependency_audit_job_contract -q\n"
         "pytest tests/test_verify_repo.py -q -k "
         "'atlas_consumer_policy_contract or "
         "atlas_contract_workflow or "
+        "dependency_audit or "
         "atlas_docs_preserve_mounted_workspace_and_track_ownership or "
         "ci_covers_gitflow_pr_targets or "
         "ci_tier_a_uses_temporary_outputs_and_preserves_sources or "
@@ -3481,22 +3686,29 @@ def test_ci_runs_repository_workflow_contract_tests():
 
 
 @pytest.mark.parametrize(
-    ("positive_test", "job_name"),
+    ("positive_test", "job_name", "required_step"),
     (
         (
             "test_ci_repository_test_contract_enforces_canonical_nnx_wheel",
             "pytest-repository",
+            "Verify canonical NNx installation",
         ),
         (
             "test_ci_nnx_surface_job_enforces_canonical_wheel_contract",
             "pytest-nnx-surface",
+            "Verify canonical NNx installation",
+        ),
+        (
+            "test_ci_dependency_audit_job_contract",
+            "dependency-audit",
+            "Compare dependency advisories with accepted baseline",
         ),
     ),
-    ids=("repository-gate", "focused-gate"),
+    ids=("repository-gate", "focused-gate", "dependency-audit-gate"),
 )
 @pytest.mark.parametrize("mutation", ("delete", "rename"))
 def test_ci_workflow_contract_self_test_resists_positive_test_deletion(
-    tmp_path: Path, positive_test: str, job_name: str, mutation: str
+    tmp_path: Path, positive_test: str, job_name: str, required_step: str, mutation: str
 ):
     workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
     command = next(
@@ -3520,7 +3732,7 @@ def test_ci_workflow_contract_self_test_resists_positive_test_deletion(
     workflow["jobs"][job_name]["steps"] = [
         step
         for step in workflow["jobs"][job_name]["steps"]
-        if step.get("name") != "Verify canonical NNx installation"
+        if step.get("name") != required_step
     ]
     workflow_path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
 
@@ -4236,6 +4448,10 @@ def test_documentation_workflows_install_cairo_and_gate_pages_inputs():
         "scripts/lib/atlas-dotenv.sh",
         "docs-requirements.in",
         ".github/workflows/pages.yml",
+        "security/accepted-advisories.json",
+        "vulnerability-audit-requirements.txt",
+        "scripts/advisory_baseline.py",
+        "tests/test_advisory_baseline.py",
     }
     assert required_paths <= set(docs["on"]["pull_request"]["paths"])
     assert any(

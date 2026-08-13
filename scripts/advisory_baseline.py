@@ -89,7 +89,13 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
     return document
 
 
-def _require_exact_keys(value: object, expected: tuple[str, ...], *, item: bool = False) -> dict[str, object]:
+def _require_exact_keys(
+    value: object,
+    expected: tuple[str, ...],
+    *,
+    item: bool = False,
+    canonical_order: bool = True,
+) -> dict[str, object]:
     if not isinstance(value, dict):
         raise AdvisoryBaselineError("advisory item must be an object" if item else "policy root must be an object")
     keys = tuple(value)
@@ -97,7 +103,7 @@ def _require_exact_keys(value: object, expected: tuple[str, ...], *, item: bool 
         if set(keys) - set(expected):
             raise AdvisoryBaselineError("unknown advisory item key" if item else "unknown policy root key")
         raise AdvisoryBaselineError("missing advisory item key" if item else "missing policy root key")
-    if keys != expected:
+    if canonical_order and keys != expected:
         raise AdvisoryBaselineError("policy key order is not canonical")
     return value
 
@@ -163,7 +169,7 @@ def load_baseline(path: Path) -> Baseline:
         identities.add(identity)
         accepted.append(accepted_item)
 
-    if accepted != sorted(accepted):
+    if accepted != sorted(accepted, key=lambda item: (item.package, item.accepted_version, item.advisory_id)):
         raise AdvisoryBaselineError("accepted advisories must be sorted")
     canonical = json.dumps(document, indent=2, ensure_ascii=False).encode("utf-8") + b"\n"
     if original != canonical:
@@ -175,36 +181,42 @@ def normalize_pip_audit(surface: str, payload: object) -> Observation:
     """Reduce one pip-audit JSON observation to policy-relevant data."""
     if surface not in SURFACE_ORDER:
         raise AdvisoryBaselineError("unknown audit surface")
-    if not isinstance(payload, list):
-        raise AdvisoryBaselineError("pip-audit payload must be a list")
+    root = _require_exact_keys(payload, ("dependencies", "fixes"), canonical_order=False)
+    dependencies = root["dependencies"]
+    if not isinstance(dependencies, list):
+        raise AdvisoryBaselineError("pip-audit dependencies must be a list")
+    if root["fixes"] != []:
+        raise AdvisoryBaselineError("pip-audit fixes must be an empty list")
 
     versions: dict[str, str] = {}
     advisories: set[tuple[str, str, str]] = set()
-    for dependency in payload:
-        if not isinstance(dependency, dict):
-            raise AdvisoryBaselineError("pip-audit dependency must be an object")
-        name = _require_string(dependency.get("name"), "pip-audit dependency name must be a string")
-        version = _require_string(dependency.get("version"), "pip-audit dependency version must be a string")
-        vulnerabilities = dependency.get("vulns")
+    for dependency in dependencies:
+        dependency = _require_exact_keys(
+            dependency, ("name", "version", "vulns"), item=True, canonical_order=False
+        )
+        name = _require_string(dependency["name"], "pip-audit dependency name must be a string")
+        version = _require_string(dependency["version"], "pip-audit dependency version must be a string")
+        vulnerabilities = dependency["vulns"]
         if not isinstance(vulnerabilities, list):
             raise AdvisoryBaselineError("pip-audit dependency vulnerabilities must be a list")
         package = normalize_package_name(name)
-        previous_version = versions.get(package)
-        if previous_version is not None and previous_version != version:
-            raise AdvisoryBaselineError("pip-audit package has conflicting versions")
+        if package in versions:
+            raise AdvisoryBaselineError("pip-audit payload has duplicate normalized dependencies")
         versions[package] = version
         for vulnerability in vulnerabilities:
-            if not isinstance(vulnerability, dict):
-                raise AdvisoryBaselineError("pip-audit vulnerability must be an object")
+            vulnerability = _require_exact_keys(
+                vulnerability,
+                ("id", "fix_versions", "aliases"),
+                item=True,
+                canonical_order=False,
+            )
             advisory_id = _require_string(
-                vulnerability.get("id"),
+                vulnerability["id"],
                 "pip-audit vulnerability id must be a string",
             )
             for field in ("aliases", "fix_versions"):
-                value = vulnerability.get(field)
-                if value is not None and (
-                    not isinstance(value, list) or any(not isinstance(item, str) for item in value)
-                ):
+                value = vulnerability[field]
+                if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
                     raise AdvisoryBaselineError(f"pip-audit vulnerability {field} must be a list of strings")
             advisories.add((package, version, advisory_id))
 
@@ -236,17 +248,25 @@ def compare_baseline(baseline: Baseline, observations: Sequence[Observation]) ->
 
     observed_advisories: dict[tuple[str, str, str], set[str]] = {}
     baseline_by_primary: dict[tuple[str, str], list[AcceptedAdvisory]] = {}
-    expected_versions_by_surface: dict[tuple[str, str], set[str]] = {}
+    accepted_versions_by_package: dict[str, set[str]] = {}
+    accepted_surfaces_by_package: dict[str, set[str]] = {}
     for accepted in baseline.accepted_advisories:
         baseline_by_primary.setdefault((accepted.package, accepted.advisory_id), []).append(accepted)
-        for surface in accepted.surfaces:
-            expected_versions_by_surface.setdefault((surface, accepted.package), set()).add(accepted.accepted_version)
+        accepted_versions_by_package.setdefault(accepted.package, set()).add(accepted.accepted_version)
+        accepted_surfaces_by_package.setdefault(accepted.package, set()).update(accepted.surfaces)
     for surface, observation in observations_by_surface.items():
         for package, version in observation.resolved_versions:
-            expected_versions = expected_versions_by_surface.get((surface, package))
+            expected_versions = accepted_versions_by_package.get(package)
             if expected_versions is not None and version not in expected_versions:
                 expected = ", ".join(sorted(expected_versions))
                 errors.append(f"accepted version drift: {package} expected {expected}; observed {version}")
+            expected_surfaces = accepted_surfaces_by_package.get(package)
+            if expected_surfaces is not None and surface not in expected_surfaces:
+                expected = tuple(item for item in baseline.audited_surfaces if item in expected_surfaces)
+                errors.append(
+                    f"surface drift: {package} {version} observed on {surface}; "
+                    f"expected {_format_surfaces(expected)}"
+                )
         for package, version, advisory_id in observation.advisories:
             observed_advisories.setdefault((package, advisory_id, version), set()).add(surface)
             accepted = baseline_by_primary.get((package, advisory_id))
@@ -301,6 +321,14 @@ def _audit_command(surface: AuditSurface, output: Path) -> list[str]:
     return command
 
 
+def _load_pip_audit_output(path: Path) -> object:
+    """Parse one pip-audit JSON document without silently accepting duplicate keys."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, AdvisoryBaselineError) as error:
+        raise AdvisoryBaselineError("pip-audit produced an invalid observation") from error
+
+
 def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tuple[Observation, ...]:
     """Run the fixed four-surface audit contract and normalize every result."""
     observations: list[Observation] = []
@@ -318,9 +346,8 @@ def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tupl
             if result.returncode not in (0, 1):
                 raise AdvisoryBaselineError("pip-audit did not complete")
             try:
-                payload = json.loads(output.read_text(encoding="utf-8"))
-                observations.append(normalize_pip_audit(surface.name, payload))
-            except (OSError, json.JSONDecodeError, AdvisoryBaselineError) as error:
+                observations.append(normalize_pip_audit(surface.name, _load_pip_audit_output(output)))
+            except AdvisoryBaselineError as error:
                 raise AdvisoryBaselineError("pip-audit produced an invalid observation") from error
     return tuple(observations)
 

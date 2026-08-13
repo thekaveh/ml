@@ -1589,6 +1589,42 @@ def test_docs_d10_html_comment_does_not_satisfy_advisory_baseline(tmp_path):
     assert hits[0].message == "current accepted-advisories section is missing"
 
 
+@pytest.mark.parametrize("tag", ["script", "style", "pre", "textarea"])
+def test_docs_d10_raw_html_block_hides_the_only_advisory_snapshot(tmp_path, tag):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    snapshot = _current_advisory_snapshot(ledger.read_text(encoding="utf-8"))
+    ledger.write_text(f"<{tag}>\n{snapshot}\n</{tag}>\n", encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == ["current accepted-advisories section is missing"]
+
+
+@pytest.mark.parametrize("tag", ["script", "style", "pre", "textarea"])
+def test_docs_d10_raw_html_block_hides_a_duplicate_advisory_snapshot(tmp_path, tag):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(f"{text}\n<{tag}>\n{_current_advisory_snapshot(text)}\n</{tag}>\n", encoding="utf-8")
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
+def test_docs_d10_visible_advisory_snapshot_still_counts_after_raw_html_block_control(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"<script>hidden</script>\n{text}\n{_current_advisory_snapshot(text)}\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
 @pytest.mark.parametrize(
     "fence",
     [

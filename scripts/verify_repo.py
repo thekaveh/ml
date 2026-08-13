@@ -460,6 +460,7 @@ def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
 
     stripped: list[str] = []
     fence: tuple[str, int] | None = None
+    raw_html_block: str | None = None
     in_comment = False
     inline_marker: str | None = None
     for line in text.splitlines():
@@ -488,9 +489,25 @@ def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
                 fence = None
             stripped.append(" " * len(line))
             continue
+        if raw_html_block is not None:
+            if re.search(rf"</{raw_html_block}\s*>", line, re.IGNORECASE):
+                raw_html_block = None
+            stripped.append(" " * len(line))
+            continue
         line, in_comment, inline_marker = mask_html_comments(
             line, in_comment, inline_marker
         )
+        raw_html_opener = re.match(
+            r"^ {0,3}<(script|style|pre|textarea)(?:\s[^>]*)?>",
+            line,
+            re.IGNORECASE,
+        )
+        if raw_html_opener is not None:
+            raw_html_block = raw_html_opener.group(1).lower()
+            if re.search(rf"</{raw_html_block}\s*>", line[raw_html_opener.end():], re.IGNORECASE):
+                raw_html_block = None
+            stripped.append(" " * len(line))
+            continue
         stripped.append(line)
     return "\n".join(stripped)
 

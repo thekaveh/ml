@@ -248,8 +248,8 @@ def test_real_baseline_contains_exact_reviewed_policy_quadruples() -> None:
     }
 
 
-def _payload(*dependencies: dict[str, object]) -> list[dict[str, object]]:
-    return list(dependencies)
+def _payload(*dependencies: dict[str, object]) -> dict[str, object]:
+    return {"dependencies": list(dependencies), "fixes": []}
 
 
 def _dependency(name: str, version: str, *vulnerability_ids: str) -> dict[str, object]:
@@ -286,7 +286,7 @@ def _complete_observations(*, combined: object, torch: object) -> tuple:
     )
 
 
-def test_normalize_accepts_clean_and_vulnerable_pip_audit_payloads() -> None:
+def test_normalize_accepts_representative_pip_audit_2_10_clean_and_vulnerable_payloads() -> None:
     clean = normalize_pip_audit("documentation", _payload(_dependency("mkdocs", "9.0")))
     vulnerable = normalize_pip_audit(
         "torch",
@@ -303,8 +303,7 @@ def test_normalize_collapses_duplicate_raw_records_to_one_identity() -> None:
     observation = normalize_pip_audit(
         "torch",
         _payload(
-            _dependency("torch", "2.4.1", "PYSEC-2025-191"),
-            _dependency("torch", "2.4.1", "PYSEC-2025-191"),
+            _dependency("torch", "2.4.1", "PYSEC-2025-191", "PYSEC-2025-191"),
         ),
     )
 
@@ -315,7 +314,10 @@ def test_normalize_collapses_duplicate_raw_records_to_one_identity() -> None:
     "surface,payload",
     [
         ("unknown", _payload()),
-        ("torch", {"not": "a list"}),
+        ("torch", []),
+        ("torch", {"dependencies": _payload()["dependencies"]}),
+        ("torch", {"dependencies": _payload()["dependencies"], "fixes": [], "extra": True}),
+        ("torch", {"dependencies": _payload()["dependencies"], "fixes": [{}]}),
         ("torch", _payload({"name": "torch", "version": "2.4.1"})),
         ("torch", _payload({"name": "torch", "version": "2.4.1", "vulns": [{"id": 1}]})),
         (
@@ -330,6 +332,27 @@ def test_normalize_collapses_duplicate_raw_records_to_one_identity() -> None:
 def test_normalize_rejects_malformed_payload_and_dependency_records(surface: str, payload: object) -> None:
     with pytest.raises(AdvisoryBaselineError):
         normalize_pip_audit(surface, payload)
+
+
+@pytest.mark.parametrize(
+    "dependency",
+    [
+        {"name": "torch", "version": "2.4.1", "vulns": [], "extra": True},
+        {"name": "torch", "version": "2.4.1", "vulns": [{"id": "CVE", "fix_versions": []}]},
+        {"name": "torch", "version": "2.4.1", "vulns": [{"id": "CVE", "fix_versions": [], "aliases": [], "extra": True}]},
+    ],
+)
+def test_normalize_rejects_unknown_or_missing_actual_pip_audit_2_10_fields(dependency: dict[str, object]) -> None:
+    with pytest.raises(AdvisoryBaselineError):
+        normalize_pip_audit("torch", _payload(dependency))
+
+
+def test_normalize_rejects_duplicate_normalized_dependencies_even_at_the_same_version() -> None:
+    with pytest.raises(AdvisoryBaselineError, match="duplicate"):
+        normalize_pip_audit(
+            "torch",
+            _payload(_dependency("torch", "2.4.1"), _dependency("Torch", "2.4.1")),
+        )
 
 
 def test_compare_accepts_exact_observations() -> None:
@@ -402,6 +425,39 @@ def test_compare_fails_on_accepted_version_drift_with_empty_vulnerability_list()
     assert result.errors == ("accepted version drift: torch expected 2.4.1; observed 2.5.0",)
 
 
+def test_compare_checks_accepted_versions_on_clean_unexpected_surfaces() -> None:
+    result = compare_baseline(
+        _baseline(),
+        _observations(
+            ("combined-runtime", _payload(_dependency("torch", "2.4.1", "CVE-2025-2148"))),
+            ("torch", _payload(_dependency("torch", "2.4.1", "CVE-2025-2148"))),
+            ("documentation", _payload(_dependency("torch", "9.9.9"))),
+            ("atlas-contract", _payload()),
+        ),
+    )
+
+    assert result.errors == (
+        "accepted version drift: torch expected 2.4.1; observed 9.9.9",
+        "surface drift: torch 9.9.9 observed on documentation; expected [combined-runtime, torch]",
+    )
+
+
+def test_compare_rejects_clean_accepted_version_on_an_unexpected_surface() -> None:
+    result = compare_baseline(
+        _baseline(),
+        _observations(
+            ("combined-runtime", _payload(_dependency("torch", "2.4.1", "CVE-2025-2148"))),
+            ("torch", _payload(_dependency("torch", "2.4.1", "CVE-2025-2148"))),
+            ("documentation", _payload(_dependency("torch", "2.4.1"))),
+            ("atlas-contract", _payload()),
+        ),
+    )
+
+    assert result.errors == (
+        "surface drift: torch 2.4.1 observed on documentation; expected [combined-runtime, torch]",
+    )
+
+
 def test_compare_rejects_cross_product_advisory_versions_even_when_surfaces_match() -> None:
     baseline = Baseline(
         schema_version=1,
@@ -431,6 +487,18 @@ def _versioned_identity_baseline() -> Baseline:
             AcceptedAdvisory("torch", "ADVISORY", "2.0", ("torch",)),
         ),
     )
+
+
+def test_load_baseline_sorts_versions_before_advisory_ids(tmp_path: Path) -> None:
+    path = tmp_path / "baseline.json"
+    entries = [
+        {"advisory_id": "ADVISORY-A", "package": "torch", "accepted_version": "2.0", "surfaces": ["torch"]},
+        {"advisory_id": "ADVISORY-Z", "package": "torch", "accepted_version": "1.0", "surfaces": ["torch"]},
+    ]
+    _write_policy(path, _canonical_document(entries=entries))
+
+    with pytest.raises(AdvisoryBaselineError, match="sorted"):
+        load_baseline(path)
 
 
 def test_compare_accepts_same_primary_id_at_two_exact_accepted_versions() -> None:
@@ -472,6 +540,7 @@ def test_compare_fails_when_a_versioned_identity_moves_to_the_wrong_surface() ->
 
     assert result.errors == (
         "surface drift: torch 1.0 ADVISORY expected [combined-runtime]; observed [documentation]",
+        "surface drift: torch 1.0 observed on documentation; expected [combined-runtime, torch]",
     )
     assert result.notices == ()
 
@@ -529,7 +598,7 @@ def _audit_runner(*, returncode: int = 0, payload: object = None, write_output: 
         commands.append((tuple(command), kwargs))
         if write_output:
             output = Path(command[command.index("--output") + 1])
-            output.write_text(json.dumps([] if payload is None else payload), encoding="utf-8")
+            output.write_text(json.dumps(_payload() if payload is None else payload), encoding="utf-8")
         return SimpleNamespace(returncode=returncode, stdout="", stderr="")
 
     return commands, run
@@ -663,6 +732,16 @@ def test_audit_exit_zero_and_one_are_completed_observations(tmp_path: Path, retu
     ],
 )
 def test_audit_other_exit_missing_output_and_malformed_json_fail_closed(tmp_path: Path, runner) -> None:
+    with pytest.raises(AdvisoryBaselineError):
+        run_audit_surfaces(tmp_path, runner=runner)
+
+
+def test_audit_rejects_duplicate_pip_audit_root_keys_from_serialized_output(tmp_path: Path) -> None:
+    def runner(command: list[str], **kwargs: object) -> SimpleNamespace:
+        output = Path(command[command.index("--output") + 1])
+        output.write_text('{"dependencies": [], "dependencies": [], "fixes": []}', encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
     with pytest.raises(AdvisoryBaselineError):
         run_audit_surfaces(tmp_path, runner=runner)
 

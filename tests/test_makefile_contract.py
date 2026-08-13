@@ -11,6 +11,22 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_SUBPROCESS_TIMEOUT = 30
 
 
+def _assert_audit_advisories_contract(makefile: Path, cwd: Path) -> None:
+    source = makefile.read_text(encoding="utf-8")
+    target_lines = [line for line in source.splitlines() if line.startswith("audit-advisories:")]
+    assert target_lines == ["audit-advisories:"]
+    result = subprocess.run(
+        ["make", "-f", str(makefile), "--no-print-directory", "-n", "audit-advisories"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+    assert result.stdout == "python -m scripts.advisory_baseline\n"
+    assert result.stderr == ""
+
+
 def _assert_nnx_install_fixture_contract(source: str) -> None:
     tree = ast.parse(source)
     verifier_imports = [
@@ -151,6 +167,33 @@ def test_verify_nnx_install_target_is_public_and_uses_selected_python():
 
     assert result.stdout == "python -m scripts.verify_nnx_install\n"
     assert result.stderr == ""
+
+
+def test_audit_advisories_target_is_one_unsuppressed_command() -> None:
+    _assert_audit_advisories_contract(REPO_ROOT / "Makefile", REPO_ROOT)
+
+
+@pytest.mark.parametrize(
+    "original,mutation",
+    [
+        ("\t$(PYTHON) -m scripts.advisory_baseline", "\t$(PYTHON) -m scripts.advisory_baseline || true"),
+        ("audit-advisories:\n", "audit-advisories: requirements.txt\n"),
+        ("\t$(PYTHON) -m scripts.advisory_baseline", "\t$(PYTHON) -m scripts.advisory_baseline\n\t@echo extra"),
+        ("\n\nlint:\n", "\n\naudit-advisories:\n\t@echo duplicate\n\nlint:\n"),
+    ],
+    ids=("failure-suppressed", "prerequisite-added", "extra-recipe", "duplicate-target"),
+)
+def test_audit_advisories_contract_rejects_makefile_mutations(
+    tmp_path: Path, original: str, mutation: str
+) -> None:
+    source = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    mutated = source.replace(original, mutation, 1)
+    assert mutated != source
+    makefile = tmp_path / "Makefile"
+    makefile.write_text(mutated, encoding="utf-8")
+
+    with pytest.raises(AssertionError):
+        _assert_audit_advisories_contract(makefile, tmp_path)
 
 
 def test_nnx_surface_has_a_session_autouse_installation_verifier():

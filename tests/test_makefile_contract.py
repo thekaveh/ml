@@ -35,6 +35,14 @@ def _assert_audit_advisories_contract(makefile: Path, cwd: Path) -> None:
     )
     assert result.stdout == "python -m scripts.advisory_baseline\n"
     assert result.stderr == ""
+    failure_probe = subprocess.run(
+        ["make", "-f", str(makefile), "--no-print-directory", "audit-advisories", "PYTHON=false"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+    assert failure_probe.returncode != 0
 
 
 def _assert_nnx_install_fixture_contract(source: str) -> None:
@@ -196,6 +204,9 @@ def test_audit_advisories_target_is_one_unsuppressed_command() -> None:
         ("\n\nlint:\n", "\n\n.IGNORE: audit-advisories # fail-open\nlint:\n"),
         ("\n\nlint:\n", "\n\n  .IGNORE: # fail-open\nlint:\n"),
         ("\n\nlint:\n", "\n\n.IGNORE : audit-advisories # fail-open\nlint:\n"),
+        ("\n\nlint:\n", "\n\n.IGNORE: \\\n  audit-advisories\nlint:\n"),
+        ("\n\nlint:\n", "\n\nAUDIT_TARGET := audit-advisories\n.IGNORE: $(AUDIT_TARGET)\nlint:\n"),
+        ("\n\nlint:\n", "\n\n.IGNORE: harmless\\#name audit-advisories\nlint:\n"),
     ],
     ids=(
         "failure-suppressed",
@@ -208,6 +219,9 @@ def test_audit_advisories_target_is_one_unsuppressed_command() -> None:
         "target-ignore-directive",
         "global-ignore-directive",
         "spaced-target-ignore-directive",
+        "continued-target-ignore-directive",
+        "expanded-target-ignore-directive",
+        "escaped-comment-target-ignore-directive",
     ),
 )
 def test_audit_advisories_contract_rejects_makefile_mutations(

@@ -1662,6 +1662,60 @@ def test_docs_d10_three_space_fence_closer_exposes_advisory_snapshot(tmp_path):
     assert _d10_advisory_baseline_findings(repo) == []
 
 
+def test_docs_d10_active_comment_ignores_fence_marker_before_later_duplicate_heading(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n<!--\n```markdown\n-->\n{_current_advisory_snapshot(text)}\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_docs_d10_comment_closing_midline_resumes_live_heading_parsing(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n<!-- ignored --> visible text\n{_current_advisory_snapshot(text)}\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_docs_d10_multiline_inline_code_comment_delimiter_is_inert_before_duplicate_heading(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"{text}\n`\n<!--\n`\n{_current_advisory_snapshot(text)}\n-->\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_markdown_masking_multiline_inline_code_requires_equal_backtick_length():
+    masked = verify_repo._strip_markdown_code(
+        "``\n<!--\n`\n# hidden\n``\n# visible"
+    )
+
+    assert "# hidden" not in masked
+    assert "# visible" in masked
+
+
 def _dependency_snapshot(*, summary_count=2, advisory_rows=None):
     rows = advisory_rows or [
         (

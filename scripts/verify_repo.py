@@ -414,7 +414,12 @@ def _read_text(path: Path) -> str:
 
 
 def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
-    def mask_html_comments(line: str, in_comment: bool) -> tuple[str, bool]:
+    def code_fragment(value: str) -> str:
+        return " " * len(value) if strip_inline else value
+
+    def mask_html_comments(
+        line: str, in_comment: bool, inline_marker: str | None
+    ) -> tuple[str, bool, str | None]:
         masked: list[str] = []
         index = 0
         while index < len(line):
@@ -422,33 +427,43 @@ def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
                 close = line.find("-->", index)
                 if close == -1:
                     masked.append(" " * (len(line) - index))
-                    return "".join(masked), True
+                    return "".join(masked), True, inline_marker
                 masked.append(" " * (close + 3 - index))
                 index = close + 3
                 in_comment = False
                 continue
+            if inline_marker is not None:
+                code_span = re.search(r"`+", line[index:])
+                if code_span is None:
+                    masked.append(code_fragment(line[index:]))
+                    return "".join(masked), in_comment, inline_marker
+                end = index + code_span.end()
+                masked.append(code_fragment(line[index:end]))
+                index = end
+                if len(code_span.group(0)) == len(inline_marker):
+                    inline_marker = None
+                continue
             code_span = re.match(r"`+", line[index:])
             if code_span:
-                marker = code_span.group(0)
-                close = line.find(marker, index + len(marker))
-                if close != -1:
-                    end = close + len(marker)
-                    masked.append(line[index:end])
-                    index = end
-                    continue
+                inline_marker = code_span.group(0)
+                end = index + len(inline_marker)
+                masked.append(code_fragment(line[index:end]))
+                index = end
+                continue
             if line.startswith("<!--", index):
                 in_comment = True
                 continue
             masked.append(line[index])
             index += 1
-        return "".join(masked), in_comment
+        return "".join(masked), in_comment, inline_marker
 
     stripped: list[str] = []
     fence: tuple[str, int] | None = None
     in_comment = False
+    inline_marker: str | None = None
     for line in text.splitlines():
         opener = re.match(r"^ {0,3}(?P<marker>`{3,}|~{3,})", line)
-        if fence is None and opener:
+        if fence is None and not in_comment and inline_marker is None and opener:
             marker = opener["marker"]
             fence = (marker[0], len(marker))
             stripped.append(" " * len(line))
@@ -459,12 +474,10 @@ def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
                 fence = None
             stripped.append(" " * len(line))
             continue
-        line, in_comment = mask_html_comments(line, in_comment)
-        stripped.append(
-            _INLINE_CODE_RE.sub(lambda m: " " * len(m.group(0)), line)
-            if strip_inline
-            else line
+        line, in_comment, inline_marker = mask_html_comments(
+            line, in_comment, inline_marker
         )
+        stripped.append(line)
     return "\n".join(stripped)
 
 

@@ -20,6 +20,37 @@ from scripts.advisory_baseline import (
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+PYG_FIND_LINKS = "--find-links https://data.pyg.org/whl/torch-2.4.0+cpu.html"
+TORCH_RUNTIME_REQUIREMENTS = (
+    "-r torch-core-requirements.txt\n"
+    f"{PYG_FIND_LINKS}\n"
+    "torch-scatter==2.1.2\n"
+    "torch-sparse==0.6.18\n"
+    "torch-cluster==1.6.3\n"
+    "torch-spline-conv==1.2.2\n"
+    "torch_geometric==2.6.1\n"
+)
+TORCH_AUDIT_REQUIREMENTS = (
+    "-r torch-core-requirements.txt\n"
+    "torch-scatter==2.1.2\n"
+    "torch-sparse==0.6.18\n"
+    "torch-cluster==1.6.3\n"
+    "torch-spline-conv==1.2.2\n"
+    "torch_geometric==2.6.1\n"
+)
+
+
+def _write_torch_requirements(repo: Path) -> tuple[Path, Path]:
+    runtime = repo / "torch-requirements.txt"
+    audit = repo / "torch-audit-requirements.txt"
+    runtime.write_text(TORCH_RUNTIME_REQUIREMENTS, encoding="utf-8")
+    audit.write_text(TORCH_AUDIT_REQUIREMENTS, encoding="utf-8")
+    return runtime, audit
+
+
+@pytest.fixture(autouse=True)
+def _torch_audit_projection(tmp_path: Path) -> None:
+    _write_torch_requirements(tmp_path)
 
 
 def _canonical_document(*, entries: list[dict[str, object]] | None = None) -> dict[str, object]:
@@ -637,8 +668,8 @@ def _audit_runner(
 
 def _assert_exact_audit_commands(commands: list[tuple[tuple[str, ...], dict[str, object]]], repo: Path) -> None:
     expected_inputs = (
-        ("combined-runtime.json", ("-r", "requirements.txt", "-r", "torch-requirements.txt")),
-        ("torch.json", ("-r", "torch-requirements.txt")),
+        ("combined-runtime.json", ("-r", "requirements.txt", "-r", "torch-audit-requirements.txt")),
+        ("torch.json", ("-r", "torch-audit-requirements.txt")),
         ("documentation.json", ("--disable-pip", "-r", "docs-requirements.txt")),
         ("atlas-contract.json", ("-r", "atlas-contract-requirements.txt")),
     )
@@ -675,11 +706,105 @@ def test_audit_commands_match_the_complete_four_surface_contract(tmp_path: Path)
     _assert_exact_audit_commands(commands, tmp_path)
 
 
+def test_real_torch_audit_projection_is_the_selector_free_runtime_mirror() -> None:
+    text = (REPO_ROOT / "torch-audit-requirements.txt").read_text(encoding="utf-8")
+
+    assert "# Audit-only selector-free PyG projection." in text
+    assert "# Runtime source: torch-requirements.txt retains the approved PyG wheel selector." in text
+    assert tuple(line for line in text.splitlines() if line and not line.startswith("#")) == tuple(
+        TORCH_AUDIT_REQUIREMENTS.splitlines()
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda runtime, audit: audit.write_text(
+            audit.read_text(encoding="utf-8").replace("torch-cluster==1.6.3\n", ""),
+            encoding="utf-8",
+        ),
+        lambda runtime, audit: audit.write_text(
+            audit.read_text(encoding="utf-8") + "rogue-package==1.0\n",
+            encoding="utf-8",
+        ),
+        lambda runtime, audit: audit.write_text(
+            audit.read_text(encoding="utf-8").replace("torch-sparse==0.6.18", "torch-sparse==9.9.9"),
+            encoding="utf-8",
+        ),
+        lambda runtime, audit: audit.write_text(
+            audit.read_text(encoding="utf-8") + "--index-url https://example.test/simple\n",
+            encoding="utf-8",
+        ),
+        lambda runtime, audit: audit.write_text(
+            audit.read_text(encoding="utf-8") + "torch-sparse==0.6.18\n",
+            encoding="utf-8",
+        ),
+        lambda runtime, audit: audit.write_text(
+            audit.read_text(encoding="utf-8") + "torch-sparse==9.9.9\n",
+            encoding="utf-8",
+        ),
+        lambda runtime, audit: runtime.write_text(
+            runtime.read_text(encoding="utf-8").replace(f"{PYG_FIND_LINKS}\n", ""),
+            encoding="utf-8",
+        ),
+        lambda runtime, audit: runtime.write_text(
+            runtime.read_text(encoding="utf-8").replace(
+                PYG_FIND_LINKS,
+                "--find-links https://example.test/torch.html",
+            ),
+            encoding="utf-8",
+        ),
+        lambda runtime, audit: runtime.write_text(
+            runtime.read_text(encoding="utf-8") + f"{PYG_FIND_LINKS}\n",
+            encoding="utf-8",
+        ),
+        lambda runtime, audit: (
+            runtime.write_text(
+                runtime.read_text(encoding="utf-8").replace("-r torch-core-requirements.txt\n", ""),
+                encoding="utf-8",
+            ),
+            audit.write_text(
+                audit.read_text(encoding="utf-8").replace("-r torch-core-requirements.txt\n", ""),
+                encoding="utf-8",
+            ),
+        ),
+    ],
+    ids=(
+        "missing-pin",
+        "extra-pin",
+        "changed-pin",
+        "extra-option",
+        "duplicate-pin",
+        "ambiguous-pin",
+        "missing-selector",
+        "changed-selector",
+        "duplicate-selector",
+        "synchronized-missing-core-include",
+    ),
+)
+def test_audit_rejects_torch_projection_drift_before_running_audit(tmp_path: Path, mutation) -> None:
+    runtime, audit = _write_torch_requirements(tmp_path)
+    mutation(runtime, audit)
+    _, runner = _audit_runner()
+
+    with pytest.raises(AdvisoryBaselineError, match="torch audit projection"):
+        run_audit_surfaces(tmp_path, runner=runner)
+
+
+def test_torch_projection_ignores_comments_but_preserves_semantic_parity(tmp_path: Path) -> None:
+    runtime, audit = _write_torch_requirements(tmp_path)
+    runtime.write_text("# runtime comment\n" + runtime.read_text(encoding="utf-8"), encoding="utf-8")
+    audit.write_text(audit.read_text(encoding="utf-8") + "# audit comment\n", encoding="utf-8")
+    _, runner = _audit_runner()
+
+    assert len(run_audit_surfaces(tmp_path, runner=runner)) == 4
+
+
 @pytest.mark.parametrize(
     "command_index,mutation",
     [
         (0, lambda command: command.__setitem__(command.index("off", command.index("--progress-spinner")), "on")),
-        (1, lambda command: command.__setitem__(command.index("torch-requirements.txt"), "requirements.txt")),
+        (1, lambda command: command.__setitem__(command.index("torch-audit-requirements.txt"), "requirements.txt")),
         (3, lambda command: command.__setitem__(command.index("atlas-contract-requirements.txt"), "requirements.txt")),
         (0, lambda command: command.remove("--strict")),
         (0, lambda command: command.insert(command.index("--format"), "--ignore-vuln")),
@@ -721,7 +846,7 @@ def test_audit_commands_cover_exact_four_surfaces_and_flags(tmp_path: Path) -> N
         "atlas-contract",
     ]
     assert [command[:3] for command, _ in commands] == [(sys.executable, "-m", "pip_audit")] * 4
-    assert [("-r", "requirements.txt", "-r", "torch-requirements.txt") == command[3:7] for command, _ in commands] == [
+    assert [("-r", "requirements.txt", "-r", "torch-audit-requirements.txt") == command[3:7] for command, _ in commands] == [
         True,
         False,
         False,

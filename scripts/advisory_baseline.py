@@ -14,6 +14,10 @@ from typing import Callable, Sequence
 
 
 SCHEMA_VERSION = 1
+TORCH_RUNTIME_REQUIREMENTS = "torch-requirements.txt"
+TORCH_AUDIT_REQUIREMENTS = "torch-audit-requirements.txt"
+TORCH_CORE_REQUIREMENTS = "-r torch-core-requirements.txt"
+PYG_FIND_LINKS = "--find-links https://data.pyg.org/whl/torch-2.4.0+cpu.html"
 SURFACE_ORDER = (
     "combined-runtime",
     "torch",
@@ -87,8 +91,8 @@ class AuditSurface:
 
 
 AUDIT_SURFACES = (
-    AuditSurface("combined-runtime", ("requirements.txt", "torch-requirements.txt")),
-    AuditSurface("torch", ("torch-requirements.txt",)),
+    AuditSurface("combined-runtime", ("requirements.txt", TORCH_AUDIT_REQUIREMENTS)),
+    AuditSurface("torch", (TORCH_AUDIT_REQUIREMENTS,)),
     AuditSurface("documentation", ("docs-requirements.txt",), disable_pip=True),
     AuditSurface("atlas-contract", ("atlas-contract-requirements.txt",)),
 )
@@ -374,8 +378,43 @@ def _classify_missing_output(returncode: int, stderr: object) -> str:
     return "missing-output"
 
 
+def _semantic_requirement_lines(path: Path) -> tuple[str, ...]:
+    """Return non-comment requirement/include lines with trailing comments removed."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise AdvisoryBaselineError("torch audit projection is unavailable") from error
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        line = line.split(" #", 1)[0].rstrip()
+        if line:
+            lines.append(line)
+    return tuple(lines)
+
+
+def _validate_torch_audit_projection(repo: Path) -> None:
+    """Require the selector-free audit manifest to exactly mirror the runtime pins."""
+    runtime = _semantic_requirement_lines(repo / TORCH_RUNTIME_REQUIREMENTS)
+    audit = _semantic_requirement_lines(repo / TORCH_AUDIT_REQUIREMENTS)
+    if runtime.count(PYG_FIND_LINKS) != 1 or runtime.count(TORCH_CORE_REQUIREMENTS) != 1:
+        raise AdvisoryBaselineError("torch audit projection has an invalid runtime selector")
+    expected = tuple(line for line in runtime if line != PYG_FIND_LINKS)
+    if (
+        len(runtime) != len(set(runtime))
+        or len(audit) != len(set(audit))
+        or audit.count(TORCH_CORE_REQUIREMENTS) != 1
+        or any(line.startswith("-") and line != TORCH_CORE_REQUIREMENTS for line in audit)
+        or audit != expected
+    ):
+        raise AdvisoryBaselineError("torch audit projection does not match runtime requirements")
+
+
 def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tuple[Observation, ...]:
     """Run the fixed four-surface audit contract and normalize every result."""
+    _validate_torch_audit_projection(repo)
     observations: list[Observation] = []
     with tempfile.TemporaryDirectory(prefix="advisory-baseline-") as temporary_directory:
         output_directory = Path(temporary_directory)

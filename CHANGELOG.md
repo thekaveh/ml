@@ -13,6 +13,11 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Four-surface vulnerability ledger refresh:** recorded the dated combined-runtime, Torch,
+  documentation-lock, and Atlas-contract observations in the canonical dependency ledger, with an
+  alias-aware reconciliation of historical identities and a static integrity check for the current
+  package/advisory tables. Automated vulnerability-baseline enforcement remains deferred to Issue
+  #60.
 - **Canonical NNx wheel evidence:** added the fail-closed `make verify-nnx-install` contract for
   exact pin, distribution ownership, direct-URL rejection, and import-origin validation. Both
   `pytest-repository` and `pytest-nnx-surface` now select NNx with

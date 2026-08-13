@@ -413,7 +413,7 @@ def _read_text(path: Path) -> str:
         return ""
 
 
-def _strip_markdown_code(text: str) -> str:
+def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
     stripped: list[str] = []
     in_fence = False
     for line in text.splitlines():
@@ -424,7 +424,11 @@ def _strip_markdown_code(text: str) -> str:
         if in_fence:
             stripped.append(" " * len(line))
             continue
-        stripped.append(_INLINE_CODE_RE.sub(lambda m: " " * len(m.group(0)), line))
+        stripped.append(
+            _INLINE_CODE_RE.sub(lambda m: " " * len(m.group(0)), line)
+            if strip_inline
+            else line
+        )
     return "\n".join(stripped)
 
 
@@ -953,7 +957,8 @@ _ATLAS_INFRA_GITLINK_SHA_RE = re.compile(
     re.MULTILINE,
 )
 _DEPENDENCY_CURRENT_SNAPSHOT_RE = re.compile(
-    r"^### 6[.]1[.]1[.]2 Current accepted advisories\r?$"
+    r"^###[ \t]+6[.]1[.]1[.]2[ \t]+Current[ \t]+accepted[ \t]+"
+    r"advisories[ \t]*\r?$"
     r"(?P<body>.*?)(?=^#{2,3}[ \t]|\Z)",
     re.MULTILINE | re.DOTALL,
 )
@@ -1017,7 +1022,8 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
         )]
     text = _read_text(path)
     findings: list[Finding] = []
-    snapshot_matches = list(_DEPENDENCY_CURRENT_SNAPSHOT_RE.finditer(text))
+    published_text = _strip_markdown_code(text, strip_inline=False)
+    snapshot_matches = list(_DEPENDENCY_CURRENT_SNAPSHOT_RE.finditer(published_text))
     if not snapshot_matches:
         findings.append(Finding(
             id="D10.dependency_ledger_count", check="docs", severity="error",

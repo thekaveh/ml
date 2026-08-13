@@ -1431,6 +1431,41 @@ def test_docs_d10_flags_duplicate_exact_current_heading(tmp_path):
     assert any("exactly once" in finding.message for finding in findings)
 
 
+@pytest.mark.parametrize(
+    "duplicate_heading",
+    [
+        "### 6.1.1.2 Current accepted advisories  \t",
+        "###\t6.1.1.2  Current\taccepted   advisories",
+    ],
+)
+def test_docs_d10_flags_semantically_duplicate_current_heading(
+    tmp_path, duplicate_heading
+):
+    text = _dependency_snapshot() + f"\n{duplicate_heading}\n\nDuplicate section.\n"
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("exactly once" in finding.message for finding in findings)
+
+
+def test_docs_d10_rejects_current_structures_inside_fenced_code(tmp_path):
+    heading = "### 6.1.1.2 Current accepted advisories"
+    prefix, body = _dependency_snapshot().split(f"{heading}\n\n", maxsplit=1)
+    text = f"{prefix}{heading}\n\n```markdown\n{body}```\n"
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("summary table" in finding.message for finding in findings)
+    assert any("advisory table" in finding.message for finding in findings)
+    assert any("Result" in finding.message for finding in findings)
+
+
+def test_docs_d10_ignores_current_heading_example_inside_fenced_code(tmp_path):
+    text = (
+        _dependency_snapshot()
+        + "\n```markdown\n"
+        + "### 6.1.1.2 Current accepted advisories\n"
+        + "```\n"
+    )
+    assert _d10_count_findings(tmp_path, text) == []
+
+
 def test_docs_d10_flags_current_package_count_drift(tmp_path):
     rows = [
         "| `torch` | `PYSEC-2025-41` | 1 | `2.6.0` | `2.4.1` | "

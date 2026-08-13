@@ -163,6 +163,10 @@ sections:
         number: "12.16"
         title: Issue 59 vulnerability ledger refresh implementation plan
         source: docs/superpowers/plans/2026-08-12-issue-59-vulnerability-ledger-implementation-plan.md
+      - id: issue-60-advisory-baseline-design
+        number: "12.17"
+        title: Issue 60 machine-readable advisory baseline design
+        source: docs/superpowers/specs/2026-08-13-issue-60-advisory-baseline-design.md
   - id: security
     number: "13"
     title: Security policy

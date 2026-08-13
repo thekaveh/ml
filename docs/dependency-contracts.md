@@ -30,6 +30,7 @@ Manifest SHA-256 values:
 
 The four final commands were run separately from the repository root. Exit `0` means no known
 vulnerabilities were reported; exit `1` means the emitted findings form a complete observation.
+Any exit other than 0/1, missing output, or malformed JSON invalidates the observation.
 
 ```bash
 AUDIT_DIR="$(mktemp -d /private/tmp/ml-eng-lab-issue59-audit.XXXXXX)"

@@ -509,6 +509,11 @@ def test_real_user_docs_publish_current_vulnerability_snapshot():
     assert "2026-08-12" in ledger
     assert "--disable-pip -r docs-requirements.txt" in ledger
     assert (
+        "Any exit other than 0/1, missing output, or malformed JSON invalidates the "
+        "observation."
+        in ledger
+    )
+    assert (
         "Absent from the 2026-08-12 snapshot; archived audit provenance only" in ledger
     )
     assert "does not claim an automated vulnerability-baseline gate" in security

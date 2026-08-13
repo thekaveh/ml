@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import subprocess
 from pathlib import Path
 
@@ -13,8 +14,17 @@ TEST_SUBPROCESS_TIMEOUT = 30
 
 def _assert_audit_advisories_contract(makefile: Path, cwd: Path) -> None:
     source = makefile.read_text(encoding="utf-8")
-    target_lines = [line for line in source.splitlines() if line.startswith("audit-advisories:")]
+    lines = source.splitlines()
+    target_lines = [line for line in lines if line.startswith("audit-advisories:")]
     assert target_lines == ["audit-advisories:"]
+    target_index = lines.index("audit-advisories:")
+    assert lines[target_index + 1] == "\t$(PYTHON) -m scripts.advisory_baseline"
+    for line in lines:
+        directive = line.split("#", 1)[0].strip()
+        ignore_match = re.fullmatch(r"\.IGNORE\s*:\s*(.*)", directive)
+        if ignore_match is not None:
+            ignored_targets = ignore_match.group(1).split()
+            assert ignored_targets and "audit-advisories" not in ignored_targets
     result = subprocess.run(
         ["make", "-f", str(makefile), "--no-print-directory", "-n", "audit-advisories"],
         cwd=cwd,
@@ -177,11 +187,28 @@ def test_audit_advisories_target_is_one_unsuppressed_command() -> None:
     "original,mutation",
     [
         ("\t$(PYTHON) -m scripts.advisory_baseline", "\t$(PYTHON) -m scripts.advisory_baseline || true"),
+        ("\t$(PYTHON) -m scripts.advisory_baseline", "\t-$(PYTHON) -m scripts.advisory_baseline"),
+        ("\t$(PYTHON) -m scripts.advisory_baseline", "\t@$(PYTHON) -m scripts.advisory_baseline"),
+        ("\t$(PYTHON) -m scripts.advisory_baseline", "\t+$(PYTHON) -m scripts.advisory_baseline"),
         ("audit-advisories:\n", "audit-advisories: requirements.txt\n"),
         ("\t$(PYTHON) -m scripts.advisory_baseline", "\t$(PYTHON) -m scripts.advisory_baseline\n\t@echo extra"),
         ("\n\nlint:\n", "\n\naudit-advisories:\n\t@echo duplicate\n\nlint:\n"),
+        ("\n\nlint:\n", "\n\n.IGNORE: audit-advisories # fail-open\nlint:\n"),
+        ("\n\nlint:\n", "\n\n  .IGNORE: # fail-open\nlint:\n"),
+        ("\n\nlint:\n", "\n\n.IGNORE : audit-advisories # fail-open\nlint:\n"),
     ],
-    ids=("failure-suppressed", "prerequisite-added", "extra-recipe", "duplicate-target"),
+    ids=(
+        "failure-suppressed",
+        "recipe-error-prefix",
+        "recipe-silent-prefix",
+        "recipe-recursive-prefix",
+        "prerequisite-added",
+        "extra-recipe",
+        "duplicate-target",
+        "target-ignore-directive",
+        "global-ignore-directive",
+        "spaced-target-ignore-directive",
+    ),
 )
 def test_audit_advisories_contract_rejects_makefile_mutations(
     tmp_path: Path, original: str, mutation: str

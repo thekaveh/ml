@@ -1610,6 +1610,51 @@ def test_docs_d10_raw_html_block_hides_a_duplicate_advisory_snapshot(tmp_path, t
     assert _d10_advisory_baseline_findings(repo) == []
 
 
+@pytest.mark.parametrize("opener", ["<script", '<script type="x"'])
+def test_docs_d10_partial_raw_html_opener_hides_the_only_advisory_snapshot(tmp_path, opener):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    snapshot = _current_advisory_snapshot(ledger.read_text(encoding="utf-8"))
+    ledger.write_text(f"{opener}\n{snapshot}\n</script>\n", encoding="utf-8")
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == ["current accepted-advisories section is missing"]
+
+
+@pytest.mark.parametrize("opener", ["<script", '<script type="x"'])
+def test_docs_d10_partial_raw_html_opener_hides_a_duplicate_advisory_snapshot(tmp_path, opener):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(f"{text}\n{opener}\n{_current_advisory_snapshot(text)}\n</script>\n", encoding="utf-8")
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
+def test_docs_d10_partial_raw_html_opener_preserves_visible_duplicate_control(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    text = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        f"<script\nhidden\n</script>\n{text}\n{_current_advisory_snapshot(text)}\n",
+        encoding="utf-8",
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert [hit.message for hit in hits] == [
+        "current accepted-advisories heading must appear exactly once; found 2"
+    ]
+
+
+def test_docs_d10_four_space_indented_partial_raw_html_is_not_an_opener(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    snapshot = _current_advisory_snapshot(ledger.read_text(encoding="utf-8"))
+    ledger.write_text(f"    <script\n{snapshot}\n", encoding="utf-8")
+
+    assert _d10_advisory_baseline_findings(repo) == []
+
+
 def test_docs_d10_visible_advisory_snapshot_still_counts_after_raw_html_block_control(tmp_path):
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"

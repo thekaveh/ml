@@ -436,10 +436,7 @@ def test_compare_checks_accepted_versions_on_clean_unexpected_surfaces() -> None
         ),
     )
 
-    assert result.errors == (
-        "accepted version drift: torch expected 2.4.1; observed 9.9.9",
-        "surface drift: torch 9.9.9 observed on documentation; expected [combined-runtime, torch]",
-    )
+    assert result.errors == ("accepted version drift: torch expected 2.4.1; observed 9.9.9",)
 
 
 def test_compare_rejects_clean_accepted_version_on_an_unexpected_surface() -> None:
@@ -474,7 +471,32 @@ def test_compare_rejects_cross_product_advisory_versions_even_when_surfaces_matc
 
     result = compare_baseline(baseline, observations)
 
-    assert result.errors == ("accepted version drift: torch expected 1.0; observed 2.0",)
+    assert result.errors == (
+        "accepted version drift: torch expected 1.0; observed 2.0",
+        "surface drift: torch 2.0 observed on combined-runtime; expected [torch]",
+    )
+    assert result.notices == ("reconcile removed advisory: torch 1.0 ADVISORY-A",)
+
+
+def test_compare_rejects_clean_cross_product_versions_on_the_wrong_surface() -> None:
+    baseline = Baseline(
+        schema_version=1,
+        audited_surfaces=("combined-runtime", "torch", "documentation", "atlas-contract"),
+        accepted_advisories=(
+            AcceptedAdvisory("torch", "ADVISORY-A", "1.0", ("combined-runtime",)),
+            AcceptedAdvisory("torch", "ADVISORY-B", "2.0", ("torch",)),
+        ),
+    )
+    result = compare_baseline(
+        baseline,
+        _complete_observations(
+            combined=_payload(_dependency("torch", "2.0")),
+            torch=_payload(_dependency("torch", "2.0", "ADVISORY-B")),
+        ),
+    )
+
+    assert result.errors
+    assert "accepted version drift: torch expected 1.0; observed 2.0" in result.errors
     assert result.notices == ("reconcile removed advisory: torch 1.0 ADVISORY-A",)
 
 
@@ -540,7 +562,7 @@ def test_compare_fails_when_a_versioned_identity_moves_to_the_wrong_surface() ->
 
     assert result.errors == (
         "surface drift: torch 1.0 ADVISORY expected [combined-runtime]; observed [documentation]",
-        "surface drift: torch 1.0 observed on documentation; expected [combined-runtime, torch]",
+        "surface drift: torch 1.0 observed on documentation; expected [combined-runtime]",
     )
     assert result.notices == ()
 

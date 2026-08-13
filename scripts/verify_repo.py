@@ -498,7 +498,7 @@ def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
             line, in_comment, inline_marker
         )
         raw_html_opener = re.match(
-            r"^ {0,3}<(script|style|pre|textarea)(?:\s[^>]*)?>",
+            r"^ {0,3}<(script|style|pre|textarea)(?=\s|>|$)",
             line,
             re.IGNORECASE,
         )

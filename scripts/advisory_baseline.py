@@ -248,19 +248,28 @@ def compare_baseline(baseline: Baseline, observations: Sequence[Observation]) ->
 
     observed_advisories: dict[tuple[str, str, str], set[str]] = {}
     baseline_by_primary: dict[tuple[str, str], list[AcceptedAdvisory]] = {}
+    accepted_versions_by_surface_package: dict[tuple[str, str], set[str]] = {}
     accepted_versions_by_package: dict[str, set[str]] = {}
-    accepted_surfaces_by_package: dict[str, set[str]] = {}
+    accepted_surfaces_by_package_version: dict[tuple[str, str], set[str]] = {}
     for accepted in baseline.accepted_advisories:
         baseline_by_primary.setdefault((accepted.package, accepted.advisory_id), []).append(accepted)
         accepted_versions_by_package.setdefault(accepted.package, set()).add(accepted.accepted_version)
-        accepted_surfaces_by_package.setdefault(accepted.package, set()).update(accepted.surfaces)
+        accepted_surfaces_by_package_version.setdefault(
+            (accepted.package, accepted.accepted_version), set()
+        ).update(accepted.surfaces)
+        for accepted_surface in accepted.surfaces:
+            accepted_versions_by_surface_package.setdefault(
+                (accepted_surface, accepted.package), set()
+            ).add(accepted.accepted_version)
     for surface, observation in observations_by_surface.items():
         for package, version in observation.resolved_versions:
-            expected_versions = accepted_versions_by_package.get(package)
+            expected_versions = accepted_versions_by_surface_package.get(
+                (surface, package), accepted_versions_by_package.get(package)
+            )
             if expected_versions is not None and version not in expected_versions:
                 expected = ", ".join(sorted(expected_versions))
                 errors.append(f"accepted version drift: {package} expected {expected}; observed {version}")
-            expected_surfaces = accepted_surfaces_by_package.get(package)
+            expected_surfaces = accepted_surfaces_by_package_version.get((package, version))
             if expected_surfaces is not None and surface not in expected_surfaces:
                 expected = tuple(item for item in baseline.audited_surfaces if item in expected_surfaces)
                 errors.append(

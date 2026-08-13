@@ -10,6 +10,7 @@ import pytest
 from scripts.advisory_baseline import (
     AcceptedAdvisory,
     AdvisoryBaselineError,
+    AuditSurfaceError,
     Baseline,
     compare_baseline,
     load_baseline,
@@ -830,6 +831,38 @@ def test_torch_projection_rejects_non_utf8_input(tmp_path: Path) -> None:
     _, runner = _audit_runner()
 
     with pytest.raises(AdvisoryBaselineError, match="torch audit projection"):
+        run_audit_surfaces(tmp_path, runner=runner)
+
+
+def test_audit_merges_nonempty_pyg_extension_supplements_into_logical_surfaces(tmp_path: Path) -> None:
+    calls = 0
+
+    def runner(command: list[str], **kwargs: object) -> SimpleNamespace:
+        nonlocal calls
+        output = Path(command[command.index("--output") + 1])
+        extension = "pyg-extension-audit-requirements.txt" in command
+        payload = _payload(_dependency("torch-scatter", "2.1.2", "CVE-2099-0001")) if extension else _payload()
+        output.write_text(json.dumps(payload), encoding="utf-8")
+        calls += 1
+        return SimpleNamespace(returncode=1 if extension else 0, stdout="", stderr="")
+
+    observations = run_audit_surfaces(tmp_path, runner=runner)
+
+    assert calls == 6
+    assert [(item.surface, item.resolved_versions, item.advisories) for item in observations[:2]] == [
+        ("combined-runtime", (("torch-scatter", "2.1.2"),), (("torch-scatter", "2.1.2", "CVE-2099-0001"),)),
+        ("torch", (("torch-scatter", "2.1.2"),), (("torch-scatter", "2.1.2", "CVE-2099-0001"),)),
+    ]
+
+
+def test_audit_rejects_overlapping_resolver_and_supplement_packages(tmp_path: Path) -> None:
+    def runner(command: list[str], **kwargs: object) -> SimpleNamespace:
+        output = Path(command[command.index("--output") + 1])
+        payload = _payload(_dependency("torch-scatter", "2.1.2", "CVE-2099-0001"))
+        output.write_text(json.dumps(payload), encoding="utf-8")
+        return SimpleNamespace(returncode=1, stdout="", stderr="")
+
+    with pytest.raises(AuditSurfaceError, match="combined-runtime: invalid-schema"):
         run_audit_surfaces(tmp_path, runner=runner)
 
 

@@ -1026,7 +1026,13 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
                     ))
 
             total_match = re.search(r"Result: (\d+) known vulnerabilities", body)
-            if total_match:
+            if not total_match:
+                findings.append(Finding(
+                    id="D10.dependency_ledger_count", check="docs", severity="error",
+                    location="docs/dependency-contracts.md",
+                    message="current accepted-advisories Result total is missing",
+                ))
+            else:
                 expected_total = int(total_match.group(1))
                 actual_total = sum(advisory_counts.values())
                 if actual_total != expected_total:

@@ -1366,6 +1366,14 @@ def test_docs_d10_flags_current_total_count_drift(tmp_path):
     assert any("advisory feed-record total" in finding.message for finding in findings)
 
 
+def test_docs_d10_flags_missing_current_total(tmp_path):
+    text = _dependency_snapshot().replace(
+        "Result: 2 known vulnerabilities across one resolved package.\n\n", ""
+    )
+    findings = _d10_count_findings(tmp_path, text)
+    assert any("Result" in finding.message for finding in findings)
+
+
 def test_docs_d10_current_atlas_infra_gitlink_matches_ledger():
     r = run_verify("--check", "docs", "--fast")
     data = json.loads(r.stdout) if r.stdout else {"findings": []}
@@ -1384,6 +1392,7 @@ def test_docs_d10_flags_dependency_ledger_count_drift(tmp_path):
     (docs / "dependency-contracts.md").write_text(
         "# Dependency Contracts\n\n"
         "## 1. Audit Snapshot\n\n"
+        "### 6.1.1.2 Current accepted advisories\n\n"
         "Result: 2 known vulnerabilities across one resolved package:\n\n"
         "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
         "| --- | --- | ---: | ---: | --- |\n"
@@ -1397,6 +1406,10 @@ def test_docs_d10_flags_dependency_ledger_count_drift(tmp_path):
     data = json.loads(r.stdout) if r.stdout else {"findings": []}
     hits = [f for f in data["findings"] if f["id"] == "D10.dependency_ledger_count"]
     assert hits, f"expected D10.dependency_ledger_count; got {data.get('findings')}"
+    assert hits[0]["message"] == (
+        "torch advisory feed-record count is 1; expected 2 from audit summary"
+    )
+    assert hits[0]["detail"] == {"package": "torch", "expected": 2, "actual": 1}
 
 
 def test_docs_d10_flags_dependency_ledger_submodule_sha_drift(tmp_path, monkeypatch):

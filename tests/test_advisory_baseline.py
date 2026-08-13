@@ -419,6 +419,60 @@ def test_compare_rejects_cross_product_advisory_versions_even_when_surfaces_matc
     result = compare_baseline(baseline, observations)
 
     assert result.errors == ("accepted version drift: torch expected 1.0; observed 2.0",)
+    assert result.notices == ("reconcile removed advisory: torch 1.0 ADVISORY-A",)
+
+
+def _versioned_identity_baseline() -> Baseline:
+    return Baseline(
+        schema_version=1,
+        audited_surfaces=("combined-runtime", "torch", "documentation", "atlas-contract"),
+        accepted_advisories=(
+            AcceptedAdvisory("torch", "ADVISORY", "1.0", ("combined-runtime",)),
+            AcceptedAdvisory("torch", "ADVISORY", "2.0", ("torch",)),
+        ),
+    )
+
+
+def test_compare_accepts_same_primary_id_at_two_exact_accepted_versions() -> None:
+    result = compare_baseline(
+        _versioned_identity_baseline(),
+        _complete_observations(
+            combined=_payload(_dependency("torch", "1.0", "ADVISORY")),
+            torch=_payload(_dependency("torch", "2.0", "ADVISORY")),
+        ),
+    )
+
+    assert result.errors == ()
+    assert result.notices == ()
+
+
+def test_compare_reports_only_the_removed_versioned_identity() -> None:
+    result = compare_baseline(
+        _versioned_identity_baseline(),
+        _complete_observations(
+            combined=_payload(),
+            torch=_payload(_dependency("torch", "2.0", "ADVISORY")),
+        ),
+    )
+
+    assert result.errors == ()
+    assert result.notices == ("reconcile removed advisory: torch 1.0 ADVISORY",)
+
+
+def test_compare_fails_when_a_versioned_identity_moves_to_the_wrong_surface() -> None:
+    result = compare_baseline(
+        _versioned_identity_baseline(),
+        _observations(
+            ("combined-runtime", _payload()),
+            ("torch", _payload(_dependency("torch", "2.0", "ADVISORY"))),
+            ("documentation", _payload(_dependency("torch", "1.0", "ADVISORY"))),
+            ("atlas-contract", _payload()),
+        ),
+    )
+
+    assert result.errors == (
+        "surface drift: torch 1.0 ADVISORY expected [combined-runtime]; observed [documentation]",
+    )
     assert result.notices == ()
 
 

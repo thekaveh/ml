@@ -234,7 +234,7 @@ def compare_baseline(baseline: Baseline, observations: Sequence[Observation]) ->
         if surface not in observations_by_surface:
             errors.append(f"missing audit surface: {surface}")
 
-    observed_advisories: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    observed_advisories: dict[tuple[str, str, str], set[str]] = {}
     baseline_by_primary: dict[tuple[str, str], list[AcceptedAdvisory]] = {}
     expected_versions_by_surface: dict[tuple[str, str], set[str]] = {}
     for accepted in baseline.accepted_advisories:
@@ -248,7 +248,7 @@ def compare_baseline(baseline: Baseline, observations: Sequence[Observation]) ->
                 expected = ", ".join(sorted(expected_versions))
                 errors.append(f"accepted version drift: {package} expected {expected}; observed {version}")
         for package, version, advisory_id in observation.advisories:
-            observed_advisories.setdefault((package, advisory_id), set()).add((surface, version))
+            observed_advisories.setdefault((package, advisory_id, version), set()).add(surface)
             accepted = baseline_by_primary.get((package, advisory_id))
             if accepted is None:
                 errors.append(f"new advisory: {package} {version} {advisory_id} on {surface}")
@@ -258,16 +258,13 @@ def compare_baseline(baseline: Baseline, observations: Sequence[Observation]) ->
 
     notices: list[str] = []
     for accepted in baseline.accepted_advisories:
-        primary = (accepted.package, accepted.advisory_id)
-        observed = observed_advisories.get(primary, set())
+        observed = observed_advisories.get(advisory_identity(accepted), set())
         if not observed:
             notices.append(
                 f"reconcile removed advisory: {accepted.package} {accepted.accepted_version} {accepted.advisory_id}"
             )
             continue
-        actual_surfaces = tuple(
-            surface for surface in baseline.audited_surfaces if any(found_surface == surface for found_surface, _ in observed)
-        )
+        actual_surfaces = tuple(surface for surface in baseline.audited_surfaces if surface in observed)
         if actual_surfaces != accepted.surfaces:
             errors.append(
                 "surface drift: "

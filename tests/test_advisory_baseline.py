@@ -784,6 +784,8 @@ def _assert_safe_audit_failure_output(
         ("runner-oserror", 1, "torch", "execution-error"),
         ("runner-unicode-error", 2, "documentation", "execution-error"),
         ("missing-output", 3, "atlas-contract", "missing-output"),
+        ("bootstrap-error", 1, "torch", "bootstrap-error"),
+        ("resolution-error", 2, "documentation", "resolution-error"),
         ("unavailable-output", 1, "torch", "unavailable-output"),
         ("invalid-json", 2, "documentation", "invalid-json"),
         ("invalid-schema", 3, "atlas-contract", "invalid-schema"),
@@ -813,8 +815,16 @@ def test_cli_reports_every_audit_failure_with_only_fixed_safe_output(
         if index == failure_index and failure == "runner-unicode-error":
             raise UnicodeDecodeError("utf-8", b"\\xff", 0, 1, unsafe)
         output = Path(command[command.index("--output") + 1])
-        if index == failure_index and failure == "missing-output":
-            return SimpleNamespace(returncode=1, stdout=unsafe, stderr=unsafe)
+        if index == failure_index and failure in {
+            "missing-output",
+            "bootstrap-error",
+            "resolution-error",
+        }:
+            marker = {
+                "bootstrap-error": "Failed to upgrade `pip`",
+                "resolution-error": "Failed to install packages",
+            }.get(failure, "")
+            return SimpleNamespace(returncode=1, stdout=unsafe, stderr=f"{marker}: {unsafe}")
         if index == failure_index and failure == "invalid-json":
             output.write_text("not-json", encoding="utf-8")
         elif index == failure_index and failure == "invalid-schema":
@@ -860,6 +870,12 @@ def test_safe_audit_failure_output_assertions_reject_stdout_and_category_mutatio
             SimpleNamespace(out="", err="advisory audit failed: torch: invalid-json\n"),
             surface="torch",
             category="execution-error",
+        )
+    with pytest.raises(AssertionError):
+        _assert_safe_audit_failure_output(
+            SimpleNamespace(out="", err="advisory audit failed: combined-runtime: bootstrap-error\n"),
+            surface="torch",
+            category="bootstrap-error",
         )
 
 

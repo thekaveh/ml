@@ -25,6 +25,8 @@ AUDIT_FAILURE_CATEGORIES = frozenset(
         "unexpected-exit",
         "execution-error",
         "missing-output",
+        "bootstrap-error",
+        "resolution-error",
         "unavailable-output",
         "invalid-json",
         "invalid-schema",
@@ -356,6 +358,16 @@ def _load_pip_audit_output(path: Path) -> object:
     return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_keys)
 
 
+def _classify_missing_output(returncode: int, stderr: object) -> str:
+    """Classify only stable pip-audit setup failures without exposing stderr."""
+    if returncode == 1 and isinstance(stderr, str):
+        if "Failed to upgrade `pip`" in stderr:
+            return "bootstrap-error"
+        if "Failed to install packages" in stderr:
+            return "resolution-error"
+    return "missing-output"
+
+
 def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tuple[Observation, ...]:
     """Run the fixed four-surface audit contract and normalize every result."""
     observations: list[Observation] = []
@@ -378,7 +390,10 @@ def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tupl
             try:
                 payload = _load_pip_audit_output(output)
             except FileNotFoundError as error:
-                raise AuditSurfaceError(surface.name, "missing-output") from error
+                raise AuditSurfaceError(
+                    surface.name,
+                    _classify_missing_output(result.returncode, result.stderr),
+                ) from error
             except OSError as error:
                 raise AuditSurfaceError(surface.name, "unavailable-output") from error
             except (UnicodeError, json.JSONDecodeError) as error:

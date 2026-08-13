@@ -534,7 +534,7 @@ def test_real_user_docs_publish_advisory_baseline_contract():
             "docs/maintenance/overnight-2026-07-04.md",
         )
     }
-    ledger = docs["docs/dependency-contracts.md"].replace("\n", " ")
+    ledger = " ".join(docs["docs/dependency-contracts.md"].split())
 
     assert "security/                                  (accepted-advisory policy)" in docs["README.md"]
     assert "`make audit-advisories`" in docs["CONTRIBUTING.md"]
@@ -545,6 +545,10 @@ def test_real_user_docs_publish_advisory_baseline_contract():
     assert "New primary advisory IDs and accepted-version drift fail the gate." in ledger
     assert "reconciliation evidence, not proof of remediation" in ledger
     assert "JSON policy and current Markdown ledger rows together through review" in ledger
+    assert "Refresh snapshot metadata, raw JSON hashes and counts, summary, and current tables" in ledger
+    assert "Run focused comparator tests, full `make test`, `make verify`, `make lint`" in ledger
+    assert "`make docs-check`, `make docs-wiki`, and live `make audit-advisories`" in ledger
+    assert "feature-to-`develop` pull request, then a `develop`-to-`main` pull request" in ledger
     assert "Issue #63 owns complete dependency locks" in ledger
     assert "does not initialize Atlas or start a service" in ledger
     assert "`dependency-audit`" in docs["docs/conventions.md"]

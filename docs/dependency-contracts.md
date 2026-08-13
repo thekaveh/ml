@@ -162,6 +162,23 @@ The audit does not initialize Atlas or start a service. Issue #62 owns the coord
 upgrade, and Issue #63 owns complete dependency locks; the direct `pip-audit` tool pin is only the
 focused exception needed for this comparison.
 
+### 6.1.1.5 Removal and reconciliation runbook
+
+An accepted ID absent from valid audit output is evidence only, not proof of remediation,
+non-reachability, or an upstream fix. Remove it only through this reviewed sequence:
+
+1. Run `make audit-advisories` across all four audit surfaces.
+2. Confirm the resolved package and version and the primary-ID/alias relationship.
+3. Change the JSON baseline and current Markdown ledger row together through review.
+4. Refresh snapshot metadata, raw JSON hashes and counts, summary, and current tables whenever
+   the audit observation changes. Metadata includes the as-of date, repository commit, auditor
+   version, platform, and exact commands.
+5. Preserve the removed record in historical reconciliation with the evidence-only disclaimer and
+   update its risk language.
+6. Run focused comparator tests, full `make test`, `make verify`, `make lint`, `make docs-check`,
+   `make docs-wiki`, and live `make audit-advisories`.
+7. Integrate through a feature-to-`develop` pull request, then a `develop`-to-`main` pull request.
+
 ## 6.1.2 Torch Stack Pin
 
 `torch-core-requirements.txt` pins the core Torch stack:

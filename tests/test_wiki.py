@@ -88,6 +88,18 @@ def test_real_manifest_renders_numbered_security_page_and_sidebar_entry(tmp_path
     assert "[13. Security policy](13-Security-policy)" in sidebar
 
 
+def test_real_manifest_projects_current_vulnerability_snapshot_to_wiki(tmp_path):
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    out = tmp_path / "generated/wiki"
+    render_wiki(manifest, REPO_ROOT, out, trusted_output_root=tmp_path)
+    ledger = (out / "6-1-Dependency-ledger.md").read_text(encoding="utf-8")
+    assert "### 6.1.1.2 Current accepted advisories" in ledger
+    assert "2026-08-12" in ledger
+    assert "archived audit provenance only" in ledger
+    assert "../SECURITY.md" not in ledger
+    assert "](#6112-current-accepted-advisories)" in ledger
+
+
 def test_render_wiki_removes_stale_generated_files(tmp_path):
     _seed(tmp_path)
     out = tmp_path / "generated/wiki"

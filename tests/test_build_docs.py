@@ -107,6 +107,18 @@ def test_real_manifest_renders_root_security_page_and_site_navigation(tmp_path):
     assert {"13. Security policy": "SECURITY.md"} in nav
 
 
+def test_real_manifest_projects_current_vulnerability_snapshot_to_site(tmp_path):
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    out = tmp_path / "generated/site"
+    render_site(manifest, REPO_ROOT, out, trusted_output_root=tmp_path)
+    ledger = (out / "dependency-contracts.md").read_text(encoding="utf-8")
+    assert "### 6.1.1.2 Current accepted advisories" in ledger
+    assert "2026-08-12" in ledger
+    assert "archived audit provenance only" in ledger
+    assert "../SECURITY.md" not in ledger
+    assert "](#6112-current-accepted-advisories)" in ledger
+
+
 def test_nav_preserves_a_section_source_and_children():
     manifest = parse_manifest(
         MANIFEST_YAML.replace(

@@ -476,6 +476,45 @@ def test_real_manifest_declares_issue_58_design_and_implementation_records():
     ]
 
 
+def test_real_manifest_declares_issue_59_design_and_implementation_records():
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    records = next(section for section in manifest.sections if section.id == "design-records")
+    start = next(
+        index
+        for index, child in enumerate(records.children)
+        if child.id == "issue-59-vulnerability-ledger-design"
+    )
+    assert [
+        (child.number, child.source) for child in records.children[start : start + 2]
+    ] == [
+        (
+            "12.15",
+            "docs/superpowers/specs/2026-08-12-issue-59-vulnerability-ledger-design.md",
+        ),
+        (
+            "12.16",
+            "docs/superpowers/plans/2026-08-12-issue-59-vulnerability-ledger-implementation-plan.md",
+        ),
+    ]
+
+
+def test_real_user_docs_publish_current_vulnerability_snapshot():
+    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    security = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert "### 6.1.1.1 Reproducible four-surface audit" in ledger
+    assert "### 6.1.1.2 Current accepted advisories" in ledger
+    assert "### 6.1.1.3 Alias-aware historical reconciliation" in ledger
+    assert "2026-08-12" in ledger
+    assert "--disable-pip -r docs-requirements.txt" in ledger
+    assert (
+        "Absent from the 2026-08-12 snapshot; archived audit provenance only" in ledger
+    )
+    assert "does not claim an automated vulnerability-baseline gate" in security
+    assert "Four-surface vulnerability ledger refresh" in changelog
+
+
 def test_nnx_wheel_contract_is_consistent_across_canonical_user_docs():
     docs = {
         path: (REPO_ROOT / path).read_text(encoding="utf-8")

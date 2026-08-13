@@ -8,66 +8,149 @@ of truth for installation.
 
 ## 6.1.1 Audit Snapshot
 
-Last reviewed: 2026-07-04, on branch `codex/overnight-maintenance`.
+### 6.1.1.1 Reproducible four-surface audit
 
-Command:
+Last reviewed: 2026-08-12. The immutable capture metadata is:
+
+- UTC capture timestamp: `2026-08-13T03:19:27Z`.
+- Repository commit: `45105ca0410c7ea3170665d57567accc7be97461`.
+- Platform: `Darwin` on `arm64`.
+- Interpreter: `Python 3.11.0`.
+- Auditor: `pip-audit 2.10.0`.
+
+Manifest SHA-256 values:
+
+| Manifest | SHA-256 |
+| --- | --- |
+| `requirements.txt` | `3f35f04f95bd1e293c844b41a2dcf96f7978b8c61ccd436e4813a604d9e528a7` |
+| `torch-core-requirements.txt` | `2b99702ae89067c09abe10ddf3eb880eb854871feee7f64a8d51aaa4764578e5` |
+| `torch-requirements.txt` | `771f07b281ee931f45372904da0472b293d9e64b1d0ec6ba11569a9b5a3925ec` |
+| `docs-requirements.txt` | `9af475ff61cafc56f0edd75e28d9ca41463f87f0790523d5e077a1d71323b9cc` |
+| `atlas-contract-requirements.txt` | `e786c8e7d940a97ae41ce880d5f5bbc62dc4f90ff03fd8c7718849e1c11412b0` |
+
+The four final commands were run separately from the repository root. Exit `0` means no known
+vulnerabilities were reported; exit `1` means the emitted findings form a complete observation.
 
 ```bash
-pip-audit -r requirements.txt -r torch-requirements.txt
+AUDIT_DIR="$(mktemp -d /private/tmp/ml-eng-lab-issue59-audit.XXXXXX)"
+
+python -m pip_audit -r requirements.txt -r torch-requirements.txt \
+  --strict --vulnerability-service pypi --format json \
+  --aliases on --desc off --progress-spinner off \
+  --output "$AUDIT_DIR/runtime.json"
+
+python -m pip_audit -r torch-requirements.txt \
+  --strict --vulnerability-service pypi --format json \
+  --aliases on --desc off --progress-spinner off \
+  --output "$AUDIT_DIR/torch.json"
+
+python -m pip_audit --disable-pip -r docs-requirements.txt \
+  --strict --vulnerability-service pypi --format json \
+  --aliases on --desc off --progress-spinner off \
+  --output "$AUDIT_DIR/docs.json"
+
+python -m pip_audit -r atlas-contract-requirements.txt \
+  --strict --vulnerability-service pypi --format json \
+  --aliases on --desc off --progress-spinner off \
+  --output "$AUDIT_DIR/atlas-contract.json"
 ```
 
-Result: 23 known vulnerabilities across three resolved packages:
+| Surface | Manifests | Exit | Resolved Dependencies | Vulnerable Packages | Raw Feed Records | Alias-Aware Unique Identities | JSON SHA-256 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Combined runtime | `requirements.txt`, `torch-requirements.txt` | 1 | 194 | 2 | 23 | 21 | `65db11cbf11f162241fc398674a5f91374a916ac43d4c984694ddb9e254c1ad5` |
+| Torch | `torch-requirements.txt` | 1 | 39 | 2 | 23 | 21 | `faea4c874c75c7260064c96e26fad5e3105d2fd6c2b20d17ee4abbb57043c6b6` |
+| Documentation | `docs-requirements.txt` | 0 | 42 | 0 | 0 | 0 | `c7fb014d9d45092476134bc78fe7e3fd81df93c66733b932c734d5fe27672afe` |
+| Atlas contract | `atlas-contract-requirements.txt` | 0 | 5 | 0 | 0 | 0 | `025906bb0be0ae036140e484f0dcc2845e25e11e36c18a7aa23af5e05fd55db9` |
 
-Re-run on 2026-07-04 after adding `mkdocs-material`; the finding count and
-accepted package set were unchanged.
+The runtime and Torch surfaces contain the same 21 alias-aware identities. Their 23 raw records
+are preserved because `PYSEC-2025-191` and `PYSEC-2025-41` each occur twice with independently
+emitted metadata. Counts across surfaces are observations, not additive vulnerability identities.
+Several runtime requirements remain open ranges, so the resolver can select newer versions without
+a committed manifest change. This is dated snapshot evidence, not a reproducible lock.
+
+### 6.1.1.2 Current accepted advisories
+
+Result: 23 known vulnerabilities across 194 resolved packages.
 
 | Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |
 | --- | --- | ---: | ---: | --- |
-| `torch` | `torch==2.4.1` | `2.4.1` | 21 | Local/CI compatibility baseline; upgrade requires a coordinated PyTorch/PyG/torchao compatibility pass. |
-| `pytorch-lightning` | `pytorch-lightning==2.4.0` | `2.4.0` | 1 | Accepted temporarily because it is pinned to the current Torch stack; revisit with the Torch upgrade. |
-| `nltk` | `nltk>=3.9.3` | `3.9.4` | 1 | Review on the next dependency bump; VADER usage is local/offline and does not deserialize untrusted corpus files. |
+| `torch` | `torch==2.4.1` | `2.4.1` | 22 | Temporarily accepted for the qualified local/CI Torch stack. Upgrade only as a coordinated PyTorch, PyG, torchao, notebook, and CI compatibility change. Never load an untrusted pickle-backed checkpoint. |
+| `pytorch-lightning` | `pytorch-lightning==2.4.0` | `2.4.0` | 1 | Temporarily accepted with the current Torch stack; the feed lists no fix version. Never load an untrusted pickle-backed checkpoint. Revisit with the coordinated stack upgrade. |
 
-The audit must be re-run after any dependency pin change. New unreviewed audit
-findings are maintenance issues until either fixed or added here with rationale.
-Because several manifest entries are intentionally ranged or floating today,
-the audited resolved versions and advisory IDs below are the accepted state, not
-just the package-level counts.
+Each row below is one raw feed record. Duplicate primary IDs remain separate when the feed emits
+different alias or fix metadata.
 
-Documentation-only CI jobs intentionally install `docs-requirements.txt` rather
-than the full ML runtime stack. This keeps MkDocs and GitHub Pages builds from
-resolving Torch, PyG, or NNx dependencies that are unrelated to rendered docs.
-The five direct documentation tools are exactly pinned in `docs-requirements.in`;
-`uv pip compile --universal --generate-hashes` locks their transitive dependencies
-in `docs-requirements.txt`, which CI installs without re-resolving an open range.
-The broader local development manifest still includes `mkdocs-material` so an
-existing full-dev install can run `make docs-build` without a second setup step.
+| Package | Advisory ID | Feed Records | Fix Versions | Audited Version | Aliases | Surface |
+| --- | --- | ---: | --- | ---: | --- | --- |
+| `torch` | `PYSEC-2025-191` | 1 | `2.7.1rc1` | `2.4.1` | `CVE-2025-2953`, `GHSA-3749-ghw9-m3mg`, `BIT-pytorch-2025-2953` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-41` | 1 | `2.6.0` | `2.4.1` | `CVE-2025-32434`, `BIT-pytorch-2025-32434`, `GHSA-53q9-r3pm-6pq6` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-41` | 1 | `2.6.0` | `2.4.1` | `CVE-2025-32434`, `GHSA-53q9-r3pm-6pq6` | Combined runtime; Torch |
+| `torch` | `PYSEC-2024-259` | 1 | `2.5.0` | `2.4.1` | `CVE-2024-48063` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-205` | 1 | `2.7.1` | `2.4.1` | `CVE-2025-55553`, `BIT-pytorch-2025-55553` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-206` | 1 | `2.9.0` | `2.4.1` | `BIT-pytorch-2025-55554`, `CVE-2025-55554` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-207` | 1 | `2.7.1` | `2.4.1` | `BIT-pytorch-2025-55557`, `CVE-2025-55557` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-204` | 1 | `2.9.0` | `2.4.1` | `CVE-2025-55552`, `BIT-pytorch-2025-55552` | Combined runtime; Torch |
+| `torch` | `PYSEC-2026-139` | 1 | None listed | `2.4.1` | `BIT-pytorch-2026-4538`, `CVE-2026-4538` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-209` | 1 | `2.7.1` | `2.4.1` | `BIT-pytorch-2025-55560`, `CVE-2025-55560` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-208` | 1 | `2.7.1` | `2.4.1` | `BIT-pytorch-2025-55558`, `CVE-2025-55558` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-191` | 1 | None listed | `2.4.1` | `GHSA-3749-ghw9-m3mg`, `CVE-2025-2953`, `BIT-pytorch-2025-2953` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-198` | 1 | `2.7.0` | `2.4.1` | `CVE-2025-46148`, `BIT-pytorch-2025-46148` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-203` | 1 | `2.9.0` | `2.4.1` | `BIT-pytorch-2025-55551`, `CVE-2025-55551` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-194` | 1 | `2.13.0` | `2.4.1` | `BIT-pytorch-2025-3000`, `CVE-2025-3000`, `GHSA-rrmf-rvhw-rf47` | Combined runtime; Torch |
+| `torch` | `PYSEC-2026-1970` | 1 | `2.8.0` | `2.4.1` | `BIT-pytorch-2025-3730`, `GHSA-887c-mr87-cxwp`, `CVE-2025-3730` | Combined runtime; Torch |
+| `torch` | `PYSEC-2026-2286` | 1 | `2.10.0` | `2.4.1` | `CVE-2026-24747`, `GHSA-63cw-57p8-fm3p` | Combined runtime; Torch |
+| `torch` | `CVE-2025-2148` | 1 | None listed | `2.4.1` | `GHSA-c678-jfcj-6jmf` | Combined runtime; Torch |
+| `torch` | `CVE-2025-2149` | 1 | None listed | `2.4.1` | `GHSA-x3gm-94wq-g975` | Combined runtime; Torch |
+| `torch` | `CVE-2025-2998` | 1 | None listed | `2.4.1` | `GHSA-f4hp-rmr7-r7v8` | Combined runtime; Torch |
+| `torch` | `CVE-2025-2999` | 1 | `2.9.1` | `2.4.1` | `GHSA-vgrw-7cvw-pwgx` | Combined runtime; Torch |
+| `torch` | `CVE-2025-3001` | 1 | `2.10.0` | `2.4.1` | `GHSA-qfhq-4f3w-5fph` | Combined runtime; Torch |
+| `pytorch-lightning` | `PYSEC-2026-3043` | 1 | None listed | `2.4.0` | `GHSA-75m9-98v2-hjpm`, `CVE-2026-31221` | Combined runtime; Torch |
 
-Accepted advisory IDs from the 2026-07-04 audit. `pip-audit` currently emits
-23 feed records; two Torch advisory IDs appear twice from overlapping sources.
+The accepted risk is limited to trusted local and CI inputs on the pinned stack; it is not a
+claim that the vulnerable paths are unreachable. Revisit the Torch and Lightning dispositions
+when a manifest changes, the advisory feed changes, a fix becomes available, input trust or
+reachability expands, or Issue #62 qualifies a coordinated replacement stack. Any upgrade must
+validate Torch, PyG, torchao, notebook execution, and CI together rather than updating one pin.
 
-| Package | Advisory ID | Feed Records | Fix Versions |
-| --- | --- | ---: | --- |
-| `torch` | `PYSEC-2025-191` | 2 | `2.7.1rc1` / none listed |
-| `torch` | `PYSEC-2025-41` | 2 | `2.6.0` |
-| `torch` | `PYSEC-2024-259` | 1 | `2.5.0` |
-| `torch` | `PYSEC-2025-205` | 1 | `2.7.1` |
-| `torch` | `PYSEC-2025-206` | 1 | `2.9.0` |
-| `torch` | `PYSEC-2025-207` | 1 | `2.7.1` |
-| `torch` | `PYSEC-2025-204` | 1 | `2.9.0` |
-| `torch` | `PYSEC-2026-139` | 1 | none listed |
-| `torch` | `PYSEC-2025-209` | 1 | `2.7.1` |
-| `torch` | `PYSEC-2025-208` | 1 | `2.7.1` |
-| `torch` | `PYSEC-2025-198` | 1 | `2.7.0` |
-| `torch` | `PYSEC-2025-203` | 1 | `2.9.0` |
-| `torch` | `CVE-2025-3730` | 1 | `2.8.0` |
-| `torch` | `CVE-2025-2148` | 1 | none listed |
-| `torch` | `CVE-2025-2149` | 1 | none listed |
-| `torch` | `CVE-2025-2998` | 1 | none listed |
-| `torch` | `CVE-2025-2999` | 1 | `2.9.1` |
-| `torch` | `CVE-2025-3000` | 1 | none listed |
-| `torch` | `CVE-2025-3001` | 1 | `2.10.0` |
-| `pytorch-lightning` | `CVE-2026-31221` | 1 | none listed |
-| `nltk` | `PYSEC-2026-597` | 1 | none listed |
+### 6.1.1.3 Alias-aware historical reconciliation
+
+The following reconciliation compares the 2026-07-04 ledger identities with the current feed.
+Aliases identify re-keyed records; an alias is not an additional vulnerability.
+
+| Historical Identity | Current Identity | Classification | Review |
+| --- | --- | --- | --- |
+| `PYSEC-2025-191` | `PYSEC-2025-191` | Retained | Still emitted as two raw records with different fix metadata. |
+| `PYSEC-2025-41` | `PYSEC-2025-41` | Retained | Still emitted as two raw records with different alias metadata. |
+| `PYSEC-2024-259` | `PYSEC-2024-259` | Retained | Same primary identity. |
+| `PYSEC-2025-205` | `PYSEC-2025-205` | Retained | Same primary identity. |
+| `PYSEC-2025-206` | `PYSEC-2025-206` | Retained | Same primary identity. |
+| `PYSEC-2025-207` | `PYSEC-2025-207` | Retained | Same primary identity. |
+| `PYSEC-2025-204` | `PYSEC-2025-204` | Retained | Same primary identity. |
+| `PYSEC-2026-139` | `PYSEC-2026-139` | Retained | Same primary identity. |
+| `PYSEC-2025-209` | `PYSEC-2025-209` | Retained | Same primary identity. |
+| `PYSEC-2025-208` | `PYSEC-2025-208` | Retained | Same primary identity. |
+| `PYSEC-2025-198` | `PYSEC-2025-198` | Retained | Same primary identity. |
+| `PYSEC-2025-203` | `PYSEC-2025-203` | Retained | Same primary identity. |
+| `CVE-2025-3000` | `PYSEC-2025-194` | Re-keyed | The former primary is a current alias; the current record lists fix `2.13.0`. |
+| `CVE-2025-3730` | `PYSEC-2026-1970` | Re-keyed | The former primary is a current alias; fix `2.8.0` remains listed. |
+| `CVE-2025-2148` | `CVE-2025-2148` | Retained | Same primary identity. |
+| `CVE-2025-2149` | `CVE-2025-2149` | Retained | Same primary identity. |
+| `CVE-2025-2998` | `CVE-2025-2998` | Retained | Same primary identity. |
+| `CVE-2025-2999` | `CVE-2025-2999` | Retained | Same primary identity. |
+| `CVE-2025-3001` | `CVE-2025-3001` | Retained | Same primary identity. |
+| `CVE-2026-31221` | `PYSEC-2026-3043` | Re-keyed | The former primary is a current alias; no fix version is listed. |
+| `PYSEC-2026-597` (`nltk`) | — | Absent | Absent from the 2026-08-12 snapshot; archived audit provenance only, not proof of remediation, reachability, or an upstream fix. The open range resolved to `nltk==3.10.3`; this is resolver drift, not a committed pin change. |
+| — | `PYSEC-2026-2286` / `CVE-2026-24747` | Genuinely new | First recorded in this snapshot; the feed lists fix `2.10.0`. |
+
+### 6.1.1.4 Enforcement boundary
+
+This manually reviewed ledger is the canonical record for the
+[current accepted-advisories snapshot](#6112-current-accepted-advisories). The repository's
+[security policy](../SECURITY.md) describes how new advisory uncertainty is triaged. Issue #60
+owns a future checked-in machine-readable baseline and automated CI gate;
+this snapshot does not create either. Issue #62 owns the coordinated Torch-stack upgrade. Until
+those changes land, rerun all four explicit surfaces after requirement or relevant feed changes
+and review any difference before updating this ledger.
 
 ## 6.1.2 Torch Stack Pin
 

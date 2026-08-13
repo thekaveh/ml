@@ -786,6 +786,8 @@ def _assert_safe_audit_failure_output(
         ("missing-output", 3, "atlas-contract", "missing-output"),
         ("bootstrap-error", 1, "torch", "bootstrap-error"),
         ("resolution-error", 2, "documentation", "resolution-error"),
+        ("service-error", 2, "documentation", "service-error"),
+        ("unsupported-package", 3, "atlas-contract", "unsupported-package"),
         ("unavailable-output", 1, "torch", "unavailable-output"),
         ("invalid-json", 2, "documentation", "invalid-json"),
         ("invalid-schema", 3, "atlas-contract", "invalid-schema"),
@@ -819,10 +821,14 @@ def test_cli_reports_every_audit_failure_with_only_fixed_safe_output(
             "missing-output",
             "bootstrap-error",
             "resolution-error",
+            "service-error",
+            "unsupported-package",
         }:
             marker = {
                 "bootstrap-error": "Failed to upgrade `pip`",
                 "resolution-error": "Failed to install packages",
+                "service-error": "Tip: your network may be blocking this service",
+                "unsupported-package": "Dependency not found on PyPI and could not be audited",
             }.get(failure, "")
             return SimpleNamespace(returncode=1, stdout=unsafe, stderr=f"{marker}: {unsafe}")
         if index == failure_index and failure == "invalid-json":

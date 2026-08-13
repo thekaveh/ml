@@ -27,6 +27,8 @@ AUDIT_FAILURE_CATEGORIES = frozenset(
         "missing-output",
         "bootstrap-error",
         "resolution-error",
+        "service-error",
+        "unsupported-package",
         "unavailable-output",
         "invalid-json",
         "invalid-schema",
@@ -365,6 +367,10 @@ def _classify_missing_output(returncode: int, stderr: object) -> str:
             return "bootstrap-error"
         if "Failed to install packages" in stderr:
             return "resolution-error"
+        if "Tip: your network may be blocking this service" in stderr:
+            return "service-error"
+        if "Dependency not found on PyPI and could not be audited" in stderr:
+            return "unsupported-package"
     return "missing-output"
 
 

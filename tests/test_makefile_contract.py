@@ -12,6 +12,55 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_SUBPROCESS_TIMEOUT = 30
 
 
+def _assert_torch_stack_verifier_target(makefile: Path, cwd: Path, python: str = "python") -> None:
+    source = makefile.read_text(encoding="utf-8")
+    lines = source.splitlines()
+    phony_members = [
+        member
+        for line in lines
+        if line.startswith(".PHONY:")
+        for member in line.removeprefix(".PHONY:").split()
+    ]
+    assert phony_members.count("verify-torch-stack") == 1
+    assert lines.count('\t@echo "  verify-torch-stack Verify the active canonical Torch stack."') == 1
+    assert lines.count("verify-torch-stack:") == 1
+    target_index = lines.index("verify-torch-stack:")
+    assert lines[target_index + 1] == "\t$(PYTHON) -m scripts.verify_torch_stack"
+    result = subprocess.run(
+        [
+            "make",
+            "-f",
+            str(makefile),
+            "--no-print-directory",
+            "-n",
+            "verify-torch-stack",
+            f"PYTHON={python}",
+        ],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+    assert result.stdout == f"{python} -m scripts.verify_torch_stack\n"
+    assert result.stderr == ""
+    failure_probe = subprocess.run(
+        [
+            "make",
+            "-f",
+            str(makefile),
+            "--no-print-directory",
+            "verify-torch-stack",
+            "PYTHON=false",
+        ],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+    assert failure_probe.returncode != 0
+
+
 def _assert_audit_advisories_contract(makefile: Path, cwd: Path) -> None:
     source = makefile.read_text(encoding="utf-8")
     lines = source.splitlines()
@@ -182,6 +231,37 @@ def test_verify_nnx_install_target_is_public_and_uses_selected_python():
 
     assert result.stdout == "python -m scripts.verify_nnx_install\n"
     assert result.stderr == ""
+
+
+def test_verify_torch_stack_target_is_one_public_fail_closed_command() -> None:
+    _assert_torch_stack_verifier_target(
+        REPO_ROOT / "Makefile",
+        REPO_ROOT,
+        python="/opt/qualified/bin/python",
+    )
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    (
+        ("\t$(PYTHON) -m scripts.verify_torch_stack", "\t-$(PYTHON) -m scripts.verify_torch_stack"),
+        ("\t$(PYTHON) -m scripts.verify_torch_stack", "\t$(PYTHON) -m scripts.verify_torch_stack || true"),
+        ("verify-torch-stack:\n", "verify-torch-stack: verify-nnx-install\n"),
+        ("\t$(PYTHON) -m scripts.verify_torch_stack", "\t$(PYTHON) -m scripts.verify_torch_stack\n\t@echo extra"),
+    ),
+    ids=("ignored-failure", "shell-mask", "prerequisite", "extra-command"),
+)
+def test_verify_torch_stack_target_rejects_fail_open_mutations(
+    tmp_path: Path, original: str, replacement: str
+) -> None:
+    source = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    mutated = source.replace(original, replacement, 1)
+    assert mutated != source
+    makefile = tmp_path / "Makefile"
+    makefile.write_text(mutated, encoding="utf-8")
+
+    with pytest.raises(AssertionError):
+        _assert_torch_stack_verifier_target(makefile, tmp_path)
 
 
 def test_audit_advisories_target_is_one_unsuppressed_command() -> None:

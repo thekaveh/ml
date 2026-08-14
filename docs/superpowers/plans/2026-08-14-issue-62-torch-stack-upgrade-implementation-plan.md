@@ -226,7 +226,7 @@
 - Consumes: the five root stack manifests, installed distribution metadata, `packaging.version.Version`, imported modules, `scripts.verify_nnx_install.verify_nnx_install`, and tiny CPU tensors/graphs.
 - Produces: `StackPin(distribution: str, import_name: str, public_version: Version)`; `StackContract(pins: tuple[StackPin, ...], system: str, machine: str)`; `StackEvidence(system: str, machine: str, torch_version: str, backend: str)`; `DistributionView(Protocol)` exposing `version: str`, `files: Sequence[PackagePath] | None`, and `read_text(filename: str) -> str | None`; `CanaryHooks(scatter, sparse, cluster, sampler, spline)` where every callable is `Callable[[Mapping[str, ModuleType]], None]`; `VerificationHooks(distribution: Callable[[str], DistributionView], installed_names: Callable[[], Iterable[str]], import_module: Callable[[str], ModuleType], system: Callable[[], str], machine: Callable[[], str], nnx_verify: Callable[[], object], canaries: CanaryHooks)`; `load_stack_contract(repo: Path, system: str, machine: str) -> StackContract`; `verify_torch_stack(repo: Path = REPO_ROOT, hooks: VerificationHooks = DEFAULT_HOOKS) -> StackEvidence`; CLI `python -m scripts.verify_torch_stack`; Make target `verify-torch-stack`.
 
-- [ ] **Step 1: Write parser, metadata, provenance, and safe-error RED tests**
+- [x] **Step 1: Write parser, metadata, provenance, and safe-error RED tests**
 
   Define the exact distribution/import map in the test and production module:
 
@@ -251,11 +251,11 @@
       assert evidence.backend == "pyg-lib"
   ```
 
-- [ ] **Step 2: Write runtime-canary RED tests**
+- [x] **Step 2: Write runtime-canary RED tests**
 
   Build `CanaryHooks` fakes that append their stable names to a list and assert exact order `("scatter", "sparse", "cluster", "sampler", "spline")`, once each. Add a failure mutation for every canary and for skipped NNx delegation. Assert no `pytest.skip`, environment bypass, warning-only result, or `try/except: pass` can satisfy the verifier.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
   ```bash
   pytest -p no:cacheprovider tests/test_verify_torch_stack.py tests/test_makefile_contract.py -q
@@ -263,7 +263,7 @@
 
   Expected: collection failure because `scripts.verify_torch_stack` does not exist.
 
-- [ ] **Step 4: Implement the fail-closed verifier**
+- [x] **Step 4: Implement the fail-closed verifier**
 
   Implement the orchestration with this exact dependency flow; helper functions raise `TorchStackVerificationError(component, category)` rather than raw third-party exceptions:
 
@@ -297,7 +297,7 @@
 
   The CLI prints the stable message to stderr and exits 1; success prints one version/platform summary and exits 0.
 
-- [ ] **Step 5: Publish and test the Make target**
+- [x] **Step 5: Publish and test the Make target**
 
   Add `verify-torch-stack` once to `.PHONY` and `help`, with the exact recipe:
 
@@ -308,7 +308,7 @@
 
   Lock the recipe, selected interpreter, one-command inventory, and failure propagation in `tests/test_makefile_contract.py`.
 
-- [ ] **Step 6: Prove GREEN and commit**
+- [x] **Step 6: Prove GREEN and commit**
 
   ```bash
   pytest -p no:cacheprovider tests/test_verify_torch_stack.py tests/test_makefile_contract.py -q

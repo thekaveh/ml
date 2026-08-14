@@ -73,7 +73,7 @@ SMOKE_OUT := /tmp/ml-smoke
 TIER_A_OUT ?= /tmp/ml-tier-a
 TIER_A_OUT_ABS := $(abspath $(TIER_A_OUT))
 
-.PHONY: help run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
+.PHONY: help run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-torch-stack verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
 
 help:
 	@echo "Targets:"
@@ -84,6 +84,7 @@ help:
 	@echo "  smoke-tier-b      Papermill Tier-B notebooks with SMOKE_TEST=1 to $(SMOKE_OUT)/ (preserves source outputs)."
 	@echo "  smoke-tier-c      Papermill Tier-C notebooks with SMOKE_TEST=1 to $(SMOKE_OUT)/."
 	@echo "  test              Run pytest on tests/ directory."
+	@echo "  verify-torch-stack Verify the active canonical Torch stack."
 	@echo "  verify-nnx-install Verify the active NNx installation provenance."
 	@echo "  test-nnx-surface  Run only tests/nnx_surface (matches the CI pytest-nnx-surface job)."
 	@echo "  test-atlas-consumer Run the focused Atlas consumer contract tests."
@@ -168,6 +169,9 @@ smoke-tier-c:
 
 test:
 	pytest tests/ -v
+
+verify-torch-stack:
+	$(PYTHON) -m scripts.verify_torch_stack
 
 verify-nnx-install:
 	$(PYTHON) -m scripts.verify_nnx_install

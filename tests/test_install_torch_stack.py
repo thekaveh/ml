@@ -72,6 +72,7 @@ ROOT = (
     "requirements.txt",
 )
 UPGRADE_PIP = (sys.executable, "-m", "pip", "install", "--upgrade", "pip", "wheel")
+SUPPORTED_HOSTS = (("Linux", "x86_64"), ("Linux", "aarch64"), ("Darwin", "arm64"))
 
 
 def test_canonical_manifest_bytes_are_exact() -> None:
@@ -85,10 +86,11 @@ def test_canonical_manifest_bytes_are_exact() -> None:
 
 def test_linux_and_darwin_command_plans_are_exact() -> None:
     linux = build_install_commands(sys.executable, "Linux", "x86_64")
+    linux_arm64 = build_install_commands(sys.executable, "Linux", "aarch64")
     darwin = build_install_commands(sys.executable, "Darwin", "arm64")
 
     assert tuple(command.stage for command in linux) == tuple(InstallStage)
-    assert linux[0].argv == darwin[0].argv == UPGRADE_PIP
+    assert linux[0].argv == linux_arm64[0].argv == darwin[0].argv == UPGRADE_PIP
     assert linux[1].argv == LINUX_CORE
     assert darwin[1].argv == tuple(
         token
@@ -102,7 +104,7 @@ def test_linux_and_darwin_command_plans_are_exact() -> None:
 
 @pytest.mark.parametrize(
     ("system", "machine"),
-    (("Linux", "x86_64"), ("Darwin", "arm64")),
+    SUPPORTED_HOSTS,
 )
 def test_upgrade_stage_provisions_pip_and_wheel_before_core_and_runtime(
     tmp_path: Path, system: str, machine: str
@@ -121,6 +123,26 @@ def test_upgrade_stage_provisions_pip_and_wheel_before_core_and_runtime(
 
     with pytest.raises(AssertionError):
         assert _commands_from_installer_source(tmp_path, mutated, system, machine)[0].argv == UPGRADE_PIP
+
+
+def test_linux_arm64_conditional_wheel_omission_fails_the_supported_host_contract(
+    tmp_path: Path,
+) -> None:
+    source = (REPO_ROOT / "scripts" / "install_torch_stack.py").read_text(encoding="utf-8")
+    original = 'pip + ("--upgrade", "pip", "wheel")'
+    replacement = (
+        'pip + (("--upgrade", "pip") if (system, machine) == ("Linux", "aarch64") '
+        'else ("--upgrade", "pip", "wheel"))'
+    )
+    assert original in source
+    mutated = source.replace(original, replacement, 1)
+    assert mutated != source
+
+    with pytest.raises(AssertionError):
+        assert tuple(
+            _commands_from_installer_source(tmp_path, mutated, system, machine)[0].argv
+            for system, machine in SUPPORTED_HOSTS
+        ) == (UPGRADE_PIP,) * len(SUPPORTED_HOSTS)
 
 
 @pytest.mark.parametrize(

@@ -1196,7 +1196,7 @@ def _assert_torch_source_build_tooling_docs(documents: dict[str, str]) -> None:
     plan = documents[_TORCH_CONTRACT_DOC_PATHS[2]]
     assert '"--upgrade", "pip", "wheel"' in plan
     assert "assert linux[0].argv == darwin[0].argv == UPGRADE_PIP" in plan
-    assert "omitting `wheel` from either supported platform" in plan
+    assert "omitting `wheel` from all three supported system/machine pairs" in plan
 
     ledger = " ".join(documents[_TORCH_CONTRACT_DOC_PATHS[0]].split())
     assert (

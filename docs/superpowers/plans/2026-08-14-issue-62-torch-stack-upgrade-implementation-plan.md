@@ -128,7 +128,8 @@
 
   The bootstrap command is exactly `python -m pip install --upgrade pip wheel`; wheel supplies the
   source-build tooling needed when the runtime stage disables build isolation. Add mutations for
-  omitting `wheel` from either supported platform, unsupported systems/architectures,
+  omitting `wheel` from all three supported system/machine pairs, unsupported
+  systems/architectures,
   reordered/missing/duplicate stages, missing CPU index, broad `--only-binary=:all:`, omitted wheel
   names, adding spline to `--only-binary`, omitting `--no-binary`/`--no-build-isolation`, changing
   the PyG URL, omitting binary-only NNx, adding a fifth installer, using shell strings, ignoring a

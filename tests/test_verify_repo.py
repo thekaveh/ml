@@ -1353,8 +1353,14 @@ def _assert_issue_61_dependency_evidence_contract(text: str) -> None:
         "## 6.1.8 Atlas Jupyter Runtime Evidence",
         "## 6.1.9 Atlas Versus Local/CI Dependency Boundaries",
     )
+    assert (
+        "| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; "
+        "`tokenizers` 0.22.2 | Atlas-owned image evidence; matches notebook imports and "
+        "the `[lm]` extra at the observed version |"
+    ) in atlas_observation
+    assert "`thekaveh-nnx` / `nnx` 0.2.2" not in atlas_observation
     assert hashlib.sha256(atlas_observation.encode()).hexdigest() == (
-        "aaa4b798a5be179ede37950225065db98dfa137f0dc084434234f46f3f92e729"
+        "afc174c7fb980a040e46a6fe8fc91c71c8e76d3d4985aeb15ab46557f7ff0f76"
     )
 
 

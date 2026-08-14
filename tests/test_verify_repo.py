@@ -5,6 +5,7 @@ import json
 import builtins
 import os
 import re
+import ast
 import shlex
 import shutil
 import subprocess
@@ -19,6 +20,7 @@ import yaml
 from scripts import verify_repo
 
 REPO = Path(__file__).resolve().parent.parent
+REPO_ROOT = REPO
 SCRIPT = REPO / "scripts" / "verify_repo.py"
 ACTIVE_FIXTURE_DIR = "notebooks/image_classification-mnist-ffnn-numpy"
 TEST_SUBPROCESS_TIMEOUT = 30
@@ -2526,6 +2528,59 @@ def test_runtime_available_requires_pyg_extension_stack(monkeypatch):
     monkeypatch.setattr(verify_repo.importlib.util, "find_spec", fake_find_spec)
 
     assert verify_repo._runtime_available() is False
+
+
+def _torch_runtime_import_names(repo: Path) -> set[str]:
+    return _torch_runtime_import_names_from_source(
+        (repo / "scripts/verify_torch_stack.py").read_text(encoding="utf-8")
+    )
+
+
+def _torch_runtime_import_names_from_source(source: str) -> set[str]:
+    tree = ast.parse(source)
+    assignment = next(
+        node for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "IMPORTS"
+            for target in node.targets
+        )
+    )
+    imports = ast.literal_eval(assignment.value)
+    assert isinstance(imports, dict)
+    return set(imports.values())
+
+
+def _assert_torch_runtime_contract(verifier_source: str, availability_source: str) -> None:
+    forbidden = {"torch_cluster", "torch_spline_conv"}
+    assert forbidden.isdisjoint(_torch_runtime_import_names_from_source(verifier_source))
+    assert forbidden.isdisjoint(availability_source.split())
+
+
+def test_issue62_runtime_availability_uses_only_supported_graph_modules():
+    required = {"pyg_lib", "torch_scatter", "torch_sparse", "torch_geometric"}
+    forbidden = {"torch_cluster", "torch_spline_conv"}
+    assert required <= _torch_runtime_import_names(REPO_ROOT)
+    assert forbidden.isdisjoint(_torch_runtime_import_names(REPO_ROOT))
+    assert verify_repo._RUNTIME_AVAILABLE_IMPORTS == (
+        "torch", "torch_geometric", "pyg_lib", "torch_scatter", "torch_sparse",
+    )
+
+
+@pytest.mark.parametrize("forbidden", ("torch_cluster", "torch_spline_conv"))
+def test_torch_runtime_contract_rejects_legacy_import_mutations(forbidden: str) -> None:
+    verifier_source = (REPO_ROOT / "scripts/verify_torch_stack.py").read_text(encoding="utf-8")
+    availability_source = " ".join(verify_repo._RUNTIME_AVAILABLE_IMPORTS)
+    mutated_verifier = verifier_source.replace(
+        '    "torch-sparse": "torch_sparse",',
+        f'    "torch-sparse": "torch_sparse",\n    "{forbidden.replace("_", "-")}": "{forbidden}",',
+        1,
+    )
+    assert mutated_verifier != verifier_source
+    with pytest.raises(AssertionError):
+        _assert_torch_runtime_contract(mutated_verifier, availability_source)
+    with pytest.raises(AssertionError):
+        _assert_torch_runtime_contract(verifier_source, availability_source + f" {forbidden}")
 
 
 def test_full_execution_uses_temporary_tier_a_outputs(tmp_path, monkeypatch):

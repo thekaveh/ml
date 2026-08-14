@@ -2396,6 +2396,15 @@ def _phase3_code_cells_unchanged(repo: Path) -> list[Finding]:
     return findings
 
 
+_RUNTIME_AVAILABLE_IMPORTS = (
+    "torch",
+    "torch_geometric",
+    "pyg_lib",
+    "torch_scatter",
+    "torch_sparse",
+)
+
+
 def _runtime_available() -> bool:
     """True when the heavyweight ML runtime (torch, PyG) is importable in this env.
 
@@ -2407,18 +2416,10 @@ def _runtime_available() -> bool:
     meaningful only in the Atlas JupyterHub runtime or an equivalent
     fully-provisioned env.
     """
-    for canary in (
-        "torch",
-        "torch_geometric",
-        "torch_sparse",
-        "torch_scatter",
-        "torch_cluster",
-        "torch_spline_conv",
-        "pyg_lib",
-    ):
-        if importlib.util.find_spec(canary) is None:
-            return False
-    return True
+    return all(
+        importlib.util.find_spec(import_name) is not None
+        for import_name in _RUNTIME_AVAILABLE_IMPORTS
+    )
 
 
 def check_execution(repo: Path, fast: bool) -> CheckResult:

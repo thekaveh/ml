@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import dataclasses
 import importlib
 import platform
 import re
 import sys
 import warnings
-from collections.abc import Callable, Iterable, Mapping, Sequence
-from contextlib import redirect_stderr, redirect_stdout
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from importlib import metadata
 from importlib.metadata import PackagePath
@@ -36,8 +35,6 @@ IMPORTS = {
     "pyg-lib": "pyg_lib",
     "torch-scatter": "torch_scatter",
     "torch-sparse": "torch_sparse",
-    "torch-cluster": "torch_cluster",
-    "torch-spline-conv": "torch_spline_conv",
 }
 
 _CORE_MANIFEST = "torch-core-requirements.txt"
@@ -58,22 +55,11 @@ _ERROR_CATEGORIES = frozenset(
 _CORE_NAMES = frozenset(("torch", "torchvision", "torchaudio"))
 _ECOSYSTEM_NAMES = frozenset(("pytorch-lightning", "torchmetrics", "torchao"))
 _RUNTIME_NAMES = frozenset(
-    (
-        "pyg-lib",
-        "torch-scatter",
-        "torch-sparse",
-        "torch-cluster",
-        "torch-spline-conv",
-        "torch-geometric",
-    )
+    ("pyg-lib", "torch-scatter", "torch-sparse", "torch-geometric")
 )
-_EXTENSION_NAMES = frozenset(
-    ("torch-scatter", "torch-sparse", "torch-cluster", "torch-spline-conv")
-)
-_PYG_INDEX_DISTRIBUTIONS = frozenset(
-    ("pyg-lib", "torch-scatter", "torch-sparse", "torch-cluster")
-)
-_COMPILED_DISTRIBUTIONS = _PYG_INDEX_DISTRIBUTIONS | {"torch-spline-conv"}
+_EXTENSION_NAMES = frozenset(("torch-scatter", "torch-sparse"))
+_PYG_INDEX_DISTRIBUTIONS = frozenset(("pyg-lib", "torch-scatter", "torch-sparse"))
+_COMPILED_DISTRIBUTIONS = _PYG_INDEX_DISTRIBUTIONS
 _BINARY_DISTRIBUTIONS = _COMPILED_DISTRIBUTIONS | _CORE_NAMES
 _SUPPORTED_PLATFORMS = frozenset(
     (("Linux", "x86_64"), ("Linux", "aarch64"), ("Darwin", "arm64"))
@@ -133,9 +119,7 @@ Canary = Callable[[Mapping[str, ModuleType]], None]
 class CanaryHooks:
     scatter: Canary
     sparse: Canary
-    cluster: Canary
     sampler: Canary
-    spline: Canary
 
 
 @dataclass(frozen=True)
@@ -329,15 +313,14 @@ def _tag_matches_platform(tag: Tag, contract: StackContract) -> bool:
 
 def _verify_local_version(pin: StackPin, version: Version, contract: StackContract) -> None:
     local = version.local
-    if local is None:
-        return
-    torch_pin = next(item for item in contract.pins if item.distribution == "torch")
-    expected_pyg_local = f"pt{torch_pin.public_version.major}{torch_pin.public_version.minor}"
-    if contract.system == "Linux":
-        expected_pyg_local += "cpu"
     if pin.distribution in _PYG_INDEX_DISTRIBUTIONS:
-        if local != expected_pyg_local:
+        expected = "pt211cpu" if contract.system == "Linux" else "pt211"
+        if contract.system == "Linux" and local != expected:
             raise TorchStackVerificationError(pin.distribution, "abi")
+        if contract.system == "Darwin" and local not in (None, expected):
+            raise TorchStackVerificationError(pin.distribution, "abi")
+        return
+    if local is None:
         return
     if pin.distribution in _CORE_NAMES and contract.system == "Linux" and local == "cpu":
         return
@@ -425,44 +408,64 @@ def _sparse_canary(modules: Mapping[str, ModuleType]) -> None:
         raise RuntimeError
 
 
-def _cluster_canary(modules: Mapping[str, ModuleType]) -> None:
-    torch = modules["torch"]
-    points = torch.tensor([[0.0], [1.0]])
-    result = modules["torch-cluster"].knn(points, points, 1)
-    if tuple(result.shape)[0] != 2 or result.numel() == 0:
-        raise RuntimeError
+@dataclass
+class _OperationSpy:
+    operation: Callable[..., object]
+    calls: int = 0
+
+    def __call__(self, *args: object, **kwargs: object) -> object:
+        self.calls += 1
+        return self.operation(*args, **kwargs)
+
+
+@contextmanager
+def _replace_operation(namespace: object, name: str) -> Iterator[_OperationSpy]:
+    original = getattr(namespace, name)
+    spy = _OperationSpy(original)
+    setattr(namespace, name, spy)
+    try:
+        yield spy
+    finally:
+        setattr(namespace, name, original)
 
 
 def _sampler_canary(modules: Mapping[str, ModuleType]) -> None:
     torch = modules["torch"]
     geometric = modules["torch-geometric"]
+    typing = importlib.import_module("torch_geometric.typing")
+    if not typing.WITH_PYG_LIB or not typing.WITH_TORCH_SPARSE:
+        raise RuntimeError("both sampler backends must be available")
+    original_with_pyg = typing.WITH_PYG_LIB
     data = geometric.data.Data(
-        x=torch.tensor([[1.0], [2.0]]),
-        edge_index=torch.tensor([[0, 1], [1, 0]]),
+        x=torch.tensor([[1.0], [2.0], [3.0]]),
+        edge_index=torch.tensor([[0, 1, 2, 1], [1, 0, 1, 2]]),
     )
-    loader = geometric.loader.NeighborLoader(
-        data,
-        num_neighbors=[-1],
-        input_nodes=torch.tensor([0]),
-        batch_size=1,
-        shuffle=False,
-    )
-    batch = next(iter(loader))
-    if int(batch.batch_size) <= 0 or int(batch.num_edges) <= 0:
-        raise RuntimeError
+    try:
+        with (
+            _replace_operation(torch.ops.pyg, "neighbor_sample") as pyg_spy,
+            _replace_operation(torch.ops.torch_sparse, "neighbor_sample") as sparse_spy,
+        ):
+            typing.WITH_PYG_LIB = True
+            preferred = next(iter(geometric.loader.NeighborLoader(
+                data, num_neighbors=[-1], input_nodes=torch.tensor([0]),
+                batch_size=1, shuffle=False, num_workers=0,
+            )))
+            if pyg_spy.calls != 1 or sparse_spy.calls != 0:
+                raise RuntimeError("preferred sampler did not use only pyg-lib")
 
-
-def _spline_canary(modules: Mapping[str, ModuleType]) -> None:
-    torch = modules["torch"]
-    geometric = modules["torch-geometric"]
-    layer = geometric.nn.SplineConv(1, 2, dim=1, kernel_size=2)
-    result = layer(
-        torch.tensor([[1.0], [2.0]]),
-        torch.tensor([[0, 1], [1, 0]]),
-        torch.tensor([[0.25], [0.75]]),
-    )
-    if tuple(result.shape) != (2, 2):
-        raise RuntimeError
+            typing.WITH_PYG_LIB = False
+            fallback = next(iter(geometric.loader.NeighborLoader(
+                data, num_neighbors=[-1], input_nodes=torch.tensor([0]),
+                batch_size=1, shuffle=False, num_workers=0,
+            )))
+            if pyg_spy.calls != 1 or sparse_spy.calls != 1:
+                raise RuntimeError("fallback sampler did not use only torch-sparse")
+            if min(int(preferred.batch_size), int(fallback.batch_size)) <= 0:
+                raise RuntimeError("sampler returned an empty seed batch")
+            if min(int(preferred.edge_index.numel()), int(fallback.edge_index.numel())) <= 0:
+                raise RuntimeError("sampler returned no edges")
+    finally:
+        typing.WITH_PYG_LIB = original_with_pyg
 
 
 def _installed_distribution_names() -> tuple[str, ...]:
@@ -495,9 +498,7 @@ DEFAULT_HOOKS = VerificationHooks(
     canaries=CanaryHooks(
         scatter=_scatter_canary,
         sparse=_sparse_canary,
-        cluster=_cluster_canary,
         sampler=_sampler_canary,
-        spline=_spline_canary,
     ),
 )
 
@@ -552,11 +553,10 @@ def verify_torch_stack(
     names_and_categories = (
         ("scatter", "operator"),
         ("sparse", "operator"),
-        ("cluster", "operator"),
         ("sampler", "sampler"),
-        ("spline", "operator"),
     )
-    for (name, category), canary in zip(names_and_categories, dataclasses.astuple(hooks.canaries), strict=True):
+    for name, category in names_and_categories:
+        canary = getattr(hooks.canaries, name)
         _run_warning_free(name, category, canary, modules)
     try:
         torch_version = Version(str(modules["torch"].__version__))
@@ -608,9 +608,7 @@ def _validated_cli_error(error: TorchStackVerificationError) -> TorchStackVerifi
             "inventory",
             "scatter",
             "sparse",
-            "cluster",
             "sampler",
-            "spline",
             "nnx",
             "verifier",
         }

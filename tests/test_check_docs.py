@@ -944,6 +944,84 @@ def test_knowledge_distillation_run_identity_contract_is_documented_consistently
         assert "separate run history" in normalized
 
 
+def _knowledge_distillation_current_prose() -> dict[str, str]:
+    notebook_path = (
+        REPO_ROOT
+        / "notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb"
+    )
+    notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+    notebook_markdown = "\n".join(
+        "".join(cell["source"])
+        if isinstance(cell["source"], list)
+        else cell["source"]
+        for cell in notebook["cells"]
+        if cell["cell_type"] == "markdown"
+    )
+    return {
+        "notebook Markdown": notebook_markdown,
+        "canonical guide": (
+            REPO_ROOT
+            / "docs/notebooks/knowledge_distillation-mnist-ffnn-pytorch.md"
+        ).read_text(encoding="utf-8"),
+        "task README": (
+            REPO_ROOT
+            / "notebooks/knowledge_distillation-mnist-ffnn-pytorch/README.md"
+        ).read_text(encoding="utf-8"),
+    }
+
+
+def _normalized_semantic_prose(text: str) -> str:
+    return " ".join(text.translate(str.maketrans("", "", "*`")).lower().split())
+
+
+def test_knowledge_distillation_docs_match_nnx_0_2_2_born_again_semantics():
+    required = (
+        "reset to the caller-provided initial state",
+        "frozen prior-generation teacher",
+        "parent_run_id lineage",
+    )
+    forbidden = (
+        "weights are not reset",
+        "weights carry over",
+        "live weights carry over",
+        "more total optimization",
+        "extra optimization",
+        "6 epochs of live-weight training",
+    )
+    for surface, text in _knowledge_distillation_current_prose().items():
+        normalized = _normalized_semantic_prose(text)
+        for phrase in required:
+            assert phrase in normalized, (surface, phrase)
+        for phrase in forbidden:
+            assert phrase not in normalized, (surface, phrase)
+
+
+def test_knowledge_distillation_historical_outputs_are_labeled_before_first_output():
+    notebook_path = (
+        REPO_ROOT
+        / "notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb"
+    )
+    notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+    first_output = next(
+        index for index, cell in enumerate(notebook["cells"]) if cell.get("outputs")
+    )
+    preceding_markdown = "\n".join(
+        "".join(cell["source"])
+        if isinstance(cell["source"], list)
+        else cell["source"]
+        for cell in notebook["cells"][:first_output]
+        if cell["cell_type"] == "markdown"
+    )
+    historical_label = "historical NNx 0.2.0 snapshot"
+    acceptance_boundary = "not current NNx 0.2.2 acceptance evidence"
+    assert historical_label in preceding_markdown
+    assert acceptance_boundary in preceding_markdown
+
+    for surface, text in _knowledge_distillation_current_prose().items():
+        assert historical_label in text, surface
+        assert acceptance_boundary in text, surface
+
+
 def test_checkpoint_docs_use_current_nnx_checkpoint_api():
     current_checkpoint_docs = (
         "docs/nnx-library.md",

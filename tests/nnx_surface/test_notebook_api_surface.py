@@ -168,6 +168,26 @@ def _assigned_call(nb: dict, target: str) -> ast.Call:
     return matches[0]
 
 
+def _assert_single_gen_reference_call(nb: dict) -> None:
+    single_call = _assigned_call(nb, "single_run")
+    assert (
+        isinstance(single_call.func, ast.Attribute)
+        and single_call.func.attr == "train"
+        and isinstance(single_call.func.value, ast.Name)
+        and single_call.func.value.id == "single_gen"
+    )
+    assert single_call.args == []
+    keywords = {keyword.arg: keyword.value for keyword in single_call.keywords}
+    assert set(keywords) == {"params", "salt"}
+    assert isinstance(keywords["params"], ast.Call)
+    assert isinstance(keywords["params"].func, ast.Name)
+    assert keywords["params"].func.id == "train_params"
+    assert keywords["params"].args == []
+    assert keywords["params"].keywords == []
+    assert isinstance(keywords["salt"], ast.Constant)
+    assert keywords["salt"].value == "single-gen-reference"
+
+
 # --- scan checkers (also exercised directly by the synthetic unit tests) -----
 
 def find_misplaced_utils_attrs(nb: dict, forbidden: set[str]) -> list[str]:
@@ -219,17 +239,7 @@ def test_knowledge_distillation_baseline_has_a_distinct_stable_run_identity():
     )
     nb = json.loads(nb_path.read_text(encoding="utf-8"))
 
-    single_call = _assigned_call(nb, "single_run")
-    assert (
-        isinstance(single_call.func, ast.Attribute)
-        and single_call.func.attr == "train"
-        and isinstance(single_call.func.value, ast.Name)
-        and single_call.func.value.id == "single_gen"
-    )
-    salts = [keyword.value for keyword in single_call.keywords if keyword.arg == "salt"]
-    assert len(salts) == 1
-    assert isinstance(salts[0], ast.Constant)
-    assert salts[0].value == "single-gen-reference"
+    _assert_single_gen_reference_call(nb)
 
     born_again_call = _assigned_call(nb, "ba_runs")
     assert (
@@ -248,6 +258,32 @@ def test_knowledge_distillation_baseline_has_a_distinct_stable_run_identity():
     assert isinstance(born_again_keywords["train_params"], ast.Call)
     assert isinstance(born_again_keywords["train_params"].func, ast.Name)
     assert born_again_keywords["train_params"].func.id == "train_params"
+
+
+@pytest.mark.parametrize(
+    "single_call",
+    (
+        'single_gen.train(train_params(), salt="single-gen-reference")',
+        (
+            'single_gen.train(params=train_params(), salt="single-gen-reference", '
+            "overwrite_existing=True)"
+        ),
+        'single_gen.train(params=train_params(1), salt="single-gen-reference")',
+        "single_gen.train(params=train_params(), salt=reference_salt)",
+    ),
+)
+def test_knowledge_distillation_baseline_identity_guard_rejects_call_mutations(
+    single_call: str,
+):
+    bad = _synthetic_nb(
+        {
+            "cell_type": "code",
+            "source": [f"single_run = {single_call}\n"],
+            "outputs": [],
+        }
+    )
+    with pytest.raises(AssertionError):
+        _assert_single_gen_reference_call(bad)
 
 
 def test_active_notebooks_uses_git_tracked_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

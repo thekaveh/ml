@@ -7,6 +7,8 @@
 - **Model:** `nnx.FeedFwdNN` (`Nets.FEED_FWD`), `Activations.RELU`, `hidden_dims=[128, 64]`.
 - **Framework:** PyTorch (via [`thekaveh-nnx`](https://github.com/thekaveh/NNx)).
 
+> **Historical output notice:** The committed notebook outputs and results are a historical NNx 0.2.0 snapshot retained under the release-review preservation plan. They are not current NNx 0.2.2 acceptance evidence; current evidence requires a clean released-wheel execution and the complete acceptance matrix.
+
 ## 2. Why this exists
 
 **Born-again** training (Furlanello et al., 2018) is the surprising special case of knowledge distillation where student and teacher have the *same* architecture: each generation takes the previous generation's frozen weights as its teacher. The student often beats the teacher despite the identical parameter count — the gain comes from the soft-label regularizer.
@@ -14,6 +16,8 @@
 `nnx.born_again_train(model, generations=N, train_params=...)` wires the iteration: gen 0 trains plain on hard labels, gen k>0 distills against a frozen deepcopy of gen k-1's model. The notebook shows the per-generation val-loss trajectory on MNIST and the accuracy delta vs a single-gen reference.
 
 The independent control uses the stable `single-gen-reference` identity salt so it keeps a separate run history from born-again generation 0 while retaining the same seeded training configuration.
+
+Under NNx 0.2.2, each later student is reset to the caller-provided initial state, trains against a frozen prior-generation teacher, and records `parent_run_id` lineage to that teacher generation. The wrapper is reused, but each student begins from the same initial weights.
 
 ## 3. What's in the notebook
 
@@ -52,6 +56,6 @@ All in the root `requirements.txt` + `torch-requirements.txt`.
 
 ## 6. Known issues
 
-- **Short training budget.** Each generation gets only 2 epochs. The born-again gain (+21 % val accuracy in the recorded run) is qualitatively right but absolute numbers are low. At ImageNet scale, the original paper reports BA-4 reaching <1 % gap to the SOTA at the time using only the soft-label trick — the regularization effect compounds with budget.
+- **Short training budget.** Each independently initialized student gets only 2 epochs, so a single trajectory is noisy. The retained approximately 21-point difference belongs only to the historical NNx 0.2.0 snapshot; do not cite it as a current 0.2.2 result.
 - **Diminishing returns.** The original paper shows gains taper off past BA-4 on ResNet-110 / CIFAR-100. We run only 3 generations to stay Tier-A, so the curve doesn't have a chance to plateau visibly.
 - **Same-arch only.** This notebook intentionally fixes the student to the *same* architecture as the teacher (the born-again setting). The classical compression case (small student, big teacher) uses the same `nnx.kd_train_step_factory(teacher=...)` plumbing but with different `NNParams` — outside this notebook's scope.

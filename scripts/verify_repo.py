@@ -1550,6 +1550,10 @@ _INPLACE_DECLARATION_DUNDERS = frozenset({
     "__imatmul__", "__imod__", "__imul__", "__ior__", "__ipow__", "__irshift__",
     "__isub__", "__itruediv__", "__ixor__",
 })
+_UNBOUND_MUTATOR_TYPES = frozenset({"dict", "frozenset", "list", "set", "tuple"})
+_OPERATOR_MUTATION_FUNCTIONS = frozenset(
+    method[2:-2] for method in _INPLACE_DECLARATION_DUNDERS
+) | frozenset({"iconcat", "setitem", "delitem"})
 
 
 def _protected_name_bindings(tree: ast.AST, name: str) -> list[ast.AST]:
@@ -1577,7 +1581,32 @@ def _protected_mutation_root(node: ast.AST) -> str | None:
 
 
 def _is_mutating_declaration_method(method: str) -> bool:
-    return method in _MUTATING_DECLARATION_METHODS | _INPLACE_DECLARATION_DUNDERS
+    return method in _MUTATING_DECLARATION_METHODS or method in _INPLACE_DECLARATION_DUNDERS
+
+
+def _operator_module_aliases(tree: ast.AST) -> frozenset[str]:
+    return frozenset(
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "operator"
+    )
+
+
+def _is_unbound_mutator_type(node: ast.AST) -> bool:
+    return isinstance(node, ast.Name) and node.id in _UNBOUND_MUTATOR_TYPES
+
+
+def _is_operator_mutator_call(
+    function: ast.Attribute,
+    operator_aliases: frozenset[str],
+) -> bool:
+    return (
+        isinstance(function.value, ast.Name)
+        and function.value.id in operator_aliases
+        and function.attr in _OPERATOR_MUTATION_FUNCTIONS
+    )
 
 
 def _protected_name_mutations(
@@ -1586,6 +1615,7 @@ def _protected_name_mutations(
     allowed_target: ast.Name,
 ) -> list[ast.AST]:
     mutations: list[ast.AST] = []
+    operator_aliases = _operator_module_aliases(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             targets = node.targets
@@ -1600,13 +1630,19 @@ def _protected_name_mutations(
                 mutations.append(target)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             direct_receiver = _protected_mutation_root(node.func.value) == name
-            qualified_receiver = (
-                bool(node.args)
-                and _protected_mutation_root(node.args[0]) == name
+            protected_first_argument = (
+                bool(node.args) and _protected_mutation_root(node.args[0]) == name
             )
-            if _is_mutating_declaration_method(node.func.attr) and (
-                direct_receiver or qualified_receiver
-            ):
+            qualified_mutator = protected_first_argument and (
+                (
+                    _is_unbound_mutator_type(node.func.value)
+                    and _is_mutating_declaration_method(node.func.attr)
+                )
+                or _is_operator_mutator_call(node.func, operator_aliases)
+            )
+            if (
+                direct_receiver and _is_mutating_declaration_method(node.func.attr)
+            ) or qualified_mutator:
                 mutations.append(node)
     return mutations
 

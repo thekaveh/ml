@@ -2773,6 +2773,57 @@ def test_torch_runtime_contract_rejects_inplace_and_qualified_declaration_mutati
     assert _torch_runtime_contract_findings(repo)
 
 
+def test_torch_runtime_contract_allows_sink_methods_with_protected_arguments(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / "scripts/verify_torch_stack.py"
+    target.write_text(
+        target.read_text(encoding="utf-8")
+        + "\nclass Sink:\n"
+        + "    def update(self, value):\n        return value\n"
+        + "    def append(self, value):\n        return value\n"
+        + "    def copy(self, value):\n        return value\n"
+        + "sink = Sink()\n"
+        + "sink.update(IMPORTS)\n"
+        + "sink.append(IMPORTS)\n"
+        + "sink.copy(IMPORTS)\n",
+        encoding="utf-8",
+    )
+
+    assert _torch_runtime_contract_findings(repo) == []
+
+
+@pytest.mark.parametrize(("target_name", "mutation"), (
+    ("IMPORTS", "import operator\noperator.ior(IMPORTS, {'legacy': 'torch_cluster'})"),
+    ("IMPORTS", "import operator as op\nop.setitem(IMPORTS, 'legacy', 'torch_cluster')"),
+    ("IMPORTS", "import operator\noperator.delitem(IMPORTS, 'torch')"),
+    ("_RUNTIME_ONLY_MODULES", "import operator\noperator.iand(_RUNTIME_ONLY_MODULES, {'torch'})"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "import operator\noperator.iadd(_RUNTIME_AVAILABLE_IMPORTS, ('torch_cluster',))"),
+))
+def test_torch_runtime_contract_rejects_operator_declaration_mutators(
+    tmp_path: Path, target_name: str, mutation: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / ("scripts/verify_torch_stack.py" if target_name == "IMPORTS" else "scripts/verify_repo.py")
+    target.write_text(target.read_text(encoding="utf-8") + f"\n{mutation}\n", encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+def test_torch_runtime_contract_allows_nonmutating_operator_functions(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / "scripts/verify_torch_stack.py"
+    target.write_text(
+        target.read_text(encoding="utf-8")
+        + "\nimport operator\n"
+        + "operator.getitem(IMPORTS, 'torch')\n"
+        + "operator.contains(IMPORTS, 'torch')\n"
+        + "operator.length_hint(IMPORTS)\n",
+        encoding="utf-8",
+    )
+
+    assert _torch_runtime_contract_findings(repo) == []
+
+
 def test_torch_runtime_contract_allows_ordinary_declaration_reads(tmp_path: Path) -> None:
     repo = _copied_torch_runtime_contract_repo(tmp_path)
     stack_source = repo / "scripts/verify_torch_stack.py"

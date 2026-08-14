@@ -54,15 +54,9 @@ TIER_B := \
 
 # notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb was previously the 2nd entry
 # above. Removed 2026-06-16 after the weekly smoke-tier-b cron failed at the
-# quantization import: `torchao>=0.17` (requirements.txt pin, smallest version
-# exposing nnx.quantize_int8's `Int8WeightOnlyConfig` API) cannot import under
-# the local/CI `torch==2.4.1` contract (see torch-core-requirements.txt + issue
-# #10). The reviewed torchao 0.18.0 side environment requires Torch >=2.11.
-# Notebook stays in the repo as a manual-only task; the accepted validation pair
-# is Torch 2.11.0 + torchvision 0.26.0 + torchao 0.18.0. The Tier-B move (PR #11) was made
-# under the assumption the weekly cron would still exercise it — that turned
-# out to be wrong; removing it here unblocks the remaining Tier-B notebooks
-# the cron was supposed to cover.
+# quantization import requires Torch 2.11.0, torchvision 0.26.0, and torchao
+# 0.18.0. It remains a manual-only Issue #66 task outside Tier A/B/C; that
+# issue owns notebook execution, output refresh, thresholds, and tier promotion.
 
 TIER_C := \
     notebooks/node_classification-reddit-gnn-pyg/phase3-main-model-training-and-eval-notebook.ipynb \
@@ -220,9 +214,7 @@ verify:
 	$(PYTHON) scripts/verify_repo.py --check all --fast
 
 install-torch-stack:
-	$(PIP) install --upgrade pip
-	$(PIP) install -r torch-core-requirements.txt
-	$(PIP) install --no-build-isolation -r torch-requirements.txt
+	$(PYTHON) -m scripts.install_torch_stack
 
 # Full one-shot dep install for the GitHub Codespaces / "Reopen in Container"
 # path (README §3.4). Reuses the same Torch-first install order as CI and
@@ -230,5 +222,4 @@ install-torch-stack:
 # Recursively invokes nlp-assets so the spaCy + NLTK download steps stay in
 # one place across the §3.2 (Docker), §3.3 (venv), and §3.4 (Codespaces) paths.
 codespace-setup: install-torch-stack
-	$(PIP) install -r requirements.txt
 	$(MAKE) nlp-assets

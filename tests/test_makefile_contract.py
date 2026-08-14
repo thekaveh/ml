@@ -130,7 +130,7 @@ def test_mkdocs_commands_suppress_only_the_upstream_material_banner():
     assert all(line.startswith("NO_MKDOCS_2_WARNING=1 mkdocs ") for line in mkdocs_lines)
 
 
-def test_setup_targets_use_selected_python_interpreter():
+def test_torch_installer_target_is_one_exact_command_and_codespace_has_no_late_pip_install():
     custom_python = "/opt/custom/bin/python"
     result = subprocess.run(
         [
@@ -150,13 +150,10 @@ def test_setup_targets_use_selected_python_interpreter():
     )
     lines = result.stdout.splitlines()
 
-    assert f"{custom_python} -m pip install --upgrade pip" in lines
-    assert f"{custom_python} -m pip install -r torch-core-requirements.txt" in lines
-    assert f"{custom_python} -m pip install --no-build-isolation -r torch-requirements.txt" in lines
-    assert f"{custom_python} -m pip install -r requirements.txt" in lines
+    assert lines.count(f"{custom_python} -m scripts.install_torch_stack") == 1
     assert f"{custom_python} -m spacy download en_core_web_sm" in lines
     assert any(line.startswith(f"{custom_python} -c ") for line in lines)
-    assert not any(line.startswith("pip install") or line.startswith("python ") for line in lines)
+    assert not any(" -m pip install" in line for line in lines)
 
 
 def test_verify_nnx_install_target_is_public_and_uses_selected_python():

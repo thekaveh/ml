@@ -1,13 +1,8 @@
-# PyG extensions matched to the local/CI Torch compatibility baseline.
-# Install torch-core-requirements.txt first when source builds are possible;
-# this include keeps audit/install commands that reference only this file
-# complete.
--r torch-core-requirements.txt
-
-# Graph Neural Networks (PyG) — wheels matched to torch 2.4 CPU build
---find-links https://data.pyg.org/whl/torch-2.4.0+cpu.html  # index uses minor version
+-r torch-ecosystem-requirements.txt
+--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html
+pyg-lib==0.8.0
 torch-scatter==2.1.2
 torch-sparse==0.6.18
 torch-cluster==1.6.3
 torch-spline-conv==1.2.2
-torch_geometric==2.6.1
+torch_geometric==2.8.0.post1

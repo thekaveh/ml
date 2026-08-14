@@ -17,13 +17,16 @@ SCHEMA_VERSION = 1
 TORCH_RUNTIME_REQUIREMENTS = "torch-requirements.txt"
 TORCH_AUDIT_REQUIREMENTS = "torch-audit-requirements.txt"
 PYG_EXTENSION_AUDIT_REQUIREMENTS = "pyg-extension-audit-requirements.txt"
-TORCH_CORE_REQUIREMENTS = "-r torch-core-requirements.txt"
-PYG_FIND_LINKS = "--find-links https://data.pyg.org/whl/torch-2.4.0+cpu.html"
+TORCH_CORE_REQUIREMENTS = "torch-core-requirements.txt"
+TORCH_ECOSYSTEM_REQUIREMENTS = "torch-ecosystem-requirements.txt"
+PYG_FIND_LINKS = "--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html"
+TORCH_CORE_LINES = ("torch==2.11.0", "torchvision==0.26.0", "torchaudio==2.11.0")
+TORCH_ECOSYSTEM_LINES = ("pytorch-lightning==2.6.1", "torchmetrics==1.9.0", "torchao==0.18.0")
 TORCH_RUNTIME_LINES = (
-    TORCH_CORE_REQUIREMENTS, PYG_FIND_LINKS, "torch-scatter==2.1.2", "torch-sparse==0.6.18",
-    "torch-cluster==1.6.3", "torch-spline-conv==1.2.2", "torch_geometric==2.6.1",
+    "-r torch-ecosystem-requirements.txt", PYG_FIND_LINKS, "pyg-lib==0.8.0", "torch-scatter==2.1.2",
+    "torch-sparse==0.6.18", "torch-cluster==1.6.3", "torch-spline-conv==1.2.2", "torch_geometric==2.8.0.post1",
 )
-TORCH_AUDIT_LINES = (TORCH_CORE_REQUIREMENTS, "torch_geometric==2.6.1")
+TORCH_AUDIT_LINES = ("-r torch-core-requirements.txt", "-r torch-ecosystem-requirements.txt", "torch_geometric==2.8.0.post1")
 PYG_EXTENSION_AUDIT_LINES = (
     "torch-scatter==2.1.2", "torch-sparse==0.6.18", "torch-cluster==1.6.3", "torch-spline-conv==1.2.2",
 )
@@ -414,10 +417,18 @@ def _semantic_requirement_lines(path: Path) -> tuple[str, ...]:
 
 def _validate_torch_audit_projection(repo: Path) -> None:
     """Require the selector-free audit manifest to exactly mirror the runtime pins."""
+    core = _semantic_requirement_lines(repo / TORCH_CORE_REQUIREMENTS)
+    ecosystem = _semantic_requirement_lines(repo / TORCH_ECOSYSTEM_REQUIREMENTS)
     runtime = _semantic_requirement_lines(repo / TORCH_RUNTIME_REQUIREMENTS)
     audit = _semantic_requirement_lines(repo / TORCH_AUDIT_REQUIREMENTS)
     extensions = _semantic_requirement_lines(repo / PYG_EXTENSION_AUDIT_REQUIREMENTS)
-    if runtime != TORCH_RUNTIME_LINES or audit != TORCH_AUDIT_LINES or extensions != PYG_EXTENSION_AUDIT_LINES:
+    if (
+        core != TORCH_CORE_LINES
+        or ecosystem != TORCH_ECOSYSTEM_LINES
+        or runtime != TORCH_RUNTIME_LINES
+        or audit != TORCH_AUDIT_LINES
+        or extensions != PYG_EXTENSION_AUDIT_LINES
+    ):
         raise AdvisoryBaselineError("torch audit projection does not match runtime requirements")
 
 

@@ -21,19 +21,31 @@ from scripts.advisory_baseline import (
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PYG_FIND_LINKS = "--find-links https://data.pyg.org/whl/torch-2.4.0+cpu.html"
+TORCH_CORE_REQUIREMENTS = (
+    "torch==2.11.0\n"
+    "torchvision==0.26.0\n"
+    "torchaudio==2.11.0\n"
+)
+TORCH_ECOSYSTEM_REQUIREMENTS = (
+    "pytorch-lightning==2.6.1\n"
+    "torchmetrics==1.9.0\n"
+    "torchao==0.18.0\n"
+)
+PYG_FIND_LINKS = "--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html"
 TORCH_RUNTIME_REQUIREMENTS = (
-    "-r torch-core-requirements.txt\n"
+    "-r torch-ecosystem-requirements.txt\n"
     f"{PYG_FIND_LINKS}\n"
+    "pyg-lib==0.8.0\n"
     "torch-scatter==2.1.2\n"
     "torch-sparse==0.6.18\n"
     "torch-cluster==1.6.3\n"
     "torch-spline-conv==1.2.2\n"
-    "torch_geometric==2.6.1\n"
+    "torch_geometric==2.8.0.post1\n"
 )
 TORCH_AUDIT_REQUIREMENTS = (
     "-r torch-core-requirements.txt\n"
-    "torch_geometric==2.6.1\n"
+    "-r torch-ecosystem-requirements.txt\n"
+    "torch_geometric==2.8.0.post1\n"
 )
 PYG_EXTENSION_AUDIT_REQUIREMENTS = (
     "torch-scatter==2.1.2\n"
@@ -44,6 +56,8 @@ PYG_EXTENSION_AUDIT_REQUIREMENTS = (
 
 
 def _write_torch_requirements(repo: Path) -> tuple[Path, Path, Path]:
+    (repo / "torch-core-requirements.txt").write_text(TORCH_CORE_REQUIREMENTS, encoding="utf-8")
+    (repo / "torch-ecosystem-requirements.txt").write_text(TORCH_ECOSYSTEM_REQUIREMENTS, encoding="utf-8")
     runtime = repo / "torch-requirements.txt"
     audit = repo / "torch-audit-requirements.txt"
     extensions = repo / "pyg-extension-audit-requirements.txt"
@@ -719,16 +733,15 @@ def test_audit_commands_match_the_complete_four_surface_contract(tmp_path: Path)
 def test_real_torch_audit_projection_is_the_selector_free_runtime_mirror() -> None:
     text = (REPO_ROOT / "torch-audit-requirements.txt").read_text(encoding="utf-8")
 
-    assert "# Audit-only selector-free PyG projection." in text
-    assert "# Runtime source: torch-requirements.txt retains the approved PyG wheel selector." in text
     assert tuple(line for line in text.splitlines() if line and not line.startswith("#")) == tuple(
         TORCH_AUDIT_REQUIREMENTS.splitlines()
     )
     extension_text = (REPO_ROOT / "pyg-extension-audit-requirements.txt").read_text(encoding="utf-8")
-    assert "# Pre-resolved compiled PyG extension supplement for the strict audit." in extension_text
     assert tuple(line for line in extension_text.splitlines() if line and not line.startswith("#")) == tuple(
         PYG_EXTENSION_AUDIT_REQUIREMENTS.splitlines()
     )
+    assert (REPO_ROOT / "torch-core-requirements.txt").read_text(encoding="utf-8") == TORCH_CORE_REQUIREMENTS
+    assert (REPO_ROOT / "torch-ecosystem-requirements.txt").read_text(encoding="utf-8") == TORCH_ECOSYSTEM_REQUIREMENTS
 
 
 @pytest.mark.parametrize(
@@ -815,10 +828,10 @@ def test_torch_projection_ignores_comments_but_preserves_semantic_parity(tmp_pat
     assert len(run_audit_surfaces(tmp_path, runner=runner)) == 4
 
 
-@pytest.mark.parametrize("line", ("torch_geometric==2.6.1\\\n", "torch_geometric==2.6.1#hidden"))
+@pytest.mark.parametrize("line", ("torch_geometric==2.8.0.post1\\\n", "torch_geometric==2.8.0.post1#hidden"))
 def test_torch_projection_rejects_continuations_and_tricky_comments(tmp_path: Path, line: str) -> None:
     _, audit, _ = _write_torch_requirements(tmp_path)
-    audit.write_text(audit.read_text(encoding="utf-8").replace("torch_geometric==2.6.1", line), encoding="utf-8")
+    audit.write_text(audit.read_text(encoding="utf-8").replace("torch_geometric==2.8.0.post1", line), encoding="utf-8")
     _, runner = _audit_runner()
 
     with pytest.raises(AdvisoryBaselineError, match="torch audit projection"):

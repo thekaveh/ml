@@ -90,7 +90,7 @@
 - Consumes: Python 3.11, the exact versions in Global Constraints, and `sys.platform`/`platform.machine()`.
 - Produces: `InstallStage(StrEnum)` with `UPGRADE_PIP`, `CORE`, `RUNTIME`, `ROOT`; `InstallCommand(stage: InstallStage, argv: tuple[str, ...])`; `CommandResult(Protocol)` exposing integer `returncode`; `CommandRunner(Protocol).__call__(argv: Sequence[str], *, check: bool) -> CommandResult`; `build_install_commands(python: str, system: str, machine: str) -> tuple[InstallCommand, ...]`; `install_torch_stack(commands: Sequence[InstallCommand], runner: CommandRunner = subprocess.run) -> None`; CLI `python -m scripts.install_torch_stack`; Make target `install-torch-stack`.
 
-- [ ] **Step 1: Add strict RED manifest and installer tests**
+- [x] **Step 1: Add strict RED manifest and installer tests**
 
   In `tests/test_install_torch_stack.py`, define the complete canonical manifest bytes and assert the command plans:
 
@@ -124,7 +124,7 @@
 
   Add mutations for unsupported systems/architectures, reordered/missing/duplicate stages, missing CPU index, broad `--only-binary=:all:`, omitted wheel names, adding spline to `--only-binary`, omitting `--no-binary`/`--no-build-isolation`, changing the PyG URL, omitting binary-only NNx, adding a fifth installer, using shell strings, ignoring a nonzero return, and leaking runner output in a raised error. In `tests/test_makefile_contract.py`, require `install-torch-stack` to contain exactly `$(PYTHON) -m scripts.install_torch_stack` and require `codespace-setup` to perform no later pip install. In `tests/test_advisory_baseline.py`, change the fixtures to the new exact core/ecosystem/runtime/audit split and add synchronized-deletion/version/option/duplicate mutations.
 
-- [ ] **Step 2: Run the RED tests**
+- [x] **Step 2: Run the RED tests**
 
   Run:
 
@@ -134,7 +134,7 @@
 
   Expected: failures because the ecosystem manifest/module do not exist and the existing pins/Make recipe still describe Torch 2.4.1.
 
-- [ ] **Step 3: Write the exact manifests**
+- [x] **Step 3: Write the exact manifests**
 
   Use these semantic contents, retaining only explanatory comments around them:
 
@@ -167,7 +167,7 @@
 
   Keep the four PyPI extension pins in `pyg-extension-audit-requirements.txt`; do not add pyg-lib there. Remove only the root `torchao>=0.17` line and its now-stale direct-dependency comment from `requirements.txt`.
 
-- [ ] **Step 4: Implement the installer and Make seam**
+- [x] **Step 4: Implement the installer and Make seam**
 
   Implement immutable argv plans with these exact stage values:
 
@@ -193,7 +193,7 @@
 
   Change `codespace-setup` to depend on `install-torch-stack` and run only `$(MAKE) nlp-assets`; it must not install root requirements a second time. Update the current quantization explanation in the Makefile header to Torch 2.11/torchao 0.18/manual-only Issue #66 truth.
 
-- [ ] **Step 5: Prove GREEN and mutation resistance**
+- [x] **Step 5: Prove GREEN and mutation resistance**
 
   Run:
 
@@ -205,7 +205,7 @@
 
   Then mutate each selected version, include, selector, binary/source flag, platform, and return code in an isolated temporary copy; each mutation must make at least one named test fail while an unmodified control passes.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
   ```bash
   git add torch-core-requirements.txt torch-ecosystem-requirements.txt torch-requirements.txt torch-audit-requirements.txt pyg-extension-audit-requirements.txt requirements.txt Makefile scripts/install_torch_stack.py tests/test_install_torch_stack.py tests/test_makefile_contract.py tests/test_advisory_baseline.py docs/superpowers/plans/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md

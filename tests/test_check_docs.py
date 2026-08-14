@@ -21,6 +21,34 @@ from scripts.docs.check_docs import (
 from scripts.docs.manifest import load_manifest, parse_manifest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+RELEASED_010_CHANGELOG_SHA256 = (
+    "628842f9c4bd84577f16e0fef091ef7c6b3e5251b39a8b27c038011c5dd78f13"
+)
+
+
+def _released_changelog_section(text: str, version: str) -> str:
+    heading = f"## [{version}]"
+    start = text.index(heading)
+    following = text[start + len(heading) :]
+    next_heading = re.search(r"^## \[", following, re.MULTILINE)
+    end = len(text) if next_heading is None else start + len(heading) + next_heading.start()
+    return text[start:end]
+
+
+def test_released_010_changelog_history_is_immutable():
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    released = _released_changelog_section(changelog, "0.1.0")
+
+    assert hashlib.sha256(released.encode()).hexdigest() == RELEASED_010_CHANGELOG_SHA256
+
+
+def test_released_changelog_guard_rejects_history_mutation():
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    released = _released_changelog_section(changelog, "0.1.0")
+    mutated = released.replace("Known issue (historical)", "Known issue", 1)
+    assert mutated != released
+
+    assert hashlib.sha256(mutated.encode()).hexdigest() != RELEASED_010_CHANGELOG_SHA256
 
 MANIFEST_YAML = """
 surfaces: [repo, site, wiki]
@@ -1157,15 +1185,20 @@ def _assert_nnx_retain_decision_docs(documents: dict[str, str]) -> None:
     ledger = documents["docs/dependency-contracts.md"]
     overview = documents["docs/nnx-library.md"]
     changelog = documents["CHANGELOG.md"]
+    current_changelog = changelog[: changelog.index("## [0.1.0]")]
     quantization_surfaces = (
         documents["docs/notebooks/quantization-mnist-ffnn-pytorch.md"],
         documents["notebooks/quantization-mnist-ffnn-pytorch/README.md"],
         documents["notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb"],
     )
-    combined = "\n".join(documents.values())
+    current_documents = {
+        path: current_changelog if path == "CHANGELOG.md" else text
+        for path, text in documents.items()
+    }
+    combined = "\n".join(current_documents.values())
 
     for fact in _NNX_RETAINED_TRIAL_FACTS:
-        assert fact in ledger or fact in overview or fact in changelog
+        assert fact in ledger or fact in overview or fact in current_changelog
     assert "retained 0.2.0" in readme
     assert "Atlas JupyterHub" in readme
     assert "Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix" in ledger

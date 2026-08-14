@@ -4,7 +4,7 @@
 
 The repository's local, CI, Docker, and Codespaces runtime pins Torch 2.4.1 together with
 TorchVision 0.19.1, TorchAudio 2.4.1, PyTorch Lightning 2.4.0, TorchMetrics 1.4.2, PyG 2.6.1,
-four compiled PyG extensions, and an open-ended `torchao>=0.17` requirement. That stack is a
+four legacy compiled PyG extensions, and an open-ended `torchao>=0.17` requirement. That stack is a
 single compatibility contract: changing one member without qualifying the others can produce
 binary-extension ABI failures, silently skipped graph tests, unintended Linux CUDA installs, or
 an unusable quantization import.
@@ -32,19 +32,30 @@ The selected matrix is:
 | pyg-lib | 0.8.0 | Preferred graph sampling and operator wheel from the Torch 2.11 PyG index |
 | torch-scatter | 2.1.2 | Current extension release with Torch 2.11 wheels |
 | torch-sparse | 0.6.18 | Current extension release with Torch 2.11 wheels and existing NeighborLoader fallback |
-| torch-cluster | 1.6.3 | Current extension release with Torch 2.11 wheels |
-| torch-spline-conv | 1.2.2 | Existing extension contract; retained subject to source-build qualification |
 | thekaveh-nnx | 0.2.0 | Unchanged root and Atlas-compatible consumer contract established by Issue #61 |
 
 Primary compatibility evidence is the upstream
 [PyTorch release matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md),
 [Torch 2.11 release announcement](https://dev-discuss.pytorch.org/t/pytorch-2-11-0-general-availability/3328),
 [torchao 0.18 release](https://github.com/pytorch/ao/releases/tag/v0.18.0),
-[PyG release history](https://github.com/pyg-team/pytorch_geometric/blob/master/CHANGELOG.md),
+[PyG 2.8 changelog](https://github.com/pyg-team/pytorch_geometric/blob/master/CHANGELOG.md#280---2026-06-05),
+[PyG installation guidance](https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html),
+[PyTorch 2.11 support issue](https://github.com/pyg-team/pytorch_geometric/issues/10508),
+[PyG extension-migration tracking issue](https://github.com/pyg-team/pytorch_geometric/issues/10716),
 [Torch 2.11 PyG wheel index](https://data.pyg.org/whl/torch-2.11.0+cpu.html), and the
 [Lightning security advisory](https://github.com/Lightning-AI/pytorch-lightning/security/advisories/GHSA-w37p-236h-pfx3).
 The implementation refreshes these sources before installation because this dated design record
 is not a permanent latest-version oracle.
+
+Three clean Darwin arm64 design-review runs refine the selected boundary without claiming that
+implementation is complete. Run r1 exposed missing build tooling in the then-selected legacy
+extension path. After that tooling correction, r2 completed installation and exposed an overly
+strict `pyg-lib` provenance rule, which was corrected independently. Run r3 then accepted the
+native `pyg-lib` artifact but failed the clean source-built spline import/ABI gate. In parallel, a
+static consumer review found no active notebook import of either legacy package. Together with
+PyG 2.8's documented migration of their functionality to `pyg-lib>=0.6.0`, this evidence removes
+both separate packages from the selected repository contract rather than weakening the failed
+gate.
 
 ## 12.21.3 Why Torch 2.11 is the selected line
 
@@ -56,13 +67,14 @@ repository's actual constraints:
 - torchao 0.18 supports the required quantization surface and Issue #61 already proved a tiny QAT
   train, conversion, checkpoint, reload, and inference path on this line;
 - the official PyG index provides Linux x86_64 and Darwin arm64 or universal wheels for pyg-lib,
-  scatter, sparse, and cluster;
+  scatter, and sparse;
 - PyG 2.8 explicitly supports Torch 2.11; and
-- the selected line retains the C++17 extension-build boundary used by the current repository.
+- PyG 2.8 deprecates the two legacy package integrations in favor of `pyg-lib>=0.6.0`, matching
+  both the upstream installation command and this repository's active consumer surface.
 
 Torch 2.12.1 is rejected for this issue because it raises the Darwin wheel floor, lacks a matching
-TorchAudio 2.12 release, and adds a torch-cluster source build without improving the repository's
-currently recorded residual advisory result. Torch 2.13 is rejected because the corresponding PyG
+TorchAudio 2.12 release, and does not improve the repository's currently recorded residual
+advisory result. Torch 2.13 is rejected because the corresponding PyG
 compiled-extension index is not yet complete. A partial core-only upgrade is rejected because it
 would preserve the ecosystem drift that this issue exists to remove.
 
@@ -79,28 +91,26 @@ The selected manifest structure is:
 2. A new `torch-ecosystem-requirements.txt` contains exact Lightning, TorchMetrics, and torchao
    pins.
 3. `torch-requirements.txt` includes the ecosystem manifest, the exact Torch 2.11 CPU PyG wheel
-   selector, pyg-lib, the four retained compiled extensions, and torch-geometric.
+   selector, pyg-lib, torch-scatter, torch-sparse, and torch-geometric.
 4. `torch-audit-requirements.txt` is the selector-free resolver projection of the core,
    ecosystem, and torch-geometric inputs.
 5. `pyg-extension-audit-requirements.txt` remains the pre-resolved extension supplement.
-   pyg-lib is explicitly classified as an exact external-index wheel whose version and provenance
-   are verified locally because it is not distributed through PyPI's ordinary project index.
+   It contains only the two exact PyPI supplement pins, torch-scatter and torch-sparse. pyg-lib is
+   explicitly classified as an exact external-index wheel whose version and provenance are
+   verified locally because it is not distributed through PyPI's ordinary project index.
 6. `requirements.txt` no longer carries a second torchao constraint. The stack manifests become
    its one authoritative version source.
 
-`make install-torch-stack` performs the ordered install:
+`make install-torch-stack` performs exactly four ordered stages:
 
-1. run `python -m pip install --upgrade pip wheel` to upgrade pip and provision wheel;
-   `wheel` supplies the `bdist_wheel` command required by the later `--no-build-isolation`
-   source build;
-2. install the exact Torch trio from `https://download.pytorch.org/whl/cpu` on Linux, or from the
+0. run `python -m pip install --upgrade pip` and install no other bootstrap package;
+1. install the exact Torch trio from `https://download.pytorch.org/whl/cpu` on Linux, or from the
    native PyPI path on Darwin;
-3. install `torch-requirements.txt` in one resolver pass with
-   `--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster` and
-   `--no-binary=torch-spline-conv`, taking the four wheel-only extensions from
-   `https://data.pyg.org/whl/torch-2.11.0+cpu.html`, building only torch-spline-conv with build
-   isolation disabled, and resolving the ecosystem and pure-Python PyG packages from PyPI; and
-4. install the remaining root requirements without reinstalling or replacing the qualified stack.
+2. install `torch-requirements.txt` in one resolver pass with the exact
+   `--only-binary=pyg-lib,torch-scatter,torch-sparse` policy, taking those three selected wheels
+   from `https://data.pyg.org/whl/torch-2.11.0+cpu.html` and resolving the ecosystem and
+   pure-Python PyG packages from PyPI; and
+3. install the remaining root requirements without reinstalling or replacing the qualified stack.
 
 Docker and Codespaces reuse this order. CI invokes the Make target rather than implementing a
 second package algorithm. Every cache that can execute or audit the stack includes all affected
@@ -116,29 +126,26 @@ must prove:
 - Linux resolves CPU Torch artifacts and no CUDA runtime packages;
 - Darwin resolves native arm64 or universal wheels rather than an x86-only fallback;
 - native Linux arm64 Docker resolution uses the matching Torch and PyG artifacts;
-- every wheel-backed PyG extension reports a build compatible with Torch 2.11;
-- torch-spline-conv builds and imports in every clean native and container qualification
-  environment; and
+- pyg-lib, torch-scatter, and torch-sparse each resolve as a compatible Torch 2.11 wheel; and
 - `python -m pip check` succeeds after the complete repository install.
 
 No CUDA, ROCm, XPU, Windows, direct-host Linux arm64, or source-built Torch support claim is added.
-Failure of the retained torch-spline-conv contract on a supported native or container platform
-returns the work to design review; the implementation does not silently drop the package or mask
-the failure.
+Failure of any of the three selected PyG wheel contracts on a supported native or container
+platform returns the work to design review; the implementation does not mask the failure.
 
 ## 12.21.6 Runtime verifier
 
 A focused, fail-closed stack verifier becomes the reusable installation oracle. It derives the
 expected versions from the canonical manifests and checks:
 
-- distribution metadata for every selected component;
-- Torch, TorchVision, TorchAudio, Lightning, TorchMetrics, torchao, PyG, pyg-lib, scatter, sparse,
-  cluster, and spline-conv imports;
+- distribution metadata and direct imports for exactly Torch, TorchVision, TorchAudio, Lightning,
+  TorchMetrics, torchao, PyG, pyg-lib, scatter, and sparse;
 - Torch CPU/CUDA provenance appropriate to the platform;
-- extension ABI compatibility by executing representative operators rather than accepting an
-  import alone;
-- a real one-batch PyG `NeighborLoader` path; and
-- the exact NNx 0.2.0 distribution through the existing canonical-wheel verifier.
+- extension ABI compatibility through representative scatter and sparse operations rather than
+  accepting imports alone;
+- a real one-batch PyG `NeighborLoader` path that selects pyg-lib when available and exercises the
+  torch-sparse fallback independently; and
+- the exact NNx 0.2.0 distribution and import through the existing canonical-wheel verifier.
 
 Version comparison uses the manifest's public version as the package identity while separately
 validating PyG wheel provenance. Linux PyG-index local versions require the exact `pt211cpu` tag.
@@ -163,9 +170,15 @@ The canonical stack therefore treats compiled graph support as mandatory:
 - pyg-lib is the preferred backend;
 - torch-sparse remains an independently importable fallback;
 - SAGE, GraphConv, and GAT execute against a real sampled batch;
-- scatter and cluster execute tiny representative operations;
-- spline-conv must import and pass a new tiny `torch_geometric.nn.SplineConv` forward canary; and
+- scatter and sparse execute tiny representative operations; and
 - the Linux CI contract rejects a skip caused by missing or ABI-incompatible extensions.
+
+The active notebooks do not import the separate `torch-cluster` package or exercise `SplineConv`;
+those unused operators are not Issue #62 consumer-acceptance scope. PyG may supply
+their functionality through `pyg-lib` when a future repository consumer requires it, but that
+consumer must introduce its own explicit runtime canary and platform validation before the scope
+can be claimed. This boundary removes unused legacy packages; it does not claim untested operator
+coverage.
 
 The implementation does not edit Reddit notebook code or committed outputs merely to accommodate
 the dependency upgrade. A consumer-visible API or behavior failure is diagnosed against the
@@ -198,7 +211,9 @@ updates `security/accepted-advisories.json` and the current human ledger togethe
 - raw feed records and alias-aware identities;
 - disappeared, retained, re-keyed, and new findings;
 - explicit risk acceptance for any no-fix or not-yet-fixed identity; and
-- pyg-lib's external-index provenance and PyPI-audit limitation.
+- pyg-lib's external-index provenance and PyPI-audit limitation. The pre-resolved extension
+  supplement contributes only torch-scatter and torch-sparse to the combined-runtime and Torch
+  advisory projections.
 
 The upgrade does not claim zero vulnerabilities merely because most recorded fix floors are below
 Torch 2.11. At least one existing record lists Torch 2.13 as its fix and several records list no
@@ -215,14 +230,16 @@ gate, and the focused jobs remain diagnostic evidence. Workflow contract tests e
 - `pip check` and stack verification after the final install;
 - absence of later package installation before the workload;
 - Linux CPU provenance and no CUDA package selection;
-- no failure masking or optional compiled-extension skips in canonical jobs;
+- compatible pyg-lib, torch-scatter, and torch-sparse wheels with no failure masking or optional
+  compiled-extension skips in canonical jobs;
 - no Atlas initialization or service, container, Ollama, or ComfyUI startup; and
 - unchanged binary-only NNx selection and canonical verification.
 
-The Docker image uses the same manifest order, then runs `pip check`, the stack verifier, and a
-tiny PyG sampler probe. CI proves Linux x86_64 and the Apple Silicon local path proves a native
-Linux arm64 build; neither is replaced by an unrecorded emulated architecture. A successful image
-build without those runtime checks is not sufficient evidence.
+The Docker image uses the same four-stage manifest order, then runs `pip check` and the stack
+verifier, whose scatter, sparse, and real-sampler canaries provide the tiny PyG runtime probe. CI
+proves Linux x86_64 and the Apple Silicon local path proves a native Linux arm64 build; neither is
+replaced by an unrecorded emulated architecture. A successful image build without those runtime
+checks is not sufficient evidence.
 
 ## 12.21.11 Repository and notebook validation
 
@@ -251,7 +268,8 @@ Current documentation changes cover:
 - the selected matrix and platform-specific installation path;
 - local, Docker, Codespaces, CI, and default remote-Atlas boundaries;
 - the now-importable but still manual-only quantization surface;
-- the PyG sampler and compiled-extension acceptance contract;
+- the PyG sampler and three-wheel compiled-extension acceptance contract, including the explicit
+  exclusion of unused legacy operators;
 - the refreshed advisory snapshot and residual risk;
 - contributor and rollback procedures; and
 - durable Unreleased history in `CHANGELOG.md`.
@@ -281,9 +299,10 @@ torchao behavior. It cannot prove a coherent runtime and does not satisfy Issue 
 
 ### 12.21.14.2 Select Torch 2.12.1
 
-This is newer but introduces another PyG source build, a higher Darwin deployment floor, and no
-matching TorchAudio 2.12 release. It does not clear the remaining Torch-2.13/no-fix advisory
-boundary and offers no repository-visible capability required by the issue.
+This is newer but raises the Darwin deployment floor, has no matching TorchAudio 2.12 release, and
+moves away from the selected PyG 2.11 wheel surface. It does not clear the remaining
+Torch-2.13/no-fix advisory boundary and offers no repository-visible capability required by the
+issue.
 
 ### 12.21.14.3 Select Torch 2.13
 
@@ -297,13 +316,22 @@ This preserves the current local stack but leaves its accepted Torch findings an
 torchao incompatibility untouched. A side environment remains useful evidence, not a substitute
 for the coordinated root upgrade.
 
+### 12.21.14.5 Retain every legacy PyG extension as a separate package
+
+This preserves the older manifest shape but conflicts with the PyG 2.8 migration boundary, adds
+packages that no active notebook imports, and keeps a clean Darwin failure in the mandatory path.
+Weakening or bypassing that failed import would make the contract less trustworthy. The selected
+design instead validates the three upstream-listed wheels and requires future consumers of the
+migrated operators to add focused acceptance evidence when they appear.
+
 ## 12.21.15 Failure handling and rollback
 
 The candidate is rejected or returned to design review if:
 
 - official release or wheel evidence changes materially;
 - clean Linux or Darwin resolution, `pip check`, or provenance fails;
-- any retained compiled extension cannot build, import, or execute;
+- any selected compiled extension cannot resolve as the required wheel, import, or execute its
+  canary;
 - PyG sampling, NNx 0.2.0, torchao PTQ/QAT, repository tests, Docker, or a notebook tier fails;
 - Linux selects CUDA packages;
 - an advisory identity or accepted version is not explicitly reconciled;

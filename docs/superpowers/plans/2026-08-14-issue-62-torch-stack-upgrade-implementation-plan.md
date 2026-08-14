@@ -3043,27 +3043,76 @@ Expected: the five hashes equal the block above and none of those paths appears 
     > "$FINAL_ROOT/all-open-prs-release.json"
   python - "$FINAL_ROOT/all-open-prs-release.json" "$DEVELOP_MERGE_SHA" \
     "$RELEASE_TITLE" "$RELEASE_BODY" "$FINAL_ROOT/current-release-prs" \
-    "$FINAL_ROOT/obsolete-release-prs" <<'PY'
+    "$FINAL_ROOT/obsolete-release-prs" "$FINAL_ROOT/ambiguous-release-prs.json" <<'PY'
   import json
   import re
   import sys
   from pathlib import Path
 
-  source, expected_sha, title, body, current_path, obsolete_path = sys.argv[1:]
+  source, expected_sha, title, body, current_path, obsolete_path, ambiguous_path = sys.argv[1:]
   rows = json.loads(Path(source).read_text(encoding="utf-8"))
+  issue_reference = re.compile(r"(?i)(?:Issues?[ \t]*)?#([0-9]+)")
+  closing_keyword = re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#")
+
+  def classify(row: dict[str, object]) -> str:
+      shared_pair = row["headRefName"] == "develop" and row["baseRefName"] == "main"
+      if not shared_pair:
+          return "unrelated"
+      candidate_body = str(row["body"])
+      references = issue_reference.findall(candidate_body)
+      dedicated = (
+          row["title"] == title
+          and 1 <= len(candidate_body) <= 600
+          and "\n" not in candidate_body
+          and candidate_body.startswith("Publishes the reviewed Issue #62 stack")
+          and "from develop to main" in candidate_body
+          and "Issues #65 and #66 remain open" in candidate_body
+          and set(references) == {"62", "65", "66"}
+          and closing_keyword.search(candidate_body) is None
+      )
+      if dedicated:
+          return "dedicated"
+      if "62" in references:
+          return "ambiguous-issue62"
+      return "shared-pair-collision"
+
+  simulations = (
+      ({
+          "title": title,
+          "body": body,
+          "headRefName": "develop", "baseRefName": "main",
+      }, "dedicated"),
+      ({
+          "title": title,
+          "body": "Broader release for Issue #62 and Issue #70. Issues #65 and #66 remain open.",
+          "headRefName": "develop", "baseRefName": "main",
+      }, "ambiguous-issue62"),
+      ({
+          "title": "release: unrelated train",
+          "body": "No Issue 62 ownership.",
+          "headRefName": "other", "baseRefName": "main",
+      }, "unrelated"),
+      ({
+          "title": "release: unrelated develop train",
+          "body": "Routine release.",
+          "headRefName": "develop", "baseRefName": "main",
+      }, "shared-pair-collision"),
+  )
+  assert [classify(row) for row, _ in simulations] == [expected for _, expected in simulations]
+
   current: list[str] = []
   obsolete: list[str] = []
+  ambiguous: list[dict[str, object]] = []
   for row in rows:
-      owned_pair = (
-          row["headRefName"] == "develop"
-          and row["baseRefName"] == "main"
-      )
-      issue62_marker = re.search(
-          r"(?i)(?<![A-Za-z0-9])(?:Issue[ \t]*#?[ \t]*62|#62)(?![0-9])",
-          f'{row["title"]}\n{row["body"]}',
-      )
-      if not owned_pair or issue62_marker is None:
+      category = classify(row)
+      if category == "unrelated":
           continue  # unrelated open PR: never close or reuse
+      if category != "dedicated":
+          ambiguous.append({
+              "number": row["number"], "url": row["url"], "category": category,
+              "title": row["title"], "head": row["headRefName"], "base": row["baseRefName"],
+          })
+          continue
       canonical = row["title"] == title and row["body"] == body
       if canonical:
           assert row["body"].count("Issue #62") == 2
@@ -3072,6 +3121,9 @@ Expected: the five hashes equal the block above and none of those paths appears 
   assert len(current) <= 1
   Path(current_path).write_text("\n".join(current) + ("\n" if current else ""))
   Path(obsolete_path).write_text("\n".join(obsolete) + ("\n" if obsolete else ""))
+  Path(ambiguous_path).write_text(json.dumps(ambiguous, indent=2) + "\n", encoding="utf-8")
+  if ambiguous:
+      raise SystemExit(f"manual review required for shared develop -> main PRs: {ambiguous}")
   PY
   : > "$FINAL_ROOT/reusable-release-pr"
   while IFS= read -r CANDIDATE_PR; do
@@ -3243,11 +3295,140 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
   ```bash
   if ! git merge-base --is-ancestor origin/main origin/develop; then
-    SYNC_PR_URL=$(gh pr create --repo "$REPO" --base develop --head main \
-      --title "chore: synchronize Issue 62 release to develop" \
-      --body "Content-neutral synchronization of the reviewed Issue #62 release merge.")
-    SYNC_PR=$(gh pr view "$SYNC_PR_URL" --repo "$REPO" --json number --jq .number)
+    SYNC_TITLE='chore: synchronize Issue 62 release to develop'
+    SYNC_BODY='Content-neutral synchronization of the reviewed Issue #62 release merge.'
+    gh pr list --repo "$REPO" --state open --limit 1000 \
+      --json number,title,body,baseRefName,headRefName,headRefOid,url \
+      > "$FINAL_ROOT/all-open-prs-sync.json"
+    python - "$FINAL_ROOT/all-open-prs-sync.json" "$RELEASE_MERGE_SHA" \
+      "$SYNC_TITLE" "$SYNC_BODY" "$FINAL_ROOT/current-sync-prs" \
+      "$FINAL_ROOT/obsolete-sync-prs" "$FINAL_ROOT/ambiguous-sync-prs.json" <<'PY'
+  import json
+  import re
+  import sys
+  from pathlib import Path
+
+  source, expected_sha, title, body, current_path, obsolete_path, ambiguous_path = sys.argv[1:]
+  rows = json.loads(Path(source).read_text(encoding="utf-8"))
+  issue_reference = re.compile(r"(?i)(?:Issues?[ \t]*)?#([0-9]+)")
+  closing_keyword = re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#")
+
+  def classify(row: dict[str, object]) -> str:
+      shared_pair = row["headRefName"] == "main" and row["baseRefName"] == "develop"
+      if not shared_pair:
+          return "unrelated"
+      candidate_body = str(row["body"])
+      references = issue_reference.findall(candidate_body)
+      dedicated = (
+          row["title"] == title
+          and 1 <= len(candidate_body) <= 300
+          and "\n" not in candidate_body
+          and candidate_body.startswith(
+              "Content-neutral synchronization of the reviewed Issue #62 release merge"
+          )
+          and set(references) == {"62"}
+          and closing_keyword.search(candidate_body) is None
+      )
+      return "dedicated" if dedicated else "ambiguous-shared-pair"
+
+  simulations = (
+      ({"title": title, "body": body, "headRefName": "main", "baseRefName": "develop"},
+       "dedicated"),
+      ({"title": title,
+        "body": "Content-neutral synchronization of the reviewed Issue #62 and Issue #70 releases.",
+        "headRefName": "main", "baseRefName": "develop"}, "ambiguous-shared-pair"),
+      ({"title": "unrelated", "body": "unrelated", "headRefName": "other", "baseRefName": "develop"},
+       "unrelated"),
+  )
+  assert [classify(row) for row, _ in simulations] == [expected for _, expected in simulations]
+
+  current: list[str] = []
+  obsolete: list[str] = []
+  ambiguous: list[dict[str, object]] = []
+  for row in rows:
+      category = classify(row)
+      if category == "unrelated":
+          continue
+      if category != "dedicated":
+          ambiguous.append({
+              "number": row["number"], "url": row["url"], "category": category,
+              "title": row["title"], "head": row["headRefName"], "base": row["baseRefName"],
+          })
+          continue
+      canonical = row["title"] == title and row["body"] == body
+      target = current if canonical and row["headRefOid"] == expected_sha else obsolete
+      target.append(str(row["number"]))
+  assert len(current) <= 1
+  Path(current_path).write_text("\n".join(current) + ("\n" if current else ""))
+  Path(obsolete_path).write_text("\n".join(obsolete) + ("\n" if obsolete else ""))
+  Path(ambiguous_path).write_text(json.dumps(ambiguous, indent=2) + "\n", encoding="utf-8")
+  if ambiguous:
+      raise SystemExit(f"manual review required for shared main -> develop PRs: {ambiguous}")
+  PY
+    : > "$FINAL_ROOT/reusable-sync-pr"
+    while IFS= read -r CANDIDATE_PR; do
+      case "$CANDIDATE_PR" in ''|*[!0-9]*) exit 1;; esac
+      git fetch origin "+refs/pull/$CANDIDATE_PR/merge:refs/issue62/reuse-sync-$CANDIDATE_PR"
+      CANDIDATE_MERGE_SHA=$(git rev-parse "refs/issue62/reuse-sync-$CANDIDATE_PR")
+      if test "$(git rev-parse "$CANDIDATE_MERGE_SHA^{tree}")" = \
+          "$(git rev-parse "$RELEASE_MERGE_SHA^{tree}")" \
+        && gh pr checks "$CANDIDATE_PR" --repo "$REPO" --watch --fail-fast \
+        && gh pr checks "$CANDIDATE_PR" --repo "$REPO" \
+          --json name,bucket,link > "$FINAL_ROOT/candidate-sync-checks.json" \
+        && python - "$FINAL_ROOT/candidate-sync-checks.json" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  required = {"pytest-repository", "atlas-consumer-policy", "dependency-audit"}
+  by_name = {check["name"]: check for check in checks}
+  assert required <= by_name.keys()
+  assert all(by_name[name]["bucket"] == "pass" for name in required)
+  assert all(by_name[name]["link"].startswith("https://github.com/") for name in required)
+  PY
+      then
+        printf '%s\n' "$CANDIDATE_PR" > "$FINAL_ROOT/reusable-sync-pr"
+      else
+        printf '%s\n' "$CANDIDATE_PR" >> "$FINAL_ROOT/obsolete-sync-prs"
+      fi
+    done < "$FINAL_ROOT/current-sync-prs"
+    while IFS= read -r OBSOLETE_PR; do
+      case "$OBSOLETE_PR" in ''|*[!0-9]*) exit 1;; esac
+      gh pr close "$OBSOLETE_PR" --repo "$REPO" \
+        --comment "Closing only this validated stale Issue #62 main-to-develop sync PR."
+    done < "$FINAL_ROOT/obsolete-sync-prs"
+    if test -s "$FINAL_ROOT/reusable-sync-pr"; then
+      SYNC_PR=$(sed -n '1p' "$FINAL_ROOT/reusable-sync-pr")
+      SYNC_PR_URL=$(gh pr view "$SYNC_PR" --repo "$REPO" --json url --jq .url)
+    else
+      test -z "$(gh pr list --repo "$REPO" --state open --head main --base develop \
+        --json number --jq '.[].number')"
+      SYNC_PR_URL=$(gh pr create --repo "$REPO" --base develop --head main \
+        --title "$SYNC_TITLE" --body "$SYNC_BODY")
+      SYNC_PR=$(gh pr view "$SYNC_PR_URL" --repo "$REPO" --json number --jq .number)
+    fi
+    test "$(gh pr view "$SYNC_PR" --repo "$REPO" --json headRefOid --jq .headRefOid)" = \
+      "$RELEASE_MERGE_SHA"
     gh pr checks "$SYNC_PR" --repo "$REPO" --watch --fail-fast
+    gh pr checks "$SYNC_PR" --repo "$REPO" --json name,bucket,link \
+      > "$FINAL_ROOT/sync-pr-checks.json"
+    python - "$FINAL_ROOT/sync-pr-checks.json" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  required = {"pytest-repository", "atlas-consumer-policy", "dependency-audit"}
+  by_name = {check["name"]: check for check in checks}
+  assert required <= by_name.keys()
+  assert all(by_name[name]["bucket"] == "pass" for name in required)
+  assert all(by_name[name]["link"].startswith("https://github.com/") for name in required)
+  PY
+    git fetch origin "+refs/pull/$SYNC_PR/merge:refs/issue62/pr-$SYNC_PR-merge"
+    SYNC_PR_MERGE_SHA=$(git rev-parse "refs/issue62/pr-$SYNC_PR-merge")
+    test "$(git rev-parse "$SYNC_PR_MERGE_SHA^{tree}")" = \
+      "$(git rev-parse "$RELEASE_MERGE_SHA^{tree}")"
     gh pr merge "$SYNC_PR" --repo "$REPO" --merge
     git fetch origin main develop
   fi
@@ -3257,9 +3438,10 @@ Expected: the five hashes equal the block above and none of those paths appears 
   cmp "$FINAL_ROOT/ruleset.json" "$FINAL_ROOT/ruleset-after.json"
   ```
 
-- [ ] **Step 9: Verify publication, close Issue #62, and clean only Issue #62 state**
+- [ ] **Step 9: Verify publication, clean Issue #62 state, then publish completion and close**
 
-  Verify Pages/wiki and current-surface content, then update only Issue #62 bookkeeping:
+  Verify Pages/wiki and current-surface content and persist the immutable report in the primary
+  ignored root, but do not publish completion or mutate project/issue state before cleanup:
 
   ```bash
   export PAGES_URL=$(gh api "repos/$REPO/pages" --jq '.html_url | rtrimstr("/")')
@@ -3618,62 +3800,16 @@ Expected: the five hashes equal the block above and none of those paths appears 
   report_path.write_text(body, encoding="utf-8")
   PY
   git -C "$PRIMARY_ROOT" check-ignore -v .superpowers/sdd/issue62-qualification-report.md
-  gh pr comment "$FEATURE_PR" --repo "$REPO" \
-    --body-file "$REPORT_PATH"
-  gh pr comment "$RELEASE_PR" --repo "$REPO" \
-    --body-file "$REPORT_PATH"
-  gh issue comment 62 --repo "$REPO" --body-file "$REPORT_PATH"
-  gh issue view 53 --repo "$REPO" --json state > "$FINAL_ROOT/issue53-before.json"
-  test "$(jq -r .state "$FINAL_ROOT/issue53-before.json")" = OPEN
-  gh issue comment 53 --repo "$REPO" \
-    --body "Issue #62 completed via PR #$FEATURE_PR and release PR #$RELEASE_PR; Issues #65 and #66 remain open."
-  gh issue view 53 --repo "$REPO" --json state > "$FINAL_ROOT/issue53-after.json"
-  test "$(jq -r .state "$FINAL_ROOT/issue53-after.json")" = OPEN
-  gh api graphql -f query='query {
-    repository(owner:"thekaveh", name:"ml-eng-lab") {
-      issue(number:62) {
-        projectItems(first:20) { nodes {
-          id
-          project { id number title }
-          fieldValues(first:20) { nodes {
-            ... on ProjectV2ItemFieldSingleSelectValue {
-              field { ... on ProjectV2SingleSelectField { id name options { id name } } }
-            }
-          } }
-        } }
-      }
-    }
-  }' > "$FINAL_ROOT/project-item.json"
-  test "$(jq -r '.data.repository.issue.projectItems.nodes | length' "$FINAL_ROOT/project-item.json")" = 1
-  PROJECT_ID=$(jq -r '.data.repository.issue.projectItems.nodes[0].project.id' "$FINAL_ROOT/project-item.json")
-  ITEM_ID=$(jq -r '.data.repository.issue.projectItems.nodes[0].id' "$FINAL_ROOT/project-item.json")
-  STATUS_FIELD_ID=$(jq -r '.data.repository.issue.projectItems.nodes[0].fieldValues.nodes[] | select(.field.name == "Status") | .field.id' "$FINAL_ROOT/project-item.json")
-  DONE_OPTION_ID=$(jq -r '.data.repository.issue.projectItems.nodes[0].fieldValues.nodes[] | select(.field.name == "Status") | .field.options[] | select(.name == "Done") | .id' "$FINAL_ROOT/project-item.json")
-  test -n "$PROJECT_ID" && test -n "$ITEM_ID" && test -n "$STATUS_FIELD_ID" && test -n "$DONE_OPTION_ID"
-  gh project item-edit --id "$ITEM_ID" --project-id "$PROJECT_ID" \
-    --field-id "$STATUS_FIELD_ID" --single-select-option-id "$DONE_OPTION_ID"
-  gh api graphql -f query='query {
-    repository(owner:"thekaveh", name:"ml-eng-lab") {
-      issue(number:62) {
-        projectItems(first:20) { nodes {
-          id
-          project { id number title }
-          fieldValues(first:20) { nodes {
-            ... on ProjectV2ItemFieldSingleSelectValue {
-              name
-              field { ... on ProjectV2SingleSelectField { id name } }
-            }
-          } }
-        } }
-      }
-    }
-  }' > "$FINAL_ROOT/project-item-after.json"
-  test "$(jq -r '.data.repository.issue.projectItems.nodes | length' "$FINAL_ROOT/project-item-after.json")" = 1
-  test "$(jq -r '.data.repository.issue.projectItems.nodes[0].fieldValues.nodes[] | select(.field.name == "Status") | .name' "$FINAL_ROOT/project-item-after.json")" = Done
+  COMPLETION_ROOT="$PRIMARY_ROOT/.superpowers/sdd/issue62-completion"
+  case "$COMPLETION_ROOT" in "$PRIMARY_ROOT/.superpowers/sdd/issue62-completion") ;; *) exit 1;; esac
+  mkdir -p "$COMPLETION_ROOT"
+  git -C "$PRIMARY_ROOT" check-ignore -q .superpowers/sdd/issue62-completion/issue53-before.json
+  test -s "$REPORT_PATH"
   ```
 
-  Clean only the exact validated Issue #62 targets. Do not use globs, delete unrelated containers,
-  or remove any other worktree:
+  No PR/issue completion comment, project mutation, or issue close has occurred yet. Clean only the
+  exact validated Issue #62 targets. Do not use globs, delete unrelated containers, or remove any
+  other worktree:
 
   ```bash
   cd /Users/kaveh/repos/ml-eng-lab
@@ -3703,10 +3839,14 @@ Expected: the five hashes equal the block above and none of those paths appears 
   test -z "$(git ls-remote origin refs/heads/codex/issue-62-torch-stack-upgrade)"
   git update-ref -d "refs/issue62/pr-$FEATURE_PR-merge"
   git update-ref -d "refs/issue62/pr-$RELEASE_PR-merge"
-  git for-each-ref --format='%(refname)' refs/issue62/reuse-feature- refs/issue62/reuse-release- \
+  if test -n "${SYNC_PR:-}"; then
+    git update-ref -d "refs/issue62/pr-$SYNC_PR-merge"
+  fi
+  git for-each-ref --format='%(refname)' \
+    refs/issue62/reuse-feature- refs/issue62/reuse-release- refs/issue62/reuse-sync- \
     > /private/tmp/issue62-reuse-refs.txt
   while IFS= read -r REUSE_REF; do
-    case "$REUSE_REF" in refs/issue62/reuse-feature-[0-9]*|refs/issue62/reuse-release-[0-9]*) ;; *) exit 1;; esac
+    case "$REUSE_REF" in refs/issue62/reuse-feature-[0-9]*|refs/issue62/reuse-release-[0-9]*|refs/issue62/reuse-sync-[0-9]*) ;; *) exit 1;; esac
     git update-ref -d "$REUSE_REF"
   done < /private/tmp/issue62-reuse-refs.txt
   rm -f /private/tmp/issue62-reuse-refs.txt
@@ -3721,19 +3861,43 @@ Expected: the five hashes equal the block above and none of those paths appears 
   from pathlib import Path
 
   rows = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-  marker = re.compile(r"(?i)(?<![A-Za-z0-9])(?:Issue[ \t]*#?[ \t]*62|#62)(?![0-9])")
+  issue_reference = re.compile(r"(?i)(?:Issues?[ \t]*)?#([0-9]+)")
+  closing_keyword = re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#")
+  release_title = "release: publish Issue 62 Torch 2.11 stack"
+  sync_title = "chore: synchronize Issue 62 release to develop"
   scoped = []
+  ambiguous = []
   for row in rows:
       feature_owned = (
           row["headRefName"] == "codex/issue-62-torch-stack-upgrade"
           and row["baseRefName"] == "develop"
       )
-      marked = marker.search(f'{row["title"]}\n{row["body"]}') is not None
-      release_owned = marked and row["headRefName"] == "develop" and row["baseRefName"] == "main"
-      sync_owned = marked and row["headRefName"] == "main" and row["baseRefName"] == "develop"
-      if feature_owned or release_owned or sync_owned:
+      body = str(row["body"])
+      references = issue_reference.findall(body)
+      release_pair = row["headRefName"] == "develop" and row["baseRefName"] == "main"
+      release_dedicated = (
+          release_pair and row["title"] == release_title
+          and 1 <= len(body) <= 600 and "\n" not in body
+          and body.startswith("Publishes the reviewed Issue #62 stack")
+          and "from develop to main" in body
+          and "Issues #65 and #66 remain open" in body
+          and set(references) == {"62", "65", "66"}
+          and closing_keyword.search(body) is None
+      )
+      sync_pair = row["headRefName"] == "main" and row["baseRefName"] == "develop"
+      sync_dedicated = (
+          sync_pair and row["title"] == sync_title
+          and 1 <= len(body) <= 300 and "\n" not in body
+          and body.startswith("Content-neutral synchronization of the reviewed Issue #62 release merge")
+          and set(references) == {"62"}
+          and closing_keyword.search(body) is None
+      )
+      if feature_owned or release_dedicated or sync_dedicated:
           scoped.append(row["number"])
+      elif "62" in references and (release_pair or sync_pair):
+          ambiguous.append(row["number"])
   assert not scoped, f"open Issue #62 PRs remain: {scoped}"
+  assert not ambiguous, f"manual review required for ambiguous shared-branch PRs: {ambiguous}"
   PY
   rm -f /private/tmp/issue62-open-prs-final.json
   gh run list --repo "$REPO" --limit 1000 \
@@ -3762,16 +3926,84 @@ Expected: the five hashes equal the block above and none of those paths appears 
   git diff --exit-code origin/main origin/develop
   test -z "$(git status --porcelain=v1)"
   test -z "$(find notebooks -type d \( -name runs -o -name checkpoints \) -print)"
+  test ! -e "$PREQUAL_ROOT"
+  test ! -e "$FINAL_ROOT"
+  test -s "$REPORT_PATH"
+  ```
+
+  Only after every cleanup and residue assertion succeeds, publish completion evidence, prove Issue
+  #53 remains open before and after its completion comment, update and re-query the Issue #62
+  project item, and make the issue close the final command:
+
+  ```bash
+  gh pr comment "$FEATURE_PR" --repo "$REPO" \
+    --body-file "$REPORT_PATH"
+  gh pr comment "$RELEASE_PR" --repo "$REPO" \
+    --body-file "$REPORT_PATH"
+  gh issue comment 62 --repo "$REPO" --body-file "$REPORT_PATH"
+  gh issue view 53 --repo "$REPO" --json state \
+    > "$COMPLETION_ROOT/issue53-before.json"
+  test "$(jq -r .state "$COMPLETION_ROOT/issue53-before.json")" = OPEN
+  gh issue comment 53 --repo "$REPO" \
+    --body "Issue #62 completed cleanup after PR #$FEATURE_PR and release PR #$RELEASE_PR; Issues #65 and #66 remain open."
+  gh issue view 53 --repo "$REPO" --json state \
+    > "$COMPLETION_ROOT/issue53-after.json"
+  test "$(jq -r .state "$COMPLETION_ROOT/issue53-after.json")" = OPEN
+  gh issue view 62 --repo "$REPO" --json state \
+    > "$COMPLETION_ROOT/issue62-before-close.json"
+  test "$(jq -r .state "$COMPLETION_ROOT/issue62-before-close.json")" = OPEN
+  gh api graphql -f query='query {
+    repository(owner:"thekaveh", name:"ml-eng-lab") {
+      issue(number:62) {
+        projectItems(first:20) { nodes {
+          id
+          project { id number title }
+          fieldValues(first:20) { nodes {
+            ... on ProjectV2ItemFieldSingleSelectValue {
+              field { ... on ProjectV2SingleSelectField { id name options { id name } } }
+            }
+          } }
+        } }
+      }
+    }
+  }' > "$COMPLETION_ROOT/project-item.json"
+  test "$(jq -r '.data.repository.issue.projectItems.nodes | length' "$COMPLETION_ROOT/project-item.json")" = 1
+  PROJECT_ID=$(jq -r '.data.repository.issue.projectItems.nodes[0].project.id' "$COMPLETION_ROOT/project-item.json")
+  ITEM_ID=$(jq -r '.data.repository.issue.projectItems.nodes[0].id' "$COMPLETION_ROOT/project-item.json")
+  STATUS_FIELD_ID=$(jq -r '.data.repository.issue.projectItems.nodes[0].fieldValues.nodes[] | select(.field.name == "Status") | .field.id' "$COMPLETION_ROOT/project-item.json")
+  DONE_OPTION_ID=$(jq -r '.data.repository.issue.projectItems.nodes[0].fieldValues.nodes[] | select(.field.name == "Status") | .field.options[] | select(.name == "Done") | .id' "$COMPLETION_ROOT/project-item.json")
+  test -n "$PROJECT_ID" && test -n "$ITEM_ID" && test -n "$STATUS_FIELD_ID" && test -n "$DONE_OPTION_ID"
+  gh project item-edit --id "$ITEM_ID" --project-id "$PROJECT_ID" \
+    --field-id "$STATUS_FIELD_ID" --single-select-option-id "$DONE_OPTION_ID"
+  gh api graphql -f query='query {
+    repository(owner:"thekaveh", name:"ml-eng-lab") {
+      issue(number:62) {
+        projectItems(first:20) { nodes {
+          id
+          project { id number title }
+          fieldValues(first:20) { nodes {
+            ... on ProjectV2ItemFieldSingleSelectValue {
+              name
+              field { ... on ProjectV2SingleSelectField { id name } }
+            }
+          } }
+        } }
+      }
+    }
+  }' > "$COMPLETION_ROOT/project-item-after.json"
+  test "$(jq -r '.data.repository.issue.projectItems.nodes | length' "$COMPLETION_ROOT/project-item-after.json")" = 1
+  test "$(jq -r '.data.repository.issue.projectItems.nodes[0].fieldValues.nodes[] | select(.field.name == "Status") | .name' "$COMPLETION_ROOT/project-item-after.json")" = Done
   gh issue close 62 --repo "$REPO" --reason completed \
     --comment "Released by feature PR #$FEATURE_PR at $DEVELOP_MERGE_SHA and release PR #$RELEASE_PR at $RELEASE_MERGE_SHA; immutable feature evidence is $FEATURE_SHA."
   ```
 
   Expected: Pages and wiki return HTTP 200 and publish the matrix, three-wheel boundary,
-  manual-only Issue #66, and immutable evidence; #53 remains open; #65/#66 remain open and
-  unchanged; Issue #62 is verified Done in the project; the two explicit
-  worktrees/environments/images and feature refs are gone; no scoped PR or workflow run remains;
-  `main`/`develop` trees match; tracked status is clean; and closing Issue #62 is the final
-  completion action.
+  manual-only Issue #66, and immutable evidence; the two explicit worktrees/environments/images
+  and feature refs are gone before any completion comment or project mutation; no scoped PR or
+  workflow run remains; `main`/`develop` trees match; tracked status is clean; only then does the
+  plan comment with the primary ignored report, prove #53 open before/after its completion comment,
+  verify Issue #62 as project Done, and close Issue #62 as the final command. Issues #65/#66 remain
+  open and unchanged.
 
 ---
 
@@ -3789,7 +4021,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - [x] **Immutable identities:** feature HEAD, feature PR synthetic merge, develop merge, release PR synthetic merge, and release merge are recorded separately; dispatch evidence is tied to the feature SHA, PR evidence to synthetic merge SHAs, and tree equality prevents content drift.
 - [x] **Current-doc bounds:** Task 6 uses the real `4.1.6` heading, replaces complete same-level dependency sections 6.1.2 and 6.1.11 plus the stale manifest-owned graph release paragraph, places generated-row tokens directly in both source specs, regenerates once, and stages/tests/parity-checks both specs, the generated canonical page, and `docs/notebooks/node_classification-reddit-gnn-pyg.md`.
 - [x] **External evidence schema:** the immutable report uses the exact ten distribution metadata names including `pytorch-lightning`, separate NNx metadata, final audit identities/result, full/NNx JUnit totals, Docker probes, Tier hashes/durations, distinct feature and release Linux PR checks/runs tied to their synthetic merge SHAs, and Pages/wiki evidence; schema mutations and missing evidence fail closed.
-- [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; every dedicated feature head/base candidate and every explicitly Issue-62-marked release head/base candidate is owned and closed or considered, while reuse requires exact title/body/SHA, label, and successful Tier B; dispatch and Pages runs must be new after snapshotted UTC/ID boundaries and complete within bounded polls.
-- [x] **Completion ordering:** Issue #53 open-before/open-after proof, Issue #62 project Done verification, validated cleanup, zero scoped PRs/runs, main/develop synchronization, and clean status all precede `gh issue close 62`, which is the final completion action.
+- [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; release ownership on shared `develop -> main` requires the exact Issue-62 title identity plus bounded one-paragraph body/reference constraints, and ambiguous/broader candidates fail for manual review rather than close. Feature/release reuse still requires exact title/body/SHA, label, and successful Tier B. A needed `main -> develop` sync inventories first, reuses only exact current copy/SHA with successful required checks, closes only stale dedicated sync candidates, fails on ambiguity/collision, and never blindly creates. Dispatch and Pages runs remain new after snapshotted UTC/ID boundaries and complete within bounded polls.
+- [x] **Completion ordering:** Pages/report evidence is persisted in the primary ignored root, then validated cleanup, zero scoped PRs/runs, main/develop synchronization, clean status, and deleted temporary evidence roots are proved before any completion comment or project mutation. Only afterward does the plan publish the report, prove Issue #53 open before/after its completion comment, set and re-query Issue #62 as project Done, and run `gh issue close 62` as the final command.
 - [x] **Staging safety:** Task 1 and Task 2 exclude the five preserved Task 3 paths; Task 3 owns them after clean GREEN; generated docs and ignored evidence are absent from every `git add` command.
 - [x] **Historical integrity:** r1-r3 and prior commits remain evidence, not final completion claims; Issue #59/#60/#61 records and released history remain immutable; the one stale Issue #61 requirements hash is corrected only in Task 5's current-ledger evidence.

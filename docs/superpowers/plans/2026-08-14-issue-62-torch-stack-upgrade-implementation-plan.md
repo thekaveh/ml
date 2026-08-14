@@ -356,6 +356,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
 **Files:**
 - Modify: `scripts/verify_torch_stack.py`
+- Modify: `scripts/verify_repo.py`
 - Modify: `tests/test_verify_torch_stack_platform.py`
 - Modify: `tests/test_verify_repo.py`
 - Do not modify or stage: `tests/test_verify_torch_stack.py` until Task 3
@@ -363,7 +364,9 @@ Expected: the five hashes equal the block above and none of those paths appears 
 **Interfaces:**
 - Consumes: Task 1's five final manifests and exact supported platform set.
 - Produces: a ten-pin `StackContract`; `CanaryHooks(scatter, sparse, sampler)`; mandatory public/local version, WHEEL/RECORD, import ownership, Python ABI, platform architecture, Linux CPU/NVIDIA, warning-free canary, and NNx-last gates; unchanged CLI and stable error types.
-- Commit ownership: the three modified files above only.
+- Commit ownership: the four modified files above only for Task 2. Task 5 sequentially reopens
+  `scripts/verify_repo.py` and `tests/test_verify_repo.py` for D10/advisory work; ownership is
+  task-scoped, not exclusive across the complete plan.
 
 - [ ] **Step 1: Write the ten-component RED map in the platform test**
 
@@ -755,8 +758,8 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
   ```bash
   pytest -p no:cacheprovider tests/test_verify_torch_stack_platform.py tests/test_verify_repo.py -q -k 'selected_component or provenance or wheel or record or ownership or cpu or nvidia or runtime_canary or sampler_canary_uses_pyg_then_forced_sparse or sampler_backend_selection_mutations or warning or nnx or runtime_availability or torch_runtime_contract'
-  ruff check scripts/verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_verify_repo.py
-  python -m py_compile scripts/verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_verify_repo.py
+  ruff check scripts/verify_torch_stack.py scripts/verify_repo.py tests/test_verify_torch_stack_platform.py tests/test_verify_repo.py
+  python -m py_compile scripts/verify_torch_stack.py scripts/verify_repo.py tests/test_verify_torch_stack_platform.py tests/test_verify_repo.py
   git diff --check
   ```
 
@@ -765,12 +768,41 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - [ ] **Step 8: Commit only Task 2 ownership**
 
   ```bash
-  git add scripts/verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_verify_repo.py
+  git add scripts/verify_torch_stack.py scripts/verify_repo.py tests/test_verify_torch_stack_platform.py tests/test_verify_repo.py
   git diff --cached --name-only
   git commit -m "test: narrow Torch stack verifier boundary"
   ```
 
-  Expected staged paths are exactly those three. Re-run the five Task 3 hashes from section 12.22.3; they must still match and remain unstaged.
+  Expected staged paths are exactly those four. Re-run the five Task 3 hashes from section 12.22.3; they must still match and remain unstaged.
+
+  Statically prove Step 3's production target is owned and staged by Task 2:
+
+  ```bash
+  python - <<'PY'
+  import shlex
+  from pathlib import Path
+
+  plan = Path(
+      "docs/superpowers/plans/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md"
+  ).read_text(encoding="utf-8")
+  task2 = plan.split("## 12.22.5 Task 2:", 1)[1].split("## 12.22.6 Task 3:", 1)[0]
+  files = task2.split("**Files:**", 1)[1].split("**Interfaces:**", 1)[0]
+  step3 = task2.split("- [ ] **Step 3:", 1)[1].split("- [ ] **Step 4:", 1)[0]
+  step8 = task2.split("- [ ] **Step 8:", 1)[1]
+  target = "scripts/verify_repo.py"
+  assert f"- Modify: `{target}`" in files
+  assert f"Replace `{target}`'s legacy canary tuple" in step3
+  staging = step8.split("```bash", 1)[1].split("```", 1)[0]
+  git_add = next(line for line in staging.splitlines() if line.strip().startswith("git add "))
+  assert shlex.split(git_add) == [
+      "git", "add", "scripts/verify_torch_stack.py", "scripts/verify_repo.py",
+      "tests/test_verify_torch_stack_platform.py", "tests/test_verify_repo.py",
+  ]
+  PY
+  ```
+
+  Expected: the static check exits 0 and rejects any edit that again omits Step 3's production
+  target from Task 2's file ownership or exact four-path staging command.
 
 ---
 
@@ -1575,6 +1607,9 @@ Expected: the five hashes equal the block above and none of those paths appears 
 **Interfaces:**
 - Consumes: Task 1 final manifests, the complete clean environment, pip-audit JSON schema, current accepted policy, and existing D10 parser.
 - Produces: exactly four logical `Observation` values from exactly six physical commands; current policy and ledger parity; pyg-lib external-index limitation; corrected current requirements hash.
+- Commit ownership: the seven tracked Modify files above. This task sequentially reopens Task 2's
+  `scripts/verify_repo.py` and `tests/test_verify_repo.py` after the runtime-availability boundary
+  is committed, then adds D10/advisory logic without rewriting Task 2 semantics.
 
 - [ ] **Step 1: Lock the six-command/four-surface model with RED tests**
 

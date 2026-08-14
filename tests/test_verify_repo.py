@@ -2619,20 +2619,78 @@ def test_torch_runtime_contract_rejects_missing_required_modules(
     assert _torch_runtime_contract_findings(repo)
 
 
-@pytest.mark.parametrize(("path", "prefix"), (
-    (".github/workflows/ci.yml", "run:"),
-    ("Dockerfile", "RUN"),
+def _mutate_ci_run_command(repo: Path, command: str) -> None:
+    target = repo / ".github/workflows/ci.yml"
+    source = target.read_text(encoding="utf-8")
+    anchor = "      - name: Install dependencies\n        run: |\n"
+    mutated = source.replace(anchor, anchor + f"          {command}\n", 1)
+    assert mutated != source
+    target.write_text(mutated, encoding="utf-8")
+
+
+def _mutate_docker_run_instruction(repo: Path, command: str) -> None:
+    target = repo / "Dockerfile"
+    source = target.read_text(encoding="utf-8")
+    anchor = "RUN pip install --no-cache-dir --upgrade pip \\\n"
+    mutated = source.replace(anchor, f"RUN {command} \\\n", 1)
+    assert mutated != source
+    target.write_text(mutated, encoding="utf-8")
+
+
+def test_torch_runtime_contract_ignores_historical_python_command_comments(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    _mutate_ci_run_command(repo, '# historical: python -c "import torch_cluster"')
+    _mutate_docker_run_instruction(repo, '# historical: python -c "import torch_spline_conv"')
+
+    assert _torch_runtime_contract_findings(repo) == []
+
+
+@pytest.mark.parametrize(("mutator", "forbidden"), (
+    (_mutate_ci_run_command, "torch_cluster"),
+    (_mutate_docker_run_instruction, "torch_spline_conv"),
 ))
-@pytest.mark.parametrize("forbidden", ("torch_cluster", "torch_spline_conv"))
-def test_torch_runtime_contract_rejects_ci_and_docker_runtime_mutations(
-    tmp_path: Path, path: str, prefix: str, forbidden: str,
+def test_torch_runtime_contract_rejects_valid_ci_and_docker_commands(
+    tmp_path: Path, mutator, forbidden: str,
 ) -> None:
     repo = _copied_torch_runtime_contract_repo(tmp_path)
-    target = repo / path
+    mutator(repo, f'python -c "import {forbidden}"')
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize(("mutator", "command"), (
+    (_mutate_ci_run_command, 'python -c "import torch_cluster'),
+    (_mutate_docker_run_instruction, 'python -c "import ("'),
+))
+def test_torch_runtime_contract_rejects_malformed_python_candidates(
+    tmp_path: Path, mutator, command: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    mutator(repo, command)
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize("name", ("IMPORTS", "_RUNTIME_ONLY_MODULES", "_RUNTIME_AVAILABLE_IMPORTS"))
+def test_torch_runtime_contract_rejects_rebound_declarations(tmp_path: Path, name: str) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / ("scripts/verify_torch_stack.py" if name == "IMPORTS" else "scripts/verify_repo.py")
     target.write_text(
-        target.read_text(encoding="utf-8") + f'\n{prefix} python -c "import {forbidden}"\n',
+        target.read_text(encoding="utf-8") + f"\n{name} = {name}\n",
         encoding="utf-8",
     )
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+def test_torch_runtime_contract_rejects_nonliteral_declaration(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / "scripts/verify_repo.py"
+    source = target.read_text(encoding="utf-8")
+    start = source.index("_RUNTIME_AVAILABLE_IMPORTS = (")
+    end = source.index("\n)\n_TORCH_RUNTIME_IMPORTS", start) + 2
+    mutated = source[:start] + "_RUNTIME_AVAILABLE_IMPORTS = runtime_names()" + source[end:]
+    target.write_text(mutated, encoding="utf-8")
 
     assert _torch_runtime_contract_findings(repo)
 

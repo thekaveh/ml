@@ -19,7 +19,7 @@ import shlex
 import subprocess
 import sys
 import tokenize
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from urllib.parse import unquote
@@ -1523,16 +1523,33 @@ def _workflow_action_pin_findings(repo: Path) -> list[Finding]:
 
 def _literal_assignment_values(source: str, name: str) -> set[str]:
     tree = ast.parse(source)
-    assignment = next(
+    bindings = [
         node for node in tree.body
-        if isinstance(node, ast.Assign)
-        and any(
-            isinstance(target, ast.Name) and target.id == name
-            for target in node.targets
+        if (
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == name
+                for target in node.targets
+            )
         )
-    )
+        or (
+            isinstance(node, (ast.AnnAssign, ast.AugAssign))
+            and isinstance(node.target, ast.Name)
+            and node.target.id == name
+        )
+    ]
+    if len(bindings) != 1 or not isinstance(bindings[0], ast.Assign):
+        raise ValueError(f"{name} must have exactly one direct assignment")
+    assignment = bindings[0]
     value = assignment.value
-    if isinstance(value, ast.Call) and value.args:
+    if (
+        name == "_RUNTIME_ONLY_MODULES"
+        and isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id == "frozenset"
+        and len(value.args) == 1
+        and not value.keywords
+    ):
         value = value.args[0]
     parsed = ast.literal_eval(value)
     if isinstance(parsed, dict):
@@ -1544,20 +1561,71 @@ def _literal_assignment_values(source: str, name: str) -> set[str]:
     return set(parsed)
 
 
-def _python_command_imports(source: str) -> set[str]:
+def _workflow_run_commands(source: str) -> tuple[str, ...]:
+    if _yaml is None:
+        raise ValueError("PyYAML is required to parse workflow commands")
+    parsed = _yaml.safe_load(source)
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("jobs"), dict):
+        raise ValueError("workflow jobs are invalid")
+    commands: list[str] = []
+    for job in parsed["jobs"].values():
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps", ())
+        if not isinstance(steps, list):
+            raise ValueError("workflow steps are invalid")
+        for step in steps:
+            if isinstance(step, dict) and "run" in step:
+                if not isinstance(step["run"], str):
+                    raise ValueError("workflow run command is invalid")
+                commands.append(step["run"])
+    return tuple(commands)
+
+
+def _docker_run_commands(source: str) -> tuple[str, ...]:
+    commands: list[str] = []
+    current: list[str] = []
+    continuing = False
+    for raw_line in source.splitlines():
+        line = raw_line.strip()
+        if not current:
+            if not line or line.startswith("#") or not line.upper().startswith("RUN "):
+                continue
+            line = line[4:].strip()
+        current.append(line[:-1].rstrip() if line.endswith("\\") else line)
+        continuing = line.endswith("\\")
+        if not continuing:
+            commands.append("\n".join(current))
+            current = []
+    if current or continuing:
+        raise ValueError("Docker RUN instruction has an unterminated continuation")
+    return tuple(commands)
+
+
+def _has_python_candidate(command: str) -> bool:
+    return any(
+        not line.lstrip().startswith("#")
+        and re.search(r"(?:^|[;&|]\s*)python(?:3(?:\.\d+)?)?\s+-c\b", line)
+        for line in command.splitlines()
+    )
+
+
+def _python_command_imports(commands: Iterable[str]) -> set[str]:
     imports: set[str] = set()
-    for line in source.splitlines():
+    for command in commands:
         try:
-            argv = shlex.split(line)
+            argv = shlex.split(command, comments=True)
         except ValueError:
+            if _has_python_candidate(command):
+                raise ValueError("python -c shell command is malformed") from None
             continue
         for index, value in enumerate(argv[:-2]):
-            if value not in {"python", "python3"} or argv[index + 1] != "-c":
+            if not re.fullmatch(r"python(?:3(?:\.\d+)?)?", value) or argv[index + 1] != "-c":
                 continue
             try:
                 tree = ast.parse(argv[index + 2])
             except SyntaxError:
-                continue
+                raise ValueError("python -c source is invalid") from None
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     imports.update(alias.name.split(".", 1)[0] for alias in node.names)
@@ -1599,16 +1667,20 @@ def _torch_runtime_contract_findings(repo: Path) -> list[Finding]:
                 message="Torch runtime import declaration is unreadable or invalid",
             ))
 
-    for location in (".github/workflows/ci.yml", "Dockerfile"):
+    command_sources = (
+        (".github/workflows/ci.yml", _workflow_run_commands),
+        ("Dockerfile", _docker_run_commands),
+    )
+    for location, extract_commands in command_sources:
         try:
-            imports = _python_command_imports(
+            imports = _python_command_imports(extract_commands(
                 (repo / location).read_text(encoding="utf-8")
-            )
-        except OSError:
+            ))
+        except (OSError, ValueError, TypeError):
             findings.append(Finding(
                 id="D10.torch_runtime_contract", check="docs", severity="error",
                 location=location,
-                message="Torch runtime availability declaration is unreadable",
+                message="Torch runtime availability declaration is unreadable or invalid",
             ))
             continue
         forbidden = imports & _FORBIDDEN_TORCH_RUNTIME_IMPORTS

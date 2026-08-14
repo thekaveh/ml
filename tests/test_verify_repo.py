@@ -2809,6 +2809,34 @@ def test_torch_runtime_contract_rejects_operator_declaration_mutators(
     assert _torch_runtime_contract_findings(repo)
 
 
+@pytest.mark.parametrize(("target_name", "mutation"), (
+    ("IMPORTS", "from operator import ior\nior(IMPORTS, {'legacy': 'torch_cluster'})"),
+    ("IMPORTS", "from operator import setitem as put\nput(IMPORTS, 'legacy', 'torch_cluster')"),
+    ("IMPORTS", "from operator import delitem\ndelitem(IMPORTS, 'torch')"),
+    ("_RUNTIME_ONLY_MODULES", "from operator import ixor\nixor(_RUNTIME_ONLY_MODULES, {'torch'})"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "from operator import iconcat\niconcat(_RUNTIME_AVAILABLE_IMPORTS, ('torch_cluster',))"),
+))
+def test_torch_runtime_contract_rejects_from_operator_declaration_mutators(
+    tmp_path: Path, target_name: str, mutation: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / ("scripts/verify_torch_stack.py" if target_name == "IMPORTS" else "scripts/verify_repo.py")
+    target.write_text(target.read_text(encoding="utf-8") + f"\n{mutation}\n", encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+def test_torch_runtime_contract_rejects_operator_star_import(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / "scripts/verify_torch_stack.py"
+    target.write_text(
+        target.read_text(encoding="utf-8") + "\nfrom operator import *\n",
+        encoding="utf-8",
+    )
+
+    assert _torch_runtime_contract_findings(repo)
+
+
 def test_torch_runtime_contract_allows_nonmutating_operator_functions(tmp_path: Path) -> None:
     repo = _copied_torch_runtime_contract_repo(tmp_path)
     target = repo / "scripts/verify_torch_stack.py"
@@ -2818,6 +2846,21 @@ def test_torch_runtime_contract_allows_nonmutating_operator_functions(tmp_path: 
         + "operator.getitem(IMPORTS, 'torch')\n"
         + "operator.contains(IMPORTS, 'torch')\n"
         + "operator.length_hint(IMPORTS)\n",
+        encoding="utf-8",
+    )
+
+    assert _torch_runtime_contract_findings(repo) == []
+
+
+def test_torch_runtime_contract_allows_nonmutating_from_operator_functions(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / "scripts/verify_torch_stack.py"
+    target.write_text(
+        target.read_text(encoding="utf-8")
+        + "\nfrom operator import contains, getitem as lookup, length_hint\n"
+        + "lookup(IMPORTS, 'torch')\n"
+        + "contains(IMPORTS, 'torch')\n"
+        + "length_hint(IMPORTS)\n",
         encoding="utf-8",
     )
 

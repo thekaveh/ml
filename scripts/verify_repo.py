@@ -1594,6 +1594,26 @@ def _operator_module_aliases(tree: ast.AST) -> frozenset[str]:
     )
 
 
+def _operator_function_aliases(tree: ast.AST) -> frozenset[str]:
+    return frozenset(
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "operator" and node.level == 0
+        for alias in node.names
+        if alias.name in _OPERATOR_MUTATION_FUNCTIONS
+    )
+
+
+def _operator_star_imports(tree: ast.AST) -> list[ast.alias]:
+    return [
+        alias
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "operator" and node.level == 0
+        for alias in node.names
+        if alias.name == "*"
+    ]
+
+
 def _is_unbound_mutator_type(node: ast.AST) -> bool:
     return isinstance(node, ast.Name) and node.id in _UNBOUND_MUTATOR_TYPES
 
@@ -1616,6 +1636,8 @@ def _protected_name_mutations(
 ) -> list[ast.AST]:
     mutations: list[ast.AST] = []
     operator_aliases = _operator_module_aliases(tree)
+    operator_function_aliases = _operator_function_aliases(tree)
+    mutations.extend(_operator_star_imports(tree))
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             targets = node.targets
@@ -1628,11 +1650,17 @@ def _protected_name_mutations(
         for target in targets:
             if target is not allowed_target and _protected_mutation_root(target) == name:
                 mutations.append(target)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        if not isinstance(node, ast.Call):
+            continue
+        protected_first_argument = (
+            bool(node.args) and _protected_mutation_root(node.args[0]) == name
+        )
+        if isinstance(node.func, ast.Name):
+            if protected_first_argument and node.func.id in operator_function_aliases:
+                mutations.append(node)
+            continue
+        if isinstance(node.func, ast.Attribute):
             direct_receiver = _protected_mutation_root(node.func.value) == name
-            protected_first_argument = (
-                bool(node.args) and _protected_mutation_root(node.args[0]) == name
-            )
             qualified_mutator = protected_first_argument and (
                 (
                     _is_unbound_mutator_type(node.func.value)

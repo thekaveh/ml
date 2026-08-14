@@ -1,6 +1,9 @@
 # tests/test_check_docs.py
 from __future__ import annotations
 
+import hashlib
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -18,6 +21,34 @@ from scripts.docs.check_docs import (
 from scripts.docs.manifest import load_manifest, parse_manifest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+RELEASED_010_CHANGELOG_SHA256 = (
+    "628842f9c4bd84577f16e0fef091ef7c6b3e5251b39a8b27c038011c5dd78f13"
+)
+
+
+def _released_changelog_section(text: str, version: str) -> str:
+    heading = f"## [{version}]"
+    start = text.index(heading)
+    following = text[start + len(heading) :]
+    next_heading = re.search(r"^## \[", following, re.MULTILINE)
+    end = len(text) if next_heading is None else start + len(heading) + next_heading.start()
+    return text[start:end]
+
+
+def test_released_010_changelog_history_is_immutable():
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    released = _released_changelog_section(changelog, "0.1.0")
+
+    assert hashlib.sha256(released.encode()).hexdigest() == RELEASED_010_CHANGELOG_SHA256
+
+
+def test_released_changelog_guard_rejects_history_mutation():
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    released = _released_changelog_section(changelog, "0.1.0")
+    mutated = released.replace("Known issue (historical)", "Known issue", 1)
+    assert mutated != released
+
+    assert hashlib.sha256(mutated.encode()).hexdigest() != RELEASED_010_CHANGELOG_SHA256
 
 MANIFEST_YAML = """
 surfaces: [repo, site, wiki]
@@ -1135,3 +1166,165 @@ def test_contract_failure_stops_before_generated_surface_build(tmp_path, monkeyp
     monkeypatch.setattr(build_docs, "build", lambda *args, **kwargs: pytest.fail("generated build ran"))
 
     assert check_docs.check(tmp_path, tmp_path / "generated") == 1
+
+
+_NNX_RETAINED_TRIAL_FACTS = (
+    "thekaveh-nnx[lm]==0.2.0",
+    "1,350",
+    "18/18",
+    "6/6",
+    "4/4",
+    "Torch 2.11.0",
+    "torchvision 0.26.0",
+    "torchao 0.18.0",
+)
+
+
+def _assert_nnx_retain_decision_docs(documents: dict[str, str]) -> None:
+    readme = documents["README.md"]
+    ledger = documents["docs/dependency-contracts.md"]
+    overview = documents["docs/nnx-library.md"]
+    changelog = documents["CHANGELOG.md"]
+    current_changelog = changelog[: changelog.index("## [0.1.0]")]
+    quantization_surfaces = (
+        documents["docs/notebooks/quantization-mnist-ffnn-pytorch.md"],
+        documents["notebooks/quantization-mnist-ffnn-pytorch/README.md"],
+        documents["notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb"],
+    )
+    current_documents = {
+        path: current_changelog if path == "CHANGELOG.md" else text
+        for path, text in documents.items()
+    }
+    combined = "\n".join(current_documents.values())
+
+    for fact in _NNX_RETAINED_TRIAL_FACTS:
+        assert fact in ledger or fact in overview or fact in current_changelog
+    assert "retained 0.2.0" in readme
+    assert "Atlas JupyterHub" in readme
+    assert (
+        "Tier B and Tier C completed on Darwin arm64 with `torch_sparse==0.6.18` imported"
+        in current_changelog
+    )
+    assert "Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix" in ledger
+    assert (
+        "canonical trial passed `1,350` repository tests, Tier A `18/18`, "
+        "Tier B `6/6`, and Tier C `4/4`"
+    ) in ledger
+    assert "Darwin arm64" in ledger
+    assert "torch_sparse==0.6.18" in ledger
+    assert "28 of the 29 active notebooks" in overview
+    assert "target_col" in documents["docs/FINDINGS-NNX.md"]
+    assert "y_col" not in documents["docs/FINDINGS-NNX.md"]
+    active_guidance = combined.replace("`NNRun.load(\"best\")` (not a v0.2.0 idiom", "")
+    active_guidance = active_guidance.replace("no `NNRun.load(\"best\")`", "")
+    assert "NNRun.load(\"best\")" not in active_guidance
+    assert "NNRun.load('best')" not in active_guidance
+    assert "torch>=2.5" not in combined
+    assert "torch >=2.5" not in combined
+    assert "Torch >=2.5" not in combined
+    assert "torch >= 2.5" not in combined
+    assert "torch ≥ 2.5" not in combined
+    for surface in quantization_surfaces:
+        assert "Torch 2.11.0" in surface
+        assert "torchvision 0.26.0" in surface
+        assert "torchao 0.18.0" in surface
+
+
+def _nnx_current_documents() -> dict[str, str]:
+    paths = (
+        "README.md",
+        "CONTRIBUTING.md",
+        "CHANGELOG.md",
+        "docs/FINDINGS-NNX.md",
+        "docs/concepts.md",
+        "docs/dependency-contracts.md",
+        "docs/nnx-library.md",
+        "docs/notebooks/dim_reduction-iris-autoencoder-pytorch.md",
+        "docs/notebooks/node_classification-reddit-gnn-pyg.md",
+        "docs/notebooks/quantization-mnist-ffnn-pytorch.md",
+        "docs/notebooks/tabular_classification-iris-mlp-pytorch.md",
+        "notebooks/quantization-mnist-ffnn-pytorch/README.md",
+        "notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb",
+    )
+    return {path: (REPO_ROOT / path).read_text(encoding="utf-8") for path in paths}
+
+
+def test_nnx_current_docs_record_completed_trial_and_retained_default_runtime():
+    _assert_nnx_retain_decision_docs(_nnx_current_documents())
+
+
+@pytest.mark.parametrize(
+    ("path", "old", "new"),
+    (
+        ("README.md", "retained 0.2.0", "adopted 0.2.2"),
+        ("docs/dependency-contracts.md", "Tier C `4/4`", "Tier C pending"),
+        ("docs/dependency-contracts.md", "Torch 2.11.0", "Torch >=2.5"),
+        (
+            "docs/notebooks/quantization-mnist-ffnn-pytorch.md",
+            "Torch 2.11.0",
+            "Torch >=2.5",
+        ),
+        ("docs/nnx-library.md", "28 of the 29 active notebooks", "about two dozen active notebooks"),
+    ),
+)
+def test_nnx_retain_decision_docs_reject_mutations(path, old, new):
+    documents = _nnx_current_documents()
+    assert old in documents[path]
+    documents[path] = documents[path].replace(old, new, 1)
+    with pytest.raises(AssertionError):
+        _assert_nnx_retain_decision_docs(documents)
+
+
+def test_nnx_current_pin_and_pretrial_advisory_snapshot_match_restored_manifest():
+    requirements = (REPO_ROOT / "requirements.txt").read_bytes()
+    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    audit = ledger.split("### 6.1.1.1 Reproducible four-surface audit", 1)[1].split(
+        "### 6.1.1.2 Current accepted advisories", 1
+    )[0]
+
+    assert hashlib.sha256(requirements).hexdigest() == (
+        "3f35f04f95bd1e293c844b41a2dcf96f7978b8c61ccd436e4813a604d9e528a7"
+    )
+    assert "Last reviewed: 2026-08-12" in audit
+    assert "`requirements.txt` | `3f35f04f95bd1e293c844b41a2dcf96f7978b8c61ccd436e4813a604d9e528a7`" in audit
+    assert "thekaveh-nnx==0.2.2" not in audit
+
+
+def test_nnx_documented_consumer_count_matches_tracked_active_notebooks():
+    tracked = subprocess.run(
+        ["git", "ls-files", "--", "notebooks/**/*.ipynb"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    active = [
+        path
+        for path in tracked
+        if not path.startswith("notebooks/archive/")
+        and ".ipynb_checkpoints" not in path
+    ]
+    consumers = [
+        path
+        for path in active
+        if re.search(
+            r"(?:from|import)\s+nnx(?:\b|\.)",
+            (REPO_ROOT / path).read_text(encoding="utf-8"),
+        )
+    ]
+
+    assert (len(consumers), len(active)) == (28, 29)
+
+
+def test_nnx_historical_output_notices_do_not_claim_current_022_source():
+    paths = (
+        "notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb",
+        "notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/notebook.ipynb",
+        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook1.ipynb",
+        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook2.ipynb",
+    )
+    for path in paths:
+        text = (REPO_ROOT / path).read_text(encoding="utf-8")
+        assert "temporary artifacts" in text, path
+        assert "0.2.0" in text, path
+        assert "current NNx 0.2.2" not in text, path

@@ -219,22 +219,24 @@ Upgrade criteria:
 
 1. Select a Torch version with matching `torchvision`, `torchaudio`, and PyG CPU
    wheels.
-2. Confirm `torchao>=0.17` imports under that Torch version.
-3. Re-run `make test`, `make verify`, `make test-nnx-surface`, and at least the
-   smoke Tier-B/Tier-C notebooks on Linux.
+2. Confirm the reviewed `torchao==0.18.0` surface imports with its required Torch >=2.11 and a
+   matching torchvision build.
+3. Re-run `make test`, `make verify`, `make test-nnx-surface`, and the complete Tier A/B/C
+   matrix on the candidate environment.
 4. Update README, environment docs, and this ledger in the same change.
 
 ## 6.1.3 Manual-Only Quantization Notebook
 
-`notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb` depends on `torchao>=0.17`.
-That torchao API references `torch.int1` at import time, which is unavailable in
-the pinned `torch==2.4.1` environment. The notebook remains an active task but is
-manual-only until the Torch stack is upgraded.
+`notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb` consumes the torchao quantization
+surface. The reviewed torchao 0.18.0 release requires Torch >=2.11, so it is incompatible with
+the pinned `torch==2.4.1` environment. The notebook remains an active task but is manual-only
+until the Torch stack is upgraded.
 
 Expected local side environment for this notebook:
 
-- `torch>=2.5`
-- `torchao>=0.17`
+- `torch==2.11.0`
+- `torchvision==0.26.0`
+- `torchao==0.18.0`
 
 Do not add the quantization notebook back to `Makefile` Tier-A/B/C until the
 repository-wide local/CI Torch stack supports it. Atlas has a newer observed
@@ -300,6 +302,21 @@ CI selects the NNx wheel with `--only-binary=thekaveh-nnx` in both `pytest-repos
 tests. This binary-only selection is not a cryptographic hash lock and does not lock the whole
 dependency graph; Issue #63 owns future NNx wheel hash locking.
 
+Issue #61 reviewed the latest stable 0.2.2 wheel without changing this final contract. A fresh
+canonical trial passed `1,350` repository tests, Tier A `18/18`, Tier B `6/6`, and Tier C `4/4` on
+Darwin arm64; `torch_sparse==0.6.18` imported and the graph tiers completed. The isolated QAT probe
+also passed with Torch 2.11.0, torchvision 0.26.0, and torchao 0.18.0. These results establish that
+the released wheel works in the trial environments, but they do not override the recommended
+Atlas JupyterHub image's independent NNx 0.2.0 pin. Because 0.2.2-only `NNModel.train` identity
+keywords are unsupported there, the repository retained 0.2.0 and removed the trial-only calls.
+
+Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix. Platform
+assumptions do not waive a tier: the Issue #61 Darwin arm64 run disproved the former claim that
+`torch_sparse` made Tier B/C impossible on macOS. Quantization remains a separate manual-only
+probe until Issue #66 defines tiering; torchao 0.18 requires Torch >=2.11, so the accepted side
+environment is the proven Torch 2.11.0 / torchvision 0.26.0 / torchao 0.18.0 combination rather
+than a looser, unverified version floor.
+
 Editable installs are allowed only for intentional upstream NNx development. After installing an
 external checkout editable, run:
 
@@ -336,7 +353,7 @@ also succeeded; no Ollama or ComfyUI container was running for the consumer.
 | Surface | Observed in Atlas JupyterHub | Contract meaning |
 | --- | --- | --- |
 | Python | CPython 3.11.10 | Remote notebook interpreter |
-| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; `tokenizers` 0.22.2 | Matches notebook imports and the `[lm]` extra |
+| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; `tokenizers` 0.22.2 | Atlas-owned image evidence; matches notebook imports and the `[lm]` extra at the observed version |
 | Torch | `torch` 2.11.0+cpu; `torchvision` 0.26.0+cpu; `torchaudio` 2.11.0+cpu | Atlas runtime is newer than local/CI; do not infer a local pin bump |
 | Torch extensions | `torchao` 0.17.0; `torch-geometric` 2.6.1; `python-louvain` 0.16 | Required import surfaces are present |
 | NLP | spaCy 3.8.14, `en_core_web_sm` 3.8.0; NLTK 3.10.0 with VADER | Both task assets resolve |
@@ -349,7 +366,7 @@ smoke.
 
 ## 6.1.9 Atlas Versus Local/CI Dependency Boundaries
 
-Atlas's runtime image is infrastructure-owned and may advance independently of
+Atlas's runtime image is Atlas-owned infrastructure and may advance independently of
 the checked-in local/CI manifests. The local/CI Torch 2.4.1 contract remains the
 source of truth for `make test`, papermill CI, Dockerfile, and Codespaces.
 Conversely, notebooks using the remote kernel rely on the observed Atlas package

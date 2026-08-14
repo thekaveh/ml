@@ -4646,6 +4646,134 @@ def test_ci_tier_a_uses_temporary_outputs_and_preserves_sources():
     assert "TIER_A_OUT ?= /tmp/ml-tier-a" in (REPO / "Makefile").read_text(encoding="utf-8")
 
 
+_TIER_NNX_CONTRACTS = {
+    "tier-a-papermill": {
+        "workload": {"name": "Run Tier-A notebooks (papermill)", "run": "make smoke-tier-a"},
+        "bridge": (
+            {"name": "Download spaCy en_core_web_sm model", "run": "python -m spacy download en_core_web_sm"},
+            {"name": "Download NLTK vader_lexicon", "run": 'python -c "import nltk; nltk.download(\'vader_lexicon\', quiet=True)"'},
+        ),
+    },
+    "smoke-tier-b": {
+        "workload": {"name": "Smoke-run Tier-B notebooks", "run": "make smoke-tier-b"},
+        "bridge": (),
+    },
+    "smoke-tier-c": {
+        "workload": {"name": "Smoke-run Tier-C notebooks", "run": "make smoke-tier-c"},
+        "bridge": (),
+    },
+}
+_LIVE_SERVICE_COMMANDS = (
+    "docker run",
+    "docker compose",
+    "docker-compose",
+    "atlas-up",
+    "jupyterhub",
+    "ollama",
+    "comfyui",
+)
+
+
+def _assert_tier_nnx_provenance_contract(workflow: dict, job_name: str) -> None:
+    _assert_no_nnx_environment_overrides(workflow)
+    job = workflow["jobs"][job_name]
+    contract = _TIER_NNX_CONTRACTS[job_name]
+
+    assert "container" not in job
+    assert "services" not in job
+    assert "continue-on-error" not in job
+    assert all("continue-on-error" not in step for step in job["steps"])
+    for step in job["steps"]:
+        run = step.get("run", "").lower()
+        assert not any(command in run for command in _LIVE_SERVICE_COMMANDS)
+
+    install_index = next(
+        index
+        for index, step in enumerate(job["steps"])
+        if step.get("name") == "Install dependencies"
+    )
+    assert job["steps"][install_index] == {
+        "name": "Install dependencies",
+        "run": (
+            "make install-torch-stack\n"
+            "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
+        ),
+    }
+    verifier_index = next(
+        index
+        for index, step in enumerate(job["steps"])
+        if step.get("name") == "Verify canonical NNx installation"
+    )
+    assert job["steps"][verifier_index] == {
+        "name": "Verify canonical NNx installation",
+        "run": "make verify-nnx-install",
+    }
+    assert tuple(job["steps"][install_index + 1 : verifier_index]) == contract["bridge"]
+    assert job["steps"][verifier_index + 1] == contract["workload"]
+    assert all(
+        "pip install" not in step.get("run", "").lower()
+        for step in job["steps"][verifier_index + 1 :]
+    )
+
+
+@pytest.mark.parametrize("job_name", tuple(_TIER_NNX_CONTRACTS))
+def test_ci_tier_nnx_provenance_contract(job_name):
+    _assert_tier_nnx_provenance_contract(
+        _load_workflow(REPO / ".github/workflows/ci.yml"),
+        job_name,
+    )
+
+
+@pytest.mark.parametrize("job_name", tuple(_TIER_NNX_CONTRACTS))
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "removed_verifier",
+        "late_install",
+        "atlas",
+        "ollama_container",
+        "docker_compose",
+        "jupyterhub",
+        "comfyui",
+        "services",
+        "container",
+    ),
+)
+def test_ci_tier_nnx_provenance_contract_rejects_mutations(job_name, mutation):
+    workflow = deepcopy(_load_workflow(REPO / ".github/workflows/ci.yml"))
+    _assert_tier_nnx_provenance_contract(workflow, job_name)
+    job = workflow["jobs"][job_name]
+    steps = job["steps"]
+    verifier_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Verify canonical NNx installation"
+    )
+    if mutation == "removed_verifier":
+        steps.pop(verifier_index)
+    elif mutation == "late_install":
+        steps.insert(verifier_index + 1, {"name": "Late install", "run": "pip install -r requirements.txt"})
+    elif mutation == "atlas":
+        steps.insert(verifier_index, {"name": "Start runtime", "run": "make atlas-up"})
+    elif mutation == "ollama_container":
+        steps.insert(verifier_index, {"name": "Start model", "run": "docker run -d ollama/ollama"})
+    elif mutation == "docker_compose":
+        steps.insert(verifier_index, {"name": "Start dependencies", "run": "docker compose up -d"})
+    elif mutation == "jupyterhub":
+        steps.insert(verifier_index, {"name": "Start notebook", "run": "jupyterhub"})
+    elif mutation == "comfyui":
+        steps.insert(verifier_index, {"name": "Start image UI", "run": "comfyui --listen"})
+    elif mutation == "services":
+        job["services"] = {"cache": {"image": "redis"}}
+    elif mutation == "container":
+        job["container"] = "python:3.11"
+    else:
+        raise AssertionError(f"unhandled mutation: {mutation}")
+
+    with pytest.raises((AssertionError, StopIteration)):
+        _assert_tier_nnx_provenance_contract(workflow, job_name)
+
+
 def test_atlas_docs_preserve_mounted_workspace_and_track_ownership():
     numpy_spec = yaml.safe_load(
         (REPO / "notebooks/image_classification-mnist-ffnn-numpy/docs/spec.yaml").read_text(

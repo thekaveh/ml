@@ -348,9 +348,9 @@ the structure downstream tasks care about.
   bottleneck would directly penalize the kind of overfit-to-reconstruction failure mode the
   deeper AE exhibits; the comparison would test whether VAE-style regularization preserves
   species-separation in the bottleneck.
-- **Persist and reload the AE via `NNRun.load("best")`.** The notebook uses the live `run`
-  object because the AE trains in seconds; a follow-up that saves the AE to `./runs/` and
-  reloads it via `NNRun.load("best")` would exercise the serialization contract that the
+- **Persist and reload the AE via `NNCheckpoint.load(run=..., type=Checkpoints.BEST)`.** The
+  notebook uses the live `run` object because the AE trains in seconds; a follow-up that saves the
+  AE to `./runs/` and reloads its best checkpoint would exercise the serialization contract that the
   longer-running generative tasks depend on. (Caveat: `runs/` is gitignored, so this is a
   local-only follow-up unless the checkpoint is published out-of-band.)
 - **Scale the recipe to a higher-dimensional dataset.** Iris's 4 → 2 projection is too easy

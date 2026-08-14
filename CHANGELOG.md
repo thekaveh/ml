@@ -13,6 +13,15 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **NNx 0.2.2 release review and 0.2.0 retention:** canonical binary-wheel validation of the
+  immutable 0.2.2 release passed the complete repository suite (`1,350 passed`), Tier A (`18/18`),
+  Tier B (`6/6`), Tier C (`4/4`), and an isolated QAT checkpoint round trip.
+  Tier B and Tier C completed on Darwin arm64 with `torch_sparse==0.6.18` imported.
+  The root requirement remains `thekaveh-nnx[lm]==0.2.0` because the recommended Atlas JupyterHub
+  image independently
+  pins 0.2.0 and cannot execute 0.2.2-only consumer calls. The trial used no service or container.
+  QAT evidence used the compatible side pair Torch 2.11.0, torchvision 0.26.0, and torchao 0.18.0;
+  the root Torch 2.4.1 stack and quantization's manual-only status are unchanged.
 - **Machine-readable advisory baseline gate:** added the reviewed
   `security/accepted-advisories.json` policy, fail-closed four-surface `make audit-advisories`
   comparison, JSON-to-current-ledger verification, and isolated `dependency-audit` CI job. New

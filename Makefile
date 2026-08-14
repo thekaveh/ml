@@ -55,13 +55,11 @@ TIER_B := \
 # notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb was previously the 2nd entry
 # above. Removed 2026-06-16 after the weekly smoke-tier-b cron failed at the
 # quantization import: `torchao>=0.17` (requirements.txt pin, smallest version
-# exposing nnx.quantize_int8's `Int8WeightOnlyConfig` API) references
-# `torch.int1` at module load; `torch.int1` was added in torch 2.5; the local/CI
-# contract pins `torch==2.4.1` (see torch-core-requirements.txt + issue #10).
-# No torchao version satisfies both nnx's API requirement AND
-# the torch 2.4.1 import surface, so the notebook cannot execute under
-# CI's pinned environment. Notebook stays in the repo as a manual-only task
-# (run locally under a `torch>=2.5` env). The Tier-B move (PR #11) was made
+# exposing nnx.quantize_int8's `Int8WeightOnlyConfig` API) cannot import under
+# the local/CI `torch==2.4.1` contract (see torch-core-requirements.txt + issue
+# #10). The reviewed torchao 0.18.0 side environment requires Torch >=2.11.
+# Notebook stays in the repo as a manual-only task; the accepted validation pair
+# is Torch 2.11.0 + torchvision 0.26.0 + torchao 0.18.0. The Tier-B move (PR #11) was made
 # under the assumption the weekly cron would still exercise it — that turned
 # out to be wrong; removing it here unblocks the remaining Tier-B notebooks
 # the cron was supposed to cover.

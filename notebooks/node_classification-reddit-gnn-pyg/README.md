@@ -18,6 +18,10 @@ A staged investigation of how graph-structural information improves node classif
 
 The Phase-3 notebooks preserve August-2023 training outputs and serve as the primary experimental record; the codebase here lets the analysis be re-run on demand.
 
+The committed Reddit outputs predate the current NNx 0.2.0 source adaptation. Issue #61 ran the
+0.2.2 Tier B/C trial into fresh temporary outputs, then retained 0.2.0 for Atlas-default
+compatibility; neither the preserved results nor the checked-in Phase-2 source claim 0.2.2.
+
 ## 3. What's in the notebook(s)
 
 Nine notebooks across three phases. Each follows the standard 6-section structure (see [../CONTRIBUTING.md](../../CONTRIBUTING.md)).

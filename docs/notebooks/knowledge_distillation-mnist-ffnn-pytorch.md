@@ -12,6 +12,10 @@ the architecture and §8.7/§8.8 change the sparsity/bitwidth, born-again distil
 parameter count fixed and instead changes *what the model is trained against* — soft labels from a
 frozen copy of itself.
 
+The committed metrics are preserved NNx 0.2.0-era evidence. Issue #61 executed 0.2.2 only into
+temporary artifacts and retained 0.2.0 for the recommended Atlas runtime; this page does not
+attribute the checked-in results to the rejected pin trial.
+
 ## 8.6.1 Problem & motivation
 
 **Knowledge distillation** (Hinton et al., 2015) trains a *student* model to match a *teacher*'s

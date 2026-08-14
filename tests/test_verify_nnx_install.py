@@ -71,6 +71,17 @@ def test_parse_nnx_pin_accepts_the_exact_lm_pin():
     assert pin.extras == frozenset({"lm"})
 
 
+def test_current_requirement_is_the_canonical_nnx_lm_pin():
+    requirements_text = (Path(__file__).resolve().parent.parent / "requirements.txt").read_text(
+        encoding="utf-8"
+    )
+
+    pin = parse_nnx_pin(requirements_text)
+
+    assert pin.version == "0.2.0"
+    assert pin.extras == frozenset({"lm"})
+
+
 @pytest.mark.parametrize(
     "requirements_text",
     (

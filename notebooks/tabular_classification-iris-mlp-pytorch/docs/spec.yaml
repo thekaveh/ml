@@ -18,7 +18,7 @@ math:
     latex: "\\hat{y}_i = \\frac{e^{z_i}}{\\sum_j e^{z_j}}"
 code_walkthrough:
   - { anchor: "NNParams(...)", note: "hidden dims, learning rate, epochs" }
-  - { anchor: "NNRun.load('best')", note: "best-checkpoint restore via nnx" }
+  - { anchor: "NNCheckpoint.load(run=..., type=Checkpoints.BEST)", note: "best-checkpoint restore via nnx" }
 results:
   - { metric: accuracy, value: "~0.98 on held-out Iris" }
 pitfalls:

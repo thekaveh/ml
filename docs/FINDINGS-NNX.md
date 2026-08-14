@@ -37,7 +37,7 @@ On any non-ReLU activation the surgery raises `ValueError: deepen: activation is
 
 Surfaced by: `tabular_regression-diabetes-mlp-pytorch`.
 
-`NNTabularDataset(... , y_col=...)` hard-codes `y = torch.tensor(..., dtype=torch.long)` in `__post_init__`. This is correct for classification but breaks regression: `Losses.MEAN_SQUARED_ERROR` expects `float32` targets of shape `(N, 1)`.
+The retained NNx 0.2.0 contract's `NNTabularDataset(..., target_col=...)` hard-codes `y = torch.tensor(..., dtype=torch.long)` in `__post_init__`. This is correct for classification but breaks regression: `Losses.MEAN_SQUARED_ERROR` expects `float32` targets of shape `(N, 1)`.
 
 Regression notebooks must build the DataLoaders manually:
 
@@ -53,7 +53,9 @@ DataLoader(
 
 The `NNTabularDataset` docstring already says *"For regression, prefer to construct the DataLoaders yourself"* — so this is documented behavior, not a bug.
 
-**Suggested upstream fix**: add a `NNTabularDataset(task='regression' | 'classification', ...)` mode that conditionally skips the `torch.long` coercion when `task='regression'`. The current docstring already notes the limitation; the API just needs to grow the explicit knob so regression callers don't have to bypass the wrapper entirely.
+**Upstream status**: NNx 0.2.2 added `target_dtype=torch.float32`, and Issue #61 proved that
+surface in an isolated release trial. ml-eng-lab retains 0.2.0 for Atlas-default compatibility,
+so this finding remains open for the current runtime and the notebook keeps its manual loader.
 
 ### 9.1.1.4 `EarlyStopping(monitor=...)` default is `"val_edp.error"`, doesn't exist for regression EDPs
 

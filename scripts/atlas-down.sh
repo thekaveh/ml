@@ -54,5 +54,9 @@ if [[ "$dry_run" == true ]]; then
     fi
     printf '\n'
 else
-    (cd "$INFRA" && ./stop.sh "${stop_args[@]}")
+    if [[ "${#stop_args[@]}" -eq 0 ]]; then
+        (cd "$INFRA" && ./stop.sh)
+    else
+        (cd "$INFRA" && ./stop.sh "${stop_args[@]}")
+    fi
 fi

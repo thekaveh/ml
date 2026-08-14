@@ -1,9 +1,9 @@
 """NNx-surface contract tests for the manual-only quantization notebook.
 
-The notebook itself cannot run under the repo's pinned Torch 2.4.1 stack because
-the required torchao APIs import `torch.int1` from Torch 2.5+. These tests still
-guard the public nnx facade the notebook uses, and run a tiny PTQ smoke in
-side-envs where the backend is importable.
+The notebook itself cannot run under the repo's pinned Torch 2.4.1 stack. The reviewed
+torchao 0.18.0 release requires Torch >=2.11; Issue #61 proved the exact Torch 2.11.0,
+torchvision 0.26.0, and torchao 0.18.0 side environment. These tests still guard the public
+nnx facade the notebook uses and run a tiny PTQ smoke where the backend is importable.
 """
 from __future__ import annotations
 
@@ -26,7 +26,10 @@ from nnx import (
 
 def _import_torchao_or_skip():
     if not hasattr(torch, "int1"):
-        pytest.skip("torchao quantization path requires torch.int1 from torch >= 2.5")
+        pytest.skip(
+            "root Torch 2.4.1 lacks the torch.int1 import surface; Issue #61 validated "
+            "Torch 2.11.0 + torchvision 0.26.0 + torchao 0.18.0"
+        )
     return pytest.importorskip("torchao")
 
 

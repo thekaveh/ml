@@ -7,6 +7,11 @@
 - **Model:** `nnx.FeedFwdNN` (`Nets.FEED_FWD`), `Activations.RELU`, `hidden_dims=[128, 64]`.
 - **Framework:** PyTorch (via [`thekaveh-nnx`](https://github.com/thekaveh/NNx)).
 
+The committed outputs and repeated adaptation run IDs are preserved NNx 0.2.0-era evidence.
+Issue #61's 0.2.2 trial used temporary outputs; after the repository retained 0.2.0 for the
+recommended Atlas runtime, the checked-in source remained unsalted and the historical outputs
+were not rewritten.
+
 ## 2. Why this exists
 
 LoRA (Hu et al., 2021) is the dominant adapter recipe: freeze the pretrained weights, augment each `Linear` `W ∈ ℝᵈˣᵏ` with a rank-`r` low-rank update `(α/r) BA` and train only `A`, `B`. **DoRA** (Liu et al., NVIDIA ICML 2024 Oral) refines LoRA with a magnitude/direction decomposition `W = m · V / ‖V‖_c` where `V = W₀ + (α/r) BA` and `m` is a trainable per-output-row magnitude vector initialized from `‖W₀‖_c`. At step 0 both keep `forward(x) == base(x)` exactly.

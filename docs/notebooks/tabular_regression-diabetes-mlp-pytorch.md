@@ -11,7 +11,9 @@ The notebook is **Tier-A** — CPU re-runs in ~22 seconds and it is re-executed 
 every pull request. It is also the first notebook that **cannot use `nnx.NNTabularDataset`**,
 because that helper hard-coerces targets to `torch.long` and is therefore classification-only.
 §3.3 of the notebook builds the `DataLoader`s by hand with `dtype=torch.float32` targets shaped
-`(N, 1)`; the present page explains why that workaround is necessary and how it generalizes.
+`(N, 1)`; the present page explains why that workaround remains necessary under the retained NNx
+0.2.0 contract. Issue #61 validated 0.2.2's optional `target_dtype=torch.float32` surface but did
+not adopt it because the recommended Atlas runtime remains on 0.2.0.
 
 The falsifiable hypothesis tested by the notebook is that on a 442-sample classical-statistics
 benchmark, **linear and KNN baselines are surprisingly hard to beat** — the MLPs are interesting

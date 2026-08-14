@@ -7,6 +7,10 @@
 - **Model:** `nnx.FeedFwdNN` (`Nets.FEED_FWD`), `Activations.RELU`, `hidden_dims=[128, 64]`.
 - **Framework:** PyTorch (via [`thekaveh-nnx`](https://github.com/thekaveh/NNx)).
 
+The committed outputs are preserved NNx 0.2.0-era experiment evidence. Issue #61 executed the
+0.2.2 trial only into temporary artifacts, then retained 0.2.0 for Atlas-default compatibility;
+the checked-in results were not rewritten or relabeled as 0.2.2 evidence.
+
 ## 2. Why this exists
 
 **Born-again** training (Furlanello et al., 2018) is the surprising special case of knowledge distillation where student and teacher have the *same* architecture: each generation takes the previous generation's frozen weights as its teacher. The student often beats the teacher despite the identical parameter count — the gain comes from the soft-label regularizer.

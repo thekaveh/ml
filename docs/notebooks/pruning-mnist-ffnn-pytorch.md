@@ -262,7 +262,7 @@ shape — flat through mid-sparsity, cliff past ~0.8.
 - **Manual-only quantization cousin (§8.8) cannot run in CI.** The pruning notebook itself is
   Tier-A and CI-clean; but if you pair it with the quantization notebook for a joint
   prune-then-quantize study, note that §8.8 is excluded from CI under the pinned `torch==2.4.1`
-  (torchao requires `torch>=2.5`).
+  (the reviewed side environment uses Torch 2.11.0 with torchao 0.18.0).
 
 ## 8.7.8 Extensions & references
 

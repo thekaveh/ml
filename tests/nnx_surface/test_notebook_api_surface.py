@@ -595,10 +595,12 @@ def test_nnx_unknown_kwarg_guard_catches_bad_kwarg():
 def test_nnx_unknown_kwarg_guard_allows_real_kwargs():
     good = _synthetic_nb({
         "cell_type": "code",
-        "source": ["d = NNGraphDataset(ds_class=R, n_neighbors=[2], n_workers=4, transform=t)\n"],
+        "source": [
+            "d = NNGraphDataset(ds_class=R, n_neighbors=[2], n_workers=4, transform=t, seed=0, sampler=\"full\")\n"
+        ],
         "outputs": [],
     })
-    assert not find_nnx_unknown_kwargs(good, {"NNGraphDataset": {"ds_class", "n_neighbors", "n_workers", "transform", "batch_sizes", "root_dir"}})
+    assert not find_nnx_unknown_kwargs(good, {"NNGraphDataset": {"ds_class", "n_neighbors", "n_workers", "transform", "batch_sizes", "root_dir", "seed", "sampler"}})
 
 
 def _called_name(node: ast.Call) -> str | None:

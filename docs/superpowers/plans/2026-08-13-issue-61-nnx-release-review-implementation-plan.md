@@ -138,7 +138,7 @@ GitHub Actions, pip-audit, MkDocs Material, GitHub wiki, Git, and GitHub CLI.
 **Files:** `requirements.txt`, `Makefile`, `.github/workflows/ci.yml`,
 `tests/test_verify_nnx_install.py`, `tests/test_verify_repo.py`
 
-- [ ] **Step 1: Revalidate the release before editing**
+- [x] **Step 1: Revalidate the release before editing**
 
   Query PyPI and the immutable GitHub release for 0.2.2. Confirm it is still the latest stable,
   non-yanked universal wheel; confirm tag commit
@@ -146,7 +146,7 @@ GitHub Actions, pip-audit, MkDocs Material, GitHub wiki, Git, and GitHub CLI.
   `ee56474926fdfd5329721f067cf1b8ae31955627c6949844e09ee4a7bb2bb9d7`, `[lm]` extra,
   Python/Torch/PyG floors, and Apache-2.0 license. Stop on any mismatch.
 
-- [ ] **Step 2: Write current-pin and Tier A/B/C workflow RED tests**
+- [x] **Step 2: Write current-pin and Tier A/B/C workflow RED tests**
 
   Require the root requirement to parse as exactly `thekaveh-nnx[lm]==0.2.2`. For each of
   `tier-a-papermill`, `smoke-tier-b`, and `smoke-tier-c`, require this ordered boundary:
@@ -163,7 +163,7 @@ GitHub Actions, pip-audit, MkDocs Material, GitHub wiki, Git, and GitHub CLI.
   override, `PYTHONPATH`, `NNX_ALLOW_EDITABLE`, `continue-on-error`, job container, or service.
   Require the verifier step immediately before the tier workload.
 
-- [ ] **Step 3: Run focused tests and capture RED**
+- [x] **Step 3: Run focused tests and capture RED**
 
   ```bash
   pytest -p no:cacheprovider tests/test_verify_nnx_install.py tests/test_verify_repo.py -q \
@@ -173,20 +173,20 @@ GitHub Actions, pip-audit, MkDocs Material, GitHub wiki, Git, and GitHub CLI.
   Expected: the current pin remains 0.2.0 and all three tier jobs lack the binary/provenance
   contract.
 
-- [ ] **Step 4: Apply the minimal pin and workflow change**
+- [x] **Step 4: Apply the minimal pin and workflow change**
 
   Change the sole root pin to 0.2.2. Replace each tier job's plain runtime install with the exact
   binary-only command, add a named canonical-verifier step, and make it the final step before the
   workload. Do not modify verifier implementation or unrelated jobs.
 
-- [ ] **Step 5: Mutation-audit the workflow contract**
+- [x] **Step 5: Mutation-audit the workflow contract**
 
   In isolated workflow copies, prove RED for removed verifier, reversed verifier/workload order,
   plain `pip install`, editable install, late install, alternate requirements file, job-level
   `PYTHONPATH`, `NNX_ALLOW_EDITABLE`, failure masking, extra Atlas/service steps, and renamed
   workload. Restore the clean workflow after every mutation.
 
-- [ ] **Step 6: Run Task 1 GREEN gates**
+- [x] **Step 6: Run Task 1 GREEN gates**
 
   ```bash
   pytest -p no:cacheprovider tests/test_verify_nnx_install.py tests/test_verify_repo.py -q \
@@ -196,7 +196,7 @@ GitHub Actions, pip-audit, MkDocs Material, GitHub wiki, Git, and GitHub CLI.
   git diff --check
   ```
 
-- [ ] **Step 7: Commit Task 1**
+- [x] **Step 7: Commit Task 1**
 
   ```bash
   git add requirements.txt Makefile .github/workflows/ci.yml \

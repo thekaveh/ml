@@ -926,6 +926,24 @@ def test_tabular_regression_docs_record_resolved_nnx_target_dtype_support():
     assert "classification only" not in markdown
 
 
+def test_knowledge_distillation_run_identity_contract_is_documented_consistently():
+    canonical = (
+        REPO_ROOT / "docs/notebooks/knowledge_distillation-mnist-ffnn-pytorch.md"
+    ).read_text(encoding="utf-8")
+    task_readme = (
+        REPO_ROOT / "notebooks/knowledge_distillation-mnist-ffnn-pytorch/README.md"
+    ).read_text(encoding="utf-8")
+
+    expected_call = (
+        'single_gen.train(params=train_params(), salt="single-gen-reference")'
+    )
+    assert expected_call in canonical
+    for text in (canonical, task_readme):
+        normalized = " ".join(text.split())
+        assert "single-gen-reference" in normalized
+        assert "separate run history" in normalized
+
+
 def test_checkpoint_docs_use_current_nnx_checkpoint_api():
     current_checkpoint_docs = (
         "docs/nnx-library.md",

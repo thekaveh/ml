@@ -147,6 +147,27 @@ def _output_text(cell: dict) -> str:
     return "\n".join(chunks)
 
 
+def _assigned_call(nb: dict, target: str) -> ast.Call:
+    matches: list[ast.Call] = []
+    for cell in _code_cells(nb):
+        lines = [
+            line
+            for line in "".join(_source_lines(cell)).splitlines()
+            if not line.lstrip().startswith(("%", "!"))
+        ]
+        try:
+            tree = ast.parse("\n".join(lines))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+                continue
+            if any(isinstance(name, ast.Name) and name.id == target for name in node.targets):
+                matches.append(node.value)
+    assert len(matches) == 1, f"expected one assignment to {target}, found {len(matches)}"
+    return matches[0]
+
+
 # --- scan checkers (also exercised directly by the synthetic unit tests) -----
 
 def find_misplaced_utils_attrs(nb: dict, forbidden: set[str]) -> list[str]:
@@ -186,6 +207,47 @@ def test_active_notebooks_discovered():
     """Guard against the glob silently matching nothing (which would make every
     parametrized scan vacuously pass)."""
     assert len(_NOTEBOOKS) >= 25, f"expected the full active notebook set, found {len(_NOTEBOOKS)}"
+
+
+def test_knowledge_distillation_baseline_has_a_distinct_stable_run_identity():
+    train_signature = inspect.signature(nnx.NNModel.train)
+    assert train_signature.parameters["salt"].default is None
+
+    nb_path = (
+        REPO_ROOT
+        / "notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb"
+    )
+    nb = json.loads(nb_path.read_text(encoding="utf-8"))
+
+    single_call = _assigned_call(nb, "single_run")
+    assert (
+        isinstance(single_call.func, ast.Attribute)
+        and single_call.func.attr == "train"
+        and isinstance(single_call.func.value, ast.Name)
+        and single_call.func.value.id == "single_gen"
+    )
+    salts = [keyword.value for keyword in single_call.keywords if keyword.arg == "salt"]
+    assert len(salts) == 1
+    assert isinstance(salts[0], ast.Constant)
+    assert salts[0].value == "single-gen-reference"
+
+    born_again_call = _assigned_call(nb, "ba_runs")
+    assert (
+        isinstance(born_again_call.func, ast.Attribute)
+        and born_again_call.func.attr == "born_again_train"
+        and isinstance(born_again_call.func.value, ast.Name)
+        and born_again_call.func.value.id == "nnx"
+    )
+    assert len(born_again_call.args) == 1
+    assert isinstance(born_again_call.args[0], ast.Name)
+    assert born_again_call.args[0].id == "ba_model"
+    born_again_keywords = {keyword.arg: keyword.value for keyword in born_again_call.keywords}
+    assert set(born_again_keywords) == {"generations", "train_params"}
+    assert isinstance(born_again_keywords["generations"], ast.Name)
+    assert born_again_keywords["generations"].id == "N_GENERATIONS"
+    assert isinstance(born_again_keywords["train_params"], ast.Call)
+    assert isinstance(born_again_keywords["train_params"].func, ast.Name)
+    assert born_again_keywords["train_params"].func.id == "train_params"
 
 
 def test_active_notebooks_uses_git_tracked_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

@@ -161,13 +161,15 @@ budget is tiny and dropout would starve an already-undertrained model.
 ```python
 nnx.set_seed(0)
 single_gen = make_model()
-single_run = single_gen.train(params=train_params())
+single_run = single_gen.train(params=train_params(), salt="single-gen-reference")
 print(f"single-gen: final val_loss={single_run.idps[-1].val_edp.loss:.4f}")
 ```
 
 This is the control. With `set_seed(0)` immediately before, and `make_model()` + `train_params()`
-deterministic, the reference's final recorded validation loss is `2.1403` (validation accuracy
-`40.73%` — low, because the budget is 2 epochs).
+deterministic, the stable `single-gen-reference` salt gives this independent control a separate run
+history from born-again generation 0 without changing its training configuration. The reference's
+final recorded validation loss is `2.1403` (validation accuracy `40.73%` — low, because the budget
+is 2 epochs).
 
 ### 8.6.5.3 Born-again chain — one call
 

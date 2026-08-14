@@ -13,6 +13,8 @@
 
 `nnx.born_again_train(model, generations=N, train_params=...)` wires the iteration: gen 0 trains plain on hard labels, gen k>0 distills against a frozen deepcopy of gen k-1's model. The notebook shows the per-generation val-loss trajectory on MNIST and the accuracy delta vs a single-gen reference.
 
+The independent control uses the stable `single-gen-reference` identity salt so it keeps a separate run history from born-again generation 0 while retaining the same seeded training configuration.
+
 ## 3. What's in the notebook
 
 > **Tip:** GitHub may show "Unable to render code block" on output cells with large matplotlib PNGs. [View this notebook on nbviewer](https://nbviewer.org/github/thekaveh/ml-eng-lab/blob/main/notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb) for full rendering.

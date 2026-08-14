@@ -177,6 +177,7 @@ def _assert_single_gen_reference_call(nb: dict) -> None:
         and single_call.func.value.id == "single_gen"
     )
     assert single_call.args == []
+    assert len(single_call.keywords) == 2
     keywords = {keyword.arg: keyword.value for keyword in single_call.keywords}
     assert set(keywords) == {"params", "salt"}
     assert isinstance(keywords["params"], ast.Call)
@@ -267,6 +268,10 @@ def test_knowledge_distillation_baseline_has_a_distinct_stable_run_identity():
         (
             'single_gen.train(params=train_params(), salt="single-gen-reference", '
             "overwrite_existing=True)"
+        ),
+        (
+            'single_gen.train(params=train_params(), salt="single-gen-reference", '
+            'salt="single-gen-reference")'
         ),
         'single_gen.train(params=train_params(1), salt="single-gen-reference")',
         "single_gen.train(params=train_params(), salt=reference_salt)",

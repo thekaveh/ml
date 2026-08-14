@@ -2729,6 +2729,48 @@ def test_torch_runtime_contract_requires_exact_available_import_tuple(
     assert _torch_runtime_contract_findings(repo)
 
 
+@pytest.mark.parametrize(("target_name", "mutation"), (
+    ("IMPORTS", "IMPORTS['legacy'] = 'torch_cluster'"),
+    ("IMPORTS", "IMPORTS.update({'legacy': 'torch_cluster'})"),
+    ("IMPORTS", "del IMPORTS"),
+    ("IMPORTS", "del IMPORTS['torch']"),
+    ("IMPORTS", "IMPORTS['torch'] += '_legacy'"),
+    ("_RUNTIME_ONLY_MODULES", "_RUNTIME_ONLY_MODULES.add('torch_cluster')"),
+    ("_RUNTIME_ONLY_MODULES", "_RUNTIME_ONLY_MODULES.__setitem__(0, 'torch_cluster')"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "del _RUNTIME_AVAILABLE_IMPORTS[0]"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "_RUNTIME_AVAILABLE_IMPORTS.append('torch_cluster')"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "_RUNTIME_AVAILABLE_IMPORTS.value = 'torch_cluster'"),
+))
+def test_torch_runtime_contract_rejects_executable_declaration_mutations(
+    tmp_path: Path, target_name: str, mutation: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / ("scripts/verify_torch_stack.py" if target_name == "IMPORTS" else "scripts/verify_repo.py")
+    target.write_text(target.read_text(encoding="utf-8") + f"\n{mutation}\n", encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+def test_torch_runtime_contract_allows_ordinary_declaration_reads(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    stack_source = repo / "scripts/verify_torch_stack.py"
+    stack_source.write_text(
+        stack_source.read_text(encoding="utf-8")
+        + "\nif 'torch' in IMPORTS:\n    selected_import = IMPORTS['torch']\n"
+        + "read_import = IMPORTS.get('torch')\n",
+        encoding="utf-8",
+    )
+    repo_source = repo / "scripts/verify_repo.py"
+    repo_source.write_text(
+        repo_source.read_text(encoding="utf-8")
+        + "\nfor runtime_name in _RUNTIME_ONLY_MODULES:\n    pass\n"
+        + "first_runtime = _RUNTIME_AVAILABLE_IMPORTS[0]\n",
+        encoding="utf-8",
+    )
+
+    assert _torch_runtime_contract_findings(repo) == []
+
+
 def test_full_execution_uses_temporary_tier_a_outputs(tmp_path, monkeypatch):
     verify_repo = _load_verify_module()
     repo = _temp_repo(tmp_path)

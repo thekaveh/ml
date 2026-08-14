@@ -1541,6 +1541,11 @@ _EXPECTED_RUNTIME_ONLY_MODULES = frozenset({
 _EXPECTED_RUNTIME_AVAILABLE_IMPORTS = (
     "torch", "torch_geometric", "pyg_lib", "torch_scatter", "torch_sparse",
 )
+_MUTATING_DECLARATION_METHODS = frozenset({
+    "update", "clear", "pop", "popitem", "setdefault", "add", "discard", "remove",
+    "append", "extend", "insert", "reverse", "sort", "__setitem__", "__delitem__",
+    "__iadd__", "__imul__",
+})
 
 
 def _protected_name_bindings(tree: ast.AST, name: str) -> list[ast.AST]:
@@ -1561,6 +1566,40 @@ def _protected_name_bindings(tree: ast.AST, name: str) -> list[ast.AST]:
     return bindings
 
 
+def _protected_mutation_root(node: ast.AST) -> str | None:
+    while isinstance(node, (ast.Attribute, ast.Subscript)):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
+def _protected_name_mutations(
+    tree: ast.AST,
+    name: str,
+    allowed_target: ast.Name,
+) -> list[ast.AST]:
+    mutations: list[ast.AST] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = (node.target,)
+        elif isinstance(node, ast.Delete):
+            targets = node.targets
+        else:
+            targets = ()
+        for target in targets:
+            if target is not allowed_target and _protected_mutation_root(target) == name:
+                mutations.append(target)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in _MUTATING_DECLARATION_METHODS
+            and _protected_mutation_root(node.func.value) == name
+        ):
+            mutations.append(node)
+    return mutations
+
+
 def _literal_assignment_values(source: str, name: str) -> object:
     tree = ast.parse(source)
     assignments = [
@@ -1573,7 +1612,10 @@ def _literal_assignment_values(source: str, name: str) -> object:
     if len(assignments) != 1:
         raise ValueError(f"{name} must have exactly one direct assignment")
     assignment = assignments[0]
-    if _protected_name_bindings(tree, name) != [assignment.targets[0]]:
+    if (
+        _protected_name_bindings(tree, name) != [assignment.targets[0]]
+        or _protected_name_mutations(tree, name, assignment.targets[0])
+    ):
         raise ValueError(f"{name} must not be rebound")
     value = assignment.value
     if name == "IMPORTS":

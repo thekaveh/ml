@@ -1201,6 +1201,10 @@ def _assert_nnx_retain_decision_docs(documents: dict[str, str]) -> None:
         assert fact in ledger or fact in overview or fact in current_changelog
     assert "retained 0.2.0" in readme
     assert "Atlas JupyterHub" in readme
+    assert (
+        "Tier B and Tier C completed on Darwin arm64 with `torch_sparse==0.6.18` imported"
+        in current_changelog
+    )
     assert "Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix" in ledger
     assert (
         "canonical trial passed `1,350` repository tests, Tier A `18/18`, "

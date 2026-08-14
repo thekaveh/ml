@@ -2751,6 +2751,28 @@ def test_torch_runtime_contract_rejects_executable_declaration_mutations(
     assert _torch_runtime_contract_findings(repo)
 
 
+@pytest.mark.parametrize(("target_name", "mutation"), (
+    ("IMPORTS", "IMPORTS.__ior__({'legacy': 'torch_cluster'})"),
+    ("IMPORTS", "IMPORTS.__class__.__ior__(IMPORTS, {'legacy': 'torch_cluster'})"),
+    ("IMPORTS", "dict.__ior__(IMPORTS, {'legacy': 'torch_cluster'})"),
+    ("_RUNTIME_ONLY_MODULES", "_RUNTIME_ONLY_MODULES.__iand__({'torch'})"),
+    ("_RUNTIME_ONLY_MODULES", "_RUNTIME_ONLY_MODULES.__isub__({'torch'})"),
+    ("_RUNTIME_ONLY_MODULES", "_RUNTIME_ONLY_MODULES.__ixor__({'torch'})"),
+    ("_RUNTIME_ONLY_MODULES", "set.update(_RUNTIME_ONLY_MODULES, {'torch_cluster'})"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "_RUNTIME_AVAILABLE_IMPORTS.__iadd__(('torch_cluster',))"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "_RUNTIME_AVAILABLE_IMPORTS.__imul__(2)"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "list.append(_RUNTIME_AVAILABLE_IMPORTS, 'torch_cluster')"),
+))
+def test_torch_runtime_contract_rejects_inplace_and_qualified_declaration_mutations(
+    tmp_path: Path, target_name: str, mutation: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / ("scripts/verify_torch_stack.py" if target_name == "IMPORTS" else "scripts/verify_repo.py")
+    target.write_text(target.read_text(encoding="utf-8") + f"\n{mutation}\n", encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
 def test_torch_runtime_contract_allows_ordinary_declaration_reads(tmp_path: Path) -> None:
     repo = _copied_torch_runtime_contract_repo(tmp_path)
     stack_source = repo / "scripts/verify_torch_stack.py"
@@ -2764,7 +2786,11 @@ def test_torch_runtime_contract_allows_ordinary_declaration_reads(tmp_path: Path
     repo_source.write_text(
         repo_source.read_text(encoding="utf-8")
         + "\nfor runtime_name in _RUNTIME_ONLY_MODULES:\n    pass\n"
-        + "first_runtime = _RUNTIME_AVAILABLE_IMPORTS[0]\n",
+        + "first_runtime = _RUNTIME_AVAILABLE_IMPORTS[0]\n"
+        + "qualified_import_read = dict.get(IMPORTS, 'torch')\n"
+        + "iterator = IMPORTS.__iter__()\n"
+        + "qualified_set_read = set.isdisjoint(_RUNTIME_ONLY_MODULES, {'torch'})\n"
+        + "qualified_tuple_read = tuple.count(_RUNTIME_AVAILABLE_IMPORTS, 'torch')\n",
         encoding="utf-8",
     )
 

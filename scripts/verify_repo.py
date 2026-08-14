@@ -1544,7 +1544,11 @@ _EXPECTED_RUNTIME_AVAILABLE_IMPORTS = (
 _MUTATING_DECLARATION_METHODS = frozenset({
     "update", "clear", "pop", "popitem", "setdefault", "add", "discard", "remove",
     "append", "extend", "insert", "reverse", "sort", "__setitem__", "__delitem__",
-    "__iadd__", "__imul__",
+})
+_INPLACE_DECLARATION_DUNDERS = frozenset({
+    "__iadd__", "__iand__", "__idivmod__", "__ifloordiv__", "__ilshift__",
+    "__imatmul__", "__imod__", "__imul__", "__ior__", "__ipow__", "__irshift__",
+    "__isub__", "__itruediv__", "__ixor__",
 })
 
 
@@ -1572,6 +1576,10 @@ def _protected_mutation_root(node: ast.AST) -> str | None:
     return node.id if isinstance(node, ast.Name) else None
 
 
+def _is_mutating_declaration_method(method: str) -> bool:
+    return method in _MUTATING_DECLARATION_METHODS | _INPLACE_DECLARATION_DUNDERS
+
+
 def _protected_name_mutations(
     tree: ast.AST,
     name: str,
@@ -1590,13 +1598,16 @@ def _protected_name_mutations(
         for target in targets:
             if target is not allowed_target and _protected_mutation_root(target) == name:
                 mutations.append(target)
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr in _MUTATING_DECLARATION_METHODS
-            and _protected_mutation_root(node.func.value) == name
-        ):
-            mutations.append(node)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            direct_receiver = _protected_mutation_root(node.func.value) == name
+            qualified_receiver = (
+                bool(node.args)
+                and _protected_mutation_root(node.args[0]) == name
+            )
+            if _is_mutating_declaration_method(node.func.attr) and (
+                direct_receiver or qualified_receiver
+            ):
+                mutations.append(node)
     return mutations
 
 

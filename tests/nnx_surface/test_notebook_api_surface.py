@@ -37,6 +37,7 @@ import tokenize
 from pathlib import Path
 
 import pytest
+import yaml
 
 import nnx
 from nnx.utils import Utils
@@ -51,6 +52,20 @@ TEST_SUBPROCESS_TIMEOUT = 30
 _UTILS_ATTR_RE = re.compile(r"(?<![A-Za-z0-9_])Utils\.([A-Za-z_]\w*)")
 # Transient per-worktree path that must never be committed in an output.
 _TRANSIENT_PATH_RE = re.compile(r"\.claude/worktrees/")
+
+_ATLAS_020_DEFAULT_RUNTIME_TASKS = {
+    "notebooks/knowledge_distillation-mnist-ffnn-pytorch/docs/spec.yaml": (
+        "notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb",
+    ),
+    "notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/docs/spec.yaml": (
+        "notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/notebook.ipynb",
+    ),
+    "notebooks/node_classification-reddit-gnn-pyg/docs/spec.yaml": (
+        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook1.ipynb",
+        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook2.ipynb",
+    ),
+}
+_UNSUPPORTED_ATLAS_020_TRAIN_KWARGS = {"salt", "overwrite_existing", "data_id"}
 
 
 def _public_attrs(cls: object) -> set[str]:
@@ -147,6 +162,49 @@ def _output_text(cell: dict) -> str:
     return "\n".join(chunks)
 
 
+def _assert_atlas_020_default_runtime_compatibility(
+    requirements_text: str,
+    dependency_ledger: str,
+    task_sources: dict[str, str],
+) -> None:
+    pins = [line for line in requirements_text.splitlines() if line.startswith("thekaveh-nnx")]
+    assert pins == ["thekaveh-nnx[lm]==0.2.0"]
+    assert "| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0;" in dependency_ledger
+
+    checked_train_calls = 0
+    for spec_path, notebook_paths in _ATLAS_020_DEFAULT_RUNTIME_TASKS.items():
+        spec = yaml.safe_load(task_sources[spec_path])
+        assert spec["atlas"]["executor"] == "jupyterhub"
+        assert spec["atlas"]["default_mode"] == "vscode-remote"
+        for notebook_path in notebook_paths:
+            notebook = json.loads(task_sources[notebook_path])
+            for cell in _code_cells(notebook):
+                try:
+                    tree = ast.parse("".join(_source_lines(cell)))
+                except SyntaxError:
+                    continue
+                for call in (
+                    node
+                    for node in ast.walk(tree)
+                    if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "train"
+                ):
+                    checked_train_calls += 1
+                    keyword_names = {keyword.arg for keyword in call.keywords}
+                    assert not (_UNSUPPORTED_ATLAS_020_TRAIN_KWARGS & keyword_names)
+    assert checked_train_calls >= 5
+
+
+def _atlas_020_default_runtime_sources() -> dict[str, str]:
+    paths = {
+        path
+        for spec_path, notebook_paths in _ATLAS_020_DEFAULT_RUNTIME_TASKS.items()
+        for path in (spec_path, *notebook_paths)
+    }
+    return {path: (REPO_ROOT / path).read_text(encoding="utf-8") for path in paths}
+
+
 # --- scan checkers (also exercised directly by the synthetic unit tests) -----
 
 def find_misplaced_utils_attrs(nb: dict, forbidden: set[str]) -> list[str]:
@@ -186,6 +244,70 @@ def test_active_notebooks_discovered():
     """Guard against the glob silently matching nothing (which would make every
     parametrized scan vacuously pass)."""
     assert len(_NOTEBOOKS) >= 25, f"expected the full active notebook set, found {len(_NOTEBOOKS)}"
+
+
+def test_atlas_020_default_runtime_notebooks_use_only_supported_train_kwargs():
+    _assert_atlas_020_default_runtime_compatibility(
+        (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8"),
+        (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8"),
+        _atlas_020_default_runtime_sources(),
+    )
+
+
+@pytest.mark.parametrize("unsupported_kwarg", sorted(_UNSUPPORTED_ATLAS_020_TRAIN_KWARGS))
+def test_atlas_020_default_runtime_contract_rejects_unsupported_train_kwarg_mutations(
+    unsupported_kwarg: str,
+):
+    sources = _atlas_020_default_runtime_sources()
+    path = "notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb"
+    notebook = json.loads(sources[path])
+    original = "single_gen.train(params=train_params())"
+    replacement = f'single_gen.train(params=train_params(), {unsupported_kwarg}="mutated")'
+    matching_cells = [
+        cell
+        for cell in _code_cells(notebook)
+        if original in "".join(_source_lines(cell))
+    ]
+    assert len(matching_cells) == 1
+    matching_cells[0]["source"] = "".join(_source_lines(matching_cells[0])).replace(
+        original, replacement, 1
+    )
+    sources[path] = json.dumps(notebook)
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_020_default_runtime_compatibility(
+            "thekaveh-nnx[lm]==0.2.0\n",
+            "| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0;\n",
+            sources,
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("root_pin", "atlas_pin", "executor", "default_mode"),
+)
+def test_atlas_020_default_runtime_contract_rejects_boundary_mutations(mutation: str):
+    requirements = "thekaveh-nnx[lm]==0.2.0\n"
+    ledger = "| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0;\n"
+    sources = _atlas_020_default_runtime_sources()
+    spec_path = "notebooks/knowledge_distillation-mnist-ffnn-pytorch/docs/spec.yaml"
+
+    if mutation == "root_pin":
+        requirements = requirements.replace("0.2.0", "0.2.2")
+    elif mutation == "atlas_pin":
+        ledger = ledger.replace("0.2.0", "0.2.2")
+    else:
+        spec = yaml.safe_load(sources[spec_path])
+        if mutation == "executor":
+            spec["atlas"]["executor"] = "local"
+        elif mutation == "default_mode":
+            spec["atlas"]["default_mode"] = "mounted-workspace"
+        else:
+            raise AssertionError(f"unhandled mutation: {mutation}")
+        sources[spec_path] = yaml.safe_dump(spec)
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_020_default_runtime_compatibility(requirements, ledger, sources)
 
 
 def test_active_notebooks_uses_git_tracked_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

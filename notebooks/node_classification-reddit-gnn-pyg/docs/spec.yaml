@@ -36,7 +36,7 @@ results:
   - { metric: "validation error (Phase-2 GAT winner, 500ep)", value: "0.2521" }
 pitfalls:
   - "GAT hits a memory ceiling at hidden width >= 256 (excluded from Phase-2 nb3; Phase-3 GAT held at [128])."
-  - "macOS cannot run this task — torch_sparse is Linux-only; GNN forward passes skip under test-nnx-surface on macOS."
+  - "Issue #61 completed Tier B and Tier C on clean Darwin arm64 with torch_sparse 0.6.18; every NNx release review must run both tiers."
   - "Do not re-execute Phase-3 notebooks in place; preserved Aug-2023 outputs are Tier-C artifacts."
   - "Score seed nodes only via GraphNNBase.seed_count(batch); scoring sampled neighbors leaks cross-split labels."
   - "GraphSAGE diverges at lr=1e-2; use 1e-4 for the deeper stacks (GAT tolerates 1e-2)."

@@ -697,7 +697,12 @@ def test_down_executes_from_infra_with_an_explicit_argument_array(
     )
     stop.chmod(0o755)
     command_log = tmp_path / "stop-commands.log"
-    env = {**os.environ, "ATLAS_TEST_COMMAND_LOG": str(command_log)}
+    env = {
+        **os.environ,
+        "ATLAS_TEST_COMMAND_LOG": str(command_log),
+        # Exercise the system Bash used by stock macOS rather than a Homebrew Bash.
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+    }
 
     warm = run_script(atlas_repo, "atlas-down.sh", env=env)
     warm_fields = command_log.read_bytes().split(b"\0")[:-1]

@@ -244,7 +244,7 @@ jobs:
       - name: Install dependencies
         run: |
           make install-torch-stack
-          pip install -r requirements.txt
+          python -m pip install --only-binary=thekaveh-nnx -r requirements.txt
 
       - name: Download spaCy en_core_web_sm model
         # Needed by text_classification-agnews-spacy-mlp-pytorch and
@@ -257,8 +257,8 @@ jobs:
         # lazy fallback download, but doing it here once is faster + offline-safe in CI.
         run: python -c "import nltk; nltk.download('vader_lexicon', quiet=True)"
 
-      - name: Verify nnx import
-        run: python -c "import nnx; print(nnx.__file__)"
+      - name: Verify canonical NNx installation
+        run: make verify-nnx-install
 
       - name: Run Tier-A notebooks (papermill)
         run: make smoke-tier-a
@@ -331,7 +331,10 @@ jobs:
       - name: Install dependencies
         run: |
           make install-torch-stack
-          pip install -r requirements.txt
+          python -m pip install --only-binary=thekaveh-nnx -r requirements.txt
+
+      - name: Verify canonical NNx installation
+        run: make verify-nnx-install
 
       - name: Smoke-run Tier-B notebooks
         run: make smoke-tier-b
@@ -359,7 +362,10 @@ jobs:
       - name: Install dependencies
         run: |
           make install-torch-stack
-          pip install -r requirements.txt
+          python -m pip install --only-binary=thekaveh-nnx -r requirements.txt
+
+      - name: Verify canonical NNx installation
+        run: make verify-nnx-install
 
       - name: Smoke-run Tier-C notebooks
         run: make smoke-tier-c

@@ -41,8 +41,8 @@ What the library provides, organized by the surfaces a notebook touches:
   (`NNTokenizerParams`) used by the two language-modeling notebooks.
 - **Training history + serialization** — `NNRun`. The object returned by
   `model.train(...)`; carries per-iteration evaluation data points (`run.idps[i].train_edp`,
-  `run.idps[i].val_edp`) and is also the serialization surface (`NNRun.load("best")`
-  restores the best checkpoint from disk in a fresh session).
+  `run.idps[i].val_edp`). Restore a best checkpoint in a fresh session with
+  `NNCheckpoint.load(run=RUN_ID, type=Checkpoints.BEST)`.
 - **Visualization** — `VisUtils`. `multi_line_plot`, `confusion_matrix`, and
   related helpers that produce the convergence curves and confusion matrices seen
   throughout the deep-dives.
@@ -69,6 +69,14 @@ NNx is consumed as an ordinary pinned PyPI dependency. The pin lives in
 thekaveh-nnx[lm]==0.2.0
 ```
 
+Issue #61 completed a canonical-wheel trial of the latest stable 0.2.2 release. The trial passed
+`1,350` repository tests, Tier A `18/18`, Tier B `6/6`, Tier C `4/4`, and an isolated QAT
+checkpoint round trip. The repository nevertheless retained 0.2.0: local VS Code connected to
+Atlas JupyterHub is the recommended runtime, and that Atlas-owned image independently pins NNx
+0.2.0. Notebook source therefore remains compatible with the default runtime and does not use
+0.2.2-only `NNModel.train` identity keywords. The completed trial is release-review evidence, not
+the current installation contract.
+
 Three consequences worth keeping in mind:
 
 1. **The `[lm]` extra is load-bearing for two notebooks.**
@@ -86,7 +94,7 @@ Three consequences worth keeping in mind:
    and the new PyPI wheel — only the distribution name (`thekaveh-nnx`) differs.
 
 3. **The pin is exact (`==0.2.0`), not a range.** This is deliberate: nnx is the
-   load-bearing API surface for ~23 active notebooks, and a floating pin would
+   load-bearing API surface for 28 of the 29 active notebooks, and a floating pin would
    let an upstream release silently shift a constructor signature under CI's fast
    lane (see `reference-nnx-dev-vs-pypi-drift` in the maintainer memory for the
    post-hoc case that motivated `test_nnx_constructor_calls_use_known_kwargs`).
@@ -155,12 +163,11 @@ NNx is not extended inside this repo. The workflow is always:
      (`test_nnx_constructor_calls_use_known_kwargs`). This guard exists precisely
      because the Tier-A gate misses surfaces that no Tier-A notebook exercises —
      it was added after PR #26 surfaced post-hoc `NNGraphDataset(seed=)` drift.
-   - **`make smoke-tier-b` and `make smoke-tier-c`** must be run manually when the
-     NNx change touches graph or quantization surfaces (the Tier-A gate does not
-     cover them — `torch_sparse` is Linux-only and Reddit-scale data does not fit
-     on macOS). The same validation discipline applies as under the prior
-     submodule-pointer-bump workflow; only the trigger (a version-pin diff vs. a
-     submodule-pointer diff) has changed.
+   - **`make smoke-tier-b` and `make smoke-tier-c`** are mandatory for every NNx release
+     review, not conditional on an assumed platform boundary. Issue #61 completed both on clean
+     Darwin arm64 with `torch_sparse==0.6.18`, disproving the former macOS-impossible claim. The
+     same validation discipline applies as under the prior submodule-pointer-bump workflow; only
+     the trigger (a version-pin diff vs. a submodule-pointer diff) has changed.
    - **Manual quantization validation** when the change touches the
      `quantize_int8` / `qat_train_step_factory` surface, since the quantization
      notebook is not in the Tier-A list.

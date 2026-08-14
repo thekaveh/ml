@@ -14,6 +14,10 @@ readable: how much accuracy does each adapter recover at what fraction of the tr
 budget, and how does the magnitude-vector decomposition separate DoRA from LoRA. A full
 fine-tune control and a save/load round-trip complete the comparison.
 
+The committed outputs and repeated adaptation IDs are preserved NNx 0.2.0-era evidence. The
+Issue #61 0.2.2 trial used temporary outputs; the final 0.2.0-compatible notebook deliberately
+contains no 0.2.2-only identity salt.
+
 ## 8.12.1 Problem & motivation
 
 When you have a model trained on task A and want it on task B with minimal extra training,

@@ -5,7 +5,7 @@ A short guide for adding new notebook experiment folders and modifying shared co
 ## 1. Conventions
 
 - This is a notebook-driven ML lab. Each active task is a self-contained directory under `notebooks/` using the `[task]-[dataset]-[model]-[framework]` naming convention. Do not introduce a `tasks/` subdirectory or family-prefixed dirs (`vision/`, `nlp/`, ...).
-- Shared library code lives in **`thekaveh-nnx`** — the PyTorch toolkit installed from PyPI ([source: `thekaveh/NNx`](https://github.com/thekaveh/NNx)), pinned in `requirements.txt` to `thekaveh-nnx[lm]==0.2.0` (since 2026-06-14). Notebooks import via `from nnx.X import Y`. Do not reintroduce a local `common/` directory — `scripts/verify_repo.py` enforces this via `S7.forbidden_toplevel`.
+- Shared library code lives in **`thekaveh-nnx`** — the PyTorch toolkit installed from PyPI ([source: `thekaveh/NNx`](https://github.com/thekaveh/NNx)), pinned in `requirements.txt` to `thekaveh-nnx[lm]==0.2.0` for compatibility with the recommended Atlas JupyterHub runtime. Notebooks import via `from nnx.X import Y`. Do not reintroduce a local `common/` directory — `scripts/verify_repo.py` enforces this via `S7.forbidden_toplevel`.
 - The `notebooks/archive/` directory holds preserved-as-is experiments. Read-only.
 - New notebooks should include a top markdown cell stating purpose and dataset, plus the canonical §1–§6 hierarchy (Overview / Setup / Data / Model / Training / Evaluation & Results). Phase-1 exploration notebooks use a variant: §1, §2, §3 Dataset deep-dive.
 
@@ -55,7 +55,7 @@ Convention: active experiment directory named `notebooks/[task]-[dataset]-[model
 - **`thekaveh-nnx` is a PyPI dep.** Don't bump the `requirements.txt` pin without a corresponding upstream release on [`thekaveh/NNx`](https://github.com/thekaveh/NNx). Workflow:
   1. Open a PR against `thekaveh/NNx` with the new feature + a smoke test.
   2. After merge, wait for the next NNx PyPI release. For editable iteration, clone `thekaveh/NNx` outside the ml-eng-lab tree, `pip install -e <path>[lm]` into your venv, and run `NNX_ALLOW_EDITABLE=1 make test-nnx-surface`; this validates the development surface only.
-  3. Bump `thekaveh-nnx[lm]==X.Y.Z` in ml-eng-lab's `requirements.txt` to the new version; open a PR here. Tier-A papermill CI re-runs the Tier-A list against the new version; run `make smoke-tier-b`, `make smoke-tier-c`, and manual quantization validation when the NNx change touches those surfaces.
+  3. Bump `thekaveh-nnx[lm]==X.Y.Z` in ml-eng-lab's `requirements.txt` to the new version; open a PR here. Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix plus the manual quantization probe in its documented compatible side environment, even when the candidate appears not to touch those surfaces.
 - **`infra/` is the pinned Atlas submodule.** Do not edit it from this repository. Consumer-owned behavior belongs in `atlas.consumer.yml`, `atlas.env.user.example`, and `compose/ml-eng-lab-atlas.yml`; runbook changes belong under `docs/`. Update the gitlink only through [docs/atlas-pin-bump-runbook.md](docs/atlas-pin-bump-runbook.md).
 - **`notebooks/archive/` is read-only.** Preserved Aug-2023 work.
 

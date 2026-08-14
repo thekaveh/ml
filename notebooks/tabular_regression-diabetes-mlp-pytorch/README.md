@@ -11,7 +11,7 @@
 
 This is the **first regression task in ml-eng-lab**. The collection's other tasks all do classification (image, tabular, node). Regression is structurally different in three places: 1-output head (not `n_classes`), MSE loss (not cross-entropy), R²/MAE/RMSE metrics (not accuracy/F1). This notebook lands the slot and walks through each difference explicitly so the recipe is reusable for the future regression tasks in the roadmap (anomaly-detection, time-series forecasting, etc.).
 
-The notebook also surfaces a real footgun in the nnx API: **`nnx.NNTabularDataset` doesn't fit regression**. It coerces targets to `torch.long` (it's hard-coded for classification — see its `__post_init__`). For regression we MUST build the DataLoaders manually with `dtype=torch.float32` targets and `shape=(N, 1)` to match the network `output_dim=1` against `Losses.MEAN_SQUARED_ERROR`. The §3.3 cell does this; the README §6 calls it out as a known gotcha for downstream regression notebooks.
+The notebook also surfaces a real footgun in the retained NNx 0.2.0 API: **`nnx.NNTabularDataset` doesn't fit regression**. It coerces targets to `torch.long` (it's hard-coded for classification — see its `__post_init__`). For regression we MUST build the DataLoaders manually with `dtype=torch.float32` targets and `shape=(N, 1)` to match the network `output_dim=1` against `Losses.MEAN_SQUARED_ERROR`. NNx 0.2.2 added `target_dtype=torch.float32`, which Issue #61 validated in a release trial, but 0.2.0 remains the current Atlas-compatible contract. The §3.3 cell therefore keeps the established manual loader and shared sklearn/NNx split.
 
 ## 3. What's in the notebook
 

@@ -95,6 +95,9 @@
   In `tests/test_install_torch_stack.py`, define the complete canonical manifest bytes and assert the command plans:
 
   ```python
+  UPGRADE_PIP = (
+      sys.executable, "-m", "pip", "install", "--upgrade", "pip", "wheel",
+  )
   LINUX_CORE = (
       sys.executable, "-m", "pip", "install", "--index-url",
       "https://download.pytorch.org/whl/cpu", "-r", "torch-core-requirements.txt",
@@ -113,6 +116,7 @@
   def test_linux_and_darwin_command_plans_are_exact():
       linux = build_install_commands(sys.executable, "Linux", "x86_64")
       darwin = build_install_commands(sys.executable, "Darwin", "arm64")
+      assert linux[0].argv == darwin[0].argv == UPGRADE_PIP
       assert linux[1].argv == LINUX_CORE
       assert darwin[1].argv == tuple(x for x in LINUX_CORE if x not in (
           "--index-url", "https://download.pytorch.org/whl/cpu"
@@ -122,7 +126,18 @@
       assert linux[3].argv == darwin[3].argv == ROOT
   ```
 
-  Add mutations for unsupported systems/architectures, reordered/missing/duplicate stages, missing CPU index, broad `--only-binary=:all:`, omitted wheel names, adding spline to `--only-binary`, omitting `--no-binary`/`--no-build-isolation`, changing the PyG URL, omitting binary-only NNx, adding a fifth installer, using shell strings, ignoring a nonzero return, and leaking runner output in a raised error. In `tests/test_makefile_contract.py`, require `install-torch-stack` to contain exactly `$(PYTHON) -m scripts.install_torch_stack` and require `codespace-setup` to perform no later pip install. In `tests/test_advisory_baseline.py`, change the fixtures to the new exact core/ecosystem/runtime/audit split and add synchronized-deletion/version/option/duplicate mutations.
+  The bootstrap command is exactly `python -m pip install --upgrade pip wheel`; wheel supplies the
+  source-build tooling needed when the runtime stage disables build isolation. Add mutations for
+  omitting `wheel` from either supported platform, unsupported systems/architectures,
+  reordered/missing/duplicate stages, missing CPU index, broad `--only-binary=:all:`, omitted wheel
+  names, adding spline to `--only-binary`, omitting `--no-binary`/`--no-build-isolation`, changing
+  the PyG URL, omitting binary-only NNx, adding a fifth installer, using shell strings, ignoring a
+  nonzero return, and leaking runner output in a raised error. In `tests/test_makefile_contract.py`,
+  require `install-torch-stack` to contain exactly `$(PYTHON) -m scripts.install_torch_stack` and
+  require `codespace-setup` to perform no later pip install. In
+  `tests/test_advisory_baseline.py`, change the fixtures to the new exact
+  core/ecosystem/runtime/audit split and add synchronized-deletion/version/option/duplicate
+  mutations.
 
 - [x] **Step 2: Run the RED tests**
 

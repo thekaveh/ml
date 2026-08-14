@@ -1168,6 +1168,61 @@ def test_contract_failure_stops_before_generated_surface_build(tmp_path, monkeyp
     assert check_docs.check(tmp_path, tmp_path / "generated") == 1
 
 
+_TORCH_BOOTSTRAP_COMMAND = "`python -m pip install --upgrade pip wheel`"
+_TORCH_CONTRACT_DOC_PATHS = (
+    "docs/dependency-contracts.md",
+    "docs/superpowers/specs/2026-08-14-issue-62-torch-stack-upgrade-design.md",
+    "docs/superpowers/plans/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md",
+)
+
+
+def _torch_contract_docs() -> dict[str, str]:
+    return {
+        path: (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in _TORCH_CONTRACT_DOC_PATHS
+    }
+
+
+def _assert_torch_source_build_tooling_docs(documents: dict[str, str]) -> None:
+    for path in _TORCH_CONTRACT_DOC_PATHS:
+        assert _TORCH_BOOTSTRAP_COMMAND in documents[path]
+
+    design = " ".join(documents[_TORCH_CONTRACT_DOC_PATHS[1]].split())
+    assert (
+        "`wheel` supplies the `bdist_wheel` command required by the later "
+        "`--no-build-isolation` source build"
+    ) in design
+
+    plan = documents[_TORCH_CONTRACT_DOC_PATHS[2]]
+    assert '"--upgrade", "pip", "wheel"' in plan
+    assert "assert linux[0].argv == darwin[0].argv == UPGRADE_PIP" in plan
+    assert "omitting `wheel` from either supported platform" in plan
+
+    ledger = " ".join(documents[_TORCH_CONTRACT_DOC_PATHS[0]].split())
+    assert (
+        "`wheel` supplies `bdist_wheel` for the required "
+        "`--no-build-isolation` source build"
+    ) in ledger
+
+
+def test_current_torch_source_build_tooling_docs_are_exact() -> None:
+    _assert_torch_source_build_tooling_docs(_torch_contract_docs())
+
+
+@pytest.mark.parametrize("path", _TORCH_CONTRACT_DOC_PATHS)
+def test_current_torch_source_build_tooling_docs_reject_wheel_omission(path: str) -> None:
+    documents = _torch_contract_docs()
+    assert _TORCH_BOOTSTRAP_COMMAND in documents[path]
+    documents[path] = documents[path].replace(
+        _TORCH_BOOTSTRAP_COMMAND,
+        "`python -m pip install --upgrade pip`",
+        1,
+    )
+
+    with pytest.raises(AssertionError):
+        _assert_torch_source_build_tooling_docs(documents)
+
+
 _NNX_RETAINED_TRIAL_FACTS = (
     "thekaveh-nnx[lm]==0.2.0",
     "1,350",

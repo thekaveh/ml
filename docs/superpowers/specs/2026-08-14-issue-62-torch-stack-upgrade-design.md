@@ -90,7 +90,9 @@ The selected manifest structure is:
 
 `make install-torch-stack` performs the ordered install:
 
-1. upgrade pip;
+1. run `python -m pip install --upgrade pip wheel` to upgrade pip and provision wheel;
+   `wheel` supplies the `bdist_wheel` command required by the later `--no-build-isolation`
+   source build;
 2. install the exact Torch trio from `https://download.pytorch.org/whl/cpu` on Linux, or from the
    native PyPI path on Darwin;
 3. install `torch-requirements.txt` in one resolver pass with

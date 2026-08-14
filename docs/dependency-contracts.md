@@ -406,7 +406,9 @@ Upgrade criteria:
 The bootstrap paths still upgrade or install the Python packaging toolchain
 without exact pip/setuptools pins:
 
-- `Makefile` target `install-torch-stack` runs `pip install --upgrade pip`.
+- The installer invoked by the `Makefile` target `install-torch-stack` runs
+  `python -m pip install --upgrade pip wheel` before the core and runtime stages; `wheel` supplies
+  `bdist_wheel` for the required `--no-build-isolation` source build.
 - `Dockerfile` upgrades `pip` and `setuptools` before project requirements.
 
 This is accepted temporarily because pinning bootstrap tools changes every

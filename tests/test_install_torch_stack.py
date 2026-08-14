@@ -43,6 +43,14 @@ LINUX_CORE = (
     "-r",
     "torch-core-requirements.txt",
 )
+DARWIN_CORE = (
+    sys.executable,
+    "-m",
+    "pip",
+    "install",
+    "-r",
+    "torch-core-requirements.txt",
+)
 RUNTIME = (
     sys.executable,
     "-m",
@@ -80,7 +88,7 @@ def test_linux_and_darwin_command_plans_are_exact() -> None:
     darwin = build_install_commands(sys.executable, "Darwin", "arm64")
 
     assert tuple(command.stage for command in linux) == tuple(InstallStage)
-    assert linux[0].argv == UPGRADE_PIP
+    assert linux[0].argv == darwin[0].argv == UPGRADE_PIP
     assert linux[1].argv == LINUX_CORE
     assert darwin[1].argv == tuple(
         token
@@ -92,8 +100,14 @@ def test_linux_and_darwin_command_plans_are_exact() -> None:
     assert linux[3].argv == darwin[3].argv == ROOT
 
 
-def test_upgrade_stage_provisions_pip_and_wheel_before_core_and_runtime(tmp_path: Path) -> None:
-    commands = build_install_commands(sys.executable, "Linux", "x86_64")
+@pytest.mark.parametrize(
+    ("system", "machine"),
+    (("Linux", "x86_64"), ("Darwin", "arm64")),
+)
+def test_upgrade_stage_provisions_pip_and_wheel_before_core_and_runtime(
+    tmp_path: Path, system: str, machine: str
+) -> None:
+    commands = build_install_commands(sys.executable, system, machine)
 
     assert commands[0] == InstallCommand(InstallStage.UPGRADE_PIP, UPGRADE_PIP)
     assert commands[1].stage is InstallStage.CORE
@@ -106,7 +120,7 @@ def test_upgrade_stage_provisions_pip_and_wheel_before_core_and_runtime(tmp_path
     assert mutated != source
 
     with pytest.raises(AssertionError):
-        assert _commands_from_installer_source(tmp_path, mutated)[0].argv == UPGRADE_PIP
+        assert _commands_from_installer_source(tmp_path, mutated, system, machine)[0].argv == UPGRADE_PIP
 
 
 @pytest.mark.parametrize(
@@ -152,7 +166,26 @@ def test_installer_stops_on_nonzero_with_a_redacted_stable_error() -> None:
     assert secret not in str(error.value)
 
 
-def _commands_from_installer_source(tmp_path: Path, source: str) -> tuple[InstallCommand, ...]:
+def test_installer_stops_at_failed_upgrade_stage_with_stable_error() -> None:
+    commands = build_install_commands(sys.executable, "Darwin", "arm64")
+    seen: list[tuple[str, ...]] = []
+
+    def runner(argv, *, check):
+        seen.append(tuple(argv))
+        return SimpleNamespace(returncode=1)
+
+    with pytest.raises(
+        TorchStackInstallError,
+        match=r"^torch stack installation failed: upgrade-pip$",
+    ):
+        install_torch_stack(commands, runner=runner)
+
+    assert seen == [UPGRADE_PIP]
+
+
+def _commands_from_installer_source(
+    tmp_path: Path, source: str, system: str = "Linux", machine: str = "x86_64"
+) -> tuple[InstallCommand, ...]:
     installer = tmp_path / "mutated_install_torch_stack.py"
     installer.write_text(source, encoding="utf-8")
     spec = importlib.util.spec_from_file_location("mutated_install_torch_stack", installer)
@@ -160,7 +193,7 @@ def _commands_from_installer_source(tmp_path: Path, source: str) -> tuple[Instal
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    return module.build_install_commands(sys.executable, "Linux", "x86_64")
+    return module.build_install_commands(sys.executable, system, machine)
 
 
 def _runtime_argv_from_installer_source(tmp_path: Path, source: str) -> tuple[str, ...]:
@@ -218,4 +251,9 @@ def test_cli_uses_platform_and_runner_seams(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(module, "install_torch_stack", lambda commands: seen.extend((command.argv, False) for command in commands))
 
     assert module.main() == 0
-    assert seen == [(command.argv, False) for command in build_install_commands(sys.executable, "Darwin", "arm64")]
+    assert seen == [
+        (UPGRADE_PIP, False),
+        (DARWIN_CORE, False),
+        (RUNTIME, False),
+        (ROOT, False),
+    ]

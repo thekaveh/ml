@@ -10,10 +10,10 @@ of truth for installation.
 
 ### 6.1.1.1 Reproducible four-surface audit
 
-Last reviewed: 2026-08-12. The immutable capture metadata is:
+Last reviewed: 2026-08-13. The immutable capture metadata is:
 
-- UTC capture timestamp: `2026-08-13T03:19:27Z`.
-- Repository commit: `45105ca0410c7ea3170665d57567accc7be97461`.
+- UTC capture timestamp: `2026-08-14T01:59:17Z`.
+- Repository commit: `f2225181f2e6dc4187993b2b81f2c45e41155efa`.
 - Platform: `Darwin` on `arm64`.
 - Interpreter: `Python 3.11.0`.
 - Auditor: `pip-audit 2.10.0`.
@@ -22,29 +22,42 @@ Manifest SHA-256 values:
 
 | Manifest | SHA-256 |
 | --- | --- |
-| `requirements.txt` | `3f35f04f95bd1e293c844b41a2dcf96f7978b8c61ccd436e4813a604d9e528a7` |
+| `requirements.txt` | `687bc3fb8f049fe90bd0e7c24dc766a8fc1917f71ce1883483aae86f566b44c0` |
 | `torch-core-requirements.txt` | `2b99702ae89067c09abe10ddf3eb880eb854871feee7f64a8d51aaa4764578e5` |
 | `torch-requirements.txt` | `771f07b281ee931f45372904da0472b293d9e64b1d0ec6ba11569a9b5a3925ec` |
+| `torch-audit-requirements.txt` | `e5a835bda8f076932c8e1a228a0f7534208d5779d0ed8e63e340cd5a75895733` |
+| `pyg-extension-audit-requirements.txt` | `8e29c8a321bb9d6c764db0468453d6cf81fa50de44166d6c74b40cbb840fcec1` |
 | `docs-requirements.txt` | `9af475ff61cafc56f0edd75e28d9ca41463f87f0790523d5e077a1d71323b9cc` |
 | `atlas-contract-requirements.txt` | `e786c8e7d940a97ae41ce880d5f5bbc62dc4f90ff03fd8c7718849e1c11412b0` |
 
-The commands below are historical capture evidence for this dated snapshot; current enforcement
-uses the selector-free projection described in [the enforcement boundary](#6114-enforcement-boundary).
-They were run separately from the repository root. Exit `0` means no known vulnerabilities were
-reported; exit `1` means the emitted findings form a complete observation. Any exit other than 0/1, missing output, or malformed JSON invalidates the observation.
+The commands below mirror the current selector-free audit projection described in
+[the enforcement boundary](#6114-enforcement-boundary). They were run separately from the
+repository root. Exit `0` means no known vulnerabilities were reported; exit `1` means the emitted
+findings form a complete observation. Any exit other than 0/1, missing output, or malformed JSON
+invalidates the observation.
 
 ```bash
-AUDIT_DIR="$(mktemp -d /private/tmp/ml-eng-lab-issue59-audit.XXXXXX)"
+AUDIT_DIR="$(mktemp -d /private/tmp/ml-eng-lab-issue61-audit.XXXXXX)"
 
-python -m pip_audit -r requirements.txt -r torch-requirements.txt \
+python -m pip_audit -r requirements.txt -r torch-audit-requirements.txt \
   --strict --vulnerability-service pypi --format json \
   --aliases on --desc off --progress-spinner off \
-  --output "$AUDIT_DIR/runtime.json"
+  --output "$AUDIT_DIR/combined-runtime-resolver.json"
 
-python -m pip_audit -r torch-requirements.txt \
+python -m pip_audit --disable-pip --no-deps -r pyg-extension-audit-requirements.txt \
   --strict --vulnerability-service pypi --format json \
   --aliases on --desc off --progress-spinner off \
-  --output "$AUDIT_DIR/torch.json"
+  --output "$AUDIT_DIR/combined-runtime-pyg-extensions.json"
+
+python -m pip_audit -r torch-audit-requirements.txt \
+  --strict --vulnerability-service pypi --format json \
+  --aliases on --desc off --progress-spinner off \
+  --output "$AUDIT_DIR/torch-resolver.json"
+
+python -m pip_audit --disable-pip --no-deps -r pyg-extension-audit-requirements.txt \
+  --strict --vulnerability-service pypi --format json \
+  --aliases on --desc off --progress-spinner off \
+  --output "$AUDIT_DIR/torch-pyg-extensions.json"
 
 python -m pip_audit --disable-pip -r docs-requirements.txt \
   --strict --vulnerability-service pypi --format json \
@@ -57,16 +70,17 @@ python -m pip_audit -r atlas-contract-requirements.txt \
   --output "$AUDIT_DIR/atlas-contract.json"
 ```
 
-| Surface | Manifests | Exit | Resolved Dependencies | Vulnerable Packages | Raw Feed Records | Alias-Aware Unique Identities | JSON SHA-256 |
+| Surface | Manifests | Exit | Resolved Dependencies | Vulnerable Packages | Raw Feed Records | Alias-Aware Unique Identities | Raw JSON SHA-256 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Combined runtime | `requirements.txt`, `torch-requirements.txt` | 1 | 194 | 2 | 23 | 21 | `65db11cbf11f162241fc398674a5f91374a916ac43d4c984694ddb9e254c1ad5` |
-| Torch | `torch-requirements.txt` | 1 | 39 | 2 | 23 | 21 | `faea4c874c75c7260064c96e26fad5e3105d2fd6c2b20d17ee4abbb57043c6b6` |
+| Combined runtime | `requirements.txt`, `torch-audit-requirements.txt`, `pyg-extension-audit-requirements.txt` | 1 / 0 | 194 | 2 | 23 | 21 | `bfc311e6f451b6c5233b7c765a6acc802c8aa4375c64e4e03c431cd925985325`; `8cfbe7f721ba9066edb8d4c4774c2b3f5953960cc8134e2e24a36ad3a086a623` |
+| Torch | `torch-audit-requirements.txt`, `pyg-extension-audit-requirements.txt` | 1 / 0 | 38 | 2 | 23 | 21 | `bce274b4971174bc10376cb29bf84626c9a70d149842d974bf3a02ccc89d1546`; `8cfbe7f721ba9066edb8d4c4774c2b3f5953960cc8134e2e24a36ad3a086a623` |
 | Documentation | `docs-requirements.txt` | 0 | 42 | 0 | 0 | 0 | `c7fb014d9d45092476134bc78fe7e3fd81df93c66733b932c734d5fe27672afe` |
 | Atlas contract | `atlas-contract-requirements.txt` | 0 | 5 | 0 | 0 | 0 | `025906bb0be0ae036140e484f0dcc2845e25e11e36c18a7aa23af5e05fd55db9` |
 
 The runtime and Torch surfaces contain the same 21 alias-aware identities. Their 23 raw records
 are preserved because `PYSEC-2025-191` and `PYSEC-2025-41` each occur twice with independently
 emitted metadata. Counts across surfaces are observations, not additive vulnerability identities.
+The combined runtime resolved `thekaveh-nnx==0.2.2` with no advisory records; this observation is not a remediation claim.
 Several runtime requirements remain open ranges, so the resolver can select newer versions without
 a committed manifest change. This is dated snapshot evidence, not a reproducible lock.
 

@@ -1,6 +1,7 @@
 """Tests for scripts/verify_repo.py — the four-check oracle."""
 from __future__ import annotations
 
+import hashlib
 import json
 import builtins
 import os
@@ -1281,6 +1282,112 @@ def test_docs_d10_dependency_ledger_counts_match_current_doc():
     data = json.loads(r.stdout) if r.stdout else {"findings": []}
     d10 = [f for f in data["findings"] if f["id"] == "D10.dependency_ledger_count"]
     assert d10 == [], f"D10 reported dependency-ledger issues: {d10}"
+
+
+_ISSUE_61_CURRENT_EVIDENCE = (
+    "Last reviewed: 2026-08-13.",
+    "- UTC capture timestamp: `2026-08-14T01:59:17Z`.",
+    "- Repository commit: `f2225181f2e6dc4187993b2b81f2c45e41155efa`.",
+    "- Platform: `Darwin` on `arm64`.",
+    "- Interpreter: `Python 3.11.0`.",
+    "- Auditor: `pip-audit 2.10.0`.",
+    "| `requirements.txt` | `687bc3fb8f049fe90bd0e7c24dc766a8fc1917f71ce1883483aae86f566b44c0` |",
+    "| `torch-core-requirements.txt` | `2b99702ae89067c09abe10ddf3eb880eb854871feee7f64a8d51aaa4764578e5` |",
+    "| `torch-requirements.txt` | `771f07b281ee931f45372904da0472b293d9e64b1d0ec6ba11569a9b5a3925ec` |",
+    "| `torch-audit-requirements.txt` | `e5a835bda8f076932c8e1a228a0f7534208d5779d0ed8e63e340cd5a75895733` |",
+    "| `pyg-extension-audit-requirements.txt` | `8e29c8a321bb9d6c764db0468453d6cf81fa50de44166d6c74b40cbb840fcec1` |",
+    "| `docs-requirements.txt` | `9af475ff61cafc56f0edd75e28d9ca41463f87f0790523d5e077a1d71323b9cc` |",
+    "| `atlas-contract-requirements.txt` | `e786c8e7d940a97ae41ce880d5f5bbc62dc4f90ff03fd8c7718849e1c11412b0` |",
+    (
+        "| Combined runtime | `requirements.txt`, `torch-audit-requirements.txt`, "
+        "`pyg-extension-audit-requirements.txt` | 1 / 0 | 194 | 2 | 23 | 21 | "
+        "`bfc311e6f451b6c5233b7c765a6acc802c8aa4375c64e4e03c431cd925985325`; "
+        "`8cfbe7f721ba9066edb8d4c4774c2b3f5953960cc8134e2e24a36ad3a086a623` |"
+    ),
+    (
+        "| Torch | `torch-audit-requirements.txt`, `pyg-extension-audit-requirements.txt` | "
+        "1 / 0 | 38 | 2 | 23 | 21 | "
+        "`bce274b4971174bc10376cb29bf84626c9a70d149842d974bf3a02ccc89d1546`; "
+        "`8cfbe7f721ba9066edb8d4c4774c2b3f5953960cc8134e2e24a36ad3a086a623` |"
+    ),
+    (
+        "| Documentation | `docs-requirements.txt` | 0 | 42 | 0 | 0 | 0 | "
+        "`c7fb014d9d45092476134bc78fe7e3fd81df93c66733b932c734d5fe27672afe` |"
+    ),
+    (
+        "| Atlas contract | `atlas-contract-requirements.txt` | 0 | 5 | 0 | 0 | 0 | "
+        "`025906bb0be0ae036140e484f0dcc2845e25e11e36c18a7aa23af5e05fd55db9` |"
+    ),
+    "Result: 23 known vulnerabilities across 194 resolved packages.",
+    (
+        "The combined runtime resolved `thekaveh-nnx==0.2.2` with no advisory records; "
+        "this observation is not a remediation claim."
+    ),
+)
+
+
+def _headed_section(text: str, start: str, end: str) -> str:
+    return start + text.split(start, 1)[1].split(end, 1)[0]
+
+
+def _assert_issue_61_dependency_evidence_contract(text: str) -> None:
+    current = _headed_section(
+        text,
+        "### 6.1.1.1 Reproducible four-surface audit",
+        "### 6.1.1.2 Current accepted advisories",
+    )
+    for evidence in _ISSUE_61_CURRENT_EVIDENCE:
+        assert evidence in current or evidence.startswith("Result:") and evidence in text
+
+    issue_59_history = _headed_section(
+        text,
+        "### 6.1.1.3 Alias-aware historical reconciliation",
+        "### 6.1.1.4 Enforcement boundary",
+    )
+    assert hashlib.sha256(issue_59_history.encode()).hexdigest() == (
+        "5ae92c0d0056633c9c3755e06276b81d805e958c642c4379be40b67df41bc6df"
+    )
+
+    atlas_observation = _headed_section(
+        text,
+        "## 6.1.8 Atlas Jupyter Runtime Evidence",
+        "## 6.1.9 Atlas Versus Local/CI Dependency Boundaries",
+    )
+    assert hashlib.sha256(atlas_observation.encode()).hexdigest() == (
+        "aaa4b798a5be179ede37950225065db98dfa137f0dc084434234f46f3f92e729"
+    )
+
+
+def test_docs_dependency_ledger_uses_issue_61_live_evidence():
+    text = (REPO / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+
+    _assert_issue_61_dependency_evidence_contract(text)
+
+
+@pytest.mark.parametrize(
+    ("current", "mutation"),
+    [
+        (
+            "687bc3fb8f049fe90bd0e7c24dc766a8fc1917f71ce1883483aae86f566b44c0",
+            "3f35f04f95bd1e293c844b41a2dcf96f7978b8c61ccd436e4813a604d9e528a7",
+        ),
+        (
+            "Result: 23 known vulnerabilities across 194 resolved packages.",
+            "Result: 23 known vulnerabilities across 193 resolved packages.",
+        ),
+        (
+            "`thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; `tokenizers` 0.22.2",
+            "`thekaveh-nnx` / `nnx` 0.2.2; `datasets` 5.0.0; `tokenizers` 0.22.2",
+        ),
+    ],
+    ids=("stale_runtime_hash", "stale_result_count", "atlas_nnx_rewrite"),
+)
+def test_docs_issue_61_dependency_evidence_contract_rejects_mutations(current, mutation):
+    text = (REPO / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    assert current in text
+
+    with pytest.raises(AssertionError):
+        _assert_issue_61_dependency_evidence_contract(text.replace(current, mutation, 1))
 
 
 def _advisory_baseline_repo(tmp_path: Path) -> Path:

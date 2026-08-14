@@ -1,7 +1,9 @@
 # tests/test_check_docs.py
 from __future__ import annotations
 
-import json
+import hashlib
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -545,7 +547,7 @@ def test_real_user_docs_publish_advisory_baseline_contract():
     assert "`make audit-advisories` runs all four audit surfaces without suppression" in ledger
     assert "`torch-audit-requirements.txt` and `pyg-extension-audit-requirements.txt` form the selector-free" in ledger
     assert "canonical semantic partition must reconstruct `torch-requirements.txt`" in ledger
-    assert "The commands below mirror the current selector-free audit projection" in ledger
+    assert "The commands below are historical capture evidence" in ledger
     assert "New primary advisory IDs and accepted-version drift fail the gate." in ledger
     assert "reconciliation evidence, not proof of remediation" in ledger
     assert "JSON policy and current Markdown ledger rows together through review" in ledger
@@ -572,92 +574,24 @@ def test_real_user_docs_publish_advisory_baseline_contract():
 
 def test_real_user_docs_publish_current_vulnerability_snapshot():
     ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    normalized_ledger = " ".join(ledger.split())
     security = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
     assert "### 6.1.1.1 Reproducible four-surface audit" in ledger
     assert "### 6.1.1.2 Current accepted advisories" in ledger
     assert "### 6.1.1.3 Alias-aware historical reconciliation" in ledger
-    assert "Last reviewed: 2026-08-13" in ledger
+    assert "2026-08-12" in ledger
     assert "--disable-pip -r docs-requirements.txt" in ledger
     assert (
         "Any exit other than 0/1, missing output, or malformed JSON invalidates the "
         "observation."
-        in normalized_ledger
+        in ledger
     )
     assert (
         "Absent from the 2026-08-12 snapshot; archived audit provenance only" in ledger
     )
     assert "`security/accepted-advisories.json` is the reviewed policy artifact" in security
     assert "Four-surface vulnerability ledger refresh" in changelog
-
-
-NNX_022_RELEASE_ROW = (
-    "| 0.2.2 | `edfd197f3f54d4eb67313d46a80e823e6239c5b6` | "
-    "`ee56474926fdfd5329721f067cf1b8ae31955627c6949844e09ee4a7bb2bb9d7` | "
-    "Latest stable, universal, not yanked |"
-)
-NNX_022_FLOORS = (
-    "Version 0.2.2 retains Python `>=3.10`, Torch `>=2.0`, torchvision `>=0.15`, "
-    "and torch-geometric `>=2.4`"
-)
-NNX_PENDING_ACCEPTANCE = (
-    "Final release acceptance remains pending the complete Tier A/B/C consumer matrix in "
-    "Task 5; no completed-matrix claim is made here."
-)
-NNX_PREMATURE_ACCEPTANCE_CLAIMS = (
-    "accepted only after the complete Tier A/B/C consumer matrix",
-    "Tier A/B/C release-acceptance workloads have completed successfully",
-)
-NNX_TIER_BOUNDARY = (
-    "The release-acceptance tiers apply the same canonical wheel boundary immediately before "
-    "each workload: Tier A covers 17 NNx consumers plus the NumPy control, Tier B covers the "
-    "image baseline and active Reddit exploration/model-selection notebooks, and Tier C covers "
-    "the four historical Reddit final pipelines without overwriting their recorded outputs."
-)
-NNX_QAT_BOUNDARY = (
-    "QAT remains a best-effort isolated Torch >=2.5 side-environment checkpoint probe because "
-    "the canonical Torch 2.4.1 stack cannot import the required torchao surface; it does not "
-    "replace the three canonical tiers or change repository requirements."
-)
-NNX_ATLAS_ROW = (
-    "| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; "
-    "`tokenizers` 0.22.2 | Atlas-owned image evidence; matches notebook imports and the `[lm]` "
-    "extra at the observed version |"
-)
-
-
-def _normalize_markdown(text: str) -> str:
-    return " ".join(text.split())
-
-
-def _assert_nnx_022_release_row(ledger: str) -> None:
-    rows = [line for line in ledger.splitlines() if line.startswith("| 0.2.2 |")]
-    assert rows == [NNX_022_RELEASE_ROW]
-
-
-def _assert_nnx_022_floors(ledger: str) -> None:
-    assert NNX_022_FLOORS in _normalize_markdown(ledger)
-
-
-def _assert_nnx_pending_acceptance_boundary(ledger: str, overview: str) -> None:
-    normalized_ledger = _normalize_markdown(ledger)
-    normalized_overview = _normalize_markdown(overview)
-    acceptance_section = normalized_overview.split("## 7.2 Consumption", 1)[1].split(
-        "## 7.3 The 2026-06-14 PyPI migration", 1
-    )[0]
-    assert NNX_TIER_BOUNDARY in normalized_ledger
-    assert NNX_QAT_BOUNDARY in normalized_ledger
-    assert NNX_PENDING_ACCEPTANCE in acceptance_section
-    assert "matrix completed and accepted" not in acceptance_section
-    for claim in NNX_PREMATURE_ACCEPTANCE_CLAIMS:
-        assert claim not in acceptance_section
-
-
-def _assert_nnx_atlas_row(ledger: str) -> None:
-    rows = [line for line in ledger.splitlines() if line.startswith("| NNx + language extras |")]
-    assert rows == [NNX_ATLAS_ROW]
 
 
 def test_nnx_wheel_contract_is_consistent_across_canonical_user_docs():
@@ -690,8 +624,7 @@ def test_nnx_wheel_contract_is_consistent_across_canonical_user_docs():
 
     dependency_contract = docs["docs/dependency-contracts.md"]
     for evidence in (
-        "thekaveh-nnx[lm]==0.2.2",
-        "Apache-2.0",
+        "thekaveh-nnx[lm]==0.2.0",
         "rejects any `direct_url.json`",
         "`WHEEL`, `RECORD`, and `nnx/__init__.py`",
         "distribution-owned import origin",
@@ -718,420 +651,6 @@ def test_nnx_wheel_contract_is_consistent_across_canonical_user_docs():
         "validated editable-development mode",
     ):
         assert changed_fact in changelog
-
-
-def test_nnx_current_pin_references_match_the_single_root_requirement():
-    requirement = "thekaveh-nnx[lm]==0.2.2"
-    root_requirements = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
-    assert [line for line in root_requirements.splitlines() if line.startswith("thekaveh-nnx")] == [
-        requirement
-    ]
-
-    current_pin_docs = (
-        "README.md",
-        "CONTRIBUTING.md",
-        "docs/assets/badges/nnx.svg",
-        "docs/architecture.md",
-        "docs/notebooks/text_generation-tinyshakespeare-transformer-pytorch.md",
-        "notebooks/text_generation-tinyshakespeare-transformer-pytorch/README.md",
-        "notebooks/preference_alignment-toy-dpo-pytorch/README.md",
-    )
-    for path in current_pin_docs:
-        text = (REPO_ROOT / path).read_text(encoding="utf-8")
-        assert "0.2.0" not in text, path
-        assert "0.2.2" in text, path
-
-    nnx_overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
-    dependency_ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    assert "thekaveh-nnx[lm]==0.2.2" in nnx_overview
-    assert nnx_overview.count("thekaveh-nnx[lm]==0.2.0") == 1
-    assert "thekaveh-nnx[lm]==0.2.2" in dependency_ledger
-    assert "`thekaveh-nnx` / `nnx` 0.2.0" in dependency_ledger
-
-
-def test_nnx_release_evidence_records_complete_consumer_validation_boundary():
-    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
-
-    _assert_nnx_022_release_row(ledger)
-    _assert_nnx_022_floors(ledger)
-    _assert_nnx_pending_acceptance_boundary(ledger, overview)
-    assert "0.2.1" in overview
-    assert "0.2.2" in overview
-
-
-@pytest.mark.parametrize(
-    "replacement",
-    (
-        NNX_022_RELEASE_ROW.replace(
-            "Latest stable, universal, not yanked", "Latest stable, universal, yanked"
-        ),
-        NNX_022_RELEASE_ROW.replace(
-            "Latest stable, universal, not yanked", "Latest stable, platform-specific, not yanked"
-        ),
-    ),
-)
-def test_nnx_release_row_contract_rejects_status_mutations(replacement):
-    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    _assert_nnx_022_release_row(ledger)
-
-    mutated = ledger.replace(NNX_022_RELEASE_ROW, replacement)
-    with pytest.raises(AssertionError):
-        _assert_nnx_022_release_row(mutated)
-
-
-@pytest.mark.parametrize(
-    ("old", "new"),
-    (
-        ("Python `>=3.10`", "Python `>=3.11`"),
-        ("Torch `>=2.0`", "Torch `>=2.1`"),
-        ("torchvision `>=0.15`", "torchvision `>=0.16`"),
-        ("torch-geometric `>=2.4`", "torch-geometric `>=2.5`"),
-    ),
-)
-def test_nnx_release_floor_contract_rejects_mutations(old, new):
-    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    _assert_nnx_022_floors(ledger)
-
-    mutated = _normalize_markdown(ledger).replace(
-        NNX_022_FLOORS,
-        NNX_022_FLOORS.replace(old, new),
-    )
-    with pytest.raises(AssertionError):
-        _assert_nnx_022_floors(mutated)
-
-
-@pytest.mark.parametrize(
-    ("surface", "old", "new"),
-    (
-        (
-            "overview",
-            NNX_PENDING_ACCEPTANCE,
-            "The complete Tier A/B/C consumer matrix completed and accepted NNx 0.2.2.",
-        ),
-        ("ledger", "Tier A covers 17 NNx consumers", "Tier Alpha covers 17 NNx consumers"),
-        ("ledger", "Tier B covers the image baseline", "Tier Beta covers the image baseline"),
-        ("ledger", "Tier C covers the four historical", "Tier Gamma covers the four historical"),
-        ("ledger", "QAT remains a best-effort", "QAT is a required canonical"),
-    ),
-)
-def test_nnx_acceptance_boundary_rejects_mutations(surface, old, new):
-    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
-    _assert_nnx_pending_acceptance_boundary(ledger, overview)
-
-    if surface == "ledger":
-        ledger = ledger.replace(old, new, 1)
-    else:
-        overview = _normalize_markdown(overview).replace(old, new, 1)
-    with pytest.raises(AssertionError):
-        _assert_nnx_pending_acceptance_boundary(ledger, overview)
-
-
-@pytest.mark.parametrize(
-    "claim",
-    (
-        "The API was accepted only after the complete Tier A/B/C consumer matrix.",
-        "All Tier A/B/C release-acceptance workloads have completed successfully.",
-    ),
-)
-def test_nnx_acceptance_boundary_rejects_additive_premature_acceptance_claim(claim):
-    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
-    _assert_nnx_pending_acceptance_boundary(ledger, overview)
-
-    mutated = _normalize_markdown(overview).replace(
-        NNX_PENDING_ACCEPTANCE,
-        f"{NNX_PENDING_ACCEPTANCE} {claim}",
-    )
-    with pytest.raises(AssertionError):
-        _assert_nnx_pending_acceptance_boundary(ledger, mutated)
-
-
-def test_nnx_acceptance_boundary_allows_historical_claims_outside_current_section():
-    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
-    historical_claims = " ".join(NNX_PREMATURE_ACCEPTANCE_CLAIMS)
-    mutated = overview.replace(
-        "## 7.3 The 2026-06-14 PyPI migration",
-        f"## 7.3 The 2026-06-14 PyPI migration\n\n{historical_claims}",
-    )
-
-    _assert_nnx_pending_acceptance_boundary(ledger, mutated)
-
-
-def test_nnx_historical_and_atlas_owned_0_2_0_evidence_remains_explicit():
-    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    issue_58_design = (
-        REPO_ROOT / "docs/superpowers/specs/2026-08-12-issue-58-nnx-wheel-contract-design.md"
-    ).read_text(encoding="utf-8")
-    issue_58_plan = (
-        REPO_ROOT
-        / "docs/superpowers/plans/2026-08-12-issue-58-nnx-wheel-contract-implementation-plan.md"
-    ).read_text(encoding="utf-8")
-    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-
-    _assert_nnx_atlas_row(ledger)
-    assert "0.2.0" in issue_58_design
-    assert "0.2.0" in issue_58_plan
-    assert "NNx v0.2.0 usage-conformance pass" in changelog
-
-
-@pytest.mark.parametrize(
-    "replacement",
-    (
-        NNX_ATLAS_ROW.replace("0.2.0", "0.2.2"),
-        NNX_ATLAS_ROW.replace("Atlas-owned", "repository-owned"),
-    ),
-)
-def test_nnx_atlas_row_contract_rejects_ownership_and_version_mutations(replacement):
-    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    _assert_nnx_atlas_row(ledger)
-
-    mutated = ledger.replace(NNX_ATLAS_ROW, replacement)
-    with pytest.raises(AssertionError):
-        _assert_nnx_atlas_row(mutated)
-
-
-def test_tabular_regression_docs_record_resolved_nnx_target_dtype_support():
-    paths = (
-        "docs/FINDINGS-NNX.md",
-        "docs/notebooks/tabular_regression-diabetes-mlp-pytorch.md",
-        "notebooks/tabular_regression-diabetes-mlp-pytorch/README.md",
-        "notebooks/tabular_regression-diabetes-mlp-pytorch/docs/spec.yaml",
-        "notebooks/tabular_regression-diabetes-mlp-pytorch/notebook.ipynb",
-    )
-    docs = {path: (REPO_ROOT / path).read_text(encoding="utf-8") for path in paths}
-
-    for path, text in docs.items():
-        assert "target_dtype=torch.float32" in text, path
-        assert "0.2.2" in text, path
-    assert "Resolved in 0.2.2" in docs["docs/FINDINGS-NNX.md"]
-    assert "intentionally retains" in docs[
-        "docs/notebooks/tabular_regression-diabetes-mlp-pytorch.md"
-    ]
-    assert "established sklearn/NNx split" in docs[
-        "notebooks/tabular_regression-diabetes-mlp-pytorch/README.md"
-    ]
-    for finding in ("9.1.1.1", "9.1.1.2", "9.1.1.4", "9.1.1.5"):
-        assert f"### {finding}" in docs["docs/FINDINGS-NNX.md"]
-        assert "Open" in docs["docs/FINDINGS-NNX.md"].split(f"### {finding}", 1)[1].split("###", 1)[0]
-
-    notebook = json.loads(docs["notebooks/tabular_regression-diabetes-mlp-pytorch/notebook.ipynb"])
-    markdown = "\n".join(
-        "".join(cell["source"]) if isinstance(cell["source"], list) else cell["source"]
-        for cell in notebook["cells"]
-        if cell["cell_type"] == "markdown"
-    )
-    assert "classification only" not in markdown
-
-
-def test_knowledge_distillation_run_identity_contract_is_documented_consistently():
-    canonical = (
-        REPO_ROOT / "docs/notebooks/knowledge_distillation-mnist-ffnn-pytorch.md"
-    ).read_text(encoding="utf-8")
-    task_readme = (
-        REPO_ROOT / "notebooks/knowledge_distillation-mnist-ffnn-pytorch/README.md"
-    ).read_text(encoding="utf-8")
-
-    expected_call = (
-        'single_gen.train(params=train_params(), salt="single-gen-reference")'
-    )
-    assert expected_call in canonical
-    for text in (canonical, task_readme):
-        normalized = " ".join(text.split())
-        assert "single-gen-reference" in normalized
-        assert "separate run history" in normalized
-
-
-def _knowledge_distillation_current_prose() -> dict[str, str]:
-    notebook_path = (
-        REPO_ROOT
-        / "notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb"
-    )
-    notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
-    notebook_markdown = "\n".join(
-        "".join(cell["source"])
-        if isinstance(cell["source"], list)
-        else cell["source"]
-        for cell in notebook["cells"]
-        if cell["cell_type"] == "markdown"
-    )
-    return {
-        "notebook Markdown": notebook_markdown,
-        "canonical guide": (
-            REPO_ROOT
-            / "docs/notebooks/knowledge_distillation-mnist-ffnn-pytorch.md"
-        ).read_text(encoding="utf-8"),
-        "task README": (
-            REPO_ROOT
-            / "notebooks/knowledge_distillation-mnist-ffnn-pytorch/README.md"
-        ).read_text(encoding="utf-8"),
-    }
-
-
-def _normalized_semantic_prose(text: str) -> str:
-    return " ".join(text.translate(str.maketrans("", "", "*`")).lower().split())
-
-
-def test_knowledge_distillation_docs_match_nnx_0_2_2_born_again_semantics():
-    required = (
-        "reset to the caller-provided initial state",
-        "frozen prior-generation teacher",
-        "parent_run_id lineage",
-    )
-    forbidden = (
-        "weights are not reset",
-        "weights carry over",
-        "live weights carry over",
-        "more total optimization",
-        "extra optimization",
-        "6 epochs of live-weight training",
-    )
-    for surface, text in _knowledge_distillation_current_prose().items():
-        normalized = _normalized_semantic_prose(text)
-        for phrase in required:
-            assert phrase in normalized, (surface, phrase)
-        for phrase in forbidden:
-            assert phrase not in normalized, (surface, phrase)
-
-
-def test_knowledge_distillation_historical_outputs_are_labeled_before_first_output():
-    notebook_path = (
-        REPO_ROOT
-        / "notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb"
-    )
-    notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
-    first_output = next(
-        index for index, cell in enumerate(notebook["cells"]) if cell.get("outputs")
-    )
-    preceding_markdown = "\n".join(
-        "".join(cell["source"])
-        if isinstance(cell["source"], list)
-        else cell["source"]
-        for cell in notebook["cells"][:first_output]
-        if cell["cell_type"] == "markdown"
-    )
-    historical_label = "historical NNx 0.2.0 snapshot"
-    acceptance_boundary = "not current NNx 0.2.2 acceptance evidence"
-    assert historical_label in preceding_markdown
-    assert acceptance_boundary in preceding_markdown
-
-    for surface, text in _knowledge_distillation_current_prose().items():
-        assert historical_label in text, surface
-        assert acceptance_boundary in text, surface
-
-
-PEFT_HISTORICAL_OUTPUT_NOTICE = (
-    "Historical-output boundary: The committed outputs and repeated adaptation run IDs are a "
-    "historical NNx 0.2.0 snapshot, not current NNx 0.2.2 acceptance evidence. Current "
-    "execution keeps the full-fine-tune control unsalted and assigns stable `lora-adaptation` "
-    "and `dora-adaptation` salts to the adapter runs so each experiment has a distinct history."
-)
-REDDIT_HISTORICAL_OUTPUT_NOTICE = (
-    "Historical-output boundary: The committed Reddit results are a preserved August 2023-era, "
-    "pre-NNx-0.2.0 output snapshot. The notebook sources were later adapted to the NNx 0.2.0 "
-    "API without re-executing those results, so the preserved outputs are not current NNx 0.2.2 "
-    "acceptance evidence. Current Phase 2 notebooks 1 and 2 use stable "
-    "`phase2-model-selection-notebook1` and `phase2-model-selection-notebook2` salts because "
-    "they share one run root; locked Phase 3 code remains unchanged."
-)
-
-
-def _notebook_markdown_before_first_output(path: str) -> str:
-    notebook = json.loads((REPO_ROOT / path).read_text(encoding="utf-8"))
-    first_output = next(
-        index for index, cell in enumerate(notebook["cells"]) if cell.get("outputs")
-    )
-    return "\n".join(
-        "".join(cell["source"])
-        if isinstance(cell["source"], list)
-        else cell["source"]
-        for cell in notebook["cells"][:first_output]
-        if cell["cell_type"] == "markdown"
-    )
-
-
-def test_peft_historical_outputs_and_current_identity_contract_are_in_sync():
-    notebook_path = "notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/notebook.ipynb"
-    surfaces = {
-        "notebook Markdown": _notebook_markdown_before_first_output(notebook_path),
-        "task README": (
-            REPO_ROOT / "notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/README.md"
-        ).read_text(encoding="utf-8"),
-        "canonical guide": (
-            REPO_ROOT / "docs/notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch.md"
-        ).read_text(encoding="utf-8"),
-    }
-    expected = " ".join(PEFT_HISTORICAL_OUTPUT_NOTICE.split())
-    for surface, text in surfaces.items():
-        assert expected in " ".join(text.split()), surface
-    assert 'salt="lora-adaptation"' in surfaces["canonical guide"]
-    assert 'salt="dora-adaptation"' in surfaces["canonical guide"]
-
-
-def test_reddit_historical_outputs_and_current_identity_contract_are_in_sync():
-    notebook_paths = (
-        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook1.ipynb",
-        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook2.ipynb",
-    )
-    surfaces = {
-        path: _notebook_markdown_before_first_output(path) for path in notebook_paths
-    }
-    surfaces.update(
-        {
-            "task README": (
-                REPO_ROOT / "notebooks/node_classification-reddit-gnn-pyg/README.md"
-            ).read_text(encoding="utf-8"),
-            "canonical guide": (
-                REPO_ROOT / "docs/notebooks/node_classification-reddit-gnn-pyg.md"
-            ).read_text(encoding="utf-8"),
-        }
-    )
-    expected = " ".join(REDDIT_HISTORICAL_OUTPUT_NOTICE.split())
-    for surface, text in surfaces.items():
-        normalized = " ".join(text.split())
-        assert expected in normalized, surface
-        assert "historical NNx 0.2.0 snapshot" not in normalized, surface
-        assert "repeated run IDs" not in normalized, surface
-    assert 'salt="phase2-model-selection-notebook1"' in surfaces["canonical guide"]
-    assert 'salt="phase2-model-selection-notebook2"' in surfaces["canonical guide"]
-
-
-def test_checkpoint_docs_use_current_nnx_checkpoint_api():
-    current_checkpoint_docs = (
-        "docs/nnx-library.md",
-        "docs/concepts.md",
-        "docs/notebooks/tabular_classification-iris-mlp-pytorch.md",
-        "docs/notebooks/dim_reduction-iris-autoencoder-pytorch.md",
-        "notebooks/tabular_classification-iris-mlp-pytorch/docs/spec.yaml",
-    )
-    for path in current_checkpoint_docs:
-        text = (REPO_ROOT / path).read_text(encoding="utf-8")
-        assert "NNRun.load" not in text, path
-        assert "NNCheckpoint.load(run=RUN_ID, type=Checkpoints.BEST)" in text, path
-
-
-def test_real_manifest_declares_issue_61_design_and_implementation_records_consecutively():
-    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
-    records = next(section for section in manifest.sections if section.id == "design-records")
-    start = next(
-        index
-        for index, child in enumerate(records.children)
-        if child.id == "issue-61-nnx-release-review-design"
-    )
-    assert [
-        (child.number, child.source) for child in records.children[start : start + 2]
-    ] == [
-        (
-            "12.19",
-            "docs/superpowers/specs/2026-08-13-issue-61-nnx-release-review-design.md",
-        ),
-        (
-            "12.20",
-            "docs/superpowers/plans/2026-08-13-issue-61-nnx-release-review-implementation-plan.md",
-        ),
-    ]
 
 
 def test_real_user_facing_docs_match_the_atlas_runtime_contract():
@@ -1619,3 +1138,156 @@ def test_contract_failure_stops_before_generated_surface_build(tmp_path, monkeyp
     monkeypatch.setattr(build_docs, "build", lambda *args, **kwargs: pytest.fail("generated build ran"))
 
     assert check_docs.check(tmp_path, tmp_path / "generated") == 1
+
+
+_NNX_RETAINED_TRIAL_FACTS = (
+    "thekaveh-nnx[lm]==0.2.0",
+    "1,350",
+    "18/18",
+    "6/6",
+    "4/4",
+    "Torch 2.11.0",
+    "torchvision 0.26.0",
+    "torchao 0.18.0",
+)
+
+
+def _assert_nnx_retain_decision_docs(documents: dict[str, str]) -> None:
+    readme = documents["README.md"]
+    ledger = documents["docs/dependency-contracts.md"]
+    overview = documents["docs/nnx-library.md"]
+    changelog = documents["CHANGELOG.md"]
+    quantization_surfaces = (
+        documents["docs/notebooks/quantization-mnist-ffnn-pytorch.md"],
+        documents["notebooks/quantization-mnist-ffnn-pytorch/README.md"],
+        documents["notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb"],
+    )
+    combined = "\n".join(documents.values())
+
+    for fact in _NNX_RETAINED_TRIAL_FACTS:
+        assert fact in ledger or fact in overview or fact in changelog
+    assert "retained 0.2.0" in readme
+    assert "Atlas JupyterHub" in readme
+    assert "Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix" in ledger
+    assert (
+        "canonical trial passed `1,350` repository tests, Tier A `18/18`, "
+        "Tier B `6/6`, and Tier C `4/4`"
+    ) in ledger
+    assert "Darwin arm64" in ledger
+    assert "torch_sparse==0.6.18" in ledger
+    assert "28 of the 29 active notebooks" in overview
+    assert "target_col" in documents["docs/FINDINGS-NNX.md"]
+    assert "y_col" not in documents["docs/FINDINGS-NNX.md"]
+    active_guidance = combined.replace("`NNRun.load(\"best\")` (not a v0.2.0 idiom", "")
+    active_guidance = active_guidance.replace("no `NNRun.load(\"best\")`", "")
+    assert "NNRun.load(\"best\")" not in active_guidance
+    assert "NNRun.load('best')" not in active_guidance
+    assert "torch>=2.5" not in combined
+    assert "torch >=2.5" not in combined
+    assert "Torch >=2.5" not in combined
+    assert "torch >= 2.5" not in combined
+    assert "torch ≥ 2.5" not in combined
+    for surface in quantization_surfaces:
+        assert "Torch 2.11.0" in surface
+        assert "torchvision 0.26.0" in surface
+        assert "torchao 0.18.0" in surface
+
+
+def _nnx_current_documents() -> dict[str, str]:
+    paths = (
+        "README.md",
+        "CONTRIBUTING.md",
+        "CHANGELOG.md",
+        "docs/FINDINGS-NNX.md",
+        "docs/concepts.md",
+        "docs/dependency-contracts.md",
+        "docs/nnx-library.md",
+        "docs/notebooks/dim_reduction-iris-autoencoder-pytorch.md",
+        "docs/notebooks/node_classification-reddit-gnn-pyg.md",
+        "docs/notebooks/quantization-mnist-ffnn-pytorch.md",
+        "docs/notebooks/tabular_classification-iris-mlp-pytorch.md",
+        "notebooks/quantization-mnist-ffnn-pytorch/README.md",
+        "notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb",
+    )
+    return {path: (REPO_ROOT / path).read_text(encoding="utf-8") for path in paths}
+
+
+def test_nnx_current_docs_record_completed_trial_and_retained_default_runtime():
+    _assert_nnx_retain_decision_docs(_nnx_current_documents())
+
+
+@pytest.mark.parametrize(
+    ("path", "old", "new"),
+    (
+        ("README.md", "retained 0.2.0", "adopted 0.2.2"),
+        ("docs/dependency-contracts.md", "Tier C `4/4`", "Tier C pending"),
+        ("docs/dependency-contracts.md", "Torch 2.11.0", "Torch >=2.5"),
+        (
+            "docs/notebooks/quantization-mnist-ffnn-pytorch.md",
+            "Torch 2.11.0",
+            "Torch >=2.5",
+        ),
+        ("docs/nnx-library.md", "28 of the 29 active notebooks", "about two dozen active notebooks"),
+    ),
+)
+def test_nnx_retain_decision_docs_reject_mutations(path, old, new):
+    documents = _nnx_current_documents()
+    assert old in documents[path]
+    documents[path] = documents[path].replace(old, new, 1)
+    with pytest.raises(AssertionError):
+        _assert_nnx_retain_decision_docs(documents)
+
+
+def test_nnx_current_pin_and_pretrial_advisory_snapshot_match_restored_manifest():
+    requirements = (REPO_ROOT / "requirements.txt").read_bytes()
+    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    audit = ledger.split("### 6.1.1.1 Reproducible four-surface audit", 1)[1].split(
+        "### 6.1.1.2 Current accepted advisories", 1
+    )[0]
+
+    assert hashlib.sha256(requirements).hexdigest() == (
+        "3f35f04f95bd1e293c844b41a2dcf96f7978b8c61ccd436e4813a604d9e528a7"
+    )
+    assert "Last reviewed: 2026-08-12" in audit
+    assert "`requirements.txt` | `3f35f04f95bd1e293c844b41a2dcf96f7978b8c61ccd436e4813a604d9e528a7`" in audit
+    assert "thekaveh-nnx==0.2.2" not in audit
+
+
+def test_nnx_documented_consumer_count_matches_tracked_active_notebooks():
+    tracked = subprocess.run(
+        ["git", "ls-files", "--", "notebooks/**/*.ipynb"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    active = [
+        path
+        for path in tracked
+        if not path.startswith("notebooks/archive/")
+        and ".ipynb_checkpoints" not in path
+    ]
+    consumers = [
+        path
+        for path in active
+        if re.search(
+            r"(?:from|import)\s+nnx(?:\b|\.)",
+            (REPO_ROOT / path).read_text(encoding="utf-8"),
+        )
+    ]
+
+    assert (len(consumers), len(active)) == (28, 29)
+
+
+def test_nnx_historical_output_notices_do_not_claim_current_022_source():
+    paths = (
+        "notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb",
+        "notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/notebook.ipynb",
+        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook1.ipynb",
+        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook2.ipynb",
+    )
+    for path in paths:
+        text = (REPO_ROOT / path).read_text(encoding="utf-8")
+        assert "temporary artifacts" in text, path
+        assert "0.2.0" in text, path
+        assert "current NNx 0.2.2" not in text, path

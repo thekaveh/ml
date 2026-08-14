@@ -10,15 +10,12 @@ graph-structural learning at scale.
 
 The task is **Tier-B/C** — Phase 1 and Phase 2 smoke-run to `/tmp` under `make smoke-tier-b`,
 but Phase 3's full training runs are multi-day CPU jobs whose August-2023 outputs are preserved
-in place (Tier-C, do not re-execute). The `torch_sparse` dependency is Linux-only, so the task
-cannot run on macOS; it executes on the CI Linux runner and the Atlas JupyterHub runtime.
+in place (Tier-C, do not re-execute). Issue #61 completed both smoke tiers on clean Darwin arm64
+with `torch_sparse==0.6.18`; platform assumptions do not waive either release-review tier.
 
-Historical-output boundary: The committed Reddit results are a preserved August 2023-era,
-pre-NNx-0.2.0 output snapshot. The notebook sources were later adapted to the NNx 0.2.0 API
-without re-executing those results, so the preserved outputs are not current NNx 0.2.2 acceptance
-evidence. Current Phase 2 notebooks 1 and 2 use stable
-`phase2-model-selection-notebook1` and `phase2-model-selection-notebook2` salts because they share
-one run root; locked Phase 3 code remains unchanged.
+The committed Reddit results remain preserved historical outputs. Issue #61's 0.2.2 Tier B/C
+execution wrote only fresh temporary artifacts; the final checked-in source retains the
+Atlas-compatible NNx 0.2.0 call surface.
 
 ## 8.13.1 Problem & motivation
 
@@ -238,8 +235,7 @@ for net_enum, heads in net_specs:
                     n_epochs=n_epochs,
                     optim=NNOptimParams(name=Optims.ADAM, max_lr=lr,
                                         weight_decay=5e-4, momentum=(0.9, 0.999)),
-                ).with_train_loader(value=train_loader).with_val_loader(value=val_loader),
-                    salt="phase2-model-selection-notebook1")
+                ).with_train_loader(value=train_loader).with_val_loader(value=val_loader))
                 trains[str(run)] = (model, run.idps)
 ```
 
@@ -248,10 +244,6 @@ The four-way product is the 16-combination sweep of Notebook 1. `NNParams` is wh
 `NNOptimParams` carries the optimizer. The ranking keys `trains` by `str(run)` (the model's
 printed signature, e.g. `GraphAttNN={dims=[602, 128, 41], dropout=0.25, heads=4}`) and sorts by
 the minimum validation error across all iteration data points:
-
-Notebook 2 uses the same call shape with `salt="phase2-model-selection-notebook2"`. These stable
-notebook-specific salts prevent matched smoke configurations from claiming the same identity in
-the shared task-local `runs/` root; Phase 3 remains unsalted and unchanged.
 
 ```python
 top_model_names = sorted(
@@ -367,9 +359,9 @@ Four observations:
   record. `make smoke-tier-c` writes to `/tmp/`; `papermill phase3-*.ipynb phase3-*.ipynb` in
   place destroys them. The `pre-cleanup-baseline` git tag enforces code-cell source equality
   (markdown and outputs are not compared, so markdown edits are safe).
-- **macOS cannot run this task.** `torch_sparse` is Linux-only, so the GNN forward passes skip
-  cleanly under `make test-nnx-surface` on macOS and only execute under the CI Linux runner or the
-  Atlas JupyterHub runtime. Local macOS development of this task is not supported.
+- **Run both graph tiers during release review.** Issue #61 completed Tier B and Tier C on clean
+  Darwin arm64 with `torch_sparse==0.6.18`. Platform availability still depends on compatible
+  wheels, but an assumed macOS limitation is not a valid reason to omit either tier.
 - **Use a small enough learning rate for GraphSAGE.** Phase-2 pilots at `lr=1e-2` diverged for the
   deeper SAGE stacks; all Phase-3 SAGE runs use `1e-4`. GAT tolerates `1e-2` because its attention
   softmax keeps gradient magnitudes controlled — do not assume the two architectures share an

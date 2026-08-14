@@ -470,22 +470,34 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
 
 - [x] **Step 5: Run the best-effort QAT checkpoint probe**
 
-  In a separate disposable Python 3.11 environment with Torch >=2.5 and compatible torchao,
-  install the 0.2.2 binary wheel and run a tiny QAT prepare/train/convert/LAST-checkpoint reload
+  In a separate disposable Python 3.11 environment with Torch 2.11.0, torchvision 0.26.0, and
+  torchao 0.18.0, install the 0.2.2 binary wheel and run a tiny QAT
+  prepare/train/convert/LAST-checkpoint reload
   through `NNModel.from_checkpoint`, then verify prediction shape/type. Record inability to create
   the environment as a concern; do not alter root manifests or weaken the main acceptance matrix.
 
-- [ ] **Step 6: Request task-level and broad reviews**
+- [x] **Step 6: Request task-level and broad reviews**
 
   Have fresh reviewers compare every task commit with this plan and the approved design. Then
   request an independent broad review of the entire branch, including mutation resistance,
   released-wheel provenance, notebook semantics, security parity, and three-surface docs.
 
-- [ ] **Step 7: Fix every review finding with TDD**
+  The broad review returned Changes Required: the 0.2.2-only notebook calls conflicted with the
+  declared Atlas-default runtime, and it identified documentation, audit-currentness, QAT-version,
+  CI service-isolation, and rollback-boundary corrections.
+
+- [x] **Step 7: Fix every review finding with TDD**
 
   Validate each finding, add a failing regression or mutation, apply the narrow fix, rerun focused
   and affected broad gates, and commit separately. Repeat review until no Critical, Important, or
   Minor finding remains.
+
+  This correction wave restores the 0.2.0 default-runtime contract, removes all five trial-only
+  salts and other 0.2.2-only consumer tests, restores the pre-trial current advisory snapshot,
+  strengthens no-service workflow mutations, and reconciles canonical documentation. Focused,
+  affected, strict documentation, verifier, lint, clean-wheel 0.2.0 surface, and advisory
+  comparator gates passed. The controller owns the final complete 0.2.0 matrix and independent
+  re-review for the Step 8 decision.
 
 - [ ] **Step 8: Decide adopt or retain**
 
@@ -577,14 +589,16 @@ state; no intended product-file changes
   by immutable upstream evidence.
 - [ ] One exact root NNx pin owns the production version and every NNx-executing CI tier proves the
   released binary wheel immediately before its workload.
-- [ ] Consumer tests cover regression dtype/shape, classification preservation, Conv/MoE facade,
-  graph signature, and exact QAT boundary.
+- [ ] The final consumer suite proves the Atlas-default 0.2.0 notebooks use no new-only training
+  keywords; the removed regression, Conv/MoE, graph-signature, identity-salt, and QAT probes remain
+  recorded as 0.2.2 trial evidence rather than current contracts.
 - [ ] Complete tests plus Tier A, Tier B, and Tier C pass in a canonical released-wheel
   environment; QAT side-environment evidence or its explicit limitation is recorded.
 - [ ] The live advisory observation reconciles with the accepted policy without automatic risk
   acceptance.
-- [ ] Current repository, site, and wiki documentation agree on the release, resolved limitation,
-  checkpoint API, evidence boundary, and historical Atlas ownership.
+- [ ] Current repository, site, and wiki documentation agree on the reviewed 0.2.2 trial, retained
+  0.2.0 pin, still-open current regression limitation, checkpoint API, evidence boundary, and
+  historical Atlas ownership.
 - [ ] Independent task and broad reviews report no unresolved Critical, Important, or Minor
   findings.
 - [ ] Feature-to-develop, develop-to-main, and any required main-to-develop synchronization are

@@ -37,6 +37,7 @@ import tokenize
 from pathlib import Path
 
 import pytest
+import yaml
 
 import nnx
 from nnx.utils import Utils
@@ -51,6 +52,20 @@ TEST_SUBPROCESS_TIMEOUT = 30
 _UTILS_ATTR_RE = re.compile(r"(?<![A-Za-z0-9_])Utils\.([A-Za-z_]\w*)")
 # Transient per-worktree path that must never be committed in an output.
 _TRANSIENT_PATH_RE = re.compile(r"\.claude/worktrees/")
+
+_ATLAS_020_DEFAULT_RUNTIME_TASKS = {
+    "notebooks/knowledge_distillation-mnist-ffnn-pytorch/docs/spec.yaml": (
+        "notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb",
+    ),
+    "notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/docs/spec.yaml": (
+        "notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/notebook.ipynb",
+    ),
+    "notebooks/node_classification-reddit-gnn-pyg/docs/spec.yaml": (
+        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook1.ipynb",
+        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook2.ipynb",
+    ),
+}
+_UNSUPPORTED_ATLAS_020_TRAIN_KWARGS = {"salt", "overwrite_existing", "data_id"}
 
 
 def _public_attrs(cls: object) -> set[str]:
@@ -147,130 +162,47 @@ def _output_text(cell: dict) -> str:
     return "\n".join(chunks)
 
 
-def _assigned_call(nb: dict, target: str) -> ast.Call:
-    matches: list[ast.Call] = []
-    for cell in _code_cells(nb):
-        lines = [
-            line
-            for line in "".join(_source_lines(cell)).splitlines()
-            if not line.lstrip().startswith(("%", "!"))
-        ]
-        try:
-            tree = ast.parse("\n".join(lines))
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
-                continue
-            if any(isinstance(name, ast.Name) and name.id == target for name in node.targets):
-                matches.append(node.value)
-    assert len(matches) == 1, f"expected one assignment to {target}, found {len(matches)}"
-    return matches[0]
-
-
-def _assert_single_gen_reference_call(nb: dict) -> None:
-    single_call = _assigned_call(nb, "single_run")
-    assert (
-        isinstance(single_call.func, ast.Attribute)
-        and single_call.func.attr == "train"
-        and isinstance(single_call.func.value, ast.Name)
-        and single_call.func.value.id == "single_gen"
-    )
-    assert single_call.args == []
-    assert len(single_call.keywords) == 2
-    keywords = {keyword.arg: keyword.value for keyword in single_call.keywords}
-    assert set(keywords) == {"params", "salt"}
-    assert isinstance(keywords["params"], ast.Call)
-    assert isinstance(keywords["params"].func, ast.Name)
-    assert keywords["params"].func.id == "train_params"
-    assert keywords["params"].args == []
-    assert keywords["params"].keywords == []
-    assert isinstance(keywords["salt"], ast.Constant)
-    assert keywords["salt"].value == "single-gen-reference"
-
-
-_RUN_IDENTITY_SALT_CONTRACTS = {
-    "notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/notebook.ipynb": (
-        ("lora_run", "lora_model", "lora-adaptation"),
-        ("dora_run", "dora_model", "dora-adaptation"),
-    ),
-    "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook1.ipynb": (
-        (None, "model", "phase2-model-selection-notebook1"),
-    ),
-    "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook2.ipynb": (
-        (None, "model", "phase2-model-selection-notebook2"),
-    ),
-}
-
-
-def _assert_peft_train_call(
-    nb: dict,
-    *,
-    target: str,
-    model_name: str,
-    salt: str | None,
+def _assert_atlas_020_default_runtime_compatibility(
+    requirements_text: str,
+    dependency_ledger: str,
+    task_sources: dict[str, str],
 ) -> None:
-    call = _assigned_call(nb, target)
-    assert (
-        isinstance(call.func, ast.Attribute)
-        and call.func.attr == "train"
-        and isinstance(call.func.value, ast.Name)
-        and call.func.value.id == model_name
-    )
-    assert call.args == []
-    expected_keyword_names = ["params"] if salt is None else ["params", "salt"]
-    assert [keyword.arg for keyword in call.keywords] == expected_keyword_names
-    params = call.keywords[0].value
-    assert isinstance(params, ast.Call)
-    assert isinstance(params.func, ast.Name)
-    assert params.func.id == "train_params"
-    assert params.args == []
-    expected_params = {
-        "loader": "fmnist_ds.train_loader",
-        "val_loader": "fmnist_ds.val_loader",
-        "n_epochs": "ADAPT_EPOCHS",
-        "lr": "LR_ADAPT",
+    pins = [line for line in requirements_text.splitlines() if line.startswith("thekaveh-nnx")]
+    assert pins == ["thekaveh-nnx[lm]==0.2.0"]
+    assert "| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0;" in dependency_ledger
+
+    checked_train_calls = 0
+    for spec_path, notebook_paths in _ATLAS_020_DEFAULT_RUNTIME_TASKS.items():
+        spec = yaml.safe_load(task_sources[spec_path])
+        assert spec["atlas"]["executor"] == "jupyterhub"
+        assert spec["atlas"]["default_mode"] == "vscode-remote"
+        for notebook_path in notebook_paths:
+            notebook = json.loads(task_sources[notebook_path])
+            for cell in _code_cells(notebook):
+                try:
+                    tree = ast.parse("".join(_source_lines(cell)))
+                except SyntaxError:
+                    continue
+                for call in (
+                    node
+                    for node in ast.walk(tree)
+                    if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "train"
+                ):
+                    checked_train_calls += 1
+                    keyword_names = {keyword.arg for keyword in call.keywords}
+                    assert not (_UNSUPPORTED_ATLAS_020_TRAIN_KWARGS & keyword_names)
+    assert checked_train_calls >= 5
+
+
+def _atlas_020_default_runtime_sources() -> dict[str, str]:
+    paths = {
+        path
+        for spec_path, notebook_paths in _ATLAS_020_DEFAULT_RUNTIME_TASKS.items()
+        for path in (spec_path, *notebook_paths)
     }
-    assert [keyword.arg for keyword in params.keywords] == list(expected_params)
-    assert {
-        keyword.arg: ast.unparse(keyword.value) for keyword in params.keywords
-    } == expected_params
-    if salt is not None:
-        salt_node = call.keywords[1].value
-        assert isinstance(salt_node, ast.Constant)
-        assert salt_node.value == salt
-
-
-def _assert_reddit_shared_root_train_call(nb: dict, *, salt: str) -> None:
-    matches: list[ast.Call] = []
-    for cell in _code_cells(nb):
-        lines = [
-            line
-            for line in "".join(_source_lines(cell)).splitlines()
-            if not line.lstrip().startswith(("%", "!"))
-        ]
-        try:
-            tree = ast.parse("\n".join(lines))
-        except SyntaxError:
-            continue
-        matches.extend(
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "train"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "model"
-        )
-    assert len(matches) == 1, f"expected one model.train call, found {len(matches)}"
-    call = matches[0]
-    assert call.args == []
-    assert [keyword.arg for keyword in call.keywords] == ["params", "salt"]
-    assert isinstance(call.keywords[0].value, ast.Name)
-    assert call.keywords[0].value.id == "train_param"
-    salt_node = call.keywords[1].value
-    assert isinstance(salt_node, ast.Constant)
-    assert salt_node.value == salt
+    return {path: (REPO_ROOT / path).read_text(encoding="utf-8") for path in paths}
 
 
 # --- scan checkers (also exercised directly by the synthetic unit tests) -----
@@ -314,218 +246,68 @@ def test_active_notebooks_discovered():
     assert len(_NOTEBOOKS) >= 25, f"expected the full active notebook set, found {len(_NOTEBOOKS)}"
 
 
-def test_knowledge_distillation_baseline_has_a_distinct_stable_run_identity():
-    train_signature = inspect.signature(nnx.NNModel.train)
-    assert train_signature.parameters["salt"].default is None
-
-    nb_path = (
-        REPO_ROOT
-        / "notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb"
+def test_atlas_020_default_runtime_notebooks_use_only_supported_train_kwargs():
+    _assert_atlas_020_default_runtime_compatibility(
+        (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8"),
+        (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8"),
+        _atlas_020_default_runtime_sources(),
     )
-    nb = json.loads(nb_path.read_text(encoding="utf-8"))
-
-    _assert_single_gen_reference_call(nb)
-
-    born_again_call = _assigned_call(nb, "ba_runs")
-    assert (
-        isinstance(born_again_call.func, ast.Attribute)
-        and born_again_call.func.attr == "born_again_train"
-        and isinstance(born_again_call.func.value, ast.Name)
-        and born_again_call.func.value.id == "nnx"
-    )
-    assert len(born_again_call.args) == 1
-    assert isinstance(born_again_call.args[0], ast.Name)
-    assert born_again_call.args[0].id == "ba_model"
-    born_again_keywords = {keyword.arg: keyword.value for keyword in born_again_call.keywords}
-    assert set(born_again_keywords) == {"generations", "train_params"}
-    assert isinstance(born_again_keywords["generations"], ast.Name)
-    assert born_again_keywords["generations"].id == "N_GENERATIONS"
-    assert isinstance(born_again_keywords["train_params"], ast.Call)
-    assert isinstance(born_again_keywords["train_params"].func, ast.Name)
-    assert born_again_keywords["train_params"].func.id == "train_params"
 
 
-def test_run_identity_salt_policy_is_limited_to_proven_collision_contracts():
-    assert _RUN_IDENTITY_SALT_CONTRACTS == {
-        "notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/notebook.ipynb": (
-            ("lora_run", "lora_model", "lora-adaptation"),
-            ("dora_run", "dora_model", "dora-adaptation"),
-        ),
-        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook1.ipynb": (
-            (None, "model", "phase2-model-selection-notebook1"),
-        ),
-        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook2.ipynb": (
-            (None, "model", "phase2-model-selection-notebook2"),
-        ),
-    }
-    salts = [
-        salt
-        for contracts in _RUN_IDENTITY_SALT_CONTRACTS.values()
-        for _, _, salt in contracts
+@pytest.mark.parametrize("unsupported_kwarg", sorted(_UNSUPPORTED_ATLAS_020_TRAIN_KWARGS))
+def test_atlas_020_default_runtime_contract_rejects_unsupported_train_kwarg_mutations(
+    unsupported_kwarg: str,
+):
+    sources = _atlas_020_default_runtime_sources()
+    path = "notebooks/knowledge_distillation-mnist-ffnn-pytorch/notebook.ipynb"
+    notebook = json.loads(sources[path])
+    original = "single_gen.train(params=train_params())"
+    replacement = f'single_gen.train(params=train_params(), {unsupported_kwarg}="mutated")'
+    matching_cells = [
+        cell
+        for cell in _code_cells(notebook)
+        if original in "".join(_source_lines(cell))
     ]
-    assert len(salts) == len(set(salts)) == 4
-
-
-def test_peft_comparison_has_exact_stable_run_identity_contracts():
-    path = REPO_ROOT / next(iter(_RUN_IDENTITY_SALT_CONTRACTS))
-    nb = json.loads(path.read_text(encoding="utf-8"))
-
-    _assert_peft_train_call(
-        nb,
-        target="full_ft_run",
-        model_name="full_ft",
-        salt=None,
+    assert len(matching_cells) == 1
+    matching_cells[0]["source"] = "".join(_source_lines(matching_cells[0])).replace(
+        original, replacement, 1
     )
-    for target, model_name, salt in _RUN_IDENTITY_SALT_CONTRACTS[
-        path.relative_to(REPO_ROOT).as_posix()
-    ]:
-        _assert_peft_train_call(
-            nb,
-            target=target,
-            model_name=model_name,
-            salt=salt,
+    sources[path] = json.dumps(notebook)
+
+    with pytest.raises(AssertionError):
+        _assert_atlas_020_default_runtime_compatibility(
+            "thekaveh-nnx[lm]==0.2.0\n",
+            "| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0;\n",
+            sources,
         )
 
 
 @pytest.mark.parametrize(
-    ("target", "model_name", "expected_salt", "call"),
-    (
-        (
-            "lora_run",
-            "lora_model",
-            "lora-adaptation",
-            "lora_model.train(params=train_params(loader=fmnist_ds.train_loader, "
-            "val_loader=fmnist_ds.val_loader, n_epochs=ADAPT_EPOCHS, lr=LR_ADAPT))",
-        ),
-        (
-            "lora_run",
-            "lora_model",
-            "lora-adaptation",
-            "lora_model.train(params=train_params(loader=fmnist_ds.train_loader, "
-            "val_loader=fmnist_ds.val_loader, n_epochs=ADAPT_EPOCHS, lr=LR_ADAPT), "
-            "salt=adapter_salt)",
-        ),
-        (
-            "lora_run",
-            "lora_model",
-            "lora-adaptation",
-            "lora_model.train(params=train_params(loader=fmnist_ds.train_loader, "
-            "val_loader=fmnist_ds.val_loader, n_epochs=ADAPT_EPOCHS, lr=LR_ADAPT), "
-            'salt="dora-adaptation")',
-        ),
-        (
-            "dora_run",
-            "dora_model",
-            "dora-adaptation",
-            "dora_model.train(params=train_params(loader=fmnist_ds.train_loader, "
-            "val_loader=fmnist_ds.val_loader, n_epochs=ADAPT_EPOCHS, lr=LR_ADAPT), "
-            'salt="lora-adaptation")',
-        ),
-        (
-            "dora_run",
-            "dora_model",
-            "dora-adaptation",
-            "dora_model.train(params=train_params(loader=fmnist_ds.train_loader, "
-            "val_loader=fmnist_ds.val_loader, n_epochs=ADAPT_EPOCHS, lr=LR_ADAPT), "
-            'salt="dora-adaptation", salt="dora-adaptation")',
-        ),
-    ),
+    "mutation",
+    ("root_pin", "atlas_pin", "executor", "default_mode"),
 )
-def test_peft_run_identity_guard_rejects_mutations(
-    target: str,
-    model_name: str,
-    expected_salt: str,
-    call: str,
-):
-    nb = _synthetic_nb(
-        {
-            "cell_type": "code",
-            "source": [f"{target} = {call}\n"],
-            "outputs": [],
-        }
-    )
+def test_atlas_020_default_runtime_contract_rejects_boundary_mutations(mutation: str):
+    requirements = "thekaveh-nnx[lm]==0.2.0\n"
+    ledger = "| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0;\n"
+    sources = _atlas_020_default_runtime_sources()
+    spec_path = "notebooks/knowledge_distillation-mnist-ffnn-pytorch/docs/spec.yaml"
+
+    if mutation == "root_pin":
+        requirements = requirements.replace("0.2.0", "0.2.2")
+    elif mutation == "atlas_pin":
+        ledger = ledger.replace("0.2.0", "0.2.2")
+    else:
+        spec = yaml.safe_load(sources[spec_path])
+        if mutation == "executor":
+            spec["atlas"]["executor"] = "local"
+        elif mutation == "default_mode":
+            spec["atlas"]["default_mode"] = "mounted-workspace"
+        else:
+            raise AssertionError(f"unhandled mutation: {mutation}")
+        sources[spec_path] = yaml.safe_dump(spec)
+
     with pytest.raises(AssertionError):
-        _assert_peft_train_call(
-            nb,
-            target=target,
-            model_name=model_name,
-            salt=expected_salt,
-        )
-
-
-@pytest.mark.parametrize(
-    ("path", "salt"),
-    tuple(
-        (path, contracts[0][2])
-        for path, contracts in _RUN_IDENTITY_SALT_CONTRACTS.items()
-        if path.startswith("notebooks/node_classification-reddit-gnn-pyg/")
-    ),
-)
-def test_reddit_shared_root_sweeps_have_exact_stable_run_identity_contracts(
-    path: str,
-    salt: str,
-):
-    nb = json.loads((REPO_ROOT / path).read_text(encoding="utf-8"))
-    _assert_reddit_shared_root_train_call(nb, salt=salt)
-
-
-@pytest.mark.parametrize(
-    "call",
-    (
-        "model.train(params=train_param)",
-        "model.train(params=train_param, salt=run_salt)",
-        'model.train(params=train_param, salt="phase2-model-selection-notebook2")',
-        (
-            'model.train(params=train_param, salt="phase2-model-selection-notebook1", '
-            'salt="phase2-model-selection-notebook1")'
-        ),
-        'candidate.train(params=train_param, salt="phase2-model-selection-notebook1")',
-        'model.train(train_param, salt="phase2-model-selection-notebook1")',
-    ),
-)
-def test_reddit_shared_root_identity_guard_rejects_mutations(call: str):
-    nb = _synthetic_nb(
-        {
-            "cell_type": "code",
-            "source": [f"run = {call}\n"],
-            "outputs": [],
-        }
-    )
-    with pytest.raises(AssertionError):
-        _assert_reddit_shared_root_train_call(
-            nb,
-            salt="phase2-model-selection-notebook1",
-        )
-
-
-@pytest.mark.parametrize(
-    "single_call",
-    (
-        'single_gen.train(train_params(), salt="single-gen-reference")',
-        (
-            'single_gen.train(params=train_params(), salt="single-gen-reference", '
-            "overwrite_existing=True)"
-        ),
-        (
-            'single_gen.train(params=train_params(), salt="single-gen-reference", '
-            'salt="single-gen-reference")'
-        ),
-        'single_gen.train(params=train_params(1), salt="single-gen-reference")',
-        "single_gen.train(params=train_params(), salt=reference_salt)",
-    ),
-)
-def test_knowledge_distillation_baseline_identity_guard_rejects_call_mutations(
-    single_call: str,
-):
-    bad = _synthetic_nb(
-        {
-            "cell_type": "code",
-            "source": [f"single_run = {single_call}\n"],
-            "outputs": [],
-        }
-    )
-    with pytest.raises(AssertionError):
-        _assert_single_gen_reference_call(bad)
+        _assert_atlas_020_default_runtime_compatibility(requirements, ledger, sources)
 
 
 def test_active_notebooks_uses_git_tracked_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -933,37 +715,12 @@ def test_nnx_unknown_kwarg_guard_catches_bad_kwarg():
 
 
 def test_nnx_unknown_kwarg_guard_allows_real_kwargs():
-    accepted = _nnx_ctor_accepted_params()
-    assert {"seed", "sampler"} <= accepted["NNGraphDataset"]
     good = _synthetic_nb({
         "cell_type": "code",
-        "source": [
-            "d = NNGraphDataset(ds_class=R, n_neighbors=[2], n_workers=4, transform=t, seed=0, sampler=\"full\")\n"
-        ],
+        "source": ["d = NNGraphDataset(ds_class=R, n_neighbors=[2], n_workers=4, transform=t)\n"],
         "outputs": [],
     })
-    assert not find_nnx_unknown_kwargs(good, accepted)
-
-
-@pytest.mark.parametrize("missing_kwarg", ["seed", "sampler"])
-def test_nnx_unknown_kwarg_guard_rejects_removed_022_graph_kwargs(missing_kwarg: str):
-    accepted = _nnx_ctor_accepted_params()
-    assert {"seed", "sampler"} <= accepted["NNGraphDataset"]
-    accepted["NNGraphDataset"].remove(missing_kwarg)
-    good = _synthetic_nb({
-        "cell_type": "code",
-        "source": [
-            "d = NNGraphDataset(ds_class=R, n_neighbors=[2], n_workers=4, transform=t, seed=0, sampler=\"full\")\n"
-        ],
-        "outputs": [],
-    })
-
-    violations = find_nnx_unknown_kwargs(good, accepted)
-
-    assert violations == [
-        f"code_cell[0]: NNGraphDataset(...) unknown kwarg(s) ['{missing_kwarg}'] "
-        "(not in installed nnx signature)"
-    ]
+    assert not find_nnx_unknown_kwargs(good, {"NNGraphDataset": {"ds_class", "n_neighbors", "n_workers", "transform", "batch_sizes", "root_dir"}})
 
 
 def _called_name(node: ast.Call) -> str | None:

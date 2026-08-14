@@ -29,9 +29,9 @@ This notebook is the in-repo demo of both, side by side on the same baseline arc
 
 ## 4. How to run
 
-**Manual-only** (was Tier-B from 2026-06-02 to 2026-06-16, then removed from `Makefile` TIER_B after the weekly cron failed). `torchao>=0.9.0` (the earliest version exposing the `Int8WeightOnlyConfig` API `nnx.quantize_int8` calls) references `torch.int1` at import time. `torch.int1` was added in Torch 2.5, while the local/CI contract pins `torch==2.4.1`. **No torchao version satisfies both nnx's API requirement and the local/CI Torch 2.4.1 import surface**, so the notebook cannot execute under CI's pinned environment. Atlas JupyterHub has a newer imported package layer, but this task remains manual-only until it receives a complete targeted notebook smoke. The 2026-06-15 weekly `smoke-tier-b` cron confirmed the local failure (`AttributeError: module 'torch' has no attribute 'int1'`). See [issue #10](https://github.com/thekaveh/ml-eng-lab/issues/10) for full context.
+**Manual-only** (was Tier-B from 2026-06-02 to 2026-06-16, then removed from `Makefile` TIER_B after the weekly cron failed). The local/CI contract pins `torch==2.4.1`, which cannot import the required torchao surface. Issue #61 proved the supported side-environment contract with Torch 2.11.0, torchvision 0.26.0, and torchao 0.18.0; torchao 0.18 requires Torch >=2.11. The root stack remains unchanged, and Atlas JupyterHub has not received a complete targeted quantization smoke, so this task stays manual-only. See [issue #10](https://github.com/thekaveh/ml-eng-lab/issues/10) for the original tiering context.
 
-To run locally, use a side environment with `torch>=2.5` and `torchao>=0.17`, then execute the notebook manually:
+To run locally, use the reviewed side pair Torch 2.11.0, torchvision 0.26.0, and torchao 0.18.0, then execute the notebook manually:
 
 ```bash
 cd notebooks/quantization-mnist-ffnn-pytorch

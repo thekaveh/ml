@@ -307,7 +307,7 @@ Three observations:
   repo deliberately dodges after issue #3 (CI hangs on dataset downloads). The embedded form keeps
   the notebook self-contained for nbviewer viewers too.
 - **`en_core_web_sm`-style model downloads are not at issue here, but the BPE trainer is.** The
-  `tokenizers` Rust backend comes via nnx's `[lm]` extra (`thekaveh-nnx[lm]==0.2.2`); a bare
+  `tokenizers` Rust backend comes via nnx's `[lm]` extra (`thekaveh-nnx[lm]==0.2.0`); a bare
   `pip install thekaveh-nnx` without `[lm]` will fail at `train_bpe` with an `ImportError`.
 
 ## 8.16.8 Extensions & references

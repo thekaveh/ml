@@ -10,10 +10,10 @@ of truth for installation.
 
 ### 6.1.1.1 Reproducible four-surface audit
 
-Last reviewed: 2026-08-13. The immutable capture metadata is:
+Last reviewed: 2026-08-12. The immutable capture metadata is:
 
-- UTC capture timestamp: `2026-08-14T01:59:17Z`.
-- Repository commit: `f2225181f2e6dc4187993b2b81f2c45e41155efa`.
+- UTC capture timestamp: `2026-08-13T03:19:27Z`.
+- Repository commit: `45105ca0410c7ea3170665d57567accc7be97461`.
 - Platform: `Darwin` on `arm64`.
 - Interpreter: `Python 3.11.0`.
 - Auditor: `pip-audit 2.10.0`.
@@ -22,42 +22,29 @@ Manifest SHA-256 values:
 
 | Manifest | SHA-256 |
 | --- | --- |
-| `requirements.txt` | `687bc3fb8f049fe90bd0e7c24dc766a8fc1917f71ce1883483aae86f566b44c0` |
+| `requirements.txt` | `3f35f04f95bd1e293c844b41a2dcf96f7978b8c61ccd436e4813a604d9e528a7` |
 | `torch-core-requirements.txt` | `2b99702ae89067c09abe10ddf3eb880eb854871feee7f64a8d51aaa4764578e5` |
 | `torch-requirements.txt` | `771f07b281ee931f45372904da0472b293d9e64b1d0ec6ba11569a9b5a3925ec` |
-| `torch-audit-requirements.txt` | `e5a835bda8f076932c8e1a228a0f7534208d5779d0ed8e63e340cd5a75895733` |
-| `pyg-extension-audit-requirements.txt` | `8e29c8a321bb9d6c764db0468453d6cf81fa50de44166d6c74b40cbb840fcec1` |
 | `docs-requirements.txt` | `9af475ff61cafc56f0edd75e28d9ca41463f87f0790523d5e077a1d71323b9cc` |
 | `atlas-contract-requirements.txt` | `e786c8e7d940a97ae41ce880d5f5bbc62dc4f90ff03fd8c7718849e1c11412b0` |
 
-The commands below mirror the current selector-free audit projection described in
-[the enforcement boundary](#6114-enforcement-boundary). They were run separately from the
-repository root. Exit `0` means no known vulnerabilities were reported; exit `1` means the emitted
-findings form a complete observation. Any exit other than 0/1, missing output, or malformed JSON
-invalidates the observation.
+The commands below are historical capture evidence for this dated snapshot; current enforcement
+uses the selector-free projection described in [the enforcement boundary](#6114-enforcement-boundary).
+They were run separately from the repository root. Exit `0` means no known vulnerabilities were
+reported; exit `1` means the emitted findings form a complete observation. Any exit other than 0/1, missing output, or malformed JSON invalidates the observation.
 
 ```bash
-AUDIT_DIR="$(mktemp -d /private/tmp/ml-eng-lab-issue61-audit.XXXXXX)"
+AUDIT_DIR="$(mktemp -d /private/tmp/ml-eng-lab-issue59-audit.XXXXXX)"
 
-python -m pip_audit -r requirements.txt -r torch-audit-requirements.txt \
+python -m pip_audit -r requirements.txt -r torch-requirements.txt \
   --strict --vulnerability-service pypi --format json \
   --aliases on --desc off --progress-spinner off \
-  --output "$AUDIT_DIR/combined-runtime-resolver.json"
+  --output "$AUDIT_DIR/runtime.json"
 
-python -m pip_audit --disable-pip --no-deps -r pyg-extension-audit-requirements.txt \
+python -m pip_audit -r torch-requirements.txt \
   --strict --vulnerability-service pypi --format json \
   --aliases on --desc off --progress-spinner off \
-  --output "$AUDIT_DIR/combined-runtime-pyg-extensions.json"
-
-python -m pip_audit -r torch-audit-requirements.txt \
-  --strict --vulnerability-service pypi --format json \
-  --aliases on --desc off --progress-spinner off \
-  --output "$AUDIT_DIR/torch-resolver.json"
-
-python -m pip_audit --disable-pip --no-deps -r pyg-extension-audit-requirements.txt \
-  --strict --vulnerability-service pypi --format json \
-  --aliases on --desc off --progress-spinner off \
-  --output "$AUDIT_DIR/torch-pyg-extensions.json"
+  --output "$AUDIT_DIR/torch.json"
 
 python -m pip_audit --disable-pip -r docs-requirements.txt \
   --strict --vulnerability-service pypi --format json \
@@ -70,17 +57,16 @@ python -m pip_audit -r atlas-contract-requirements.txt \
   --output "$AUDIT_DIR/atlas-contract.json"
 ```
 
-| Surface | Manifests | Exit | Resolved Dependencies | Vulnerable Packages | Raw Feed Records | Alias-Aware Unique Identities | Raw JSON SHA-256 |
+| Surface | Manifests | Exit | Resolved Dependencies | Vulnerable Packages | Raw Feed Records | Alias-Aware Unique Identities | JSON SHA-256 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Combined runtime | `requirements.txt`, `torch-audit-requirements.txt`, `pyg-extension-audit-requirements.txt` | 1 / 0 | 194 | 2 | 23 | 21 | `bfc311e6f451b6c5233b7c765a6acc802c8aa4375c64e4e03c431cd925985325`; `8cfbe7f721ba9066edb8d4c4774c2b3f5953960cc8134e2e24a36ad3a086a623` |
-| Torch | `torch-audit-requirements.txt`, `pyg-extension-audit-requirements.txt` | 1 / 0 | 38 | 2 | 23 | 21 | `bce274b4971174bc10376cb29bf84626c9a70d149842d974bf3a02ccc89d1546`; `8cfbe7f721ba9066edb8d4c4774c2b3f5953960cc8134e2e24a36ad3a086a623` |
+| Combined runtime | `requirements.txt`, `torch-requirements.txt` | 1 | 194 | 2 | 23 | 21 | `65db11cbf11f162241fc398674a5f91374a916ac43d4c984694ddb9e254c1ad5` |
+| Torch | `torch-requirements.txt` | 1 | 39 | 2 | 23 | 21 | `faea4c874c75c7260064c96e26fad5e3105d2fd6c2b20d17ee4abbb57043c6b6` |
 | Documentation | `docs-requirements.txt` | 0 | 42 | 0 | 0 | 0 | `c7fb014d9d45092476134bc78fe7e3fd81df93c66733b932c734d5fe27672afe` |
 | Atlas contract | `atlas-contract-requirements.txt` | 0 | 5 | 0 | 0 | 0 | `025906bb0be0ae036140e484f0dcc2845e25e11e36c18a7aa23af5e05fd55db9` |
 
 The runtime and Torch surfaces contain the same 21 alias-aware identities. Their 23 raw records
 are preserved because `PYSEC-2025-191` and `PYSEC-2025-41` each occur twice with independently
 emitted metadata. Counts across surfaces are observations, not additive vulnerability identities.
-The combined runtime resolved `thekaveh-nnx==0.2.2` with no advisory records; this observation is not a remediation claim.
 Several runtime requirements remain open ranges, so the resolver can select newer versions without
 a committed manifest change. This is dated snapshot evidence, not a reproducible lock.
 
@@ -233,22 +219,24 @@ Upgrade criteria:
 
 1. Select a Torch version with matching `torchvision`, `torchaudio`, and PyG CPU
    wheels.
-2. Confirm `torchao>=0.17` imports under that Torch version.
-3. Re-run `make test`, `make verify`, `make test-nnx-surface`, and at least the
-   smoke Tier-B/Tier-C notebooks on Linux.
+2. Confirm the reviewed `torchao==0.18.0` surface imports with its required Torch >=2.11 and a
+   matching torchvision build.
+3. Re-run `make test`, `make verify`, `make test-nnx-surface`, and the complete Tier A/B/C
+   matrix on the candidate environment.
 4. Update README, environment docs, and this ledger in the same change.
 
 ## 6.1.3 Manual-Only Quantization Notebook
 
-`notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb` depends on `torchao>=0.17`.
-That torchao API references `torch.int1` at import time, which is unavailable in
-the pinned `torch==2.4.1` environment. The notebook remains an active task but is
-manual-only until the Torch stack is upgraded.
+`notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb` consumes the torchao quantization
+surface. The reviewed torchao 0.18.0 release requires Torch >=2.11, so it is incompatible with
+the pinned `torch==2.4.1` environment. The notebook remains an active task but is manual-only
+until the Torch stack is upgraded.
 
 Expected local side environment for this notebook:
 
-- `torch>=2.5`
-- `torchao>=0.17`
+- `torch==2.11.0`
+- `torchvision==0.26.0`
+- `torchao==0.18.0`
 
 Do not add the quantization notebook back to `Makefile` Tier-A/B/C until the
 repository-wide local/CI Torch stack supports it. Atlas has a newer observed
@@ -295,25 +283,9 @@ update this section.
 
 ## 6.1.6 NNx PyPI Pin and Editable Override Boundary
 
-`requirements.txt` pins `thekaveh-nnx[lm]==0.2.2`. That PyPI distribution is
-the canonical contract for ml-eng-lab notebook verification and CI.
-
-The reviewed release evidence is immutable and distinct from the install contract:
-
-| Release | Immutable tag commit | Published wheel SHA-256 | Status |
-| --- | --- | --- | --- |
-| 0.2.1 | `074ef22944a39eca8d65052ffa8d01520c5f1f1c` | `d0296143a714f9bb310b508406c6e3b3a21fa0a03d867345bef346e9fb556f20` | Stable, universal, not yanked |
-| 0.2.2 | `edfd197f3f54d4eb67313d46a80e823e6239c5b6` | `ee56474926fdfd5329721f067cf1b8ae31955627c6949844e09ee4a7bb2bb9d7` | Latest stable, universal, not yanked |
-
-The immutable [v0.2.2 release](https://github.com/thekaveh/NNx/releases/tag/v0.2.2) and
-[PyPI project](https://pypi.org/project/thekaveh-nnx/) record the universal wheel. NNx changed
-its upstream license from MIT to Apache-2.0. Version 0.2.2 retains Python `>=3.10`, Torch
-`>=2.0`, torchvision `>=0.15`, and torch-geometric `>=2.4`; those floors remain compatible with
-the repository's existing Python, Torch, and PyG contracts. The published wheel hash is reviewed
-provenance, not a second requirement or a complete dependency lock; Issue #63 retains hash-lock
-ownership.
-
-Record canonical local evidence with:
+`requirements.txt` pins `thekaveh-nnx[lm]==0.2.0`. That PyPI distribution is
+the canonical contract for ml-eng-lab notebook verification and CI. Record canonical local
+evidence with:
 
 ```bash
 make verify-nnx-install
@@ -330,14 +302,20 @@ CI selects the NNx wheel with `--only-binary=thekaveh-nnx` in both `pytest-repos
 tests. This binary-only selection is not a cryptographic hash lock and does not lock the whole
 dependency graph; Issue #63 owns future NNx wheel hash locking.
 
-The release-acceptance tiers apply the same canonical wheel boundary immediately before each
-workload: Tier A covers 17 NNx consumers plus the NumPy control, Tier B covers the image baseline
-and active Reddit exploration/model-selection notebooks, and Tier C covers the four historical
-Reddit final pipelines without overwriting their recorded outputs. A failure in any Tier A, Tier B,
-or Tier C workload is blocking. QAT remains a best-effort isolated Torch >=2.5 side-environment
-checkpoint probe because the canonical Torch 2.4.1 stack cannot import the
-required torchao surface; it does not replace the three canonical tiers or change repository
-requirements.
+Issue #61 reviewed the latest stable 0.2.2 wheel without changing this final contract. A fresh
+canonical trial passed `1,350` repository tests, Tier A `18/18`, Tier B `6/6`, and Tier C `4/4` on
+Darwin arm64; `torch_sparse==0.6.18` imported and the graph tiers completed. The isolated QAT probe
+also passed with Torch 2.11.0, torchvision 0.26.0, and torchao 0.18.0. These results establish that
+the released wheel works in the trial environments, but they do not override the recommended
+Atlas JupyterHub image's independent NNx 0.2.0 pin. Because 0.2.2-only `NNModel.train` identity
+keywords are unsupported there, the repository retained 0.2.0 and removed the trial-only calls.
+
+Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix. Platform
+assumptions do not waive a tier: the Issue #61 Darwin arm64 run disproved the former claim that
+`torch_sparse` made Tier B/C impossible on macOS. Quantization remains a separate manual-only
+probe until Issue #66 defines tiering; torchao 0.18 requires Torch >=2.11, so the accepted side
+environment is the proven Torch 2.11.0 / torchvision 0.26.0 / torchao 0.18.0 combination rather
+than a looser, unverified version floor.
 
 Editable installs are allowed only for intentional upstream NNx development. After installing an
 external checkout editable, run:

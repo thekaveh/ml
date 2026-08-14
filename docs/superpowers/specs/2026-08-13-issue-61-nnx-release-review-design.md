@@ -136,8 +136,9 @@ historical changelog entries, and observed Atlas image evidence remain unchanged
 The active tabular-regression notebook keeps its manual `TensorDataset` and `DataLoader`
 pipeline. That pipeline guarantees the same shared train, validation, and test split used by the
 sklearn baselines. Replacing it with an NNx-owned split would alter the experiment and recorded
-results. Documentation instead marks the former classification-only limitation as resolved in
-0.2.2 and describes `target_dtype=torch.float32` for future callers.
+results. Documentation records that 0.2.2 resolves the upstream limitation, but that the finding
+remains open under the retained 0.2.0 consumer contract. Future callers cannot use
+`target_dtype=torch.float32` until the recommended Atlas runtime advances compatibly.
 
 The following adjacent improvements remain out of scope:
 
@@ -149,7 +150,8 @@ The following adjacent improvements remain out of scope:
   and
 - making ConvNN a new notebook architecture is separate roadmap work.
 
-`docs/FINDINGS-NNX.md` records the regression-target finding as resolved by 0.2.2. The whole-split
+`docs/FINDINGS-NNX.md` records the regression-target fix as reviewed in 0.2.2 but still unavailable
+under the retained 0.2.0 runtime. The whole-split
 `NNDataset` default, ReLU-only `deepen`, regression early-stopping default, and absolute run-save
 path findings remain open. The unrelated `NNRun.load("best")` documentation contradiction is
 corrected to the existing `NNCheckpoint.load(run=<id>, type=Checkpoints.BEST)` contract.
@@ -167,7 +169,9 @@ made material by this release:
   historical Tier-C code; and
 - QAT facade signatures remain exact.
 
-The repository does not duplicate upstream lifecycle, persistence, interruption, and callback
+These additions are trial-only released-wheel probes and are removed if the rollback path is
+selected; the final 0.2.0 suite must not import 0.2.2-only facade or signature surfaces. The
+repository does not duplicate upstream lifecycle, persistence, interruption, and callback
 unit suites. Those behaviors are exercised here through consumer training, notebook execution,
 ordinary checkpoint use, and the optional QAT compatibility probe. Any consumer-visible failure
 rejects the bump.
@@ -186,7 +190,7 @@ dataset behavior. The mandatory validation matrix is therefore:
 | Tier A | Complete `make smoke-tier-a`, artifact, and clean-source checks | Covers 17 NNx consumers plus the NumPy control across custom and standard train steps |
 | Tier B | Complete `make smoke-tier-b` | Covers the image baseline and every active Reddit exploration/model-selection notebook |
 | Tier C | Complete `make smoke-tier-c` | Covers all four historical Reddit final pipelines without overwriting source outputs |
-| Quantization | Existing static/backend-gated tests plus a best-effort isolated Torch >=2.5 QAT checkpoint round trip | Main Torch 2.4.1 cannot import the required torchao surface |
+| Quantization | Existing static/backend-gated tests plus a best-effort isolated Torch 2.11.0 / torchvision 0.26.0 / torchao 0.18.0 QAT checkpoint round trip | Main Torch 2.4.1 cannot import the required torchao surface |
 
 Tier B must run on the feature pull request through its label-controlled job. Tier C runs through
 manual workflow dispatch on the feature ref. Both use temporary outputs; no Tier-C code cell or
@@ -240,8 +244,8 @@ Canonical documentation updates cover:
 
 - current pin and release rationale in the repository and contributor entry points;
 - the 0.2.1 and 0.2.2 delta and validation evidence in the NNx and dependency pages;
-- the resolved tabular-regression limitation in the finding ledger, task README, task spec, and
-  canonical notebook page;
+- the reviewed-but-unavailable tabular-regression improvement in the finding ledger, task README,
+  task spec, and canonical notebook page;
 - exact Tier A/B/C and quantization evidence boundaries;
 - the audit snapshot refresh and immutable historical boundaries; and
 - durable release history in `CHANGELOG.md`.
@@ -263,9 +267,16 @@ The bump is rejected if any of the following occurs:
 - documentation and generated surfaces cannot remain internally consistent.
 
 Rollback restores the single pin to 0.2.0, reverts only release-coupled current documentation and
-tests, reinstalls the binary wheel, and reruns the complete contract. Historical evidence and
-existing 0.2.0 fixtures remain available. No provenance check, audit rule, skip guard, or notebook
-threshold is weakened to make either version pass.
+tests, reinstalls the binary wheel, and reruns the complete contract. It also removes every
+new-only notebook call introduced by the trial: the knowledge-distillation single-generation
+`salt`, the LoRA `salt`, the DoRA `salt`, and the distinct Phase-2 Reddit notebook 1 and notebook 2
+`salt` arguments. Historical evidence and existing 0.2.0 fixtures remain available. No provenance
+check, audit rule, skip guard, or notebook threshold is weakened to make either version pass.
+
+The branch-wide review exercised this rollback path. Although the clean 0.2.2 trial passed every
+local matrix gate, Atlas JupyterHub is the declared default runtime and its image independently
+pins 0.2.0. Retaining the new-only calls would make checked-in notebooks incompatible with that
+default, so the final decision is to retain 0.2.0 and restore the pre-trial advisory snapshot.
 
 ## 12.19.13 GitFlow acceptance
 

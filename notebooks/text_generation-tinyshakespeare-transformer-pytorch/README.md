@@ -44,7 +44,7 @@ make run-tier-a
 - `nnx` (PyPI: `thekaveh-nnx`) — `TransformerNN`, `NNTransformerParams`, `GenerativeNNModel`, `train_bpe`, `NNTokenizerParams`, `TrainStepContext`, `NNEvaluationDataPoint`, `set_seed`.
 - `matplotlib` — loss trajectory plot.
 
-The `nnx.tokenizer` BPE trainer pulls in `tokenizers` (HuggingFace's Rust-backed BPE implementation) via nnx's `[lm]` extra — `requirements.txt` pins `thekaveh-nnx[lm]==0.2.2`, which resolves to `tokenizers>=0.20` + `datasets>=2.20` from the `[project.optional-dependencies] lm = [...]` block in `thekaveh/NNx`'s `pyproject.toml`. The notebook itself doesn't import `tokenizers` directly.
+The `nnx.tokenizer` BPE trainer pulls in `tokenizers` (HuggingFace's Rust-backed BPE implementation) via nnx's `[lm]` extra — `requirements.txt` pins `thekaveh-nnx[lm]==0.2.0`, which resolves to `tokenizers>=0.20` + `datasets>=2.20` from the `[project.optional-dependencies] lm = [...]` block in `thekaveh/NNx`'s `pyproject.toml`. The notebook itself doesn't import `tokenizers` directly.
 
 All in the root `requirements.txt` + `torch-requirements.txt`.
 

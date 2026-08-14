@@ -39,10 +39,10 @@ What the library provides, organized by the surfaces a notebook touches:
 - **Generative modeling** — `GenerativeNNModel`, `TransformerNN`, `NNTransformerParams`,
   plus a BPE training helper (`train_bpe`) and tokenizer params
   (`NNTokenizerParams`) used by the two language-modeling notebooks.
-- **Training history + serialization** — `NNRun` is returned by `model.train(...)` and carries
-  per-iteration evaluation data points (`run.idps[i].train_edp`, `run.idps[i].val_edp`).
-  Checkpoint restoration uses
-  `NNCheckpoint.load(run=RUN_ID, type=Checkpoints.BEST)` in a fresh session.
+- **Training history + serialization** — `NNRun`. The object returned by
+  `model.train(...)`; carries per-iteration evaluation data points (`run.idps[i].train_edp`,
+  `run.idps[i].val_edp`). Restore a best checkpoint in a fresh session with
+  `NNCheckpoint.load(run=RUN_ID, type=Checkpoints.BEST)`.
 - **Visualization** — `VisUtils`. `multi_line_plot`, `confusion_matrix`, and
   related helpers that produce the convergence curves and confusion matrices seen
   throughout the deep-dives.
@@ -66,8 +66,16 @@ NNx is consumed as an ordinary pinned PyPI dependency. The pin lives in
 `requirements.txt`:
 
 ```
-thekaveh-nnx[lm]==0.2.2
+thekaveh-nnx[lm]==0.2.0
 ```
+
+Issue #61 completed a canonical-wheel trial of the latest stable 0.2.2 release. The trial passed
+`1,350` repository tests, Tier A `18/18`, Tier B `6/6`, Tier C `4/4`, and an isolated QAT
+checkpoint round trip. The repository nevertheless retained 0.2.0: local VS Code connected to
+Atlas JupyterHub is the recommended runtime, and that Atlas-owned image independently pins NNx
+0.2.0. Notebook source therefore remains compatible with the default runtime and does not use
+0.2.2-only `NNModel.train` identity keywords. The completed trial is release-review evidence, not
+the current installation contract.
 
 Three consequences worth keeping in mind:
 
@@ -85,24 +93,13 @@ Three consequences worth keeping in mind:
    `nnx` package name is identical between the old git-submodule editable install
    and the new PyPI wheel — only the distribution name (`thekaveh-nnx`) differs.
 
-3. **The pin is exact (`==0.2.2`), not a range.** This is deliberate: nnx is the
-   load-bearing API surface for ~23 active notebooks, and a floating pin would
+3. **The pin is exact (`==0.2.0`), not a range.** This is deliberate: nnx is the
+   load-bearing API surface for 28 of the 29 active notebooks, and a floating pin would
    let an upstream release silently shift a constructor signature under CI's fast
    lane (see `reference-nnx-dev-vs-pypi-drift` in the maintainer memory for the
    post-hoc case that motivated `test_nnx_constructor_calls_use_known_kwargs`).
    Bumping the pin is a deliberate act that triggers Tier-A papermill re-execution
    (see §7.4).
-
-The 0.2.2 adoption reviewed both releases after the former 0.2.0 pin. Version 0.2.1 added
-public Conv, first-class MoE, evaluation-hook, graph-loader, and checkpoint-transform surfaces
-without removing the 0.2.0 facade. Version 0.2.2 retained that facade and added
-`NNTabularDataset(target_dtype=...)`, transactional persistence and warm-resume hardening,
-partial gradient-accumulation completion, and corrected evaluation/target handling. The release
-keeps the existing Python, Torch, torchvision, and PyG compatibility floors; its source-compatible
-API has canonical-wheel and focused consumer-surface verification. Final release acceptance
-remains pending the complete Tier A/B/C consumer matrix in Task 5; no completed-matrix claim is
-made here. Quantization remains a separate best-effort side-environment check because the main
-Torch 2.4.1 environment cannot import the required torchao surface.
 
 ## 7.3 The 2026-06-14 PyPI migration
 
@@ -166,12 +163,11 @@ NNx is not extended inside this repo. The workflow is always:
      (`test_nnx_constructor_calls_use_known_kwargs`). This guard exists precisely
      because the Tier-A gate misses surfaces that no Tier-A notebook exercises —
      it was added after PR #26 surfaced post-hoc `NNGraphDataset(seed=)` drift.
-   - **`make smoke-tier-b` and `make smoke-tier-c`** must be run manually when the
-     NNx change touches graph or quantization surfaces (the Tier-A gate does not
-     cover them — `torch_sparse` is Linux-only and Reddit-scale data does not fit
-     on macOS). The same validation discipline applies as under the prior
-     submodule-pointer-bump workflow; only the trigger (a version-pin diff vs. a
-     submodule-pointer diff) has changed.
+   - **`make smoke-tier-b` and `make smoke-tier-c`** are mandatory for every NNx release
+     review, not conditional on an assumed platform boundary. Issue #61 completed both on clean
+     Darwin arm64 with `torch_sparse==0.6.18`, disproving the former macOS-impossible claim. The
+     same validation discipline applies as under the prior submodule-pointer-bump workflow; only
+     the trigger (a version-pin diff vs. a submodule-pointer diff) has changed.
    - **Manual quantization validation** when the change touches the
      `quantize_int8` / `qat_train_step_factory` surface, since the quantization
      notebook is not in the Tier-A list.
@@ -180,7 +176,7 @@ The two non-negotiables, both learned the hard way:
 
 - **Verify against the released wheel, not the dev checkout.** A local `import nnx`
   resolves to the `thekaveh/NNx` dev source, which is *ahead* of the released
-  `thekaveh-nnx==0.2.2` wheel. A clean local re-execution therefore does not
+  `thekaveh-nnx==0.2.0` wheel. A clean local re-execution therefore does not
   prove CI-compatibility. The dev-vs-PyPI drift case is real and recurs
   (`reference-nnx-dev-vs-pypi-drift`). Reinstall the exact manifest requirement with
   `python -m pip install --force-reinstall --only-binary=thekaveh-nnx -r requirements.txt`, then
@@ -214,9 +210,9 @@ and the suggested upstream fixes:
 - **§9.1.1.2 — `nnx.deepen` is function-preserving only for `Activations.RELU`.**
   Identity-init insertion only preserves the forward for ReLU; the construction-
   time `ValueError` is clear, the constraint just isn't a one-liner to discover.
-- **§9.1.1.3 — resolved in 0.2.2.** `NNTabularDataset(target_dtype=torch.float32)` now supports
-  floating regression targets shaped `(batch, 1)`. The Diabetes notebook intentionally retains
-  its manual DataLoaders to preserve the established sklearn/NNx split.
+- **§9.1.1.3 — `NNTabularDataset` coerces targets to `torch.long` (classification-
+  only).** Documented in the docstring; regression notebooks build the DataLoaders
+  manually.
 - **§9.1.1.4 — `EarlyStopping(monitor=...)` default is `"val_edp.error"`, which does
   not exist for regression EDPs.** Regression callers must pass
   `monitor="val_edp.loss"` explicitly.

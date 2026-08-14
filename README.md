@@ -65,7 +65,7 @@ ml-eng-lab/
 ├── Makefile                                   (papermill tier targets)
 ├── security/                                  (accepted-advisory policy)
 ├── docs/                                      (env/runtime docs, dependency contracts, findings, maintenance log)
-├── requirements.txt + torch-*.txt + pyg-extension-audit-requirements.txt (runtime pins plus audit projections; thekaveh-nnx[lm]==0.2.2)
+├── requirements.txt + torch-*.txt + pyg-extension-audit-requirements.txt (runtime pins plus audit projections; thekaveh-nnx[lm]==0.2.0)
 ├── infra/                                     (Atlas git submodule; pinned infrastructure)
 ├── atlas.consumer.yml                         (ml-eng Atlas consumer contract)
 ├── compose/                                   (parent-owned Atlas compose overlays)
@@ -129,7 +129,7 @@ docker run -p 8888:8888 -v "$(pwd):/home/jovyan/work" --shm-size=4g ml-eng-lab
 ```bash
 python -m venv .venv && source .venv/bin/activate
 make install-torch-stack
-pip install -r requirements.txt   # pulls thekaveh-nnx[lm]==0.2.2 from PyPI
+pip install -r requirements.txt   # pulls thekaveh-nnx[lm]==0.2.0 from PyPI
 make nlp-assets  # one-time spaCy + NLTK assets used by the 2 NLP Tier-A notebooks
 jupyter lab
 ```
@@ -163,7 +163,7 @@ container.
 1. On [github.com/thekaveh/ml-eng-lab](https://github.com/thekaveh/ml-eng-lab) → green **Code** button → **Codespaces** tab → **Create codespace on main**.
 2. Wait ~2-3 min for `postCreateCommand` to run `make codespace-setup` (= Torch-first dependency install + `make nlp-assets`). Progress is visible in the terminal panel.
 3. Open any notebook. You can either:
-   - **Stay in VS Code (browser)** — the Jupyter / Python extensions are preinstalled per the devcontainer config; works for the 28 tier-covered active notebooks. The quantization notebook is manual-only under `torch>=2.5`.
+   - **Stay in VS Code (browser)** — the Jupyter / Python extensions are preinstalled per the devcontainer config; works for the 28 tier-covered active notebooks. The quantization notebook is manual-only in the reviewed Torch 2.11.0 / torchvision 0.26.0 / torchao 0.18.0 side environment.
    - **Switch to JupyterLab** — click the dropdown next to "Open" on github.com → choose JupyterLab. To make JupyterLab the single-click default for all your codespaces, go to [github.com/settings/codespaces → Editor preference → JupyterLab](https://github.com/settings/codespaces).
 
 See [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) for the exact image + extension set, and [`Makefile`](Makefile) `codespace-setup` target for the Codespaces/venv install recipe. The §3.2 Docker path bakes the same Torch-first dependency order into [`Dockerfile`](Dockerfile). GitHub currently includes 120 Codespaces compute hours per month for Free accounts and 180 for Pro; on the default two-core machine, that corresponds to 60 or 90 machine-hours.
@@ -226,7 +226,7 @@ See [docs/env-setup.md](docs/env-setup.md) for the tier mapping.
 
 Throughout this README, `NNx` refers to the [GitHub project](https://github.com/thekaveh/NNx); the importable Python package is lowercase `nnx`; the PyPI distribution is [`thekaveh-nnx`](https://pypi.org/project/thekaveh-nnx/).
 
-The library is consumed via PyPI — `thekaveh-nnx[lm]==0.2.2` is pinned in `requirements.txt` (adopted 2026-08-13 with immutable release provenance and canonical-wheel consumer coverage; Tier A/B/C remain the complete release-acceptance boundary). The PyPI migration replaced the prior git-submodule editable install on 2026-06-14. The `[lm]` extra pulls the BPE tokenizer + datasets backbone for the two notebooks that call `train_bpe`/`NNTokenizerParams` (`notebooks/text_generation-tinyshakespeare-transformer-pytorch/notebook.ipynb` and `notebooks/preference_alignment-toy-dpo-pytorch/notebook.ipynb`); without it both `ImportError` (issue #12). Notebooks import via `from nnx.X import Y` exactly as before — only the distribution name and install mechanism changed.
+The library is consumed via PyPI — `thekaveh-nnx[lm]==0.2.0` is pinned in `requirements.txt` (since 2026-06-14, replacing the prior git-submodule editable install). Issue #61 completed a clean released-wheel review of 0.2.2 but retained 0.2.0 because the recommended Atlas JupyterHub runtime is independently pinned to 0.2.0 and cannot execute 0.2.2-only notebook calls. The `[lm]` extra pulls the BPE tokenizer + datasets backbone for the two notebooks that call `train_bpe`/`NNTokenizerParams` (`notebooks/text_generation-tinyshakespeare-transformer-pytorch/notebook.ipynb` and `notebooks/preference_alignment-toy-dpo-pytorch/notebook.ipynb`); without it both `ImportError` (issue #12). Notebooks import via `from nnx.X import Y` exactly as before — only the distribution name and install mechanism changed.
 
 Released-wheel evidence is defined by the [canonical dependency contract](docs/dependency-contracts.md)
 and checked locally with `make verify-nnx-install`. For intentional upstream development, install

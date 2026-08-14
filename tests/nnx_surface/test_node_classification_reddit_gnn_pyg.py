@@ -59,9 +59,9 @@ def _has_pyg_sampler() -> bool:
 
 _HAS_PYG_SAMPLER = _has_pyg_sampler()
 _PYG_SAMPLER_SKIP_REASON = (
-    "PyG NeighborLoader requires pyg-lib or torch-sparse at runtime; "
-    "wheels only available on linux/x86 via torch-requirements.txt find-links. "
-    "CI installs them; local Darwin/ARM skips. Constructor + n_heads contract "
+    "PyG NeighborLoader requires optional pyg-lib or torch-sparse at runtime; neither is "
+    "installed in this focused environment. Issue #61 proved the complete graph matrix on "
+    "Darwin arm64 with torch_sparse==0.6.18. Constructor + n_heads contract "
     "(test_nnparams_state_round_trips_n_heads) still runs."
 )
 

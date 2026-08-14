@@ -31,8 +31,8 @@ The `nnx` library factors the loop into configuration objects and a single `.tra
 the loaders, and the optimizer block (`NNOptimParams`). The returned `NNRun` is the training
 history — a list of iteration data points (`run.idps`), each carrying `train_edp` and `val_edp`
 (evaluation data points with `error`, `accuracy`, `precision`, `recall`, `f1`, `loss`, `lr`). The
-checkpoint API restores persisted state in a fresh session with
-`NNCheckpoint.load(run=RUN_ID, type=Checkpoints.BEST)`.
+best-checkpoint restoration uses `NNCheckpoint.load(run=RUN_ID, type=Checkpoints.BEST)` in a
+fresh session.
 
 ### 3.1.2 Loss functions
 

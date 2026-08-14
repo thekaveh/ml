@@ -54,7 +54,7 @@ make run-tier-a
 - `matplotlib` — DPO loss trajectory plot.
 - `prettytable` — before/after gap table.
 
-All in the root `requirements.txt` + `torch-requirements.txt`. The `tokenizers` package (HuggingFace's Rust-backed BPE) is pulled in via nnx's `[lm]` extra — `requirements.txt` pins `thekaveh-nnx[lm]==0.2.2` (issue #12).
+All in the root `requirements.txt` + `torch-requirements.txt`. The `tokenizers` package (HuggingFace's Rust-backed BPE) is pulled in via nnx's `[lm]` extra — `requirements.txt` pins `thekaveh-nnx[lm]==0.2.0` (issue #12).
 
 ## 6. Known issues
 

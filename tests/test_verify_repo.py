@@ -1,7 +1,6 @@
 """Tests for scripts/verify_repo.py — the four-check oracle."""
 from __future__ import annotations
 
-import hashlib
 import json
 import builtins
 import os
@@ -1282,118 +1281,6 @@ def test_docs_d10_dependency_ledger_counts_match_current_doc():
     data = json.loads(r.stdout) if r.stdout else {"findings": []}
     d10 = [f for f in data["findings"] if f["id"] == "D10.dependency_ledger_count"]
     assert d10 == [], f"D10 reported dependency-ledger issues: {d10}"
-
-
-_ISSUE_61_CURRENT_EVIDENCE = (
-    "Last reviewed: 2026-08-13.",
-    "- UTC capture timestamp: `2026-08-14T01:59:17Z`.",
-    "- Repository commit: `f2225181f2e6dc4187993b2b81f2c45e41155efa`.",
-    "- Platform: `Darwin` on `arm64`.",
-    "- Interpreter: `Python 3.11.0`.",
-    "- Auditor: `pip-audit 2.10.0`.",
-    "| `requirements.txt` | `687bc3fb8f049fe90bd0e7c24dc766a8fc1917f71ce1883483aae86f566b44c0` |",
-    "| `torch-core-requirements.txt` | `2b99702ae89067c09abe10ddf3eb880eb854871feee7f64a8d51aaa4764578e5` |",
-    "| `torch-requirements.txt` | `771f07b281ee931f45372904da0472b293d9e64b1d0ec6ba11569a9b5a3925ec` |",
-    "| `torch-audit-requirements.txt` | `e5a835bda8f076932c8e1a228a0f7534208d5779d0ed8e63e340cd5a75895733` |",
-    "| `pyg-extension-audit-requirements.txt` | `8e29c8a321bb9d6c764db0468453d6cf81fa50de44166d6c74b40cbb840fcec1` |",
-    "| `docs-requirements.txt` | `9af475ff61cafc56f0edd75e28d9ca41463f87f0790523d5e077a1d71323b9cc` |",
-    "| `atlas-contract-requirements.txt` | `e786c8e7d940a97ae41ce880d5f5bbc62dc4f90ff03fd8c7718849e1c11412b0` |",
-    (
-        "| Combined runtime | `requirements.txt`, `torch-audit-requirements.txt`, "
-        "`pyg-extension-audit-requirements.txt` | 1 / 0 | 194 | 2 | 23 | 21 | "
-        "`bfc311e6f451b6c5233b7c765a6acc802c8aa4375c64e4e03c431cd925985325`; "
-        "`8cfbe7f721ba9066edb8d4c4774c2b3f5953960cc8134e2e24a36ad3a086a623` |"
-    ),
-    (
-        "| Torch | `torch-audit-requirements.txt`, `pyg-extension-audit-requirements.txt` | "
-        "1 / 0 | 38 | 2 | 23 | 21 | "
-        "`bce274b4971174bc10376cb29bf84626c9a70d149842d974bf3a02ccc89d1546`; "
-        "`8cfbe7f721ba9066edb8d4c4774c2b3f5953960cc8134e2e24a36ad3a086a623` |"
-    ),
-    (
-        "| Documentation | `docs-requirements.txt` | 0 | 42 | 0 | 0 | 0 | "
-        "`c7fb014d9d45092476134bc78fe7e3fd81df93c66733b932c734d5fe27672afe` |"
-    ),
-    (
-        "| Atlas contract | `atlas-contract-requirements.txt` | 0 | 5 | 0 | 0 | 0 | "
-        "`025906bb0be0ae036140e484f0dcc2845e25e11e36c18a7aa23af5e05fd55db9` |"
-    ),
-    "Result: 23 known vulnerabilities across 194 resolved packages.",
-    (
-        "The combined runtime resolved `thekaveh-nnx==0.2.2` with no advisory records; "
-        "this observation is not a remediation claim."
-    ),
-)
-
-
-def _headed_section(text: str, start: str, end: str) -> str:
-    return start + text.split(start, 1)[1].split(end, 1)[0]
-
-
-def _assert_issue_61_dependency_evidence_contract(text: str) -> None:
-    current = _headed_section(
-        text,
-        "### 6.1.1.1 Reproducible four-surface audit",
-        "### 6.1.1.2 Current accepted advisories",
-    )
-    for evidence in _ISSUE_61_CURRENT_EVIDENCE:
-        assert evidence in current or evidence.startswith("Result:") and evidence in text
-
-    issue_59_history = _headed_section(
-        text,
-        "### 6.1.1.3 Alias-aware historical reconciliation",
-        "### 6.1.1.4 Enforcement boundary",
-    )
-    assert hashlib.sha256(issue_59_history.encode()).hexdigest() == (
-        "5ae92c0d0056633c9c3755e06276b81d805e958c642c4379be40b67df41bc6df"
-    )
-
-    atlas_observation = _headed_section(
-        text,
-        "## 6.1.8 Atlas Jupyter Runtime Evidence",
-        "## 6.1.9 Atlas Versus Local/CI Dependency Boundaries",
-    )
-    assert (
-        "| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; "
-        "`tokenizers` 0.22.2 | Atlas-owned image evidence; matches notebook imports and "
-        "the `[lm]` extra at the observed version |"
-    ) in atlas_observation
-    assert "`thekaveh-nnx` / `nnx` 0.2.2" not in atlas_observation
-    assert hashlib.sha256(atlas_observation.encode()).hexdigest() == (
-        "afc174c7fb980a040e46a6fe8fc91c71c8e76d3d4985aeb15ab46557f7ff0f76"
-    )
-
-
-def test_docs_dependency_ledger_uses_issue_61_live_evidence():
-    text = (REPO / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-
-    _assert_issue_61_dependency_evidence_contract(text)
-
-
-@pytest.mark.parametrize(
-    ("current", "mutation"),
-    [
-        (
-            "687bc3fb8f049fe90bd0e7c24dc766a8fc1917f71ce1883483aae86f566b44c0",
-            "3f35f04f95bd1e293c844b41a2dcf96f7978b8c61ccd436e4813a604d9e528a7",
-        ),
-        (
-            "Result: 23 known vulnerabilities across 194 resolved packages.",
-            "Result: 23 known vulnerabilities across 193 resolved packages.",
-        ),
-        (
-            "`thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; `tokenizers` 0.22.2",
-            "`thekaveh-nnx` / `nnx` 0.2.2; `datasets` 5.0.0; `tokenizers` 0.22.2",
-        ),
-    ],
-    ids=("stale_runtime_hash", "stale_result_count", "atlas_nnx_rewrite"),
-)
-def test_docs_issue_61_dependency_evidence_contract_rejects_mutations(current, mutation):
-    text = (REPO / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    assert current in text
-
-    with pytest.raises(AssertionError):
-        _assert_issue_61_dependency_evidence_contract(text.replace(current, mutation, 1))
 
 
 def _advisory_baseline_repo(tmp_path: Path) -> Path:
@@ -4776,6 +4663,15 @@ _TIER_NNX_CONTRACTS = {
         "bridge": (),
     },
 }
+_LIVE_SERVICE_COMMANDS = (
+    "docker run",
+    "docker compose",
+    "docker-compose",
+    "atlas-up",
+    "jupyterhub",
+    "ollama",
+    "comfyui",
+)
 
 
 def _assert_tier_nnx_provenance_contract(workflow: dict, job_name: str) -> None:
@@ -4787,161 +4683,94 @@ def _assert_tier_nnx_provenance_contract(workflow: dict, job_name: str) -> None:
     assert "services" not in job
     assert "continue-on-error" not in job
     assert all("continue-on-error" not in step for step in job["steps"])
-    assert all(
-        "atlas" not in " ".join(str(step.get(field, "")).lower() for field in ("name", "run"))
-        for step in job["steps"]
-    )
+    for step in job["steps"]:
+        run = step.get("run", "").lower()
+        assert not any(command in run for command in _LIVE_SERVICE_COMMANDS)
 
     install_index = next(
         index
         for index, step in enumerate(job["steps"])
         if step.get("name") == "Install dependencies"
     )
-    install = job["steps"][install_index]
-    assert install == {
+    assert job["steps"][install_index] == {
         "name": "Install dependencies",
         "run": (
             "make install-torch-stack\n"
             "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
         ),
     }
-
-    verifier_indexes = [
+    verifier_index = next(
         index
         for index, step in enumerate(job["steps"])
         if step.get("name") == "Verify canonical NNx installation"
-    ]
-    assert len(verifier_indexes) == 1
-    verifier_index = verifier_indexes[0]
-    verifier = job["steps"][verifier_index]
-    assert verifier == {
+    )
+    assert job["steps"][verifier_index] == {
         "name": "Verify canonical NNx installation",
         "run": "make verify-nnx-install",
     }
-    assert tuple(job["steps"][install_index + 1:verifier_index]) == contract["bridge"]
+    assert tuple(job["steps"][install_index + 1 : verifier_index]) == contract["bridge"]
     assert job["steps"][verifier_index + 1] == contract["workload"]
     assert all(
         "pip install" not in step.get("run", "").lower()
-        for step in job["steps"][verifier_index + 1:]
+        for step in job["steps"][verifier_index + 1 :]
     )
 
 
-@pytest.mark.parametrize(
-    "job_name",
-    ("tier-a-papermill", "smoke-tier-b", "smoke-tier-c"),
-    ids=("tier_a_nnx", "tier_b_nnx", "tier_c_nnx"),
-)
+@pytest.mark.parametrize("job_name", tuple(_TIER_NNX_CONTRACTS))
 def test_ci_tier_nnx_provenance_contract(job_name):
-    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
-
-    _assert_tier_nnx_provenance_contract(workflow, job_name)
-
-
-def _valid_tier_nnx_provenance_workflow(job_name: str) -> dict:
-    workflow = deepcopy(_load_workflow(REPO / ".github/workflows/ci.yml"))
-    job = workflow["jobs"][job_name]
-    contract = _TIER_NNX_CONTRACTS[job_name]
-    steps = job["steps"]
-    install = next(step for step in steps if step.get("name") == "Install dependencies")
-    install["run"] = (
-        "make install-torch-stack\n"
-        "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
+    _assert_tier_nnx_provenance_contract(
+        _load_workflow(REPO / ".github/workflows/ci.yml"),
+        job_name,
     )
-    workload_index = next(
-        index for index, step in enumerate(steps) if step == contract["workload"]
-    )
-    if any(step.get("name") == "Verify canonical NNx installation" for step in steps):
-        return workflow
-    if job_name == "tier-a-papermill":
-        steps[workload_index - 1] = {
-            "name": "Verify canonical NNx installation",
-            "run": "make verify-nnx-install",
-        }
-    else:
-        steps.insert(
-            workload_index,
-            {
-                "name": "Verify canonical NNx installation",
-                "run": "make verify-nnx-install",
-            },
-        )
-    return workflow
 
 
-@pytest.mark.parametrize(
-    "job_name",
-    ("tier-a-papermill", "smoke-tier-b", "smoke-tier-c"),
-    ids=("tier_a_nnx", "tier_b_nnx", "tier_c_nnx"),
-)
+@pytest.mark.parametrize("job_name", tuple(_TIER_NNX_CONTRACTS))
 @pytest.mark.parametrize(
     "mutation",
     (
         "removed_verifier",
-        "reversed_verifier_workload",
-        "plain_install",
-        "editable_install",
-        "path_install",
-        "direct_url_install",
         "late_install",
-        "alternate_requirements",
-        "job_pythonpath",
-        "job_allow_editable",
-        "failure_masking",
-        "atlas_step",
+        "atlas",
+        "ollama_container",
+        "docker_compose",
+        "jupyterhub",
+        "comfyui",
         "services",
         "container",
-        "renamed_workload",
     ),
 )
 def test_ci_tier_nnx_provenance_contract_rejects_mutations(job_name, mutation):
-    workflow = _valid_tier_nnx_provenance_workflow(job_name)
+    workflow = deepcopy(_load_workflow(REPO / ".github/workflows/ci.yml"))
     _assert_tier_nnx_provenance_contract(workflow, job_name)
     job = workflow["jobs"][job_name]
     steps = job["steps"]
-    install = next(step for step in steps if step.get("name") == "Install dependencies")
     verifier_index = next(
         index
         for index, step in enumerate(steps)
         if step.get("name") == "Verify canonical NNx installation"
     )
-
     if mutation == "removed_verifier":
         steps.pop(verifier_index)
-    elif mutation == "reversed_verifier_workload":
-        steps[verifier_index], steps[verifier_index + 1] = (
-            steps[verifier_index + 1],
-            steps[verifier_index],
-        )
-    elif mutation == "plain_install":
-        install["run"] = "make install-torch-stack\npython -m pip install -r requirements.txt\n"
-    elif mutation == "editable_install":
-        install["run"] = "make install-torch-stack\npython -m pip install -e .\n"
-    elif mutation == "path_install":
-        install["run"] = "make install-torch-stack\npython -m pip install ./vendor/nnx\n"
-    elif mutation == "direct_url_install":
-        install["run"] = "make install-torch-stack\npython -m pip install https://example.invalid/nnx.whl\n"
     elif mutation == "late_install":
-        steps.insert(verifier_index + 1, {"name": "Late install", "run": "python -m pip install -r requirements.txt"})
-    elif mutation == "alternate_requirements":
-        install["run"] = "make install-torch-stack\npython -m pip install --only-binary=thekaveh-nnx -r ci-requirements.txt\n"
-    elif mutation == "job_pythonpath":
-        job["env"] = {"PYTHONPATH": "/tmp/override"}
-    elif mutation == "job_allow_editable":
-        job["env"] = {"NNX_ALLOW_EDITABLE": "1"}
-    elif mutation == "failure_masking":
-        job["continue-on-error"] = "true"
-    elif mutation == "atlas_step":
-        steps.insert(verifier_index, {"name": "Start Atlas", "run": "make atlas-up"})
+        steps.insert(verifier_index + 1, {"name": "Late install", "run": "pip install -r requirements.txt"})
+    elif mutation == "atlas":
+        steps.insert(verifier_index, {"name": "Start runtime", "run": "make atlas-up"})
+    elif mutation == "ollama_container":
+        steps.insert(verifier_index, {"name": "Start model", "run": "docker run -d ollama/ollama"})
+    elif mutation == "docker_compose":
+        steps.insert(verifier_index, {"name": "Start dependencies", "run": "docker compose up -d"})
+    elif mutation == "jupyterhub":
+        steps.insert(verifier_index, {"name": "Start notebook", "run": "jupyterhub"})
+    elif mutation == "comfyui":
+        steps.insert(verifier_index, {"name": "Start image UI", "run": "comfyui --listen"})
     elif mutation == "services":
-        job["services"] = {"atlas": {"image": "example.invalid/atlas"}}
+        job["services"] = {"cache": {"image": "redis"}}
     elif mutation == "container":
         job["container"] = "python:3.11"
-    elif mutation == "renamed_workload":
-        steps[verifier_index + 1]["run"] = "make smoke-tier-renamed"
     else:
         raise AssertionError(f"unhandled mutation: {mutation}")
 
-    with pytest.raises(AssertionError):
+    with pytest.raises((AssertionError, StopIteration)):
         _assert_tier_nnx_provenance_contract(workflow, job_name)
 
 

@@ -7,6 +7,11 @@
 - **Model:** `nnx.FeedFwdNN` (`Nets.FEED_FWD`), `Activations.RELU`, `hidden_dims=[128, 64]`.
 - **Framework:** PyTorch (via [`thekaveh-nnx`](https://github.com/thekaveh/NNx)).
 
+The committed outputs and repeated adaptation run IDs are preserved NNx 0.2.0-era evidence.
+Issue #61's 0.2.2 trial used temporary outputs; after the repository retained 0.2.0 for the
+recommended Atlas runtime, the checked-in source remained unsalted and the historical outputs
+were not rewritten.
+
 ## 2. Why this exists
 
 LoRA (Hu et al., 2021) is the dominant adapter recipe: freeze the pretrained weights, augment each `Linear` `W ∈ ℝᵈˣᵏ` with a rank-`r` low-rank update `(α/r) BA` and train only `A`, `B`. **DoRA** (Liu et al., NVIDIA ICML 2024 Oral) refines LoRA with a magnitude/direction decomposition `W = m · V / ‖V‖_c` where `V = W₀ + (α/r) BA` and `m` is a trainable per-output-row magnitude vector initialized from `‖W₀‖_c`. At step 0 both keep `forward(x) == base(x)` exactly.
@@ -14,8 +19,6 @@ LoRA (Hu et al., 2021) is the dominant adapter recipe: freeze the pretrained wei
 `nnx.apply_lora_to(net, "layers.*", r=8, alpha=16)` and `nnx.apply_dora_to(net, "layers.*", r=8, alpha=16)` wrap every matched `Linear` in the corresponding adapter, freeze the base, and return the count of wraps. `nnx.save_lora_weights` + `nnx.load_lora_weights` persist *only* the adapter tensors (the base stays where it is — typical adapter files are a few dozen KB).
 
 This notebook runs both recipes on the same MNIST → Fashion-MNIST cross-task adaptation so the recipe-level trade-offs are directly readable.
-
-Historical-output boundary: The committed outputs and repeated adaptation run IDs are a historical NNx 0.2.0 snapshot, not current NNx 0.2.2 acceptance evidence. Current execution keeps the full-fine-tune control unsalted and assigns stable `lora-adaptation` and `dora-adaptation` salts to the adapter runs so each experiment has a distinct history.
 
 ## 3. What's in the notebook
 

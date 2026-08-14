@@ -78,7 +78,7 @@ def test_current_requirement_is_the_canonical_nnx_lm_pin():
 
     pin = parse_nnx_pin(requirements_text)
 
-    assert pin.version == "0.2.2"
+    assert pin.version == "0.2.0"
     assert pin.extras == frozenset({"lm"})
 
 

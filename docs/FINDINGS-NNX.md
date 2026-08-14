@@ -2,15 +2,13 @@
 
 > **Note (2026-06-14)**: ml-eng-lab switched from a git submodule at `./nnx` to the `thekaveh-nnx` PyPI distribution. Source paths cited below (e.g. `nnx/src/nnx/nn/dataset/nn_dataset.py:24`) refer to the upstream [`thekaveh/NNx`](https://github.com/thekaveh/NNx) repo, not a local submodule.
 
-Issues found by the verify_repo.py loop in the `nnx` (PyPI: `thekaveh-nnx`) library. They are
-surfaced here for upstream follow-up in [thekaveh/NNx](https://github.com/thekaveh/NNx), with
-their current resolution status retained in this consumer ledger.
+Issues found by the verify_repo.py loop in the `nnx` (PyPI: `thekaveh-nnx`) library. These are
+NOT fixed by this loop (per spec §1.3); they are surfaced here for an upstream
+PR follow-up to [thekaveh/NNx](https://github.com/thekaveh/NNx).
 
 ## 9.1.1 Findings
 
 ### 9.1.1.1 `NNDataset` default `batch_size` packs the whole train set into one batch
-
-**Status: Open.**
 
 Surfaced by: `diffusion-mnist-ddpm-pytorch`, `moe-fmnist-mixture-of-experts-pytorch`, `self_supervised-fmnist-jepa-pytorch`. `text_generation-tinyshakespeare-transformer-pytorch` has the same small-batch training need, but it uses an intentional custom sequence-window dataset rather than bypassing `NNDataset`.
 
@@ -27,8 +25,6 @@ train_loader = DataLoader(ds.train_loader.dataset, batch_size=128, shuffle=True)
 
 ### 9.1.1.2 `nnx.deepen` is function-preserving only for `Activations.RELU`
 
-**Status: Open.**
-
 Surfaced by: `model_surgery-mnist-ffnn-pytorch`.
 
 `nnx.deepen(net, after_layer_name=...)` inserts an identity-init `Linear` after a target Linear. The identity init only preserves the forward output when the *activation between* the original Linear and the new Linear is ReLU (since `ReLU(I x) == ReLU(x)` for any `x`; sigmoid/tanh/GELU pass non-negative *and* negative values through differently).
@@ -37,22 +33,13 @@ On any non-ReLU activation the surgery raises `ValueError: deepen: activation is
 
 **Suggested upstream fix**: implement an activation-aware identity init for sigmoid / tanh / GELU (different bias init that makes the forward equivalent), OR document the constraint more prominently in the `deepen` docstring. The current error message is excellent — the constraint just isn't a one-liner to discover before tripping over it.
 
-### 9.1.1.3 `NNTabularDataset` regression targets
-
-**Status: Resolved in 0.2.2.**
+### 9.1.1.3 `NNTabularDataset` coerces targets to `torch.long` (classification-only)
 
 Surfaced by: `tabular_regression-diabetes-mlp-pytorch`.
 
-Before 0.2.2, `NNTabularDataset(..., y_col=...)` coerced targets to `torch.long`. That behavior
-was correct for classification but incompatible with regression, where
-`Losses.MEAN_SQUARED_ERROR` expects floating targets shaped `(N, 1)`.
+The retained NNx 0.2.0 contract's `NNTabularDataset(..., target_col=...)` hard-codes `y = torch.tensor(..., dtype=torch.long)` in `__post_init__`. This is correct for classification but breaks regression: `Losses.MEAN_SQUARED_ERROR` expects `float32` targets of shape `(N, 1)`.
 
-NNx 0.2.2 resolves the library limitation: future callers can use
-`NNTabularDataset(..., target_dtype=torch.float32)` to obtain floating targets shaped
-`(batch, 1)`. The default `target_dtype=None` preserves the existing integer classification
-behavior.
-
-The existing Diabetes notebook intentionally retains its manual DataLoaders:
+Regression notebooks must build the DataLoaders manually:
 
 ```python
 DataLoader(
@@ -64,13 +51,13 @@ DataLoader(
 )
 ```
 
-That choice preserves the established sklearn/NNx train, validation, and test split and therefore
-the recorded comparison metrics. Replacing it with an NNx-owned split would change the experiment;
-the manual pipeline is no longer a library workaround.
+The `NNTabularDataset` docstring already says *"For regression, prefer to construct the DataLoaders yourself"* — so this is documented behavior, not a bug.
+
+**Upstream status**: NNx 0.2.2 added `target_dtype=torch.float32`, and Issue #61 proved that
+surface in an isolated release trial. ml-eng-lab retains 0.2.0 for Atlas-default compatibility,
+so this finding remains open for the current runtime and the notebook keeps its manual loader.
 
 ### 9.1.1.4 `EarlyStopping(monitor=...)` default is `"val_edp.error"`, doesn't exist for regression EDPs
-
-**Status: Open.**
 
 Surfaced by: `tabular_regression-diabetes-mlp-pytorch` (documented in §6, not actually exercised in the notebook).
 
@@ -79,8 +66,6 @@ Surfaced by: `tabular_regression-diabetes-mlp-pytorch` (documented in §6, not a
 **Suggested upstream fix**: detect at construction whether the loss is regression-style (MSE, MAE) and default `monitor="val_edp.loss"` in that case.
 
 ### 9.1.1.5 `NNRun.save()` prints an absolute path, leaking the execution environment layout
-
-**Status: Open.**
 
 Surfaced by: historical active notebook outputs carrying baked-in local paths
 such as maintainer worktrees, JupyterHub mounts, removed in-repo source trees,

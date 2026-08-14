@@ -2531,13 +2531,9 @@ def test_runtime_available_requires_pyg_extension_stack(monkeypatch):
 
 
 def _torch_runtime_import_names(repo: Path) -> set[str]:
-    return _torch_runtime_import_names_from_source(
+    tree = ast.parse(
         (repo / "scripts/verify_torch_stack.py").read_text(encoding="utf-8")
     )
-
-
-def _torch_runtime_import_names_from_source(source: str) -> set[str]:
-    tree = ast.parse(source)
     assignment = next(
         node for node in tree.body
         if isinstance(node, ast.Assign)
@@ -2551,12 +2547,6 @@ def _torch_runtime_import_names_from_source(source: str) -> set[str]:
     return set(imports.values())
 
 
-def _assert_torch_runtime_contract(verifier_source: str, availability_source: str) -> None:
-    forbidden = {"torch_cluster", "torch_spline_conv"}
-    assert forbidden.isdisjoint(_torch_runtime_import_names_from_source(verifier_source))
-    assert forbidden.isdisjoint(availability_source.split())
-
-
 def test_issue62_runtime_availability_uses_only_supported_graph_modules():
     required = {"pyg_lib", "torch_scatter", "torch_sparse", "torch_geometric"}
     forbidden = {"torch_cluster", "torch_spline_conv"}
@@ -2567,20 +2557,84 @@ def test_issue62_runtime_availability_uses_only_supported_graph_modules():
     )
 
 
+def _copied_torch_runtime_contract_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    for relative in (
+        "scripts/verify_torch_stack.py",
+        "scripts/verify_repo.py",
+        ".github/workflows/ci.yml",
+        "Dockerfile",
+    ):
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text((REPO_ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
+    return repo
+
+
+def _torch_runtime_contract_findings(repo: Path):
+    return [
+        finding for finding in verify_repo.check_docs(repo).findings
+        if finding.id == "D10.torch_runtime_contract"
+    ]
+
+
+def test_torch_runtime_contract_clean_control_has_no_production_finding(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+
+    assert _torch_runtime_contract_findings(repo) == []
+
+
 @pytest.mark.parametrize("forbidden", ("torch_cluster", "torch_spline_conv"))
-def test_torch_runtime_contract_rejects_legacy_import_mutations(forbidden: str) -> None:
-    verifier_source = (REPO_ROOT / "scripts/verify_torch_stack.py").read_text(encoding="utf-8")
-    availability_source = " ".join(verify_repo._RUNTIME_AVAILABLE_IMPORTS)
-    mutated_verifier = verifier_source.replace(
-        '    "torch-sparse": "torch_sparse",',
-        f'    "torch-sparse": "torch_sparse",\n    "{forbidden.replace("_", "-")}": "{forbidden}",',
-        1,
+@pytest.mark.parametrize("declaration", ("IMPORTS", "_RUNTIME_ONLY_MODULES", "_RUNTIME_AVAILABLE_IMPORTS"))
+def test_torch_runtime_contract_rejects_legacy_declaration_mutations(
+    tmp_path: Path, forbidden: str, declaration: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    source_path = repo / ("scripts/verify_torch_stack.py" if declaration == "IMPORTS" else "scripts/verify_repo.py")
+    source = source_path.read_text(encoding="utf-8")
+    anchor = '    "torch-sparse": "torch_sparse",' if declaration == "IMPORTS" else '    "torch_sparse",'
+    replacement = anchor + f'\n    "{forbidden}",'
+    mutated = source.replace(anchor, replacement, 1)
+    assert mutated != source
+    source_path.write_text(mutated, encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize("required", ("torch_geometric", "pyg_lib", "torch_scatter", "torch_sparse"))
+@pytest.mark.parametrize("declaration", ("IMPORTS", "_RUNTIME_ONLY_MODULES", "_RUNTIME_AVAILABLE_IMPORTS"))
+def test_torch_runtime_contract_rejects_missing_required_modules(
+    tmp_path: Path, required: str, declaration: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    source_path = repo / ("scripts/verify_torch_stack.py" if declaration == "IMPORTS" else "scripts/verify_repo.py")
+    source = source_path.read_text(encoding="utf-8")
+    anchor = f'    "{required.replace("_", "-")}": "{required}",'
+    if declaration != "IMPORTS":
+        anchor = f'    "{required}",'
+    mutated = source.replace(anchor + "\n", "", 1)
+    assert mutated != source
+    source_path.write_text(mutated, encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize(("path", "prefix"), (
+    (".github/workflows/ci.yml", "run:"),
+    ("Dockerfile", "RUN"),
+))
+@pytest.mark.parametrize("forbidden", ("torch_cluster", "torch_spline_conv"))
+def test_torch_runtime_contract_rejects_ci_and_docker_runtime_mutations(
+    tmp_path: Path, path: str, prefix: str, forbidden: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / path
+    target.write_text(
+        target.read_text(encoding="utf-8") + f'\n{prefix} python -c "import {forbidden}"\n',
+        encoding="utf-8",
     )
-    assert mutated_verifier != verifier_source
-    with pytest.raises(AssertionError):
-        _assert_torch_runtime_contract(mutated_verifier, availability_source)
-    with pytest.raises(AssertionError):
-        _assert_torch_runtime_contract(verifier_source, availability_source + f" {forbidden}")
+
+    assert _torch_runtime_contract_findings(repo)
 
 
 def test_full_execution_uses_temporary_tier_a_outputs(tmp_path, monkeypatch):

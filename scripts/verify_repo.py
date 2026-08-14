@@ -15,6 +15,7 @@ import importlib.util
 import io
 import json
 import re
+import shlex
 import subprocess
 import sys
 import tokenize
@@ -178,7 +179,7 @@ _FORBIDDEN_TOPLEVEL_DIRS = ("common",)
 _RUNTIME_ONLY_MODULES = frozenset({
     "numpy",
     "torch", "torchvision", "torch_geometric", "torch_sparse", "torch_scatter",
-    "torch_cluster", "torch_spline_conv", "pyg_lib",
+    "pyg_lib",
     "matplotlib", "seaborn", "pandas", "sklearn", "scipy",
     "networkx", "community",
     "nnx",
@@ -1520,6 +1521,107 @@ def _workflow_action_pin_findings(repo: Path) -> list[Finding]:
     return findings
 
 
+def _literal_assignment_values(source: str, name: str) -> set[str]:
+    tree = ast.parse(source)
+    assignment = next(
+        node for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == name
+            for target in node.targets
+        )
+    )
+    value = assignment.value
+    if isinstance(value, ast.Call) and value.args:
+        value = value.args[0]
+    parsed = ast.literal_eval(value)
+    if isinstance(parsed, dict):
+        parsed = set(parsed.values())
+    if not isinstance(parsed, (set, tuple, list)) or not all(
+        isinstance(item, str) for item in parsed
+    ):
+        raise ValueError(f"{name} must be a literal import collection")
+    return set(parsed)
+
+
+def _python_command_imports(source: str) -> set[str]:
+    imports: set[str] = set()
+    for line in source.splitlines():
+        try:
+            argv = shlex.split(line)
+        except ValueError:
+            continue
+        for index, value in enumerate(argv[:-2]):
+            if value not in {"python", "python3"} or argv[index + 1] != "-c":
+                continue
+            try:
+                tree = ast.parse(argv[index + 2])
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imports.update(alias.name.split(".", 1)[0] for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    imports.add(node.module.split(".", 1)[0])
+    return imports
+
+
+def _torch_runtime_contract_findings(repo: Path) -> list[Finding]:
+    declarations = (
+        ("scripts/verify_torch_stack.py", "IMPORTS", _TORCH_RUNTIME_IMPORTS),
+        ("scripts/verify_repo.py", "_RUNTIME_ONLY_MODULES", _TORCH_RUNTIME_IMPORTS),
+        ("scripts/verify_repo.py", "_RUNTIME_AVAILABLE_IMPORTS", _TORCH_RUNTIME_IMPORTS),
+    )
+    findings: list[Finding] = []
+    for location, name, required in declarations:
+        try:
+            values = _literal_assignment_values(
+                (repo / location).read_text(encoding="utf-8"), name
+            )
+            missing = required - values
+            forbidden = values & _FORBIDDEN_TORCH_RUNTIME_IMPORTS
+            drift = name == "_RUNTIME_AVAILABLE_IMPORTS" and values != required
+            if missing or forbidden or drift:
+                findings.append(Finding(
+                    id="D10.torch_runtime_contract", check="docs", severity="error",
+                    location=f"{location}:{name}",
+                    message="Torch runtime imports drift from the selected graph contract",
+                    detail={
+                        "missing": sorted(missing),
+                        "forbidden": sorted(forbidden),
+                        "actual": sorted(values),
+                    },
+                ))
+        except (OSError, SyntaxError, StopIteration, ValueError):
+            findings.append(Finding(
+                id="D10.torch_runtime_contract", check="docs", severity="error",
+                location=f"{location}:{name}",
+                message="Torch runtime import declaration is unreadable or invalid",
+            ))
+
+    for location in (".github/workflows/ci.yml", "Dockerfile"):
+        try:
+            imports = _python_command_imports(
+                (repo / location).read_text(encoding="utf-8")
+            )
+        except OSError:
+            findings.append(Finding(
+                id="D10.torch_runtime_contract", check="docs", severity="error",
+                location=location,
+                message="Torch runtime availability declaration is unreadable",
+            ))
+            continue
+        forbidden = imports & _FORBIDDEN_TORCH_RUNTIME_IMPORTS
+        if forbidden:
+            findings.append(Finding(
+                id="D10.torch_runtime_contract", check="docs", severity="error",
+                location=location,
+                message="CI/Docker runtime availability imports a retired graph module",
+                detail={"forbidden": sorted(forbidden)},
+            ))
+    return findings
+
+
 def _notebook_markdown_text(nb_path: Path) -> str:
     try:
         doc = nbformat.read(nb_path, as_version=4)
@@ -1735,6 +1837,7 @@ def check_docs(repo: Path) -> CheckResult:
 
     result.findings.extend(_dependency_ledger_findings(repo))
     result.findings.extend(_workflow_action_pin_findings(repo))
+    result.findings.extend(_torch_runtime_contract_findings(repo))
     result.findings.extend(_stale_layout_guidance_findings(repo))
 
     return result
@@ -2403,6 +2506,8 @@ _RUNTIME_AVAILABLE_IMPORTS = (
     "torch_scatter",
     "torch_sparse",
 )
+_TORCH_RUNTIME_IMPORTS = frozenset(_RUNTIME_AVAILABLE_IMPORTS)
+_FORBIDDEN_TORCH_RUNTIME_IMPORTS = frozenset(("torch_cluster", "torch_spline_conv"))
 
 
 def _runtime_available() -> bool:

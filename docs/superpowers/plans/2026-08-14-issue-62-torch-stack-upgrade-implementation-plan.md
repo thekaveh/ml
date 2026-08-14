@@ -131,7 +131,8 @@ def verify_smoke_outputs(
 - `security/accepted-advisories.json`, `docs/dependency-contracts.md`, `scripts/verify_repo.py`, `tests/test_advisory_baseline.py`, `tests/test_verify_repo.py`, and `tests/test_check_docs.py`: current audit policy, ledger, D10 enforcement, and the Issue #61 requirements-hash correction.
 - `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, `docs/env-setup.md`, `docs/architecture.md`, `docs/FINDINGS-ATLAS.md`, `docs/dependency-contracts.md`, `docs/notebook-infrastructure.md`, `docs/notebooks/pruning-mnist-ffnn-pytorch.md`, `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, `notebooks/node_classification-reddit-gnn-pyg/README.md`, `notebooks/quantization-mnist-ffnn-pytorch/README.md`, `notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml`, `docs/assets/badges/pytorch.svg`, and current Make/CI/Docker/devcontainer comments: one operational story.
 - `.superpowers/sdd/issue62-advisory/`: ignored six-command audit evidence.
-- `.superpowers/sdd/issue62-qualification-report.md`: ignored immutable-final-SHA evidence.
+- `/Users/kaveh/repos/ml-eng-lab/.superpowers/sdd/issue62-qualification-report.md`: ignored
+  immutable-final-SHA evidence written to the validated primary checkout, never a disposable worktree.
 
 ---
 
@@ -647,34 +648,78 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
   Add `from contextlib import contextmanager` and `from collections.abc import Iterator`. Direct
   assignment through `_replace_operation` is valid for PyTorch `OpOverloadPacket` attributes and
-  restores the exact original object in `finally`. In Task 2-owned
-  `tests/test_verify_torch_stack_platform.py`, execute the real canary and inspect both spies:
+  restores the exact original object in `finally`. Task 2 cannot import the future selected wheels,
+  so `tests/test_verify_torch_stack_platform.py` uses this faithful fake rig: its loader reads the
+  same typing flag and calls the same two `torch.ops` packet attributes as PyG 2.8.
 
   ```python
-  def _real_sampler_modules() -> dict[str, ModuleType]:
-      return {
-          name: importlib.import_module(import_name)
-          for name, import_name in verifier.IMPORTS.items()
-      }
+  @dataclass
+  class _FakeBackendOperation:
+      calls: int = 0
+
+      def __call__(self, *args: object, **kwargs: object) -> tuple[object, ...]:
+          self.calls += 1
+          return ()
+
+  def _sampler_test_rig(monkeypatch, module=verifier):
+      typing = ModuleType("torch_geometric.typing")
+      typing.WITH_PYG_LIB = True
+      typing.WITH_TORCH_SPARSE = True
+      pyg_operation = _FakeBackendOperation()
+      sparse_operation = _FakeBackendOperation()
+      torch = SimpleNamespace(
+          tensor=lambda value: value,
+          ops=SimpleNamespace(
+              pyg=SimpleNamespace(neighbor_sample=pyg_operation),
+              torch_sparse=SimpleNamespace(neighbor_sample=sparse_operation),
+          ),
+      )
+
+      class FakeData:
+          def __init__(self, **values: object) -> None:
+              self.__dict__.update(values)
+
+      class FakeNeighborLoader:
+          def __init__(self, data: object, **kwargs: object) -> None:
+              assert kwargs == {
+                  "num_neighbors": [-1], "input_nodes": [0], "batch_size": 1,
+                  "shuffle": False, "num_workers": 0,
+              }
+
+          def __iter__(self):
+              if typing.WITH_PYG_LIB:
+                  torch.ops.pyg.neighbor_sample(
+                      "colptr", "row", "seed", [-1], None, None,
+                      True, False, True, False, "uniform", True,
+                  )
+              else:
+                  torch.ops.torch_sparse.neighbor_sample(
+                      "colptr", "row", "seed", [-1], False, True,
+                  )
+              yield SimpleNamespace(batch_size=1, edge_index=SimpleNamespace(numel=lambda: 2))
+
+      geometric = SimpleNamespace(
+          data=SimpleNamespace(Data=FakeData),
+          loader=SimpleNamespace(NeighborLoader=FakeNeighborLoader),
+      )
+      original_import = module.importlib.import_module
+      monkeypatch.setattr(
+          module.importlib,
+          "import_module",
+          lambda name: typing if name == "torch_geometric.typing" else original_import(name),
+      )
+      return {"torch": torch, "torch-geometric": geometric}, typing, pyg_operation, sparse_operation
 
   def test_sampler_canary_uses_pyg_then_forced_sparse_and_restores_state(monkeypatch):
-      typing = importlib.import_module("torch_geometric.typing")
+      modules, typing, pyg_operation, sparse_operation = _sampler_test_rig(monkeypatch)
       original_flag = typing.WITH_PYG_LIB
-      observed: dict[str, int] = {}
-      real_replace = verifier._replace_operation
-      keys = iter(("pyg", "sparse"))
-
-      @contextmanager
-      def recording_replace(namespace: object, name: str):
-          key = next(keys)
-          with real_replace(namespace, name) as spy:
-              yield spy
-              observed[key] = spy.calls
-
-      monkeypatch.setattr(verifier, "_replace_operation", recording_replace)
-      verifier._sampler_canary(_real_sampler_modules())
-      assert observed == {"pyg": 1, "sparse": 1}
+      original_pyg = modules["torch"].ops.pyg.neighbor_sample
+      original_sparse = modules["torch"].ops.torch_sparse.neighbor_sample
+      verifier._sampler_canary(modules)
+      assert (pyg_operation.calls, sparse_operation.calls) == (1, 1)
       assert typing.WITH_PYG_LIB is original_flag
+      assert modules["torch"].ops.pyg.neighbor_sample is original_pyg
+      assert modules["torch"].ops.torch_sparse.neighbor_sample is original_sparse
 
   @pytest.mark.parametrize(
       ("before", "after"),
@@ -684,14 +729,21 @@ Expected: the five hashes equal the block above and none of those paths appears 
       ),
       ids=("delete-preferred-selection", "delete-sparse-fallback"),
   )
-  def test_sampler_backend_selection_mutations_are_killed(tmp_path, before, after):
+  def test_sampler_backend_selection_mutations_are_killed(
+      tmp_path, monkeypatch, before, after,
+  ):
       source = (REPO_ROOT / "scripts/verify_torch_stack.py").read_text(encoding="utf-8")
       mutated = source.replace(before, after, 1)
       assert mutated != source
       module = _import_mutated_verifier(tmp_path, mutated)
+      modules, _, _, _ = _sampler_test_rig(monkeypatch, module)
       with pytest.raises(RuntimeError, match=r"sampler"):
-          module._sampler_canary(_real_sampler_modules())
+          module._sampler_canary(modules)
   ```
+
+  Add `from types import ModuleType, SimpleNamespace`. Add `monkeypatch` to the mutation test
+  parameters. This rig makes Task 2 GREEN without importing a selected extension; Task 3's r4
+  clean environment owns the real direct-body execution against actual PyG and both wheel backends.
 
   Keep these gates mandatory for every selected distribution: exact public version; strict
   platform local-version policy; one owned WHEEL plus RECORD; compatible Python ABI and platform
@@ -702,7 +754,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - [ ] **Step 7: Prove GREEN, mutations, and safe CLI behavior**
 
   ```bash
-  pytest -p no:cacheprovider tests/test_verify_torch_stack_platform.py tests/test_verify_repo.py -q -k 'selected_component or provenance or wheel or record or ownership or cpu or nvidia or runtime_canary or warning or nnx or runtime_availability or torch_runtime_contract'
+  pytest -p no:cacheprovider tests/test_verify_torch_stack_platform.py tests/test_verify_repo.py -q -k 'selected_component or provenance or wheel or record or ownership or cpu or nvidia or runtime_canary or sampler_canary_uses_pyg_then_forced_sparse or sampler_backend_selection_mutations or warning or nnx or runtime_availability or torch_runtime_contract'
   ruff check scripts/verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_verify_repo.py
   python -m py_compile scripts/verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_verify_repo.py
   git diff --check
@@ -1065,12 +1117,27 @@ Expected: the five hashes equal the block above and none of those paths appears 
   make install-torch-stack
   python -m pip check
   make verify-torch-stack
+  python - <<'PY'
+  import importlib
+
+  from scripts.verify_torch_stack import IMPORTS, _sampler_canary
+
+  modules = {
+      name: importlib.import_module(import_name)
+      for name, import_name in IMPORTS.items()
+  }
+  _sampler_canary(modules)
+  print("real pyg-lib preferred and torch-sparse fallback sampler body ok")
+  PY
   make verify-nnx-install
   pytest -p no:cacheprovider -W error --junitxml="$FOCUS_ROOT/focused.xml" tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_makefile_contract.py -q
   python -m scripts.verify_junit "$FOCUS_ROOT/focused.xml"
   ```
 
-  Expected: installer completes without wheel bootstrap or source build; verifier reports pyg-lib; pytest treats warnings as errors; `verify_junit` reports a positive test count with failures=0, errors=0, skipped=0. Any skip, warning, import failure, or ABI failure stops Task 3.
+  Expected: installer completes with the final binary boundary; verifier reports pyg-lib; the
+  direct canary body executes actual PyG 2.8 through preferred pyg-lib and forced torch-sparse;
+  pytest treats warnings as errors; `verify_junit` reports a positive test count with failures=0,
+  errors=0, skipped=0. Any skip, warning, import failure, or ABI failure stops Task 3.
 
 - [ ] **Step 7: Write smoke-output oracle RED tests**
 
@@ -1260,10 +1327,13 @@ Expected: the five hashes equal the block above and none of those paths appears 
   _SHELL_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.DOTALL)
 
   def _normalize_shell_argv(argv: Sequence[str]) -> tuple[str, ...]:
-      index = 1 if argv and argv[0] == "env" else 0
-      while index < len(argv) and _SHELL_ASSIGNMENT_RE.fullmatch(argv[index]):
-          index += 1
-      return tuple(argv[index:])
+      tokens = list(argv)
+      while tokens:
+          if tokens[0] in {"sudo", "env"} or _SHELL_ASSIGNMENT_RE.fullmatch(tokens[0]):
+              tokens.pop(0)
+              continue
+          break
+      return tuple(tokens)
 
   def _shell_argvs(source: str) -> tuple[tuple[str, ...], ...]:
       logical = source.replace("\\\n", " ").replace("\n", ";")
@@ -1355,12 +1425,26 @@ Expected: the five hashes equal the block above and none of those paths appears 
       work = argvs.index(workload_argv)
       assert installers[0] <= max(changes) < pip_check < stack < nnx < work
       assert not any(_is_package_or_data_change(argv) for argv in argvs[pip_check:work])
+
+  @pytest.mark.parametrize(
+      "command",
+      (
+          "sudo apt install libcairo2",
+          "sudo apt-get install -y libcairo2",
+          "env PIP_NO_INDEX=1 python -m pip install package",
+          "sudo env PIP_NO_INDEX=1 python -m pip install package",
+      ),
+  )
+  def test_package_change_classifier_normalizes_wrappers(command):
+      (argv,) = _shell_argvs(command)
+      assert _is_package_or_data_change(argv)
   ```
 
   Add imports for `ast`, `Path`, `re`, `Sequence`, and `shlex`. Test escaped line continuations,
-  physical newline separation, and leading `env`/assignment normalization. Parameterize mutations with direct `pip`/`pip3`,
+  physical newline separation, and leading `sudo`/`env`/assignment normalization. Parameterize mutations with direct `pip`/`pip3`,
   `python -m pip`, `uv pip`, `apt`, `apt-get`, `conda`, `python -m spacy download`, direct
-  `spacy download`, direct `nltk download`, `python -m nltk.downloader`,
+  `spacy download`, direct `nltk download`, `python -m nltk.downloader`, `sudo apt install`,
+  `sudo apt-get install`, `env PIP_NO_INDEX=1 python -m pip install`,
   `python -c "import nltk; nltk.download(...)"`, `make install-extra`, `make nlp-assets`,
   `make codespace-setup`, and a second `make install-torch-stack` inserted separately (a) between
   pip-check and stack verification, (b) between stack and NNx verification, and (c) between NNx and
@@ -1728,36 +1812,50 @@ Expected: the five hashes equal the block above and none of those paths appears 
       "atlas-contract-requirements.txt",
       "security/accepted-advisories.json",
   )
-  _DEPENDENCY_HTML_OPEN_RE = re.compile(
-      r"^ {0,3}<(?P<tag>address|article|aside|blockquote|details|dialog|div|fieldset|"
-      r"figure|footer|form|header|main|nav|pre|script|section|style|table)"
-      r"(?:[ \t]|/?>)",
+  _DEPENDENCY_HTML_TYPE1_TAGS = ("pre", "script", "style", "textarea")
+  _DEPENDENCY_HTML_TYPE6_TAGS = (
+      "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption",
+      "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt",
+      "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2",
+      "h3", "h4", "h5", "h6", "head", "header", "hr", "html", "iframe", "legend", "li",
+      "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p",
+      "param", "search", "section", "source", "summary", "table", "tbody", "td", "tfoot", "th", "thead",
+      "title", "tr", "track", "ul",
+  )
+  _DEPENDENCY_HTML_TYPE1_OPEN_RE = re.compile(
+      rf"^ {{0,3}}<(?P<tag>{'|'.join(_DEPENDENCY_HTML_TYPE1_TAGS)})(?:[ \t]|>|$)",
       re.IGNORECASE,
   )
-  _DEPENDENCY_HTML_CLOSE_REQUIRED = frozenset(("pre", "script", "style"))
+  _DEPENDENCY_HTML_TYPE6_OPEN_RE = re.compile(
+      rf"^ {{0,3}}</?(?P<tag>{'|'.join(_DEPENDENCY_HTML_TYPE6_TAGS)})(?:[ \t]|/?>|$)",
+      re.IGNORECASE,
+  )
 
   def _masked_markdown_line(line: str) -> str:
       return "".join("\r" if char == "\r" else "\n" if char == "\n" else " " for char in line)
 
   def _mask_dependency_raw_html(text: str) -> str:
       masked: list[str] = []
-      active_tag: str | None = None
-      close_required = False
+      type1_tag: str | None = None
+      in_type6 = False
       for line in text.splitlines(keepends=True):
-          if active_tag is None:
-              opened = _DEPENDENCY_HTML_OPEN_RE.match(line)
-              if opened is None:
+          if type1_tag is None and not in_type6:
+              type1 = _DEPENDENCY_HTML_TYPE1_OPEN_RE.match(line)
+              type6 = _DEPENDENCY_HTML_TYPE6_OPEN_RE.match(line)
+              if type1 is not None:
+                  type1_tag = type1["tag"].lower()
+              elif type6 is not None:
+                  in_type6 = True
+              else:
                   masked.append(line)
                   continue
-              active_tag = opened["tag"].lower()
-              close_required = active_tag in _DEPENDENCY_HTML_CLOSE_REQUIRED
           masked.append(_masked_markdown_line(line))
-          assert active_tag is not None
-          if re.search(rf"</{re.escape(active_tag)}[ \t]*>", line, re.IGNORECASE):
-              active_tag = None
-              close_required = False
-          elif not close_required and not line.strip():
-              active_tag = None
+          if type1_tag is not None and re.search(
+              rf"</{re.escape(type1_tag)}[ \t]*>", line, re.IGNORECASE,
+          ):
+              type1_tag = None
+          elif in_type6 and not line.strip():
+              in_type6 = False
       return "".join(masked)
 
   def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
@@ -1851,9 +1949,10 @@ Expected: the five hashes equal the block above and none of those paths appears 
   Change the existing publication-mask assignment to
   `published_text = _mask_dependency_raw_html(_strip_markdown_code(text, strip_inline=False))`
   before calculating `snapshot_matches`; HTML comments remain masked by `_strip_markdown_code`,
-  and the state machine accepts zero-to-three-space CommonMark indentation, masks raw
-  `pre`/`script`/`style` blocks through their closing tag, masks other block containers through a
-  closing tag or blank-line terminator, and preserves every newline.
+  and the state machine accepts zero-to-three-space CommonMark indentation, masks type-1
+  `pre`/`script`/`style`/`textarea` blocks through their matching closing tag even across blank
+  lines, masks the complete CommonMark type-6 block-tag class through its blank-line terminator
+  (a closing tag alone does not terminate type 6), and preserves every newline.
   Insert those two `findings.extend` calls immediately before the existing `package_rows = (`
   statement; retain that statement and the complete existing summary/advisory/result logic below
   it byte-for-byte except where the new Issue #62 heading changes expected fixture text.
@@ -1971,19 +2070,50 @@ Expected: the five hashes equal the block above and none of those paths appears 
       _write_canonical_baseline(repo, document)
       assert "D10.dependency_advisory_baseline" in _d10_ids(repo)
 
-  def test_dependency_raw_html_mask_handles_indent_closing_and_blank_termination():
+  @pytest.mark.parametrize("tag", ("script", "pre", "style", "textarea"))
+  @pytest.mark.parametrize("indent", ("", " ", "  ", "   "))
+  def test_dependency_raw_html_type1_requires_matching_close(tag, indent):
       module = _load_verify_module()
       hidden = "### 6.1.1.2 Current Issue #62 four-surface audit"
       visible = "### 6.1.1.3 Visible current audit"
       source = (
-          f"   <div>\n{hidden}\n</div>\n{visible}\n"
-          f"<section>\n{hidden}\n\n{visible}\n"
-          f"<script>\n{hidden}\n\n{hidden}\n</script>\n{visible}\n"
+          f"{indent}<{tag}>\n{hidden}\n\n{hidden}\n</{tag}>\n{visible}\n"
       )
       masked = module._mask_dependency_raw_html(source)
       assert hidden not in masked
-      assert masked.count(visible) == 3
+      assert masked.count(visible) == 1
       assert masked.count("\n") == source.count("\n")
+
+  _COMMONMARK_TYPE6_TAGS = (
+      "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption",
+      "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt",
+      "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2",
+      "h3", "h4", "h5", "h6", "head", "header", "hr", "html", "iframe", "legend", "li",
+      "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p",
+      "param", "search", "section", "source", "summary", "table", "tbody", "td", "tfoot", "th", "thead",
+      "title", "tr", "track", "ul",
+  )
+
+  @pytest.mark.parametrize("tag", _COMMONMARK_TYPE6_TAGS)
+  @pytest.mark.parametrize("indent", ("", "   "))
+  def test_dependency_raw_html_type6_uses_blank_termination_without_swallowing_visible(tag, indent):
+      module = _load_verify_module()
+      hidden = "### 6.1.1.2 Current Issue #62 four-surface audit"
+      visible = "### 6.1.1.3 Visible current audit"
+      source = f"{indent}<{tag}>\n</{tag}>\n{hidden}\n\n{visible}\n"
+      masked = module._mask_dependency_raw_html(source)
+      assert hidden not in masked
+      assert visible in masked
+      assert masked.count("\n") == source.count("\n")
+
+  def test_dependency_raw_html_four_spaces_remains_markdown_code_not_html():
+      module = _load_verify_module()
+      hidden = "### 6.1.1.2 Current Issue #62 four-surface audit"
+      source = f"    <div>\n    {hidden}\n\n{hidden}\n"
+      published = module._mask_dependency_raw_html(
+          module._strip_markdown_code(source, strip_inline=False)
+      )
+      assert published.count(hidden) == 1
   ```
 
   Parameterize the malformed-table test across a missing header, changed header, missing
@@ -2073,6 +2203,77 @@ Expected: the five hashes equal the block above and none of those paths appears 
           assert forbidden not in current
   ```
 
+  Add exact bounded-section and generation-source tests; these deliberately read the real heading
+  text instead of guessed section numbers:
+
+  ```python
+  def _same_level_section(text: str, heading: str) -> str:
+      marker = f"## {heading}\n"
+      assert text.count(marker) == 1
+      body = text.split(marker, 1)[1]
+      return body.split("\n## ", 1)[0].strip()
+
+  def test_issue62_dependency_sections_replace_complete_old_contracts():
+      text = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+      torch_section = _same_level_section(text, "6.1.2 Torch Stack Pin")
+      for exact in (
+          "torch==2.11.0",
+          "pytorch-lightning==2.6.1",
+          "torch-geometric==2.8.0.post1",
+          "--only-binary=pyg-lib,torch-scatter,torch-sparse",
+          "stage 0 upgrades pip only",
+          "four-surface advisory reconciliation from six commands",
+          "Tier A/B/C 18/6/4",
+      ):
+          assert exact in torch_section
+      for obsolete in (
+          "2.4.1", "torch-cluster", "torch-spline-conv", "--no-build-isolation",
+          "source build", "deliberately stable local/CI compatibility baseline",
+      ):
+          assert obsolete not in torch_section
+      bootstrap = _same_level_section(text, "6.1.11 Canonical Bootstrap Tooling")
+      assert bootstrap == (
+          "The canonical installer upgrades pip alone in stage 0 and installs every selected "
+          "graph extension as a compatible binary wheel in stage 2. Docker, Codespaces, CI, and "
+          "local setup delegate to make install-torch-stack; none carries a second bootstrap or "
+          "dependency algorithm. Exact pip/setuptools locks, full Python lockfiles, and base-image "
+          "digest pinning remain Issue #63 and do not change the Issue #62 four-stage install contract."
+      )
+
+  def test_issue62_notebook_specs_drive_exact_generated_rows():
+      graph = yaml.safe_load((
+          REPO_ROOT / "notebooks/node_classification-reddit-gnn-pyg/docs/spec.yaml"
+      ).read_text(encoding="utf-8"))
+      quant = yaml.safe_load((
+          REPO_ROOT / "notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml"
+      ).read_text(encoding="utf-8"))
+      assert graph["atlas"]["constraints"] == [
+          "Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the "
+          "repository Torch 2.11 CPU stack; Atlas remains Issue #65."
+      ]
+      assert quant["atlas"]["constraints"] == [
+          "Manual-only under Issue #66; Issue #62 qualifies only the tiny Torch 2.11.0 + "
+          "torchao 0.18.0 PTQ/QAT dependency surface."
+      ]
+      generated = (
+          REPO_ROOT / "docs/notebook-infrastructure.md"
+      ).read_text(encoding="utf-8").splitlines()
+      graph_row = next(line for line in generated if "node_classification-reddit-gnn-pyg" in line)
+      quant_row = next(line for line in generated if "quantization-mnist-ffnn-pytorch" in line)
+      assert all(token in graph_row for token in ("pyg-lib", "torch-sparse", "Issue #65"))
+      assert all(token in quant_row for token in ("Torch 2.11.0", "torchao 0.18.0", "Issue #66"))
+
+  def test_issue62_manual_tier_uses_actual_environment_heading():
+      text = (REPO_ROOT / "docs/env-setup.md").read_text(encoding="utf-8")
+      tier_mapping = _same_level_section(text, "4.1.6 Tier mapping")
+      manual = next(line for line in tier_mapping.splitlines() if line.startswith("- **Manual-only:**"))
+      assert "Issue #66" in manual
+      assert "Torch 2.11.0 + torchao 0.18.0" in manual
+  ```
+
+  Add `import yaml` to `tests/test_check_docs.py`; keep `REPO_ROOT` and the existing immutable
+  released-history helpers unchanged.
+
   The `documents` fixture must contain only explicit current slices: README setup/runtime sections, CONTRIBUTING setup/rollback sections, SECURITY current supported-dependency section, the Unreleased changelog prefix, the single Task 5 current ledger section, and the complete current-only operational pages/comments/assets. Historical changelog, archived ledger, specs, plans, and evidence are excluded before this helper is called.
 
 - [ ] **Step 2: Run RED**
@@ -2101,24 +2302,25 @@ Expected: the five hashes equal the block above and none of those paths appears 
   | `CHANGELOG.md`, add first bullet under `[Unreleased]` → `### Changed` | `- Coordinated the supported CPU Torch stack at Torch 2.11/PyG 2.8.0.post1/torchao 0.18 with binary-only pyg-lib, torch-scatter, and torch-sparse wheels, NNx 0.2.0 verification, and manual-only Issue #66 quantization ownership.` |
   | `docs/env-setup.md`, replace the fenced shell block and both paragraphs in `## 4.1.3 Local Python venv`, stopping before `## 4.1.4` | `python3.11 -m venv .venv && source .venv/bin/activate`<br>`make install-torch-stack`<br>`make nlp-assets`<br>`python -m pip check`<br>`make verify-torch-stack`<br>`make verify-nnx-install`<br>`jupyter lab`<br><br>`Use Python 3.11 and make install-torch-stack; the installer ends with binary-only thekaveh-nnx[lm]==0.2.0. After the last asset install, package state is frozen through pip-check, Torch verification, NNx verification, and the workload. Linux is CPU-only; Darwin and native Linux arm64 Docker are locally qualified, and Linux x86_64 is qualified by the PR gates.` |
   | `docs/env-setup.md`, replace both sentences beginning `Codespaces is CPU-only` under `## 4.1.4 GitHub Codespaces` | `Codespaces is CPU-only and disposable: data/ and runs/ are lost when a codespace is deleted. The full quantization notebook remains manual-only under Issue #66; Issue #62 qualifies only the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface, not an Atlas or Tier A/B/C notebook run.` |
-  | `docs/env-setup.md`, replace the complete `Manual-only` tier bullet under `## 4.2.2 Tier model` | `- **Manual-only:** notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb stays outside the automated tiers under Issue #66. Issue #62 qualifies only its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; Atlas remains Issue #65 and cannot reclassify it.` |
+  | `docs/env-setup.md`, replace the complete `Manual-only` tier bullet under the actual heading `## 4.1.6 Tier mapping` | `- **Manual-only:** notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb stays outside the automated tiers under Issue #66. Issue #62 qualifies only its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; Atlas remains Issue #65 and cannot reclassify it.` |
   | `docs/architecture.md`, replace the dependency paragraph in `## 2.1.3 Runtime entry paths` | `Every local, CI, Docker, and Codespaces runtime enters through the four-stage canonical installer, performs its last asset install, then freezes package state across pip-check, Torch verification, NNx verification, and workload. No repository container starts Jupyter, Atlas, Ollama, or ComfyUI as part of Issue #62.` |
   | `docs/architecture.md`, replace the two-line boundary bullet beginning ``- The quantization notebook is active`` in `## 2.1.4 Boundary decisions` | `- The quantization notebook is active but manual-only under Issue #66. Issue #62 qualifies only the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; the full notebook remains outside Tier A/B/C.` |
   | `docs/FINDINGS-ATLAS.md`, append to `## 9.2.2 Atlas Jupyter runtime is distinct from local CI` | `Issue #62 does not upgrade Atlas: Atlas runtime ownership remains Issue #65. The host-native Ollama boundary is unchanged, and no containerized Ollama service is added.` |
   | `docs/FINDINGS-ATLAS.md`, replace the three-sentence paragraph beginning `Atlas JupyterHub supplies a newer CPU Torch surface` in `## 9.2.2` | `Atlas JupyterHub is a distinct runtime and is not Issue #62 acceptance evidence. Issue #62 qualifies the repository Torch 2.11 CPU stack; Atlas runtime ownership remains Issue #65, and the full quantization notebook remains manual-only under Issue #66.` |
-  | `docs/dependency-contracts.md`, inside `## 6.1.2 Torch Stack Pin`, replace from `` `torch-core-requirements.txt` pins`` through `never by runtime installation.` | `torch-core-requirements.txt pins Torch 2.11.0, TorchVision 0.26.0, and TorchAudio 2.11.0. torch-ecosystem-requirements.txt pins Lightning 2.6.1, TorchMetrics 1.9.0, and torchao 0.18.0. The runtime contains ecosystem plus selector plus pyg-lib 0.8.0, torch-scatter 2.1.2, torch-sparse 0.6.18, and PyG 2.8.0.post1; the audit projection contains core plus ecosystem plus PyG; the supplement contains only torch-scatter and torch-sparse. Runtime wheel installation is --only-binary=pyg-lib,torch-scatter,torch-sparse; wheel bootstrap and source-build flags are forbidden.` |
+  | `docs/dependency-contracts.md`, replace every byte after `## 6.1.2 Torch Stack Pin` through the byte before `## 6.1.3 Manual-Only Quantization Notebook` | `The supported Python 3.11 CPU matrix is torch==2.11.0, torchvision==0.26.0, torchaudio==2.11.0, pytorch-lightning==2.6.1, torchmetrics==1.9.0, torchao==0.18.0, torch-geometric==2.8.0.post1, pyg-lib==0.8.0, torch-scatter==2.1.2, and torch-sparse==0.6.18; thekaveh-nnx[lm]==0.2.0 remains the separately verified consumer pin.`<br><br>`torch-core-requirements.txt contains the Torch trio. torch-ecosystem-requirements.txt contains Lightning, TorchMetrics, and torchao. torch-requirements.txt contains the ecosystem include, the Torch 2.11 CPU PyG selector, pyg-lib, scatter, sparse, and PyG. torch-audit-requirements.txt contains core plus ecosystem plus PyG. pyg-extension-audit-requirements.txt contains only scatter and sparse; pyg-lib is an external-index artifact verified by WHEEL/RECORD, platform, ownership, import, and sampler gates.`<br><br>`make install-torch-stack has four stages: stage 0 upgrades pip only; stage 1 installs the Torch trio from the Linux CPU index or Darwin's native index; stage 2 installs torch-requirements.txt with --only-binary=pyg-lib,torch-scatter,torch-sparse; stage 3 installs remaining root requirements and binary-only thekaveh-nnx[lm]==0.2.0 last. Acceptance requires pip-check, the ten-component stack verifier, the NNx verifier, four-surface advisory reconciliation from six commands, full repository tests, zero-skip focused graph/quantization tests, Tier A/B/C 18/6/4, Darwin arm64, native Linux arm64 Docker, Linux x86_64 PR gates, and three-surface documentation parity. Any failure rejects the matrix and rollback restores the complete prior contract in a fresh environment or rebuilt image.` |
   | `docs/dependency-contracts.md`, replace all content in `## 6.1.3 Manual-Only Quantization Notebook` before `## 6.1.4` | `notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb remains manual-only under Issue #66. Issue #62 qualifies only the tiny PTQ/QAT dependency surface on torch==2.11.0, torchvision==0.26.0, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0. Do not add the complete notebook to Tier A/B/C without Issue #66 acceptance; Atlas remains Issue #65 and is not a substitute.` |
   | `docs/dependency-contracts.md`, replace all current boundary prose in `## 6.1.9 Atlas Versus Local/CI Dependency Boundaries` before `## 6.1.10` | `Atlas is Atlas-owned infrastructure and remains Issue #65. The checked-in Torch 2.11 CPU manifests are authoritative for make test, papermill CI, Dockerfile, and Codespaces; no Atlas package observation changes that contract. The complete quantization notebook remains manual-only under Issue #66 even though Issue #62 qualifies its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface.` |
+  | `docs/dependency-contracts.md`, replace the complete section beginning `## 6.1.11 Bootstrap Tooling Gap` through the byte before `## 6.1.12 Deferred Reproducibility Hardening` | `## 6.1.11 Canonical Bootstrap Tooling`<br><br>`The canonical installer upgrades pip alone in stage 0 and installs every selected graph extension as a compatible binary wheel in stage 2. Docker, Codespaces, CI, and local setup delegate to make install-torch-stack; none carries a second bootstrap or dependency algorithm. Exact pip/setuptools locks, full Python lockfiles, and base-image digest pinning remain Issue #63 and do not change the Issue #62 four-stage install contract.` |
   | `docs/notebooks/pruning-mnist-ffnn-pytorch.md`, replace the four-line pitfall bullet beginning `- **Manual-only quantization cousin (§8.8) cannot run in CI.**` | `- **Quantization cousin (§8.8) remains manual-only under Issue #66.** This pruning notebook is Tier A and covered by the 18-output oracle. Issue #62 qualifies §8.8's tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface, but the complete quantization notebook remains outside Tier A/B/C.` |
   | `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, replace the opening manual-only paragraph from `The notebook is **manual-only**` through `remain historical evidence.` | `The notebook is **manual-only** under Issue #66 and is not in the Tier A/B/C papermill targets. Issue #62 qualifies only the tiny PTQ/QAT dependency surface on torch==2.11.0, torchvision==0.26.0, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0. Atlas remains Issue #65 and is not acceptance evidence. The older committed Torch 2.8.0 outputs remain historical evidence and are not rewritten.` |
   | `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, replace the table cell beginning ``| Manual-only (CI-excluded) |`` | `| Manual-only (CI-excluded) | Issue #62 qualifies the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; Issue #66 owns full-notebook execution outside Tier A/B/C. |` |
   | `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, replace the pitfall bullet beginning `- **Manual-only — does not run in CI.**` and ending `Issue #61 side-environment evidence.` | `- **Manual-only — full execution belongs to Issue #66.** Issue #62 qualifies only the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface. The complete notebook remains outside Tier A/B/C, Atlas remains Issue #65, and the committed Torch 2.8.0 outputs remain immutable historical evidence.` |
   | `notebooks/node_classification-reddit-gnn-pyg/README.md`, replace the complete paragraph beginning `Also verified via` | `Also verified via tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py: fast NNx-surface contract tests cover parametrized SAGE/CONV smoke-forward, GraphAttNN(n_heads=...) consolidation, and NNParams.state() round-trip. The focused suite is mandatory with zero skips, and both pyg-lib preferred sampling and torch-sparse fallback are required.` |
   | `notebooks/node_classification-reddit-gnn-pyg/README.md`, replace the `torch` dependency bullet and the final availability sentence in `## 5. Dependencies` | `- torch==2.11.0 and torch_geometric==2.8.0.post1 with exactly three binary wheels: pyg-lib 0.8.0, torch-scatter 2.1.2, and torch-sparse 0.6.18. Sampling proves the preferred pyg-lib path and the torch-sparse fallback; no additional compiled extension package is supported.` and `Install through make install-torch-stack and prove it with make verify-torch-stack.` |
-  | `notebooks/node_classification-reddit-gnn-pyg/docs/spec.yaml`, replace `atlas.constraints: []` and the pitfall beginning `Issue #61 completed Tier B` | Constraint: `- "Issue #62 supports the repository Torch 2.11 CPU stack only; Atlas runtime ownership remains Issue #65."` Pitfall: `- "Issue #62 requires zero-skip graph tests plus Tier B/C execution with preferred pyg-lib sampling and forced torch-sparse fallback; no legacy extension canary is supported."` |
+  | `notebooks/node_classification-reddit-gnn-pyg/docs/spec.yaml`, replace `atlas.constraints: []` and the pitfall beginning `Issue #61 completed Tier B` | Constraint: `- "Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the repository Torch 2.11 CPU stack; Atlas remains Issue #65."` Pitfall: `- "Issue #62 requires zero-skip graph tests plus Tier B/C execution with preferred pyg-lib sampling and forced torch-sparse fallback; no legacy extension canary is supported."` |
   | `notebooks/quantization-mnist-ffnn-pytorch/README.md`, replace the complete paragraph after `## 4. How to run` beginning `**Manual-only**` | `**Manual-only under Issue #66.** Issue #62 qualifies only the tiny PTQ/QAT dependency surface on Torch 2.11.0, torchvision 0.26.0, torchao 0.18.0, and thekaveh-nnx[lm]==0.2.0. The complete notebook remains outside Tier A/B/C; Atlas remains Issue #65 and is not acceptance evidence.` |
   | `notebooks/quantization-mnist-ffnn-pytorch/README.md`, replace the `torchao>=0.17` bullet and the final availability sentence in `## 5. Dependencies` | `- torchao==0.18.0 on torch==2.11.0 — mandatory for the tiny PTQ/QAT surface.` and `Install through make install-torch-stack. The complete notebook is manual-only under Issue #66 and excluded from Tier A/B/C.` |
-  | `notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml`, replace the sole `atlas.constraints` item and first `pitfalls` item exactly | Constraint: `- Manual-only under Issue #66; Issue #62 qualifies only the tiny PTQ/QAT dependency surface.` Pitfall: `- "MANUAL-ONLY: Issue #62 qualifies the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT surface; Issue #66 owns complete-notebook execution, which remains outside Tier A/B/C."`; keep `tier: manual` unchanged. |
+  | `notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml`, replace the sole `atlas.constraints` item and first `pitfalls` item exactly | Constraint: `- "Manual-only under Issue #66; Issue #62 qualifies only the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface."` Pitfall: `- "MANUAL-ONLY: Issue #62 qualifies the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT surface; Issue #66 owns complete-notebook execution, which remains outside Tier A/B/C."`; keep `tier: manual` unchanged. |
   | `Makefile`, current Torch-stack comment | `# Issue #62 canonical CPU stack: Torch 2.11, binary pyg-lib/scatter/sparse, NNx 0.2.0 last.` |
   | `.github/workflows/ci.yml`, current Torch-stack comment | `# Issue #62: final install, pip-check, Torch/NNx verification, then workload; no late package mutation.` |
   | `.github/workflows/ci.yml`, replace the eight-line Tier A artifact comment beginning `# All 18 Tier-A notebooks` and ending `# Makefile TIER_B section for full rationale.)` | `# All 18 Tier-A notebooks; the complete quantization notebook remains manual-only under Issue #66. Issue #62 qualifies only its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface.` |
@@ -2219,7 +2421,9 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
 **Files:**
 - Modify before freeze only: current evidence paragraphs in `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `docs/env-setup.md`, `docs/FINDINGS-ATLAS.md`, `docs/dependency-contracts.md`, `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, `notebooks/quantization-mnist-ffnn-pytorch/README.md`, `tests/test_check_docs.py`, and this plan.
-- Write after freeze only: ignored `.superpowers/sdd/issue62-qualification-report.md` and external GitHub issue/PR evidence.
+- Write after freeze only: ignored primary-checkout
+  `/Users/kaveh/repos/ml-eng-lab/.superpowers/sdd/issue62-qualification-report.md` and external
+  GitHub issue/PR evidence.
 - Never modify: notebook source/output, Atlas files/gitlink, generated documentation, or protected-branch rules.
 
 **Interfaces:**
@@ -2229,6 +2433,8 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - [ ] **Step 1: Create and verify a clean prequalification worktree**
 
   ```bash
+  export PRIMARY_ROOT=/Users/kaveh/repos/ml-eng-lab
+  test "$(git -C "$PRIMARY_ROOT" rev-parse --show-toplevel)" = "$PRIMARY_ROOT"
   PREQUAL_ROOT=$(mktemp -d /private/tmp/ml-eng-lab-issue62-prequal.XXXXXX)
   export PREQUAL_ROOT
   PREQUAL_SHA=$(git rev-parse HEAD)
@@ -2438,11 +2644,48 @@ Expected: the five hashes equal the block above and none of those paths appears 
   PY
   python -m pip check
   make verify-torch-stack
-  make audit-advisories
+  set -o pipefail
+  make audit-advisories | tee "$FINAL_ROOT/advisory-cli.txt"
+  python - <<'PY'
+  import json
+  import os
+  from pathlib import Path
+
+  from scripts.advisory_baseline import (
+      SURFACE_ORDER,
+      compare_baseline,
+      load_baseline,
+      run_audit_surfaces,
+  )
+
+  root = Path.cwd()
+  observations = run_audit_surfaces(root)
+  assert tuple(item.surface for item in observations) == SURFACE_ORDER
+  comparison = compare_baseline(
+      load_baseline(root / "security/accepted-advisories.json"), observations,
+  )
+  assert comparison.errors == ()
+  evidence = {
+      "result": "accepted" if not comparison.notices else "accepted-with-reconciliation-notices",
+      "errors": list(comparison.errors),
+      "notices": list(comparison.notices),
+      "observations": [
+          {
+              "surface": item.surface,
+              "resolved_versions": [list(value) for value in item.resolved_versions],
+              "advisory_identities": [list(value) for value in item.advisories],
+          }
+          for item in observations
+      ],
+  }
+  (Path(os.environ["FINAL_ROOT"]) / "advisory-evidence.json").write_text(
+      json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+  )
+  PY
   make verify-nnx-install
   pytest -p no:cacheprovider -W error --junitxml="$FINAL_ROOT/nnx-surface.xml" tests/nnx_surface -v
   python -m scripts.verify_junit "$FINAL_ROOT/nnx-surface.xml"
-  make test
+  PYTEST_ADDOPTS="-p no:cacheprovider -W error --junitxml=$FINAL_ROOT/repository.xml" make test
   make lint
   make verify
   make docs-check
@@ -2450,10 +2693,36 @@ Expected: the five hashes equal the block above and none of those paths appears 
   export CORE_DURATION_SECONDS=$((SECONDS - CORE_STARTED))
   DOCKER_STARTED=$SECONDS
   docker build --no-cache -t ml-eng-lab:issue62-final-arm64 .
-  test "$(docker image inspect ml-eng-lab:issue62-final-arm64 --format '{{.Architecture}}')" = arm64
-  docker run --rm ml-eng-lab:issue62-final-arm64 python -m pip check
-  docker run --rm ml-eng-lab:issue62-final-arm64 python -m scripts.verify_torch_stack
-  docker run --rm ml-eng-lab:issue62-final-arm64 python -m scripts.verify_nnx_install
+  python - <<'PY'
+  import json
+  import os
+  import subprocess
+  from pathlib import Path
+
+  image = "ml-eng-lab:issue62-final-arm64"
+  architecture = subprocess.check_output(
+      ("docker", "image", "inspect", image, "--format", "{{.Architecture}}"),
+      text=True,
+  ).strip()
+  assert architecture == "arm64"
+  probes = []
+  for command in (
+      ("python", "-m", "pip", "check"),
+      ("python", "-m", "scripts.verify_torch_stack"),
+      ("python", "-m", "scripts.verify_nnx_install"),
+  ):
+      argv = ("docker", "run", "--rm", image, *command)
+      result = subprocess.run(argv, check=False, capture_output=True, text=True)
+      probes.append({
+          "argv": list(argv), "returncode": result.returncode,
+          "stdout": result.stdout, "stderr": result.stderr,
+      })
+      assert result.returncode == 0
+  evidence = {"image": image, "architecture": architecture, "probes": probes}
+  (Path(os.environ["FINAL_ROOT"]) / "docker-evidence.json").write_text(
+      json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+  )
+  PY
   export DOCKER_DURATION_SECONDS=$((SECONDS - DOCKER_STARTED))
   TIER_A_STARTED=$SECONDS
   JUPYTER_PATH="$JUPYTER_PATH" TIER_A_OUT="$FINAL_ROOT/tier-a" make smoke-tier-a
@@ -2484,7 +2753,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
   PY
   ```
 
-  Expected: fresh preflight is clean; kernelspec uses `$FINAL_ROOT/venv/bin/python`; all dependency/advisory/test/lint/verifier/docs/Docker commands pass; Tier A/B/C report 18/6/4 with zero artifact errors; exact SHA matches; final status/diff are empty; Atlas gitlink is unchanged. Write evidence only to ignored `.superpowers/sdd/issue62-qualification-report.md` and GitHub. Any failure or later tracked commit invalidates the freeze and requires a new full run.
+  Expected: fresh preflight is clean; kernelspec uses `$FINAL_ROOT/venv/bin/python`; all dependency/advisory/test/lint/verifier/docs/Docker commands pass; Tier A/B/C report 18/6/4 with zero artifact errors; exact SHA matches; final status/diff are empty; Atlas gitlink is unchanged. Step 9 reads every `$FINAL_ROOT` evidence file and writes the report only to the validated primary-checkout ignored path and GitHub. Any missing/mismatched evidence, failure, or later tracked commit invalidates the freeze and requires a new full run.
 
 - [ ] **Step 7: Push the immutable feature SHA and qualify the feature-to-develop PR**
 
@@ -2503,29 +2772,78 @@ Expected: the five hashes equal the block above and none of those paths appears 
   test "$(git rev-parse HEAD)" = "$FEATURE_SHA"
   git push --set-upstream origin "HEAD:refs/heads/$FEATURE_REF"
   test "$(git ls-remote origin "refs/heads/$FEATURE_REF" | cut -f1)" = "$FEATURE_SHA"
-  gh pr list --repo "$REPO" --state open --head "$FEATURE_REF" \
-    --json number,title,baseRefName,headRefName,headRefOid,url \
-    > "$FINAL_ROOT/open-feature-prs.json"
-  python - "$FINAL_ROOT/open-feature-prs.json" "$FEATURE_SHA" \
-    "$FINAL_ROOT/reusable-feature-pr" "$FINAL_ROOT/obsolete-feature-prs" <<'PY'
+  FEATURE_TITLE='build: upgrade supported Torch stack to 2.11'
+  FEATURE_BODY='Implements Issue #62 without closing it before release: supported binary pyg-lib/scatter/sparse boundary, ten-component verifier, advisory reconciliation, NNx 0.2.0, and Tier 18/6/4 evidence. Atlas Issue #65 and quantization Issue #66 remain out of scope; no service was started.'
+  gh pr list --repo "$REPO" --state open --limit 1000 \
+    --json number,title,body,baseRefName,headRefName,headRefOid,labels,url \
+    > "$FINAL_ROOT/all-open-prs-feature.json"
+  python - "$FINAL_ROOT/all-open-prs-feature.json" "$FEATURE_SHA" \
+    "$FEATURE_TITLE" "$FEATURE_BODY" "$FINAL_ROOT/current-feature-prs" \
+    "$FINAL_ROOT/obsolete-feature-prs" <<'PY'
   import json
   import sys
   from pathlib import Path
 
-  source, expected_sha, reusable_path, obsolete_path = sys.argv[1:]
+  source, expected_sha, title, body, current_path, obsolete_path = sys.argv[1:]
   rows = json.loads(Path(source).read_text(encoding="utf-8"))
-  reusable: list[str] = []
+  current: list[str] = []
   obsolete: list[str] = []
   for row in rows:
-      assert row["title"] == "build: upgrade supported Torch stack to 2.11"
-      assert row["baseRefName"] == "develop"
-      assert row["headRefName"] == "codex/issue-62-torch-stack-upgrade"
-      target = reusable if row["headRefOid"] == expected_sha else obsolete
+      canonical = (
+          row["title"] == title
+          and row["body"] == body
+          and row["headRefName"] == "codex/issue-62-torch-stack-upgrade"
+          and row["baseRefName"] == "develop"
+      )
+      if not canonical:
+          continue  # unrelated open PR: never close or reuse
+      assert row["body"].count("Issue #62") == 1
+      target = current if row["headRefOid"] == expected_sha else obsolete
       target.append(str(row["number"]))
-  assert len(reusable) <= 1
-  Path(reusable_path).write_text("\n".join(reusable) + ("\n" if reusable else ""))
+  assert len(current) <= 1
+  Path(current_path).write_text("\n".join(current) + ("\n" if current else ""))
   Path(obsolete_path).write_text("\n".join(obsolete) + ("\n" if obsolete else ""))
   PY
+  : > "$FINAL_ROOT/reusable-feature-pr"
+  while IFS= read -r CANDIDATE_PR; do
+    case "$CANDIDATE_PR" in ''|*[!0-9]*) exit 1;; esac
+    gh pr view "$CANDIDATE_PR" --repo "$REPO" --json labels \
+      > "$FINAL_ROOT/candidate-feature-labels.json"
+    git fetch origin "+refs/pull/$CANDIDATE_PR/merge:refs/issue62/reuse-feature-$CANDIDATE_PR"
+    CANDIDATE_MERGE_SHA=$(git rev-parse "refs/issue62/reuse-feature-$CANDIDATE_PR")
+    gh run list --repo "$REPO" --workflow CI --event pull_request \
+      --commit "$CANDIDATE_MERGE_SHA" --limit 20 \
+      --json databaseId,headSha,status,conclusion,url \
+      > "$FINAL_ROOT/candidate-feature-runs.json"
+    CANDIDATE_RUN=$(jq -r --arg sha "$CANDIDATE_MERGE_SHA" \
+      '[.[] | select(.headSha == $sha and .status == "completed" and .conclusion == "success")] | first | .databaseId // empty' \
+      "$FINAL_ROOT/candidate-feature-runs.json")
+    if test -n "$CANDIDATE_RUN"; then
+      gh run view "$CANDIDATE_RUN" --repo "$REPO" --json headSha,event,jobs,url \
+        > "$FINAL_ROOT/candidate-feature-run.json"
+    else
+      printf '%s\n' '{}' > "$FINAL_ROOT/candidate-feature-run.json"
+    fi
+    if python - "$FINAL_ROOT/candidate-feature-labels.json" \
+      "$FINAL_ROOT/candidate-feature-run.json" "$CANDIDATE_MERGE_SHA" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  labels = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["labels"]
+  run = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+  assert "tier-b-smoke" in {item["name"] for item in labels}
+  assert run["headSha"] == sys.argv[3] and run["event"] == "pull_request"
+  jobs = {job["name"]: job for job in run["jobs"]}
+  assert jobs["smoke-tier-b"]["conclusion"] == "success"
+  assert jobs["smoke-tier-b"]["url"].startswith("https://github.com/")
+  PY
+    then
+      printf '%s\n' "$CANDIDATE_PR" > "$FINAL_ROOT/reusable-feature-pr"
+    else
+      printf '%s\n' "$CANDIDATE_PR" >> "$FINAL_ROOT/obsolete-feature-prs"
+    fi
+  done < "$FINAL_ROOT/current-feature-prs"
   while IFS= read -r OBSOLETE_PR; do
     case "$OBSOLETE_PR" in ''|*[!0-9]*) exit 1;; esac
     gh pr close "$OBSOLETE_PR" --repo "$REPO" \
@@ -2537,18 +2855,47 @@ Expected: the five hashes equal the block above and none of those paths appears 
   else
     FEATURE_PR_URL=$(gh pr create --repo "$REPO" --base develop --head "$FEATURE_REF" \
       --label tier-b-smoke \
-      --title "build: upgrade supported Torch stack to 2.11" \
-      --body "Implements Issue #62 without closing it before release: supported binary pyg-lib/scatter/sparse boundary, ten-component verifier, advisory reconciliation, NNx 0.2.0, and Tier 18/6/4 evidence. Atlas Issue #65 and quantization Issue #66 remain out of scope; no service was started.")
+      --title "$FEATURE_TITLE" --body "$FEATURE_BODY")
     FEATURE_PR=$(gh pr view "$FEATURE_PR_URL" --repo "$REPO" --json number --jq .number)
   fi
   test "$(gh pr view "$FEATURE_PR" --repo "$REPO" --json headRefOid --jq .headRefOid)" = "$FEATURE_SHA"
+  DISPATCH_BOUNDARY=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+  gh run list --repo "$REPO" --workflow CI --branch "$FEATURE_REF" \
+    --event workflow_dispatch --limit 100 --json databaseId,createdAt,headSha \
+    > "$FINAL_ROOT/pre-dispatch-runs.json"
   gh workflow run ci.yml --repo "$REPO" --ref "$FEATURE_REF"
   TIER_C_RUN=
   for ATTEMPT in $(seq 1 30); do
-    TIER_C_RUN=$(gh run list --repo "$REPO" --workflow CI --branch "$FEATURE_REF" \
-      --event workflow_dispatch --limit 50 \
-      --json databaseId,headSha,status,conclusion,createdAt \
-      --jq "[.[] | select(.headSha == \"$FEATURE_SHA\")] | sort_by(.createdAt) | last | .databaseId // empty")
+    gh run list --repo "$REPO" --workflow CI --branch "$FEATURE_REF" \
+      --event workflow_dispatch --limit 100 \
+      --json databaseId,headSha,status,conclusion,createdAt,url \
+      > "$FINAL_ROOT/post-dispatch-runs.json"
+    TIER_C_RUN=$(python - "$FINAL_ROOT/pre-dispatch-runs.json" \
+      "$FINAL_ROOT/post-dispatch-runs.json" "$DISPATCH_BOUNDARY" "$FEATURE_SHA" <<'PY'
+  import json
+  import sys
+  from datetime import datetime, timezone
+  from pathlib import Path
+
+  before_path, after_path, boundary_text, expected_sha = sys.argv[1:]
+  before_ids = {
+      row["databaseId"]
+      for row in json.loads(Path(before_path).read_text(encoding="utf-8"))
+  }
+  boundary = datetime.fromisoformat(boundary_text.replace("Z", "+00:00"))
+  assert boundary.tzinfo == timezone.utc
+  rows = json.loads(Path(after_path).read_text(encoding="utf-8"))
+  matches = [
+      row for row in rows
+      if row["databaseId"] not in before_ids
+      and row["headSha"] == expected_sha
+      and datetime.fromisoformat(row["createdAt"].replace("Z", "+00:00")) >= boundary
+  ]
+  if matches:
+      selected = min(matches, key=lambda row: (row["createdAt"], row["databaseId"]))
+      print(selected["databaseId"])
+  PY
+    )
     test -n "$TIER_C_RUN" && break
     sleep 10
   done
@@ -2610,8 +2957,9 @@ Expected: the five hashes equal the block above and none of those paths appears 
       for check in checks
   )
   PY
-  gh run view "$TIER_C_RUN" --repo "$REPO" --json jobs,url \
-    --jq '{url, tier_c: [.jobs[] | select(.name == "smoke-tier-c") | {name,conclusion,url}]}' \
+  gh run view "$TIER_C_RUN" --repo "$REPO" \
+    --json jobs,url,headSha,status,conclusion,event \
+    --jq '{url,headSha,status,conclusion,event,tier_c: [.jobs[] | select(.name == "smoke-tier-c") | {name,conclusion,url}]}' \
     > "$FINAL_ROOT/tier-c-run.json"
   test "$(jq -r '.tier_c | length' "$FINAL_ROOT/tier-c-run.json")" = 1
   test "$(jq -r '.tier_c[0].conclusion' "$FINAL_ROOT/tier-c-run.json")" = success
@@ -2651,28 +2999,78 @@ Expected: the five hashes equal the block above and none of those paths appears 
   test "$(git rev-parse origin/develop)" = "$DEVELOP_MERGE_SHA"
   test "$(git rev-parse "$DEVELOP_MERGE_SHA^{tree}")" = "$(git rev-parse "$FEATURE_SHA^{tree}")"
 
-  gh pr list --repo "$REPO" --state open --base main --head develop \
-    --json number,title,baseRefName,headRefName,headRefOid,url \
-    > "$FINAL_ROOT/open-release-prs.json"
-  python - "$FINAL_ROOT/open-release-prs.json" "$DEVELOP_MERGE_SHA" \
-    "$FINAL_ROOT/reusable-release-pr" "$FINAL_ROOT/obsolete-release-prs" <<'PY'
+  RELEASE_TITLE='release: publish Issue 62 Torch 2.11 stack'
+  RELEASE_BODY='Publishes the reviewed Issue #62 stack from develop to main after all required checks. Issues #65 and #66 remain open; Issue #62 bookkeeping is updated only after Pages and wiki publication are verified.'
+  gh pr list --repo "$REPO" --state open --limit 1000 \
+    --json number,title,body,baseRefName,headRefName,headRefOid,labels,url \
+    > "$FINAL_ROOT/all-open-prs-release.json"
+  python - "$FINAL_ROOT/all-open-prs-release.json" "$DEVELOP_MERGE_SHA" \
+    "$RELEASE_TITLE" "$RELEASE_BODY" "$FINAL_ROOT/current-release-prs" \
+    "$FINAL_ROOT/obsolete-release-prs" <<'PY'
   import json
   import sys
   from pathlib import Path
 
-  source, expected_sha, reusable_path, obsolete_path = sys.argv[1:]
+  source, expected_sha, title, body, current_path, obsolete_path = sys.argv[1:]
   rows = json.loads(Path(source).read_text(encoding="utf-8"))
-  reusable: list[str] = []
+  current: list[str] = []
   obsolete: list[str] = []
   for row in rows:
-      assert row["title"] == "release: publish Issue 62 Torch 2.11 stack"
-      assert row["baseRefName"] == "main" and row["headRefName"] == "develop"
-      target = reusable if row["headRefOid"] == expected_sha else obsolete
+      canonical = (
+          row["title"] == title
+          and row["body"] == body
+          and row["headRefName"] == "develop"
+          and row["baseRefName"] == "main"
+      )
+      if not canonical:
+          continue  # unrelated open PR: never close or reuse
+      assert row["body"].count("Issue #62") == 2
+      target = current if row["headRefOid"] == expected_sha else obsolete
       target.append(str(row["number"]))
-  assert len(reusable) <= 1
-  Path(reusable_path).write_text("\n".join(reusable) + ("\n" if reusable else ""))
+  assert len(current) <= 1
+  Path(current_path).write_text("\n".join(current) + ("\n" if current else ""))
   Path(obsolete_path).write_text("\n".join(obsolete) + ("\n" if obsolete else ""))
   PY
+  : > "$FINAL_ROOT/reusable-release-pr"
+  while IFS= read -r CANDIDATE_PR; do
+    case "$CANDIDATE_PR" in ''|*[!0-9]*) exit 1;; esac
+    gh pr view "$CANDIDATE_PR" --repo "$REPO" --json labels \
+      > "$FINAL_ROOT/candidate-release-labels.json"
+    git fetch origin "+refs/pull/$CANDIDATE_PR/merge:refs/issue62/reuse-release-$CANDIDATE_PR"
+    CANDIDATE_MERGE_SHA=$(git rev-parse "refs/issue62/reuse-release-$CANDIDATE_PR")
+    gh run list --repo "$REPO" --workflow CI --event pull_request \
+      --commit "$CANDIDATE_MERGE_SHA" --limit 20 \
+      --json databaseId,headSha,status,conclusion,url \
+      > "$FINAL_ROOT/candidate-release-runs.json"
+    CANDIDATE_RUN=$(jq -r --arg sha "$CANDIDATE_MERGE_SHA" \
+      '[.[] | select(.headSha == $sha and .status == "completed" and .conclusion == "success")] | first | .databaseId // empty' \
+      "$FINAL_ROOT/candidate-release-runs.json")
+    if test -n "$CANDIDATE_RUN"; then
+      gh run view "$CANDIDATE_RUN" --repo "$REPO" --json headSha,event,jobs,url \
+        > "$FINAL_ROOT/candidate-release-run.json"
+    else
+      printf '%s\n' '{}' > "$FINAL_ROOT/candidate-release-run.json"
+    fi
+    if python - "$FINAL_ROOT/candidate-release-labels.json" \
+      "$FINAL_ROOT/candidate-release-run.json" "$CANDIDATE_MERGE_SHA" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  labels = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["labels"]
+  run = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+  assert "tier-b-smoke" in {item["name"] for item in labels}
+  assert run["headSha"] == sys.argv[3] and run["event"] == "pull_request"
+  jobs = {job["name"]: job for job in run["jobs"]}
+  assert jobs["smoke-tier-b"]["conclusion"] == "success"
+  assert jobs["smoke-tier-b"]["url"].startswith("https://github.com/")
+  PY
+    then
+      printf '%s\n' "$CANDIDATE_PR" > "$FINAL_ROOT/reusable-release-pr"
+    else
+      printf '%s\n' "$CANDIDATE_PR" >> "$FINAL_ROOT/obsolete-release-prs"
+    fi
+  done < "$FINAL_ROOT/current-release-prs"
   while IFS= read -r OBSOLETE_PR; do
     case "$OBSOLETE_PR" in ''|*[!0-9]*) exit 1;; esac
     gh pr close "$OBSOLETE_PR" --repo "$REPO" \
@@ -2684,8 +3082,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
   else
     RELEASE_PR_URL=$(gh pr create --repo "$REPO" --base main --head develop \
       --label tier-b-smoke \
-      --title "release: publish Issue 62 Torch 2.11 stack" \
-      --body "Publishes the reviewed Issue #62 stack from develop to main after all required checks. Issues #65 and #66 remain open; Issue #62 bookkeeping is updated only after Pages and wiki publication are verified.")
+      --title "$RELEASE_TITLE" --body "$RELEASE_BODY")
     RELEASE_PR=$(gh pr view "$RELEASE_PR_URL" --repo "$REPO" --json number --jq .number)
   fi
   git fetch origin "+refs/pull/$RELEASE_PR/merge:refs/issue62/pr-$RELEASE_PR-merge"
@@ -2707,11 +3104,71 @@ Expected: the five hashes equal the block above and none of those paths appears 
   assert all(run["status"] == "completed" for run in runs)
   assert all(run["conclusion"] == "success" for run in runs)
   PY
+  PAGES_BOUNDARY=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+  gh run list --repo "$REPO" --workflow pages.yml --event push --limit 100 \
+    --json databaseId,createdAt,headSha > "$FINAL_ROOT/pre-pages-runs.json"
   gh pr merge "$RELEASE_PR" --repo "$REPO" --merge
   RELEASE_MERGE_SHA=$(gh pr view "$RELEASE_PR" --repo "$REPO" --json mergeCommit --jq .mergeCommit.oid)
   git fetch origin main develop
   test "$(git rev-parse origin/main)" = "$RELEASE_MERGE_SHA"
   test "$(git rev-parse "$RELEASE_MERGE_SHA^{tree}")" = "$(git rev-parse "$DEVELOP_MERGE_SHA^{tree}")"
+  PAGES_RUN=
+  for ATTEMPT in $(seq 1 60); do
+    gh run list --repo "$REPO" --workflow pages.yml --event push --limit 100 \
+      --json databaseId,createdAt,headSha,status,conclusion,url \
+      > "$FINAL_ROOT/post-pages-runs.json"
+    PAGES_RUN=$(python - "$FINAL_ROOT/pre-pages-runs.json" \
+      "$FINAL_ROOT/post-pages-runs.json" "$PAGES_BOUNDARY" "$RELEASE_MERGE_SHA" <<'PY'
+  import json
+  import sys
+  from datetime import datetime
+  from pathlib import Path
+
+  before_path, after_path, boundary_text, expected_sha = sys.argv[1:]
+  before_ids = {
+      row["databaseId"]
+      for row in json.loads(Path(before_path).read_text(encoding="utf-8"))
+  }
+  boundary = datetime.fromisoformat(boundary_text.replace("Z", "+00:00"))
+  rows = json.loads(Path(after_path).read_text(encoding="utf-8"))
+  matches = [
+      row for row in rows
+      if row["databaseId"] not in before_ids
+      and row["headSha"] == expected_sha
+      and datetime.fromisoformat(row["createdAt"].replace("Z", "+00:00")) >= boundary
+  ]
+  if matches:
+      print(min(matches, key=lambda row: (row["createdAt"], row["databaseId"]))["databaseId"])
+  PY
+    )
+    test -n "$PAGES_RUN" && break
+    sleep 10
+  done
+  test -n "$PAGES_RUN"
+  PAGES_STATUS=
+  for ATTEMPT in $(seq 1 120); do
+    gh run view "$PAGES_RUN" --repo "$REPO" \
+      --json headSha,status,conclusion,event,jobs,url \
+      > "$FINAL_ROOT/pages-run.json"
+    PAGES_STATUS=$(jq -r .status "$FINAL_ROOT/pages-run.json")
+    test "$PAGES_STATUS" = completed && break
+    sleep 10
+  done
+  python - "$FINAL_ROOT/pages-run.json" "$RELEASE_MERGE_SHA" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  run = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  assert run["headSha"] == sys.argv[2]
+  assert run["event"] == "push"
+  assert run["status"] == "completed" and run["conclusion"] == "success"
+  jobs = {job["name"]: job for job in run["jobs"]}
+  assert jobs.keys() >= {"build", "deploy", "wiki"}
+  for name in ("build", "deploy", "wiki"):
+      assert jobs[name]["conclusion"] == "success"
+      assert jobs[name]["url"].startswith("https://github.com/")
+  PY
   ```
 
   If any tree comparison fails, stop: base drift changed content and requires review; a feature
@@ -2740,19 +3197,26 @@ Expected: the five hashes equal the block above and none of those paths appears 
   Verify Pages/wiki and current-surface content, then update only Issue #62 bookkeeping:
 
   ```bash
-  PAGES_URL=$(gh api "repos/$REPO/pages" --jq '.html_url | rtrimstr("/")')
-  REPO_URL=$(gh repo view "$REPO" --json url --jq '.url | rtrimstr("/")')
-  curl --fail --silent --show-error \
-    "$PAGES_URL/dependency-contracts/" > "$FINAL_ROOT/pages.html"
-  rg -q 'Torch 2\.11' "$FINAL_ROOT/pages.html"
-  rg -q 'pyg-lib.*torch-scatter.*torch-sparse' "$FINAL_ROOT/pages.html"
-  rg -q 'Issue #66' "$FINAL_ROOT/pages.html"
-  curl --fail --silent --show-error \
-    "$REPO_URL/wiki/6-1-Dependency-ledger" \
-    > "$FINAL_ROOT/wiki.html"
-  rg -q 'Torch 2\.11' "$FINAL_ROOT/wiki.html"
-  rg -q 'pyg-lib.*torch-scatter.*torch-sparse' "$FINAL_ROOT/wiki.html"
-  rg -q 'Issue #66' "$FINAL_ROOT/wiki.html"
+  export PAGES_URL=$(gh api "repos/$REPO/pages" --jq '.html_url | rtrimstr("/")')
+  export REPO_URL=$(gh repo view "$REPO" --json url --jq '.url | rtrimstr("/")')
+  PUBLICATION_READY=false
+  for ATTEMPT in $(seq 1 60); do
+    if curl --fail --silent --show-error \
+      "$PAGES_URL/dependency-contracts/" > "$FINAL_ROOT/pages.html" \
+      && curl --fail --silent --show-error \
+      "$REPO_URL/wiki/6-1-Dependency-ledger" > "$FINAL_ROOT/wiki.html" \
+      && rg -q 'Torch 2\.11' "$FINAL_ROOT/pages.html" \
+      && rg -q 'pyg-lib.*torch-scatter.*torch-sparse' "$FINAL_ROOT/pages.html" \
+      && rg -q 'Issue #66' "$FINAL_ROOT/pages.html" \
+      && rg -q 'Torch 2\.11' "$FINAL_ROOT/wiki.html" \
+      && rg -q 'pyg-lib.*torch-scatter.*torch-sparse' "$FINAL_ROOT/wiki.html" \
+      && rg -q 'Issue #66' "$FINAL_ROOT/wiki.html"; then
+      PUBLICATION_READY=true
+      break
+    fi
+    sleep 10
+  done
+  test "$PUBLICATION_READY" = true
   gh issue view 65 --repo "$REPO" --json state,title,body,labels,assignees,projectItems,updatedAt \
     > "$FINAL_ROOT/issue65-after.json"
   gh issue view 66 --repo "$REPO" --json state,title,body,labels,assignees,projectItems,updatedAt \
@@ -2761,11 +3225,17 @@ Expected: the five hashes equal the block above and none of those paths appears 
   cmp "$FINAL_ROOT/issue66-before.json" "$FINAL_ROOT/issue66-after.json"
   test "$(jq -r .state "$FINAL_ROOT/issue65-after.json")" = OPEN
   test "$(jq -r .state "$FINAL_ROOT/issue66-after.json")" = OPEN
-  mkdir -p .superpowers/sdd
+  export PRIMARY_ROOT=/Users/kaveh/repos/ml-eng-lab
+  test "$(git -C "$PRIMARY_ROOT" rev-parse --show-toplevel)" = "$PRIMARY_ROOT"
+  REPORT_PATH="$PRIMARY_ROOT/.superpowers/sdd/issue62-qualification-report.md"
+  case "$REPORT_PATH" in "$PRIMARY_ROOT/.superpowers/sdd/issue62-qualification-report.md") ;; *) exit 1;; esac
+  mkdir -p "$PRIMARY_ROOT/.superpowers/sdd"
   python - "$FINAL_SHA" "$PR_MERGE_SHA" "$DEVELOP_MERGE_SHA" \
-    "$RELEASE_PR_MERGE_SHA" "$RELEASE_MERGE_SHA" "$FEATURE_PR_URL" "$RELEASE_PR_URL" <<'PY'
+    "$RELEASE_PR_MERGE_SHA" "$RELEASE_MERGE_SHA" "$FEATURE_PR_URL" "$RELEASE_PR_URL" \
+    "$REPORT_PATH" <<'PY'
   from __future__ import annotations
 
+  import copy
   import hashlib
   import json
   import os
@@ -2780,6 +3250,88 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
   root = Path.cwd()
   final_root = Path(os.environ["FINAL_ROOT"])
+  primary_root = Path(os.environ["PRIMARY_ROOT"]).resolve()
+  report_path = Path(sys.argv[8]).resolve()
+  assert report_path == primary_root / ".superpowers/sdd/issue62-qualification-report.md"
+  STACK_DISTRIBUTIONS = {
+      "torch": "torch",
+      "torchvision": "torchvision",
+      "torchaudio": "torchaudio",
+      "pytorch-lightning": "pytorch-lightning",
+      "torchmetrics": "torchmetrics",
+      "torchao": "torchao",
+      "torch-geometric": "torch-geometric",
+      "pyg-lib": "pyg-lib",
+      "torch-scatter": "torch-scatter",
+      "torch-sparse": "torch-sparse",
+  }
+  assert tuple(STACK_DISTRIBUTIONS) == (
+      "torch", "torchvision", "torchaudio", "pytorch-lightning", "torchmetrics", "torchao",
+      "torch-geometric", "pyg-lib", "torch-scatter", "torch-sparse",
+  )
+
+  def load_json(path: Path) -> object:
+      if not path.is_file() or path.stat().st_size == 0:
+          raise ValueError(f"missing evidence: {path.name}")
+      return json.loads(path.read_text(encoding="utf-8"))
+
+  def junit_summary(path: Path, *, zero_skips: bool) -> dict[str, int | str]:
+      root_element = ET.parse(path).getroot()
+      suites = (root_element,) if root_element.tag == "testsuite" else tuple(
+          root_element.findall("testsuite")
+      )
+      if not suites:
+          raise ValueError(f"invalid junit suites: {path.name}")
+      totals = {key: 0 for key in ("tests", "failures", "errors", "skipped")}
+      seconds = Decimal(0)
+      cases = []
+      for suite in suites:
+          for key in totals:
+              value = suite.attrib.get(key)
+              if value is None or not value.isdecimal():
+                  raise ValueError(f"invalid junit {key}: {path.name}")
+              totals[key] += int(value)
+          cases.extend(suite.findall("testcase"))
+      actual = {
+          "tests": len(cases),
+          "failures": sum(len(case.findall("failure")) for case in cases),
+          "errors": sum(len(case.findall("error")) for case in cases),
+          "skipped": sum(len(case.findall("skipped")) for case in cases),
+      }
+      if totals != actual or totals["tests"] <= 0 or totals["failures"] or totals["errors"]:
+          raise ValueError(f"junit count/outcome mismatch: {path.name}")
+      if zero_skips and totals["skipped"]:
+          raise ValueError(f"junit skips are forbidden: {path.name}")
+      for case in cases:
+          seconds += Decimal(case.attrib.get("time", "0"))
+      return {**totals, "duration_seconds": str(seconds)}
+
+  def require(condition: bool, message: str) -> None:
+      if not condition:
+          raise ValueError(message)
+
+  def validate_report_schema(value: dict[str, object]) -> None:
+      require(set(value) == {
+          "schema_version", "identities", "platform", "selected_versions", "nnx_metadata",
+          "tests", "tiers", "native_linux_arm64_docker", "advisory", "linux_x86_64",
+          "durations_seconds", "sha256", "pull_requests", "publication",
+      }, "report top-level schema")
+      require(value["schema_version"] == 2, "report schema version")
+      require(set(value["selected_versions"]) == set(STACK_DISTRIBUTIONS), "distribution names")
+      require(value["nnx_metadata"]["distribution"] == "thekaveh-nnx", "NNx metadata")
+      require(set(value["platform"]) == {
+          "system", "machine", "python", "python_executable", "sys_prefix",
+      }, "platform metadata")
+      require(value["native_linux_arm64_docker"]["architecture"] == "arm64", "Docker arch")
+      require(len(value["native_linux_arm64_docker"]["probes"]) == 3, "Docker probes")
+      require(value["advisory"]["errors"] == [], "advisory result")
+      require(value["tests"]["nnx"]["skipped"] == 0, "NNx skips")
+      require(value["tests"]["repository"]["tests"] > 0, "repository tests")
+      require(value["tiers"]["counts"] == {"a": 18, "b": 6, "c": 4}, "tier counts")
+      require(set(value["linux_x86_64"]["check_urls"]) >= {
+          "pytest-repository", "dependency-audit", "pytest-nnx-surface", "smoke-tier-b",
+      }, "Linux check URLs")
+
   identities = dict(zip(
       ("feature_sha", "feature_pr_merge_sha", "develop_merge_sha",
        "release_pr_merge_sha", "release_merge_sha"),
@@ -2790,13 +3342,65 @@ Expected: the five hashes equal the block above and none of those paths appears 
   assert all(len(value) == 40 for value in identities.values())
   assert all(value.startswith("https://github.com/") for value in pr_urls.values())
 
-  junit_path = final_root / "nnx-surface.xml"
-  tests, failures, errors, skipped = verify_junit(junit_path)
-  junit_root = ET.parse(junit_path).getroot()
-  junit_seconds = sum(
-      (Decimal(case.attrib.get("time", "0")) for case in junit_root.iter("testcase")),
-      start=Decimal(0),
+  verify_junit(final_root / "nnx-surface.xml")
+  test_evidence = {
+      "nnx": junit_summary(final_root / "nnx-surface.xml", zero_skips=True),
+      "repository": junit_summary(final_root / "repository.xml", zero_skips=False),
+  }
+
+  docker = load_json(final_root / "docker-evidence.json")
+  require(docker["architecture"] == "arm64", "Docker architecture mismatch")
+  require(len(docker["probes"]) == 3, "Docker probe count")
+  for probe in docker["probes"]:
+      require(probe["returncode"] == 0, "Docker probe failed")
+  docker_report = {
+      "image": docker["image"],
+      "architecture": docker["architecture"],
+      "probes": [
+          {
+              "argv": probe["argv"], "returncode": probe["returncode"],
+              "stdout_sha256": hashlib.sha256(probe["stdout"].encode()).hexdigest(),
+              "stderr_sha256": hashlib.sha256(probe["stderr"].encode()).hexdigest(),
+          }
+          for probe in docker["probes"]
+      ],
+  }
+
+  advisory = load_json(final_root / "advisory-evidence.json")
+  require(advisory["errors"] == [], "final advisory errors")
+  require(
+      [item["surface"] for item in advisory["observations"]]
+      == ["combined-runtime", "torch", "documentation", "atlas-contract"],
+      "final advisory surface order",
   )
+
+  pr_checks = load_json(final_root / "pr-checks.json")
+  pr_runs = load_json(final_root / "pr-runs.json")
+  pages_run = load_json(final_root / "pages-run.json")
+  tier_c_run = load_json(final_root / "tier-c-run.json")
+  require(pages_run["headSha"] == identities["release_merge_sha"], "Pages SHA")
+  require(pages_run["status"] == "completed" and pages_run["conclusion"] == "success", "Pages result")
+  pages_jobs = {job["name"]: job for job in pages_run["jobs"]}
+  require(pages_jobs.keys() >= {"build", "deploy", "wiki"}, "Pages jobs")
+  require(all(pages_jobs[name]["conclusion"] == "success" for name in ("build", "deploy", "wiki")), "Pages job result")
+  require(
+      tier_c_run["headSha"] == identities["feature_sha"]
+      and tier_c_run["event"] == "workflow_dispatch"
+      and tier_c_run["status"] == "completed"
+      and tier_c_run["conclusion"] == "success"
+      and tier_c_run["tier_c"][0]["conclusion"] == "success",
+      "Tier C dispatch result",
+  )
+  expected_checks = {
+      "pytest-repository", "atlas-consumer-policy", "dependency-audit", "pytest-nnx-surface",
+      "verify-repo", "docs-build", "docker-build", "tier-a-papermill", "smoke-tier-b",
+  }
+  by_check = {item["name"]: item for item in pr_checks}
+  require(expected_checks <= by_check.keys(), "missing Linux PR checks")
+  require(all(by_check[name]["bucket"] == "pass" for name in expected_checks), "PR check result")
+  require(all(by_check[name]["link"].startswith("https://github.com/") for name in expected_checks), "PR check URL")
+  require(pr_runs and all(item["headSha"] == identities["feature_pr_merge_sha"] for item in pr_runs), "PR run SHA")
+  require(all(item["url"].startswith("https://github.com/") for item in pr_runs), "PR run URL")
 
   tier_counts: dict[str, int] = {}
   tier_hashes: dict[str, str] = {}
@@ -2822,12 +3426,8 @@ Expected: the five hashes equal the block above and none of those paths appears 
       "vulnerability-audit-requirements.txt",
       "security/accepted-advisories.json",
   )
-  selected_distributions = (
-      "torch", "torchvision", "torchaudio", "lightning", "torchmetrics", "torchao",
-      "pyg-lib", "torch-scatter", "torch-sparse", "torch-geometric", "thekaveh-nnx",
-  )
   report = {
-      "schema_version": 1,
+      "schema_version": 2,
       "identities": identities,
       "platform": {
           "system": platform.system(),
@@ -2837,16 +3437,26 @@ Expected: the five hashes equal the block above and none of those paths appears 
           "sys_prefix": str(Path(sys.prefix).resolve()),
       },
       "selected_versions": {
-          distribution: version(distribution) for distribution in selected_distributions
+          name: version(metadata_name)
+          for name, metadata_name in STACK_DISTRIBUTIONS.items()
       },
-      "counts": {
-          "nnx": {"tests": tests, "failures": failures, "errors": errors, "skipped": skipped},
-          "tier_outputs": tier_counts,
+      "nnx_metadata": {
+          "distribution": "thekaveh-nnx", "version": version("thekaveh-nnx"),
+      },
+      "tests": test_evidence,
+      "tiers": {"counts": tier_counts, "sha256": tier_hashes},
+      "native_linux_arm64_docker": docker_report,
+      "advisory": advisory,
+      "linux_x86_64": {
+          "check_urls": {name: by_check[name]["link"] for name in sorted(expected_checks)},
+          "pr_run_urls": sorted({item["url"] for item in pr_runs}),
+          "tier_c_dispatch_url": tier_c_run["url"],
       },
       "durations_seconds": {
           "core": int(os.environ["CORE_DURATION_SECONDS"]),
           "docker": int(os.environ["DOCKER_DURATION_SECONDS"]),
-          "nnx_junit": str(junit_seconds),
+          "nnx_junit": test_evidence["nnx"]["duration_seconds"],
+          "repository_junit": test_evidence["repository"]["duration_seconds"],
           "tier_a": int(os.environ["TIER_A_DURATION_SECONDS"]),
           "tier_b": int(os.environ["TIER_B_DURATION_SECONDS"]),
           "tier_c": int(os.environ["TIER_C_DURATION_SECONDS"]),
@@ -2856,37 +3466,58 @@ Expected: the five hashes equal the block above and none of those paths appears 
               path: hashlib.sha256((root / path).read_bytes()).hexdigest()
               for path in tracked_inputs
           },
-          "tier_outputs": tier_hashes,
+          "evidence_files": {
+              path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+              for path in (
+                  final_root / "advisory-evidence.json", final_root / "docker-evidence.json",
+                  final_root / "nnx-surface.xml", final_root / "repository.xml",
+                  final_root / "pr-checks.json", final_root / "pr-runs.json",
+                  final_root / "tier-c-run.json", final_root / "pages-run.json",
+              )
+          },
       },
       "pull_requests": pr_urls,
-      "workflow_urls": {
-          "tier_c_dispatch": json.loads(
-              (final_root / "tier-c-run.json").read_text(encoding="utf-8")
-          )["url"],
+      "publication": {
+          "pages_run_url": pages_run["url"],
+          "job_urls": {name: pages_jobs[name]["url"] for name in ("build", "deploy", "wiki")},
+          "pages_url": os.environ["PAGES_URL"],
+          "wiki_url": os.environ["REPO_URL"] + "/wiki/6-1-Dependency-ledger",
       },
   }
-  assert report["platform"]["system"] == "Darwin"
-  assert report["platform"]["machine"] == "arm64"
-  assert report["counts"]["nnx"]["tests"] > 0
-  assert report["counts"]["nnx"]["failures"] == 0
-  assert report["counts"]["nnx"]["errors"] == 0
-  assert report["counts"]["nnx"]["skipped"] == 0
+  require(report["platform"]["system"] == "Darwin", "Darwin evidence")
+  require(report["platform"]["machine"] == "arm64", "arm64 evidence")
+  validate_report_schema(report)
+  wrong_name = copy.deepcopy(report)
+  wrong_name["selected_versions"]["pytorch_lightning"] = wrong_name["selected_versions"].pop(
+      "pytorch-lightning"
+  )
+  missing_metadata = copy.deepcopy(report)
+  del missing_metadata["native_linux_arm64_docker"]["architecture"]
+  for mutation in (wrong_name, missing_metadata):
+      try:
+          validate_report_schema(mutation)
+      except (KeyError, TypeError, ValueError):
+          pass
+      else:
+          raise AssertionError("qualification report schema mutation survived")
   body = "# Issue #62 immutable qualification\n\n```json\n"
   body += json.dumps(report, indent=2, sort_keys=True) + "\n```\n"
-  (root / ".superpowers/sdd/issue62-qualification-report.md").write_text(
-      body, encoding="utf-8",
-  )
+  report_path.write_text(body, encoding="utf-8")
   PY
-  git check-ignore -v .superpowers/sdd/issue62-qualification-report.md
+  git -C "$PRIMARY_ROOT" check-ignore -v .superpowers/sdd/issue62-qualification-report.md
   gh pr comment "$FEATURE_PR" --repo "$REPO" \
-    --body-file .superpowers/sdd/issue62-qualification-report.md
+    --body-file "$REPORT_PATH"
   gh pr comment "$RELEASE_PR" --repo "$REPO" \
-    --body-file .superpowers/sdd/issue62-qualification-report.md
-  gh issue comment 62 --repo "$REPO" --body-file .superpowers/sdd/issue62-qualification-report.md
+    --body-file "$REPORT_PATH"
+  gh issue comment 62 --repo "$REPO" --body-file "$REPORT_PATH"
   gh issue close 62 --repo "$REPO" --reason completed \
     --comment "Released by feature PR #$FEATURE_PR at $DEVELOP_MERGE_SHA and release PR #$RELEASE_PR at $RELEASE_MERGE_SHA; immutable feature evidence is $FEATURE_SHA."
+  gh issue view 53 --repo "$REPO" --json state > "$FINAL_ROOT/issue53-before.json"
+  test "$(jq -r .state "$FINAL_ROOT/issue53-before.json")" = OPEN
   gh issue comment 53 --repo "$REPO" \
     --body "Issue #62 completed via PR #$FEATURE_PR and release PR #$RELEASE_PR; Issues #65 and #66 remain open."
+  gh issue view 53 --repo "$REPO" --json state > "$FINAL_ROOT/issue53-after.json"
+  test "$(jq -r .state "$FINAL_ROOT/issue53-after.json")" = OPEN
   gh api graphql -f query='query {
     repository(owner:"thekaveh", name:"ml-eng-lab") {
       issue(number:62) {
@@ -2943,6 +3574,13 @@ Expected: the five hashes equal the block above and none of those paths appears 
   test -z "$(git ls-remote origin refs/heads/codex/issue-62-torch-stack-upgrade)"
   git update-ref -d "refs/issue62/pr-$FEATURE_PR-merge"
   git update-ref -d "refs/issue62/pr-$RELEASE_PR-merge"
+  git for-each-ref --format='%(refname)' refs/issue62/reuse-feature- refs/issue62/reuse-release- \
+    > /private/tmp/issue62-reuse-refs.txt
+  while IFS= read -r REUSE_REF; do
+    case "$REUSE_REF" in refs/issue62/reuse-feature-[0-9]*|refs/issue62/reuse-release-[0-9]*) ;; *) exit 1;; esac
+    git update-ref -d "$REUSE_REF"
+  done < /private/tmp/issue62-reuse-refs.txt
+  rm -f /private/tmp/issue62-reuse-refs.txt
   test -z "$(git for-each-ref --format='%(refname)' refs/issue62/)"
   test -z "$(gh pr list --repo "$REPO" --state open --head codex/issue-62-torch-stack-upgrade --json number --jq '.[].number')"
   test -z "$(gh run list --repo "$REPO" --branch codex/issue-62-torch-stack-upgrade \
@@ -2972,5 +3610,8 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - [x] **Audit cardinality:** `AUDIT_SURFACES` generates six physical commands and merges them into four logical observations; only both supplements and documentation use `--disable-pip`, only supplements use `--no-deps`, and all six require exit 0/1 plus valid nonempty JSON.
 - [x] **Zero-skip and output gates:** focused, CI, prequalification, and final NNx runs use warnings-as-errors plus parsed JUnit totals; Tier A/B/C use recursive exact output sets with 18 nested, 6 basename, and 4 basename artifacts and no zero-code notebook.
 - [x] **Immutable identities:** feature HEAD, feature PR synthetic merge, develop merge, release PR synthetic merge, and release merge are recorded separately; dispatch evidence is tied to the feature SHA, PR evidence to synthetic merge SHAs, and tree equality prevents content drift.
+- [x] **Current-doc bounds:** Task 6 uses the real `4.1.6` heading, replaces complete same-level dependency sections 6.1.2 and 6.1.11, places generated-row tokens directly in both source specs, regenerates once, and stages both specs plus the generated canonical page.
+- [x] **External evidence schema:** the immutable report uses the exact ten distribution metadata names including `pytorch-lightning`, separate NNx metadata, final audit identities/result, full/NNx JUnit totals, Docker probes, Tier hashes/durations, Linux PR URLs, and Pages/wiki evidence; schema mutations and missing evidence fail closed.
+- [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; reuse requires exact Issue #62 fields, label, merge SHA, and successful Tier B; dispatch and Pages runs must be new after snapshotted UTC/ID boundaries and complete within bounded polls.
 - [x] **Staging safety:** Task 1 and Task 2 exclude the five preserved Task 3 paths; Task 3 owns them after clean GREEN; generated docs and ignored evidence are absent from every `git add` command.
 - [x] **Historical integrity:** r1-r3 and prior commits remain evidence, not final completion claims; Issue #59/#60/#61 records and released history remain immutable; the one stale Issue #61 requirements hash is corrected only in Task 5's current-ledger evidence.

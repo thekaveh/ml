@@ -63,6 +63,7 @@ ROOT = (
     "-r",
     "requirements.txt",
 )
+UPGRADE_PIP = (sys.executable, "-m", "pip", "install", "--upgrade", "pip", "wheel")
 
 
 def test_canonical_manifest_bytes_are_exact() -> None:
@@ -79,7 +80,7 @@ def test_linux_and_darwin_command_plans_are_exact() -> None:
     darwin = build_install_commands(sys.executable, "Darwin", "arm64")
 
     assert tuple(command.stage for command in linux) == tuple(InstallStage)
-    assert linux[0].argv == (sys.executable, "-m", "pip", "install", "--upgrade", "pip")
+    assert linux[0].argv == UPGRADE_PIP
     assert linux[1].argv == LINUX_CORE
     assert darwin[1].argv == tuple(
         token
@@ -89,6 +90,23 @@ def test_linux_and_darwin_command_plans_are_exact() -> None:
     assert linux[2].argv == darwin[2].argv == RUNTIME
     assert linux[3].stage is InstallStage.ROOT
     assert linux[3].argv == darwin[3].argv == ROOT
+
+
+def test_upgrade_stage_provisions_pip_and_wheel_before_core_and_runtime(tmp_path: Path) -> None:
+    commands = build_install_commands(sys.executable, "Linux", "x86_64")
+
+    assert commands[0] == InstallCommand(InstallStage.UPGRADE_PIP, UPGRADE_PIP)
+    assert commands[1].stage is InstallStage.CORE
+    assert commands[2].stage is InstallStage.RUNTIME
+
+    source = (REPO_ROOT / "scripts" / "install_torch_stack.py").read_text(encoding="utf-8")
+    original = '("--upgrade", "pip", "wheel")'
+    assert original in source
+    mutated = source.replace(original, '("--upgrade", "pip")', 1)
+    assert mutated != source
+
+    with pytest.raises(AssertionError):
+        assert _commands_from_installer_source(tmp_path, mutated)[0].argv == UPGRADE_PIP
 
 
 @pytest.mark.parametrize(
@@ -134,7 +152,7 @@ def test_installer_stops_on_nonzero_with_a_redacted_stable_error() -> None:
     assert secret not in str(error.value)
 
 
-def _runtime_argv_from_installer_source(tmp_path: Path, source: str) -> tuple[str, ...]:
+def _commands_from_installer_source(tmp_path: Path, source: str) -> tuple[InstallCommand, ...]:
     installer = tmp_path / "mutated_install_torch_stack.py"
     installer.write_text(source, encoding="utf-8")
     spec = importlib.util.spec_from_file_location("mutated_install_torch_stack", installer)
@@ -142,7 +160,11 @@ def _runtime_argv_from_installer_source(tmp_path: Path, source: str) -> tuple[st
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    return module.build_install_commands(sys.executable, "Linux", "x86_64")[2].argv
+    return module.build_install_commands(sys.executable, "Linux", "x86_64")
+
+
+def _runtime_argv_from_installer_source(tmp_path: Path, source: str) -> tuple[str, ...]:
+    return _commands_from_installer_source(tmp_path, source)[2].argv
 
 
 @pytest.mark.parametrize(

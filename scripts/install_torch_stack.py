@@ -49,7 +49,7 @@ def build_install_commands(python: str, system: str, machine: str) -> tuple[Inst
         "torch-core-requirements.txt",
     )
     return (
-        InstallCommand(InstallStage.UPGRADE_PIP, pip + ("--upgrade", "pip")),
+        InstallCommand(InstallStage.UPGRADE_PIP, pip + ("--upgrade", "pip", "wheel")),
         InstallCommand(InstallStage.CORE, core),
         InstallCommand(
             InstallStage.RUNTIME,

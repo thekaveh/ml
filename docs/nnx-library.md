@@ -99,8 +99,9 @@ without removing the 0.2.0 facade. Version 0.2.2 retained that facade and added
 `NNTabularDataset(target_dtype=...)`, transactional persistence and warm-resume hardening,
 partial gradient-accumulation completion, and corrected evaluation/target handling. The release
 keeps the existing Python, Torch, torchvision, and PyG compatibility floors; its source-compatible
-API was accepted only after canonical-wheel verification and the complete Tier A/B/C consumer
-matrix. Quantization remains a separate best-effort side-environment check because the main
+API has canonical-wheel and focused consumer-surface verification. Final release acceptance
+remains pending the complete Tier A/B/C consumer matrix in Task 5; no completed-matrix claim is
+made here. Quantization remains a separate best-effort side-environment check because the main
 Torch 2.4.1 environment cannot import the required torchao surface.
 
 ## 7.3 The 2026-06-14 PyPI migration

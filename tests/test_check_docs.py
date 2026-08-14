@@ -593,6 +593,64 @@ def test_real_user_docs_publish_current_vulnerability_snapshot():
     assert "Four-surface vulnerability ledger refresh" in changelog
 
 
+NNX_022_RELEASE_ROW = (
+    "| 0.2.2 | `edfd197f3f54d4eb67313d46a80e823e6239c5b6` | "
+    "`ee56474926fdfd5329721f067cf1b8ae31955627c6949844e09ee4a7bb2bb9d7` | "
+    "Latest stable, universal, not yanked |"
+)
+NNX_022_FLOORS = (
+    "Version 0.2.2 retains Python `>=3.10`, Torch `>=2.0`, torchvision `>=0.15`, "
+    "and torch-geometric `>=2.4`"
+)
+NNX_PENDING_ACCEPTANCE = (
+    "Final release acceptance remains pending the complete Tier A/B/C consumer matrix in "
+    "Task 5; no completed-matrix claim is made here."
+)
+NNX_TIER_BOUNDARY = (
+    "The release-acceptance tiers apply the same canonical wheel boundary immediately before "
+    "each workload: Tier A covers 17 NNx consumers plus the NumPy control, Tier B covers the "
+    "image baseline and active Reddit exploration/model-selection notebooks, and Tier C covers "
+    "the four historical Reddit final pipelines without overwriting their recorded outputs."
+)
+NNX_QAT_BOUNDARY = (
+    "QAT remains a best-effort isolated Torch >=2.5 side-environment checkpoint probe because "
+    "the canonical Torch 2.4.1 stack cannot import the required torchao surface; it does not "
+    "replace the three canonical tiers or change repository requirements."
+)
+NNX_ATLAS_ROW = (
+    "| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; "
+    "`tokenizers` 0.22.2 | Atlas-owned image evidence; matches notebook imports and the `[lm]` "
+    "extra at the observed version |"
+)
+
+
+def _normalize_markdown(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _assert_nnx_022_release_row(ledger: str) -> None:
+    rows = [line for line in ledger.splitlines() if line.startswith("| 0.2.2 |")]
+    assert rows == [NNX_022_RELEASE_ROW]
+
+
+def _assert_nnx_022_floors(ledger: str) -> None:
+    assert NNX_022_FLOORS in _normalize_markdown(ledger)
+
+
+def _assert_nnx_pending_acceptance_boundary(ledger: str, overview: str) -> None:
+    normalized_ledger = _normalize_markdown(ledger)
+    normalized_overview = _normalize_markdown(overview)
+    assert NNX_TIER_BOUNDARY in normalized_ledger
+    assert NNX_QAT_BOUNDARY in normalized_ledger
+    assert NNX_PENDING_ACCEPTANCE in normalized_overview
+    assert "matrix completed and accepted" not in normalized_overview
+
+
+def _assert_nnx_atlas_row(ledger: str) -> None:
+    rows = [line for line in ledger.splitlines() if line.startswith("| NNx + language extras |")]
+    assert rows == [NNX_ATLAS_ROW]
+
+
 def test_nnx_wheel_contract_is_consistent_across_canonical_user_docs():
     docs = {
         path: (REPO_ROOT / path).read_text(encoding="utf-8")
@@ -624,10 +682,7 @@ def test_nnx_wheel_contract_is_consistent_across_canonical_user_docs():
     dependency_contract = docs["docs/dependency-contracts.md"]
     for evidence in (
         "thekaveh-nnx[lm]==0.2.2",
-        "ee56474926fdfd5329721f067cf1b8ae31955627c6949844e09ee4a7bb2bb9d7",
-        "edfd197f3f54d4eb67313d46a80e823e6239c5b6",
         "Apache-2.0",
-        "Stable, universal, not yanked",
         "rejects any `direct_url.json`",
         "`WHEEL`, `RECORD`, and `nnx/__init__.py`",
         "distribution-owned import origin",
@@ -688,23 +743,80 @@ def test_nnx_current_pin_references_match_the_single_root_requirement():
 def test_nnx_release_evidence_records_complete_consumer_validation_boundary():
     ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
     overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
-    normalized_ledger = " ".join(ledger.split())
 
-    for evidence in (
-        "Python `>=3.10`",
-        "Torch `>=2.0`",
-        "torch-geometric `>=2.4`",
-        "Tier A",
-        "Tier B",
-        "Tier C",
-        "canonical wheel",
-        "best-effort",
-        "QAT",
-        "Torch >=2.5",
-    ):
-        assert evidence in normalized_ledger
+    _assert_nnx_022_release_row(ledger)
+    _assert_nnx_022_floors(ledger)
+    _assert_nnx_pending_acceptance_boundary(ledger, overview)
     assert "0.2.1" in overview
     assert "0.2.2" in overview
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    (
+        NNX_022_RELEASE_ROW.replace(
+            "Latest stable, universal, not yanked", "Latest stable, universal, yanked"
+        ),
+        NNX_022_RELEASE_ROW.replace(
+            "Latest stable, universal, not yanked", "Latest stable, platform-specific, not yanked"
+        ),
+    ),
+)
+def test_nnx_release_row_contract_rejects_status_mutations(replacement):
+    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    _assert_nnx_022_release_row(ledger)
+
+    mutated = ledger.replace(NNX_022_RELEASE_ROW, replacement)
+    with pytest.raises(AssertionError):
+        _assert_nnx_022_release_row(mutated)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        ("Python `>=3.10`", "Python `>=3.11`"),
+        ("Torch `>=2.0`", "Torch `>=2.1`"),
+        ("torchvision `>=0.15`", "torchvision `>=0.16`"),
+        ("torch-geometric `>=2.4`", "torch-geometric `>=2.5`"),
+    ),
+)
+def test_nnx_release_floor_contract_rejects_mutations(old, new):
+    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    _assert_nnx_022_floors(ledger)
+
+    mutated = _normalize_markdown(ledger).replace(
+        NNX_022_FLOORS,
+        NNX_022_FLOORS.replace(old, new),
+    )
+    with pytest.raises(AssertionError):
+        _assert_nnx_022_floors(mutated)
+
+
+@pytest.mark.parametrize(
+    ("surface", "old", "new"),
+    (
+        (
+            "overview",
+            NNX_PENDING_ACCEPTANCE,
+            "The complete Tier A/B/C consumer matrix completed and accepted NNx 0.2.2.",
+        ),
+        ("ledger", "Tier A covers 17 NNx consumers", "Tier Alpha covers 17 NNx consumers"),
+        ("ledger", "Tier B covers the image baseline", "Tier Beta covers the image baseline"),
+        ("ledger", "Tier C covers the four historical", "Tier Gamma covers the four historical"),
+        ("ledger", "QAT remains a best-effort", "QAT is a required canonical"),
+    ),
+)
+def test_nnx_acceptance_boundary_rejects_mutations(surface, old, new):
+    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
+    _assert_nnx_pending_acceptance_boundary(ledger, overview)
+
+    if surface == "ledger":
+        ledger = ledger.replace(old, new, 1)
+    else:
+        overview = _normalize_markdown(overview).replace(old, new, 1)
+    with pytest.raises(AssertionError):
+        _assert_nnx_pending_acceptance_boundary(ledger, overview)
 
 
 def test_nnx_historical_and_atlas_owned_0_2_0_evidence_remains_explicit():
@@ -718,11 +830,26 @@ def test_nnx_historical_and_atlas_owned_0_2_0_evidence_remains_explicit():
     ).read_text(encoding="utf-8")
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
-    assert "`thekaveh-nnx` / `nnx` 0.2.0" in ledger
-    assert "Atlas-owned" in ledger
+    _assert_nnx_atlas_row(ledger)
     assert "0.2.0" in issue_58_design
     assert "0.2.0" in issue_58_plan
     assert "NNx v0.2.0 usage-conformance pass" in changelog
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    (
+        NNX_ATLAS_ROW.replace("0.2.0", "0.2.2"),
+        NNX_ATLAS_ROW.replace("Atlas-owned", "repository-owned"),
+    ),
+)
+def test_nnx_atlas_row_contract_rejects_ownership_and_version_mutations(replacement):
+    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    _assert_nnx_atlas_row(ledger)
+
+    mutated = ledger.replace(NNX_ATLAS_ROW, replacement)
+    with pytest.raises(AssertionError):
+        _assert_nnx_atlas_row(mutated)
 
 
 def test_tabular_regression_docs_record_resolved_nnx_target_dtype_support():

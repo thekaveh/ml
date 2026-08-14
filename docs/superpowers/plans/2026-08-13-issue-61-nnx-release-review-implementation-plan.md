@@ -286,12 +286,12 @@ GitHub Actions, pip-audit, MkDocs Material, GitHub wiki, Git, and GitHub CLI.
 **Files:** `docs/dependency-contracts.md`, `tests/test_verify_repo.py`, and only if an existing
 generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_baseline.py`
 
-- [ ] **Step 1: Capture the pre-refresh offline baseline state**
+- [x] **Step 1: Capture the pre-refresh offline baseline state**
 
   Run D10 and record the expected input-hash drift caused by the new `requirements.txt`. Confirm
   the accepted-policy file remains canonical and unchanged.
 
-- [ ] **Step 2: Run the live four-surface audit**
+- [x] **Step 2: Run the live four-surface audit**
 
   ```bash
   make audit-advisories
@@ -301,27 +301,27 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
   resolved versions, raw feed records, unique identities, and per-surface attribution. Sanitize
   temporary paths and credentials.
 
-- [ ] **Step 3: Enforce the adoption stop rule**
+- [x] **Step 3: Enforce the adoption stop rule**
 
   Compare the new observation with `security/accepted-advisories.json` and the current ledger.
   Stop without changing policy if there is any new advisory identity, accepted-version drift,
   unexplained surface drift, missing required package, invalid schema, resolver failure, or
   service failure. A disappeared advisory is reconciliation evidence, not proof of remediation.
 
-- [ ] **Step 4: Write ledger-refresh RED tests**
+- [x] **Step 4: Write ledger-refresh RED tests**
 
   Require the current snapshot to use the fresh timestamp, commit, manifest hashes, result count,
   and surface rows. Require the historical Issue #59 snapshot and Atlas 0.2.0 observation to remain
   byte-semantically historical. Add mutations for stale runtime hash/count and accidental Atlas
   rewrite.
 
-- [ ] **Step 5: Update only the current human observation**
+- [x] **Step 5: Update only the current human observation**
 
   Reconcile `docs/dependency-contracts.md` with the exact audit JSON. Do not edit
   `security/accepted-advisories.json` when identity/version/surface parity is unchanged. Do not
   claim a package is remediated solely because it is absent.
 
-- [ ] **Step 6: Run Task 3 GREEN gates**
+- [x] **Step 6: Run Task 3 GREEN gates**
 
   ```bash
   pytest -p no:cacheprovider tests/test_verify_repo.py -q -k 'dependency_ledger or advisory'
@@ -331,7 +331,7 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
   git diff --check
   ```
 
-- [ ] **Step 7: Commit Task 3**
+- [x] **Step 7: Commit Task 3**
 
   ```bash
   git add docs/dependency-contracts.md tests/test_verify_repo.py

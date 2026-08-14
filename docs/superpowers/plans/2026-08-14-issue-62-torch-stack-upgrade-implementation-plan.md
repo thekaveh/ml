@@ -6,6 +6,11 @@
 
 **Architecture:** Five canonical manifests define one matrix. A four-stage installer applies it, a fail-closed verifier proves ten selected distributions plus NNx 0.2.0, and CI, Docker, Codespaces, advisory policy, notebook gates, and documentation consume those same contracts. The supported compiled PyG boundary is exactly pyg-lib, torch-scatter, and torch-sparse; torch-cluster and torch-spline-conv are removed from current runtime, audit, verifier, and documentation surfaces.
 
+The verifier has one temporary local import-warning boundary for the immutable Torch 2.11.0 +
+torch-geometric 2.8.0.post1 / torch-sparse 0.6.18 debt keys. It accepts only a nonempty group whose
+every record has exact `DeprecationWarning` identity, exact TorchScript message, and exact selected
+Torch-owned `torch/jit/_script.py` origin; all outer warning-as-error gates remain strict.
+
 **Tech Stack:** Python 3.11, pip, GNU Make, PyTorch 2.11.0, TorchVision 0.26.0, TorchAudio 2.11.0, PyTorch Lightning 2.6.1, TorchMetrics 1.9.0, torchao 0.18.0, torch-geometric 2.8.0.post1, pyg-lib 0.8.0, torch-scatter 2.1.2, torch-sparse 0.6.18, thekaveh-nnx 0.2.0, pytest, Ruff, Docker, GitHub Actions, papermill, pip-audit, and MkDocs.
 
 **Spec:** `docs/superpowers/specs/2026-08-14-issue-62-torch-stack-upgrade-design.md`
@@ -23,6 +28,13 @@
 - Do not initialize or start Atlas, JupyterHub, Docker Compose, Ollama, ComfyUI, or any repository service. Containerized Ollama is prohibited. Docker use is limited to the root image build and non-service probes in Task 7.
 - Keep historical Issue #59/#60/#61 records, released changelog entries, maintenance logs, Atlas evidence, and committed notebook results immutable. Add current Issue #62 truth without rewriting history.
 - Generate site/wiki derivatives from canonical sources; never edit or commit `generated/`, `site/`, or root `mkdocs.yml`.
+- Preserve `-W error` in focused, CI, prequalification, and final gates. The only warning capture
+  exception is local to the selected torch-geometric/torch-sparse import calls and the matching
+  fresh-interpreter debt probe. Do not add a global, pytest, environment, conftest, canary, sampler,
+  NNx, consumer, CI, Docker, or Codespaces warning filter.
+- Every Torch or PyG version change invalidates both immutable warning-debt keys. A fresh-interpreter
+  zero-warning result requires removing the exception and debt-specific tests/evidence before
+  continuing; cached zero-warning imports are never retirement evidence.
 - Any resolver, wheel, ABI, sampler, quantization, advisory, Docker, notebook, documentation, or protected-branch failure is a stop condition. Correct it through a reviewed RED-GREEN commit and rerun the affected clean matrix.
 
 ---
@@ -44,10 +56,10 @@
 
 ### 12.22.2.2 Installed-runtime authority
 
-- `scripts/verify_torch_stack.py`: exact ten-component metadata/import/wheel/provenance/CPU verifier, three mandatory canaries, and final NNx delegation.
-- `tests/test_verify_torch_stack_platform.py`: supported-platform and wheel-tag contract.
+- `scripts/verify_torch_stack.py`: exact ten-component metadata/import/wheel/provenance/CPU verifier, the local exact-match TorchScript import-warning boundary, three mandatory canaries, and final NNx delegation. Task 2.1 reopens this file only for the approved warning debt.
+- `tests/test_verify_torch_stack_platform.py`: supported-platform, wheel-tag, warning-debt, origin-inventory, cache/order, mutation, and redaction contract. Task 2.1 owns these production-facing warning tests.
 - `tests/test_verify_repo.py`: runtime availability plus CI/Docker/order/cache/service contracts.
-- `tests/test_verify_torch_stack.py`: existing Task 3 work-in-progress file; Task 3 reconciles it with the final ten-component verifier and owns its commit.
+- `tests/test_verify_torch_stack.py`: existing Task 3 work-in-progress file; Task 3 reconciles it with the final ten-component verifier, adds consumer/AST enforcement for the Task 2.1 boundary, and owns its commit.
 - `tests/nnx_surface/conftest.py`: one stack-verifier call before NNx verification/import.
 - `tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py`: mandatory pyg-lib/sparse NeighborLoader and SAGE/GraphConv/GAT execution.
 - `tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py`: mandatory tiny PTQ/QAT execution.
@@ -85,6 +97,9 @@ class DistributionView(Protocol):
     def read_text(self, filename: str) -> str | None:
         raise NotImplementedError
 
+    def locate_file(self, path: PackagePath) -> Path:
+        raise NotImplementedError
+
 @dataclass(frozen=True)
 class CanaryHooks:
     scatter: Canary
@@ -100,6 +115,15 @@ class VerificationHooks:
     machine: Callable[[], str]
     nnx_verify: Callable[[], object]
     canaries: CanaryHooks
+
+@dataclass(frozen=True)
+class ImportWarningEvidence:
+    torch_public_version: str
+    outer_component: str
+    outer_public_version: str
+    count: int
+    message: str
+    origin: Path
 ```
 
 The final smoke-output interfaces are:
@@ -142,24 +166,31 @@ The branch preserves implementation history through `1ca1bd8ffeede71151eba71a597
 
 Task 1 and Task 2 are reopened below. Their checkboxes are unchecked because final-state code and tests still contain wheel bootstrap, source-build flags, two legacy pins, twelve verifier components, and five canaries.
 
-Task 3 has five legitimate uncommitted files. Before Task 1 begins, record and require these exact SHA-256 values:
+Task 3 now has seven legitimate uncommitted files after its stopped clean-r4 attempt. The earlier
+five-hash handoff remains historical Task 1/2 evidence; Task 2.1 and every resumed Task 3 gate use
+the current blocker-report hashes below:
 
 ```text
-d0dadde0c1de06227a88e5151a3f74c91b791c93e2b4fc1200cbc9424c34778b  tests/nnx_surface/conftest.py
-19394ee43f2c1ba5e7e5d836436803dbd317008e6643730d8185304bf7ba70a2  tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py
-d5ee4ae82159cb2a576d8fb2421f68dc8db3107832399d81e985eff1396d9a11  tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py
-d94958579ca5b920b1e50222dc3a1ee09a8d6ba25fcebd7ce23237462a337dda  tests/test_makefile_contract.py
-8d723345898d9af461dd78f6ecfe3dcf0b7ef7a332d80046953f3850d3a343ad  tests/test_verify_torch_stack.py
+2a79d47551b294205c799abbcca74020cb344d7a6fd849de34f49fcd0efa769b  tests/nnx_surface/conftest.py
+5404739e06297d275bbd17f88482d9439be798182dd2b87c675b0239c654b75c  tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py
+9895e01ae9d6844c1c78cc55a87b363b21ca198fddd3ba261ddd0122aae41214  tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py
+57a40818f5ce6832540050a8bbba5898540cb542f0acad3a0afbdcf3bbefa5d9  tests/test_makefile_contract.py
+203a940b20bbd9c51b2e4e647c710cae6ef920b2774455b6272521c2983ce91a  tests/test_verify_torch_stack.py
+c1317797fa4bed5c51d702a225f4320166119092e70169d460b76c61b0e5c42b  scripts/verify_junit.py
+311639a91891daa15603fd82ae655ebdea67315bff77bacdc5e78b6ff3c751d9  tests/test_verify_junit.py
 ```
 
-Task 1 and Task 2 must not edit, stage, or commit those files. Their focused gates use other test files. Task 3 adapts and commits all five only after the new clean matrix passes. At each Task 1/2 commit gate run:
+Task 2.1 must not edit, stage, or commit those files. Its focused unit gates use only
+`tests/test_verify_torch_stack_platform.py`; its clean-environment acceptance executes the preserved
+consumer/JUnit files without changing them. Task 3 resumes and commits all seven only after the
+corrected clean matrix passes. At every Task 2.1 preservation gate run:
 
 ```bash
-shasum -a 256 tests/nnx_surface/conftest.py tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_makefile_contract.py tests/test_verify_torch_stack.py
+shasum -a 256 tests/nnx_surface/conftest.py tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_makefile_contract.py tests/test_verify_torch_stack.py scripts/verify_junit.py tests/test_verify_junit.py
 git diff --cached --name-only
 ```
 
-Expected: the five hashes equal the block above and none of those paths appears in the staged list.
+Expected: all seven hashes equal the block above and none of those paths appears in the staged list.
 
 ---
 
@@ -785,7 +816,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
   plan = Path(
       "docs/superpowers/plans/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md"
   ).read_text(encoding="utf-8")
-  task2 = plan.split("## 12.22.5 Task 2:", 1)[1].split("## 12.22.6 Task 3:", 1)[0]
+  task2 = plan.split("## 12.22.5 Task 2:", 1)[1].split("## 12.22.6 Task 2.1:", 1)[0]
   files = task2.split("**Files:**", 1)[1].split("**Interfaces:**", 1)[0]
   step3 = task2.split("- [ ] **Step 3:", 1)[1].split("- [ ] **Step 4:", 1)[0]
   step8 = task2.split("- [ ] **Step 8:", 1)[1]
@@ -806,7 +837,602 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
 ---
 
-## 12.22.6 Task 3: Finish fail-closed graph, quantization, and notebook artifact gates
+## 12.22.6 Task 2.1: Bound the selected PyG import warnings exactly
+
+**Files:**
+- Modify: `scripts/verify_torch_stack.py`
+- Modify: `tests/test_verify_torch_stack_platform.py`
+- Execute without modifying: `tests/test_verify_torch_stack.py`
+- Execute without modifying: `tests/nnx_surface/conftest.py`
+- Execute without modifying: `tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py`
+- Execute without modifying: `tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py`
+- Execute without modifying: `tests/test_makefile_contract.py`
+- Execute without modifying: `scripts/verify_junit.py`
+- Execute without modifying: `tests/test_verify_junit.py`
+
+**Interfaces:**
+- Consumes: Task 2's `StackPin`, `StackContract`, `DistributionView`, `VerificationHooks`,
+  `TorchStackVerificationError`, exact selected distribution metadata, and the unchanged CLI outer
+  warning capture.
+- Produces: immutable `_IMPORT_WARNING_DEBT_KEYS`, exact
+  `_TORCH_SCRIPT_WARNING_MESSAGE`, exact `_TORCH_SCRIPT_WARNING_PATH`,
+  `ImportWarningEvidence`, `_torch_script_warning_origin`, `_capture_selected_import`,
+  `_validate_import_warning_group`, and `_import_with_selected_warning_boundary`.
+- Wrapper contract: only the selected `hooks.import_module()` calls for outer component
+  `torch-geometric` or `torch-sparse` enter the local capture. Zero captured warnings return the
+  module normally. A nonempty group is accepted only under one immutable debt key and only when
+  every warning exactly matches category identity, complete message, and resolved Torch-owned
+  origin. The accepted group is consumed locally; every other warning or import exception fails
+  with the existing stable `<component>: abi` category.
+- Debt-key contract: the keys use public installed versions
+  `("2.11.0", "torch-geometric", "2.8.0.post1")` and
+  `("2.11.0", "torch-sparse", "0.6.18")`. They are literal production constants and are not
+  generated from manifests, `StackContract`, `IMPORTS`, or test fixtures.
+- Origin contract: exactly one selected Torch `Distribution.files`/RECORD `PackagePath` has POSIX
+  path `torch/jit/_script.py`; its `dist` owner is the selected Torch distribution; `locate()`
+  resolves strictly to a concrete file. Missing, duplicate, unlocatable, non-file, or differently
+  owned inventory fails closed. Warning filenames must resolve strictly equal to that file; basename,
+  suffix, package-root, and string-prefix matching are forbidden. Line number and warning count are
+  intentionally not predicates; one or more exact warnings are accepted.
+- Preserved gates: no production `sys.modules` deletion or replacement; `_run_warning_free` around
+  scatter, sparse, sampler, and NNx is unchanged; the CLI outer capture is unchanged; pytest stays
+  `-W error`; focused JUnit still requires positive tests and zero failures/errors/skips; both real
+  sampler backends remain mandatory; quantization remains mandatory; no global, pytest, environment,
+  conftest, CI, canary, sampler, NNx, or consumer warning filter is introduced.
+- Commit ownership: exactly `scripts/verify_torch_stack.py` and
+  `tests/test_verify_torch_stack_platform.py`. The seven Task 3 WIP paths remain byte-identical,
+  uncommitted, and unstaged at the hashes in 12.22.3.
+
+- [ ] **Step 1: Revalidate the seven-file preservation boundary before RED**
+
+  ```bash
+  shasum -a 256 tests/nnx_surface/conftest.py tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_makefile_contract.py tests/test_verify_torch_stack.py scripts/verify_junit.py tests/test_verify_junit.py
+  git diff --cached --name-only
+  ```
+
+  Expected: the seven hashes exactly match 12.22.3 and the staged list is empty. If any hash differs,
+  stop and reconcile it against
+  `.superpowers/sdd/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan/task-3-final-report.md`;
+  do not restore, edit, or stage the file from Task 2.1.
+
+- [ ] **Step 2: Add RED fixtures for the immutable keys and exact warning records**
+
+  In `tests/test_verify_torch_stack_platform.py`, extend `PlatformDistribution` so the selected
+  Torch inventory owns one real warning file:
+
+  ```python
+  if name == "torch":
+      warning_path = root / "torch/jit/_script.py"
+      warning_path.parent.mkdir(parents=True, exist_ok=True)
+      warning_path.touch()
+      assert self.files is not None
+      self.files.append(self._path("torch/jit/_script.py"))
+  ```
+
+  Add this exact warning fixture and attach `self.import_warnings` plus `_import_module` to
+  `PlatformStack`; make `VerificationHooks.import_module=self._import_module`:
+
+  ```python
+  @dataclass(frozen=True)
+  class ImportWarningSpec:
+      category: type[Warning]
+      message: str
+      filename: Path
+
+  class TorchScriptDeprecationSubclass(DeprecationWarning):
+      pass
+
+  def _torch_warning_path(stack: PlatformStack) -> Path:
+      distribution = stack.distributions["torch"]
+      assert distribution.files is not None
+      (owned,) = tuple(
+          path for path in distribution.files
+          if path.as_posix() == "torch/jit/_script.py"
+      )
+      return Path(owned.locate()).resolve(strict=True)
+
+  def _exact_warning(stack: PlatformStack) -> ImportWarningSpec:
+      return ImportWarningSpec(
+          DeprecationWarning,
+          "`torch.jit.script` is deprecated. Please switch to "
+          "`torch.compile` or `torch.export`.",
+          _torch_warning_path(stack),
+      )
+
+  # Methods added to PlatformStack:
+  def warn_on_import(
+      self,
+      component: str,
+      *records: ImportWarningSpec,
+  ) -> None:
+      self.import_warnings[IMPORTS[component]] = records
+
+  def _import_module(self, import_name: str) -> ModuleType:
+      module = self.modules[import_name]
+      for record in self.import_warnings.get(import_name, ()):
+          warnings.warn_explicit(
+              record.message,
+              record.category,
+              filename=str(record.filename),
+              lineno=73,
+          )
+      return module
+  ```
+
+  Add literal-oracle tests that require the production debt keys and message/path constants to equal:
+
+  ```python
+  assert verifier._IMPORT_WARNING_DEBT_KEYS == frozenset({
+      ("2.11.0", "torch-geometric", "2.8.0.post1"),
+      ("2.11.0", "torch-sparse", "0.6.18"),
+  })
+  assert verifier._TORCH_SCRIPT_WARNING_MESSAGE == (
+      "`torch.jit.script` is deprecated. Please switch to "
+      "`torch.compile` or `torch.export`."
+  )
+  assert verifier._TORCH_SCRIPT_WARNING_PATH.as_posix() == "torch/jit/_script.py"
+  ```
+
+  Then parameterize `torch-geometric` and `torch-sparse` with one, two, and nineteen identical
+  records. Require `verify_torch_stack` to return normal `StackEvidence` for every count. Assert no
+  test pins `WarningMessage.lineno`, and vary the fixture line between 1 and 10,000 in a separate
+  passing test.
+
+- [ ] **Step 3: Add RED near-miss, mixed-group, and version-key tests**
+
+  Add this complete mutation table; every row runs through `verify_torch_stack` and must raise the
+  exact outer-component ABI error:
+
+  ```python
+  @pytest.mark.parametrize(
+      ("component", "mutate"),
+      (
+          ("torch-geometric", lambda stack, item: dataclasses.replace(item, category=UserWarning)),
+          ("torch-geometric", lambda stack, item: dataclasses.replace(
+              item, category=TorchScriptDeprecationSubclass,
+          )),
+          ("torch-geometric", lambda stack, item: dataclasses.replace(
+              item, message="`torch.jit.script` is deprecated.",
+          )),
+          ("torch-geometric", lambda stack, item: dataclasses.replace(
+              item, message=item.message.removesuffix("."),
+          )),
+          ("torch-geometric", lambda stack, item: dataclasses.replace(
+              item, filename=stack.tmp_path / "outside/_script.py",
+          )),
+          ("torch-geometric", lambda stack, item: dataclasses.replace(
+              item, filename=stack.tmp_path / "outside/torch/jit/_script.py",
+          )),
+          ("torch-sparse", lambda stack, item: dataclasses.replace(item, category=UserWarning)),
+          ("torch-sparse", lambda stack, item: dataclasses.replace(
+              item, message=item.message + " ",
+          )),
+      ),
+      ids=(
+          "wrong-category", "warning-subclass", "message-prefix", "punctuation",
+          "same-basename-outsider", "matching-suffix-outsider",
+          "sparse-wrong-category", "sparse-trailing-space",
+      ),
+  )
+  def test_import_warning_near_misses_fail_closed(tmp_path, component, mutate):
+      stack = PlatformStack(tmp_path, "Darwin", "arm64")
+      stack.tmp_path = tmp_path
+      item = _exact_warning(stack)
+      mutated = mutate(stack, item)
+      mutated.filename.parent.mkdir(parents=True, exist_ok=True)
+      mutated.filename.touch(exist_ok=True)
+      stack.warn_on_import(component, mutated)
+      with pytest.raises(
+          TorchStackVerificationError,
+          match=rf"^torch stack verification failed: {component}: abi$",
+      ):
+          verify_torch_stack(repo=REPO_ROOT, hooks=stack.hooks)
+  ```
+
+  Add one mixed-group case `(exact, wrong-message)`, one `(exact, UserWarning)`, and one
+  `(exact, exact, extra-warning)`; all fail. Add a wrong outer-component case by emitting the exact
+  warning from `torchvision`; `main()` must exit 1 through the unchanged outer capture. Independently
+  mutate installed Torch to `2.11.1`, torch-geometric to `2.8.1`, and torch-sparse to `0.6.19` while
+  keeping warning records exact. Call `_validate_import_warning_group` directly with those fake
+  distributions so manifest-derived expected versions cannot cause the result; each mutation must
+  fail its immutable key with `<outer>: abi`.
+
+- [ ] **Step 4: Add RED fail-closed Torch-origin inventory tests**
+
+  Starting from a warning-emitting `torch-geometric` stack, apply each independent inventory
+  mutation and require `torch-geometric: abi`:
+
+  ```python
+  def _torch_script_entries(stack: PlatformStack) -> list[PackagePath]:
+      files = stack.distributions["torch"].files
+      assert files is not None
+      return [path for path in files if path.as_posix() == "torch/jit/_script.py"]
+
+  # missing
+  torch_distribution.files = [
+      path for path in torch_distribution.files
+      if path.as_posix() != "torch/jit/_script.py"
+  ]
+
+  # duplicate exact POSIX PackagePath
+  torch_distribution.files.append(torch_distribution._path("torch/jit/_script.py"))
+
+  # unlocatable selected-distribution location
+  torch_distribution.locate_file = lambda path: (_ for _ in ()).throw(OSError("unlocatable"))
+
+  # no concrete owned file
+  _torch_warning_path(stack).unlink()
+
+  # PackagePath is present but owned by a different distribution
+  (entry,) = _torch_script_entries(stack)
+  entry.dist = stack.distributions["torchvision"]
+  ```
+
+  Use a fresh `PlatformStack` for each mutation. Add positive controls proving unrelated duplicate
+  basenames elsewhere in Torch inventory do not affect the exact POSIX selection, and symlink/string
+  suffix heuristics do not satisfy exact resolved equality.
+
+- [ ] **Step 5: Add RED cache, order, boundary, redaction, and source-mutation tests**
+
+  Add a stateful importer that warns only on its first call. Run the same `PlatformStack` twice and
+  require first-call exact warnings plus second-call zero warnings both succeed without deleting
+  any module. Parameterize helper calls in orders
+  `("torch-geometric", "torch-sparse")` and `("torch-sparse", "torch-geometric")`; for each order,
+  accept a zero group for either component and accept a nonempty group only when it is wholly exact.
+
+  Emit the exact debt warning from scatter, sparse-canary, sampler, and NNx operations in four
+  independent cases; retain `_run_warning_free` and require the existing `operator`, `sampler`, or
+  `nnx` failure. Add a production AST assertion that no `del sys.modules[...]`,
+  `sys.modules.pop(...)`, assignment to `sys.modules[...]`, or rebinding of `sys.modules` occurs in
+  `scripts/verify_torch_stack.py`.
+
+  Add source mutations with these exact before/after pairs. Import each unique mutated module with
+  the existing test-only loader, assert the replacement changed one occurrence, and require a named
+  behavioral or AST oracle to fail:
+
+  ```python
+  IMPORT_WARNING_SOURCE_MUTATIONS = (
+      ("record.category is not DeprecationWarning", "not issubclass(record.category, DeprecationWarning)"),
+      ("str(record.message) != _TORCH_SCRIPT_WARNING_MESSAGE", "not str(record.message).startswith('`torch.jit.script` is deprecated')"),
+      ("resolved != expected_origin", "False"),
+      ("if pin.distribution in _IMPORT_WARNING_OUTER_COMPONENTS:", "if True:"),
+  )
+  ```
+
+  Add deletion mutations for the origin-validation call and replace `for record in caught:` with
+  `for record in caught[:1]:` so a mixed/extra tail would survive. Add a CLI test whose invalid
+  group includes a secret URL, temporary absolute path,
+  warning payload, and traceback text; `main()` must print exactly
+  `torch stack verification failed: torch-geometric: abi` on stderr, print nothing on stdout, and
+  return 1.
+
+- [ ] **Step 6: Run RED and confirm the failure boundary**
+
+  ```bash
+  pytest -p no:cacheprovider tests/test_verify_torch_stack_platform.py -q -k 'import_warning or warning_origin or warning_debt or cached or repeated or import_order or sys_modules or redaction or source_mutation'
+  ```
+
+  Expected: RED failures are confined to missing production constants/helpers and the current
+  unbounded import behavior. Existing platform, canary, and NNx tests still collect. Do not run or
+  edit the preserved Task 3 files during RED.
+
+- [ ] **Step 7: Implement the immutable constants, exact origin, capture, and validator**
+
+  Add `PurePosixPath` to the `pathlib` import. Extend `DistributionView` with the exact
+  `locate_file(self, path: PackagePath) -> Path` method shown in 12.22.2.2; the default
+  `importlib.metadata.Distribution` and `PlatformDistribution` already supply it. Add this production
+  code immediately after `TorchStackVerificationError`:
+
+  ```python
+  _TORCH_SCRIPT_WARNING_MESSAGE = (
+      "`torch.jit.script` is deprecated. Please switch to "
+      "`torch.compile` or `torch.export`."
+  )
+  _TORCH_SCRIPT_WARNING_PATH = PurePosixPath("torch/jit/_script.py")
+  _IMPORT_WARNING_OUTER_COMPONENTS = frozenset(("torch-geometric", "torch-sparse"))
+  _IMPORT_WARNING_DEBT_KEYS = frozenset({
+      ("2.11.0", "torch-geometric", "2.8.0.post1"),
+      ("2.11.0", "torch-sparse", "0.6.18"),
+  })
+
+  @dataclass(frozen=True)
+  class ImportWarningEvidence:
+      torch_public_version: str
+      outer_component: str
+      outer_public_version: str
+      count: int
+      message: str
+      origin: Path
+
+  def _distribution_public_version(
+      component: str,
+      distribution: DistributionView,
+  ) -> str:
+      try:
+          return Version(distribution.version).public
+      except BaseException:
+          raise TorchStackVerificationError(component, "abi") from None
+
+  def _torch_script_warning_origin(
+      torch_distribution: DistributionView,
+      *,
+      component: str,
+  ) -> Path:
+      try:
+          files = torch_distribution.files
+          if files is None:
+              raise TorchStackVerificationError(component, "abi")
+          matches = tuple(
+              path for path in files
+              if isinstance(path, PackagePath)
+              and path.as_posix() == _TORCH_SCRIPT_WARNING_PATH.as_posix()
+          )
+          if len(matches) != 1 or getattr(matches[0], "dist", None) is not torch_distribution:
+              raise TorchStackVerificationError(component, "abi")
+          located = Path(matches[0].locate())
+          owned = Path(torch_distribution.locate_file(matches[0]))
+          if located.is_symlink() or owned.is_symlink():
+              raise TorchStackVerificationError(component, "abi")
+          resolved = located.resolve(strict=True)
+          if resolved != owned.resolve(strict=True) or not resolved.is_file():
+              raise TorchStackVerificationError(component, "abi")
+          return resolved
+      except TorchStackVerificationError:
+          raise
+      except BaseException:
+          raise TorchStackVerificationError(component, "abi") from None
+
+  def _capture_selected_import(
+      import_name: str,
+      hooks: VerificationHooks,
+  ) -> tuple[ModuleType, tuple[warnings.WarningMessage, ...]]:
+      with warnings.catch_warnings(record=True) as caught:
+          warnings.simplefilter("always")
+          module = hooks.import_module(import_name)
+      return module, tuple(caught)
+
+  def _validate_import_warning_group(
+      *,
+      torch_distribution: DistributionView,
+      outer_component: str,
+      outer_distribution: DistributionView,
+      caught: Sequence[warnings.WarningMessage],
+  ) -> ImportWarningEvidence:
+      try:
+          if not caught:
+              raise TorchStackVerificationError(outer_component, "abi")
+          torch_version = _distribution_public_version("torch", torch_distribution)
+          outer_version = _distribution_public_version(outer_component, outer_distribution)
+          if (torch_version, outer_component, outer_version) not in _IMPORT_WARNING_DEBT_KEYS:
+              raise TorchStackVerificationError(outer_component, "abi")
+          expected_origin = _torch_script_warning_origin(
+              torch_distribution,
+              component=outer_component,
+          )
+          for record in caught:
+              resolved = Path(record.filename).resolve(strict=True)
+              if (
+                  record.category is not DeprecationWarning
+                  or str(record.message) != _TORCH_SCRIPT_WARNING_MESSAGE
+                  or resolved != expected_origin
+              ):
+                  raise TorchStackVerificationError(outer_component, "abi")
+          return ImportWarningEvidence(
+              torch_version,
+              outer_component,
+              outer_version,
+              len(caught),
+              _TORCH_SCRIPT_WARNING_MESSAGE,
+              expected_origin,
+          )
+      except TorchStackVerificationError:
+          raise
+      except BaseException:
+          raise TorchStackVerificationError(outer_component, "abi") from None
+
+  def _import_with_selected_warning_boundary(
+      pin: StackPin,
+      distribution: DistributionView,
+      torch_distribution: DistributionView,
+      hooks: VerificationHooks,
+  ) -> ModuleType:
+      module, caught = _capture_selected_import(pin.import_name, hooks)
+      if not caught:
+          return module
+      _validate_import_warning_group(
+          torch_distribution=torch_distribution,
+          outer_component=pin.distribution,
+          outer_distribution=distribution,
+          caught=caught,
+      )
+      return module
+  ```
+
+  The exact equality predicates above are deliberate. Do not use `issubclass`, regex, prefix,
+  suffix, basename, `samefile`, package-root containment, line number, count equality, or a warning
+  filter outside `_capture_selected_import`.
+
+- [ ] **Step 8: Wrap only the two selected import calls and leave outer gates strict**
+
+  In `verify_torch_stack`, create `selected_distributions: dict[str, DistributionView] = {}` beside
+  `modules`. After `_verify_distribution`, store the distribution and replace the direct import with:
+
+  ```python
+  selected_distributions[pin.distribution] = distribution
+  try:
+      if pin.distribution in _IMPORT_WARNING_OUTER_COMPONENTS:
+          torch_distribution = selected_distributions.get("torch")
+          if torch_distribution is None:
+              raise TorchStackVerificationError(pin.distribution, "abi")
+          module = _import_with_selected_warning_boundary(
+              pin,
+              distribution,
+              torch_distribution,
+              hooks,
+          )
+      else:
+          module = hooks.import_module(pin.import_name)
+  except TorchStackVerificationError:
+      raise
+  except BaseException:
+      raise TorchStackVerificationError(pin.distribution, "abi") from None
+  ```
+
+  Do not change `_run_warning_free`, `DEFAULT_HOOKS`, `main()`'s outer
+  `warnings.catch_warnings(record=True)`/`simplefilter("always")`, CLI success/error text, canary
+  order, NNx-last order, or any consumer/configuration file.
+
+- [ ] **Step 9: Prove GREEN, kill mutations, and recheck preserved hashes**
+
+  ```bash
+  pytest -p no:cacheprovider tests/test_verify_torch_stack_platform.py -q
+  pytest -p no:cacheprovider tests/test_verify_torch_stack_platform.py -q -k 'import_warning or warning_origin or warning_debt or cached or repeated or import_order or sys_modules or redaction or source_mutation'
+  ruff check scripts/verify_torch_stack.py tests/test_verify_torch_stack_platform.py
+  python -m py_compile scripts/verify_torch_stack.py tests/test_verify_torch_stack_platform.py
+  git diff --check
+  shasum -a 256 tests/nnx_surface/conftest.py tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_makefile_contract.py tests/test_verify_torch_stack.py scripts/verify_junit.py tests/test_verify_junit.py
+  git diff --cached --name-only
+  ```
+
+  Expected: both pytest commands pass, every listed mutation is killed, Ruff and compilation exit 0,
+  the seven hashes still match 12.22.3, and the index remains empty. The existing intentional Task 3
+  WIP is not a failure of this focused gate.
+
+- [ ] **Step 10: Commit only the reviewed Task 2.1 ownership**
+
+  ```bash
+  git add scripts/verify_torch_stack.py tests/test_verify_torch_stack_platform.py
+  git diff --cached --name-only
+  git diff --cached --check
+  git commit -m "fix: bound selected Torch import warnings"
+  ```
+
+  Expected staged paths are exactly the two paths in `git add`; commit subject is exactly
+  `fix: bound selected Torch import warnings`. Immediately rerun the seven hashes and require
+  `git diff --cached --name-only` to be empty. Review the commit independently before Task 3 resumes.
+
+- [ ] **Step 11: Revalidate r4 or create r5, prove the real boundary, then hand back to Task 3**
+
+  Existing r4 may be reused only if every command in this preflight succeeds at the current Task 2.1
+  HEAD. Run it in a fresh shell so an earlier modified `PATH` cannot select another environment:
+
+  ```bash
+  export TASK21_SHA=$(git rev-parse HEAD)
+  export FOCUS_ROOT=/private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6
+  test -x "$FOCUS_ROOT/venv/bin/python"
+  export PATH="$FOCUS_ROOT/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  export PIP_CACHE_DIR="$FOCUS_ROOT/pip-cache"
+  export MPLCONFIGDIR="$FOCUS_ROOT/matplotlib"
+  test "$(python -c 'import sys; print(sys.prefix)')" = "$FOCUS_ROOT/venv"
+  test "$(python -c 'import platform; print(platform.system(), platform.machine())')" = "Darwin arm64"
+  test "$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = 3.11
+  python - <<'PY'
+  from importlib import metadata
+  from packaging.version import Version
+
+  expected = {
+      "torch": "2.11.0", "torchvision": "0.26.0", "torchaudio": "2.11.0",
+      "pytorch-lightning": "2.6.1", "torchmetrics": "1.9.0", "torchao": "0.18.0",
+      "torch-geometric": "2.8.0.post1", "pyg-lib": "0.8.0",
+      "torch-scatter": "2.1.2", "torch-sparse": "0.6.18",
+      "thekaveh-nnx": "0.2.0",
+  }
+  for name, public in expected.items():
+      distribution = metadata.distribution(name)
+      assert Version(distribution.version).public == public, (name, distribution.version)
+      files = tuple(distribution.files or ())
+      wheels = tuple(path for path in files if path.name == "WHEEL")
+      records = tuple(path for path in files if path.name == "RECORD")
+      assert len(wheels) == len(records) == 1 and wheels[0].parent == records[0].parent
+  PY
+  python -m pip check
+  ```
+
+  If any r4 preflight command fails, do not continue in r4. Open a fresh shell and create r5 exactly:
+
+  ```bash
+  export TASK21_SHA=$(git rev-parse HEAD)
+  export FOCUS_ROOT=$(mktemp -d /private/tmp/ml-eng-lab-issue62-focus-r5.XXXXXX)
+  python3.11 -m venv "$FOCUS_ROOT/venv"
+  export PATH="$FOCUS_ROOT/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  export PIP_CACHE_DIR="$FOCUS_ROOT/pip-cache"
+  export MPLCONFIGDIR="$FOCUS_ROOT/matplotlib"
+  make install-torch-stack
+  python -m pip check
+  ```
+
+  In the selected clean environment, run a fresh-interpreter debt probe before any PyG import. It
+  deliberately uses `-W error` globally and one local `always` capture at the approved boundary;
+  it introduces no ignore filter:
+
+  ```bash
+  python -W error - <<'PY'
+  import sys
+  import warnings
+  from importlib import metadata
+
+  from scripts.verify_torch_stack import (
+      DEFAULT_HOOKS,
+      _capture_selected_import,
+      _validate_import_warning_group,
+  )
+
+  assert "torch_geometric" not in sys.modules
+  assert "torch_sparse" not in sys.modules
+  torch_distribution = metadata.distribution("torch")
+  outer_distribution = metadata.distribution("torch-geometric")
+  module, caught = _capture_selected_import("torch_geometric", DEFAULT_HOOKS)
+  evidence = _validate_import_warning_group(
+      torch_distribution=torch_distribution,
+      outer_component="torch-geometric",
+      outer_distribution=outer_distribution,
+      caught=caught,
+  )
+  assert module.__name__ == "torch_geometric"
+  assert evidence.count == len(caught) and evidence.count >= 1
+  assert evidence.torch_public_version == "2.11.0"
+  assert evidence.outer_public_version == "2.8.0.post1"
+  print(f"exact torch-geometric import warning debt observed: count={evidence.count}")
+  PY
+  ```
+
+  A zero-warning result is not normal acceptance for this probe: it is the debt-retirement trigger.
+  Stop, remove `_IMPORT_WARNING_DEBT_KEYS` and all debt-specific machinery in a reviewed RED-GREEN
+  correction, then rerun from a new clean environment. Never infer retirement from a cached import.
+
+  Continue with the unchanged strict gates:
+
+  ```bash
+  make verify-torch-stack
+  python -W error - <<'PY'
+  import importlib
+
+  from scripts.verify_torch_stack import IMPORTS, _sampler_canary, verify_torch_stack
+
+  verify_torch_stack()
+  modules = {
+      name: importlib.import_module(import_name)
+      for name, import_name in IMPORTS.items()
+  }
+  _sampler_canary(modules)
+  print("real pyg-lib preferred and torch-sparse fallback sampler body ok")
+  PY
+  make verify-nnx-install
+  pytest -p no:cacheprovider -W error --junitxml="$FOCUS_ROOT/focused.xml" tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_makefile_contract.py -q
+  python -m scripts.verify_junit "$FOCUS_ROOT/focused.xml"
+  test "$(git rev-parse HEAD)" = "$TASK21_SHA"
+  shasum -a 256 tests/nnx_surface/conftest.py tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_makefile_contract.py tests/test_verify_torch_stack.py scripts/verify_junit.py tests/test_verify_junit.py
+  ```
+
+  Expected: `make verify-torch-stack` succeeds while its unchanged CLI outer capture remains strict;
+  the fresh probe observes one or more exact records; both real sampler paths execute; focused graph,
+  quantization, verifier, platform, and Make tests run under `-W error`; JUnit reports a positive test
+  count and zero failures/errors/skips; current HEAD remains the reviewed Task 2.1 SHA; and all seven
+  Task 3 hashes still match. Then resume Task 3 in the order stated below.
+
+---
+
+## 12.22.7 Task 3: Finish fail-closed graph, quantization, and notebook artifact gates
 
 **Files:**
 - Modify and commit existing work in progress: `tests/nnx_surface/conftest.py`
@@ -816,18 +1442,37 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - Modify and commit existing work in progress: `tests/test_verify_torch_stack.py`
 - Create: `scripts/verify_smoke_outputs.py`
 - Create: `tests/test_verify_smoke_outputs.py`
-- Create: `scripts/verify_junit.py`
-- Create: `tests/test_verify_junit.py`
+- Modify and commit existing work in progress: `scripts/verify_junit.py`
+- Modify and commit existing work in progress: `tests/test_verify_junit.py`
 - Modify: `Makefile`
 
 **Interfaces:**
-- Consumes: Task 1 installer, Task 2 verifier, existing tiny graph/image fixtures, NNx 0.2.0 public quantization facade, torchao 0.18.0, and current Tier A/B/C Make inventories.
+- Consumes: Task 1 installer, Task 2 verifier, reviewed Task 2.1 exact import-warning boundary and
+  selected r4/r5 environment, existing tiny graph/image fixtures, NNx 0.2.0 public quantization
+  facade, torchao 0.18.0, and current Tier A/B/C Make inventories.
 - Produces: mandatory SAGE/GraphConv/GAT sampled training; tiny PTQ and QAT prepare/train/convert/inference; exact one-time conftest ordering; `Tier`, `InventoryLoader`, `NotebookArtifact`, `load_make_inventory`, `verify_smoke_outputs`, `verify_junit`, both CLIs, and Make print/check seams.
-- Commit ownership: all ten files above. This is the first task allowed to stage the five preserved work-in-progress files.
+- Commit ownership: all ten files above. This is the first task allowed to stage the seven preserved
+  work-in-progress files; `scripts/verify_torch_stack.py` and
+  `tests/test_verify_torch_stack_platform.py` remain owned by the reviewed Task 2.1 commit.
+
+**Resume brief after Task 2.1:** First complete Step 1's consumer/AST additions below without
+changing the already proved production/platform boundary. Then reuse only the r4/r5 environment
+that passed Task 2.1 Step 11, rerun Step 6's focused command and JUnit parser, and proceed directly
+through Steps 7-10: smoke-output RED, implementation, smoke/JUnit/mutation GREEN, and the exact Task
+3 commit. Do not recreate JUnit files, repeat completed graph/quantization edits, or stage anything
+until the focused clean gate is green.
 
 - [ ] **Step 1: Reconcile the preserved verifier tests with Task 2's final boundary**
 
   In `tests/test_verify_torch_stack.py`, retain the existing AST-backed consumer bypass and conftest-order tests. Replace the twelve-name/five-canary fixtures with the ten-name/three-canary constants from Task 2. Delete assertions requiring cluster, spline, source builds, or their modules. Add mutations that reinsert `torch_cluster`, `torch_spline_conv`, `cluster`, or `spline` and require the exact-boundary tests to fail.
+
+  Add consumer/AST enforcement for Task 2.1: require the local capture call only under the exact
+  `frozenset(("torch-geometric", "torch-sparse"))` membership branch; require every other selected
+  import to call `hooks.import_module` directly; reject an all-import wrapper; reject
+  `warnings.filterwarnings`, `warnings.simplefilter("ignore")`, `pytest.mark.filterwarnings`,
+  `PYTHONWARNINGS`, `-W ignore`, `--disable-warnings`, and any `sys.modules` deletion/replacement in
+  verifier, NNx conftest, graph, quantization, Make, and CI consumer sources. Mutate the exact branch
+  to `if True`, add each forbidden filter form independently, and require the AST helper to fail.
 
   Run:
 
@@ -835,9 +1480,10 @@ Expected: the five hashes equal the block above and none of those paths appears 
   pytest -p no:cacheprovider tests/test_verify_torch_stack.py -q -k 'public_interfaces or manifest_contract or canary or consumer_gate or nnx_delegation'
   ```
 
-  Expected: all selected tests pass against Task 2; no legacy module is required.
+  Expected: all selected tests pass against Task 2.1; no legacy module is required; the wrapper is
+  structurally limited to the two immutable outer components; and no consumer weakens `-W error`.
 
-- [ ] **Step 2: Complete the one-time session ordering contract**
+- [x] **Step 2: Complete the one-time session ordering contract**
 
   Delete the entire redundant `_verify_nnx_installation_contract` autouse session fixture from `tests/nnx_surface/conftest.py`. Keep exactly one module-level call to each verifier:
 
@@ -917,7 +1563,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
   mutation must fail the helper, proving exactly two canonical imports and exactly two module-level
   calls in the required order.
 
-- [ ] **Step 3: Finish mandatory graph consumer tests**
+- [x] **Step 3: Finish mandatory graph consumer tests**
 
   Preserve the partial removal of `pytest.skip`, `pytest.importorskip`, `_HAS_PYG_SAMPLER`, `_has_pyg_sampler`, and skip decorators. Keep only pyg-lib and sparse backend imports:
 
@@ -943,7 +1589,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
   Require SAGE, GraphConv, and GAT tests each to consume a real positive sampled batch and finish one NNx training epoch. Do not import or canary cluster/spline.
 
-- [ ] **Step 4: Finish mandatory PTQ and QAT consumer tests**
+- [x] **Step 4: Finish mandatory PTQ and QAT consumer tests**
 
   Preserve the partial removal of `_import_torchao_or_skip`, `torch.int1` guards, and skip paths. Keep the public-facade signature tests and this tiny QAT execution:
 
@@ -970,7 +1616,11 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
   PTQ must import torchao normally, quantize through the NNx public facade, and predict. Do not execute or edit the complete quantization notebook.
 
-- [ ] **Step 5: Write and implement the fail-closed JUnit gate before its first use**
+- [x] **Step 5: Write and implement the fail-closed JUnit gate before its first use**
+
+  The blocker report records this RED/GREEN cycle as complete (`25 passed`) and the two JUnit paths
+  are hash-locked in 12.22.3. The code and commands below remain the exact review oracle; do not
+  recreate or edit them before the resumed Step 6 focused run.
 
   In `tests/test_verify_junit.py`, first write RED tests for missing file, invalid XML, wrong root,
   absent `tests`/`failures`/`errors`/`skipped` attributes, negative/signed/decimal/non-numeric counts,
@@ -1295,11 +1945,12 @@ Expected: the five hashes equal the block above and none of those paths appears 
   git commit -m "test: require supported Torch graph and quantization surfaces"
   ```
 
-  Expected: exactly those ten paths are staged; the formerly partial five-file state is now one reviewed Task 3 commit.
+  Expected: exactly those ten paths are staged; the formerly partial seven-file state is now one
+  reviewed Task 3 commit.
 
 ---
 
-## 12.22.7 Task 4: Make CI, Docker, and Codespaces consume the final install contract
+## 12.22.8 Task 4: Make CI, Docker, and Codespaces consume the final install contract
 
 **Files:**
 - Modify: `.github/workflows/ci.yml`
@@ -1311,7 +1962,8 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - Modify: `tests/test_check_docs.py`
 
 **Interfaces:**
-- Consumes: Task 1 installer, Task 2 verifier, Task 3 smoke oracle, and all five canonical stack manifests.
+- Consumes: Task 1 installer, Task 2 verifier, Task 2.1 exact import-warning boundary, Task 3 smoke
+  oracle, and all five canonical stack manifests.
 - Produces: final-install ordering for repository, NNx-surface, Tier A/B/C, audit, Docker, and Codespaces paths; no late package changes; no services.
 
 - [ ] **Step 1: Write CI/cache/order RED contracts**
@@ -1483,6 +2135,52 @@ Expected: the five hashes equal the block above and none of those paths appears 
   workload. Each mutation must fail. Positive tests retain allowed system/docs/NLP setup before the
   final pip-check and prove exactly one canonical installer.
 
+  Preserve warning-as-error as an exact CI contract. Parse command argv and workflow environment,
+  then require the NNx-surface pytest command to contain adjacent tokens `-W`, `error` exactly once
+  and reject every broader suppression form:
+
+  ```python
+  _FORBIDDEN_WARNING_ARGV = frozenset((
+      "--disable-warnings",
+      "--disable-pytest-warnings",
+      "-Wignore",
+      "-Wdefault",
+      "-Wonce",
+      "-Wmodule",
+  ))
+
+  def _assert_warning_error_command(argv: tuple[str, ...]) -> None:
+      assert sum(
+          argv[index:index + 2] == ("-W", "error")
+          for index in range(len(argv) - 1)
+      ) == 1
+      assert _FORBIDDEN_WARNING_ARGV.isdisjoint(argv)
+      assert not any(token.startswith("--pythonwarnings=") for token in argv)
+      assert not any(token.startswith("filterwarnings=") for token in argv)
+
+  def test_nnx_ci_rejects_warning_ignore_mutations(tmp_path):
+      source = (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+      mutations = (
+          source.replace("-W error", "-W ignore", 1),
+          source.replace("-W error", "-Wignore", 1),
+          source.replace("-W error", "--disable-warnings", 1),
+          source.replace(
+              "- name: Run NNx-surface tests",
+              "- name: Run NNx-surface tests\n    env:\n      PYTHONWARNINGS: ignore",
+              1,
+          ),
+      )
+      for mutated in mutations:
+          assert mutated != source
+          with pytest.raises(AssertionError):
+              _assert_nnx_warning_contract(yaml.safe_load(mutated))
+  ```
+
+  `_assert_nnx_warning_contract` must reject a job or step environment whose normalized
+  `PYTHONWARNINGS` is anything other than absent, and must reject `PYTEST_ADDOPTS` containing an
+  ignore/default/once/module warning action. Positive CI, Docker, Codespaces, Make, and verifier
+  tests require no warning-related environment variable or ignore flag.
+
 - [ ] **Step 2: Write Docker and Codespaces RED contracts**
 
   Require Docker to copy repository files, invoke `make install-torch-stack`, install NLP assets, then run `python -m pip check`, `python -m scripts.verify_torch_stack`, and `python -m scripts.verify_nnx_install` as its final build gates. Require `.devcontainer/devcontainer.json` to keep exactly `"postCreateCommand": "make codespace-setup"`. Require `codespace-setup` to finish with pip-check, stack verification, and NNx verification after `nlp-assets`. Reject direct pip algorithms, any later package change, `docker compose`, Jupyter startup, Ollama, ComfyUI, and Atlas initialization.
@@ -1516,7 +2214,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - [ ] **Step 3: Run RED**
 
   ```bash
-  pytest -p no:cacheprovider tests/test_makefile_contract.py tests/test_verify_repo.py tests/test_check_docs.py -q -k 'torch_stack or cache_manifest or install_order or docker or codespace or service or late_install'
+  pytest -p no:cacheprovider tests/test_makefile_contract.py tests/test_verify_repo.py tests/test_check_docs.py -q -k 'torch_stack or cache_manifest or install_order or docker or codespace or service or late_install or warning_error or warning_ignore'
   ```
 
   Expected: failures identify duplicate root installs, missing cache manifests, missing pip-check/stack-verifier steps, and Docker's independent source-build algorithm.
@@ -1557,6 +2255,9 @@ Expected: the five hashes equal the block above and none of those paths appears 
   ```
 
   Add order/mutation tests requiring one oracle call after its matching workload, the exact tier/root pair above, and no second workload or install between them. Keep existing job identities, triggers, Tier B label condition, Tier C dispatch/schedule condition, permissions, and protected-branch contexts.
+  Keep `pytest -p no:cacheprovider -W error` byte-for-byte in the NNx step and keep the positive,
+  zero-failure/error/skip JUnit invocation immediately afterward; Task 2.1 authorizes no CI ignore
+  option or environment filter.
 
 - [ ] **Step 5: Update Docker and current comments**
 
@@ -1575,7 +2276,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - [ ] **Step 6: Prove GREEN and commit**
 
   ```bash
-  pytest -p no:cacheprovider tests/test_makefile_contract.py tests/test_verify_repo.py tests/test_check_docs.py -q -k 'torch_stack or cache_manifest or install_order or docker or codespace or service or late_install'
+  pytest -p no:cacheprovider tests/test_makefile_contract.py tests/test_verify_repo.py tests/test_check_docs.py -q -k 'torch_stack or cache_manifest or install_order or docker or codespace or service or late_install or warning_error or warning_ignore'
   ruff check tests/test_makefile_contract.py tests/test_verify_repo.py tests/test_check_docs.py
   git diff --check
   git add .github/workflows/ci.yml Dockerfile .devcontainer/devcontainer.json Makefile tests/test_makefile_contract.py tests/test_verify_repo.py tests/test_check_docs.py
@@ -1586,7 +2287,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
 ---
 
-## 12.22.8 Task 5: Reconcile four logical advisory surfaces from six physical commands
+## 12.22.9 Task 5: Reconcile four logical advisory surfaces from six physical commands
 
 **Files:**
 - Modify: `scripts/advisory_baseline.py`
@@ -2199,7 +2900,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
 ---
 
-## 12.22.9 Task 6: Synchronize current operational truth across all documentation surfaces
+## 12.22.10 Task 6: Synchronize current operational truth across all documentation surfaces
 
 **Files:**
 - Modify: `README.md`
@@ -2226,12 +2927,21 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - Modify: `tests/test_check_docs.py`
 
 **Interfaces:**
-- Consumes: implemented matrix, verifier, CI/Docker/Codespaces order, current advisory ledger, immutable history, unchanged Atlas ownership, and unchanged tier map.
+- Consumes: implemented matrix, Task 2.1's temporary exact import-warning debt, verifier,
+  CI/Docker/Codespaces order, current advisory ledger, immutable history, unchanged Atlas ownership,
+  and unchanged tier map.
 - Produces: one self-contained operational story in repository Markdown, generated MkDocs input, and generated wiki; durable Unreleased history; rollback runbook; no premature final-acceptance claim.
 
 - [ ] **Step 1: Write current-surface RED tests**
 
-  Scope assertions to current README, contributor, security, architecture, environment, dependency, notebook-infrastructure, graph README, pruning, quantization doc/README/spec, Make, CI, Docker, devcontainer, badge, and Unreleased changelog sections. Require the exact matrix, `make install-torch-stack`, `python -m pip check`, `make verify-torch-stack`, Linux CPU-only rule, three wheel names, no source build, manual-only Issue #66, Atlas Issue #65, NNx 0.2.0, no containerized Ollama, residual advisory language, and fresh-environment/image rollback.
+  Scope assertions to current README, contributor, security, architecture, environment, dependency,
+  notebook-infrastructure, graph README, pruning, quantization doc/README/spec, Make, CI, Docker,
+  devcontainer, badge, and Unreleased changelog sections. Require the exact matrix,
+  `make install-torch-stack`, `python -m pip check`, `make verify-torch-stack`, Linux CPU-only rule,
+  three wheel names, no source build, manual-only Issue #66, Atlas Issue #65, NNx 0.2.0, no
+  containerized Ollama, residual advisory language, fresh-environment/image rollback, both immutable
+  warning-debt keys, exact `torch.jit.script` deprecation message, exact
+  `torch/jit/_script.py` origin, no global warning filter, and the fresh-interpreter retirement trigger.
 
   Reject current text containing Torch 2.4.1, `torchao>=`, separate cluster/spline requirements, wheel bootstrap, source-build flags, five canaries, twelve components, unavailable Darwin graph backends, tier-covered quantization, upgraded Atlas, or completed final acceptance before Task 7.
 
@@ -2247,6 +2957,8 @@ Expected: the five hashes equal the block above and none of those paths appears 
           "Issue #65",
           "Issue #66",
           "thekaveh-nnx[lm]==0.2.0",
+          "torch/jit/_script.py",
+          "fresh-interpreter",
       ):
           assert required in current
       for forbidden in (
@@ -2358,6 +3070,12 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
   Document: selected ten-component matrix; three compiled PyG wheels; pyg-lib preferred sampling and sparse fallback; scatter/sparse/sampler canaries; Linux/Darwin/native Linux arm64 Docker scope; exact install/check/verifier commands; qualified tiny PTQ/QAT dependency surface; manual-only full quantization notebook; Issue #66 ownership; unchanged Atlas and Issue #65 ownership; NNx 0.2.0; residual advisory evidence; no containerized Ollama; atomic rollback of manifests/installer/verifier/CI/Docker/policy/ledger/docs in a new environment or rebuilt image.
 
+  Document the warning boundary as temporary compatibility debt with literal keys Torch 2.11.0 +
+  torch-geometric 2.8.0.post1 and Torch 2.11.0 + torch-sparse 0.6.18. State the exact category,
+  message, and RECORD path; state that every record in a nonempty group must match; state that count
+  and line number are not pinned; preserve `-W error`; prohibit global/pytest/environment/conftest
+  filters; and require removal when a fresh interpreter becomes warning-free.
+
   Update the PyTorch badge label/value to 2.11 without changing unrelated badge geometry. Add one Unreleased changelog entry. Before Task 7, use exactly: `The dependency and focused runtime contracts are implemented; complete Tier A/B/C and container acceptance evidence is pending.`
 
   Use these exact anchors and replacement strings; tests select these same bounded sections rather
@@ -2367,7 +3085,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
   | --- | --- |
   | `README.md`, replace the complete fenced shell block under `### 3.3. Local venv` | `python3.11 -m venv .venv && source .venv/bin/activate`<br>`make install-torch-stack`<br>`make nlp-assets`<br>`python -m pip check`<br>`make verify-torch-stack`<br>`make verify-nnx-install`<br>`jupyter lab`; then add: `The supported CPU matrix is torch==2.11.0, torchvision==0.26.0, torch_geometric==2.8.0.post1, pyg-lib==0.8.0+pt211, torch-scatter==2.1.2+pt211, torch-sparse==0.6.18+pt211, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0; Linux wheels use the +pt211cpu local tag.` |
   | `README.md`, replace the complete line beginning `- The quantization-mnist-ffnn-pytorch notebook remains manual-only:` under `Scenarios this does NOT support` | `- The quantization-mnist-ffnn-pytorch notebook remains manual-only under Issue #66. Issue #62 qualifies only its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; the full notebook remains outside Tier A/B/C and is not Atlas evidence.` |
-  | `CONTRIBUTING.md`, append to `## 6. Verification` | `After the last package or data install, run \`python -m pip check\`, \`make verify-torch-stack\`, and \`make verify-nnx-install\`; never mutate the environment between those gates and the workload. Roll back manifests, installer, verifier, CI/Docker, advisory policy/ledger, and documentation atomically in a fresh environment or rebuilt image.` |
+  | `CONTRIBUTING.md`, append to `## 6. Verification` | `After the last package or data install, run \`python -m pip check\`, \`make verify-torch-stack\`, and \`make verify-nnx-install\`; never mutate the environment between those gates and the workload. Keep pytest at -W error: the only temporary exception is the verifier-local exact TorchScript import group for the immutable Torch/PyG debt keys, and a warning-free fresh-interpreter probe removes that exception. Roll back manifests, installer, verifier, CI/Docker, advisory policy/ledger, and documentation atomically in a fresh environment or rebuilt image.` |
   | `SECURITY.md`, replace `## 13.6 Dependency advisories` current opening | `Issue #62 audits four logical surfaces through six physical commands. Resolver audits cover core plus ecosystem plus PyG; supplement audits cover only torch-scatter and torch-sparse. pyg-lib is external-index provenance verified by the stack verifier, not a PyPI supplement result. Feed disappearance is reconciliation evidence, never proof of remediation.` |
   | `CHANGELOG.md`, add first bullet under `[Unreleased]` → `### Changed` | `- Coordinated the supported CPU Torch stack at Torch 2.11/PyG 2.8.0.post1/torchao 0.18 with binary-only pyg-lib, torch-scatter, and torch-sparse wheels, NNx 0.2.0 verification, and manual-only Issue #66 quantization ownership.` |
   | `docs/env-setup.md`, replace the fenced shell block and both paragraphs in `## 4.1.3 Local Python venv`, stopping before `## 4.1.4` | `python3.11 -m venv .venv && source .venv/bin/activate`<br>`make install-torch-stack`<br>`make nlp-assets`<br>`python -m pip check`<br>`make verify-torch-stack`<br>`make verify-nnx-install`<br>`jupyter lab`<br><br>`Use Python 3.11 and make install-torch-stack; the installer ends with binary-only thekaveh-nnx[lm]==0.2.0. After the last asset install, package state is frozen through pip-check, Torch verification, NNx verification, and the workload. Linux is CPU-only; Darwin and native Linux arm64 Docker are locally qualified, and Linux x86_64 is qualified by the PR gates.` |
@@ -2377,7 +3095,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
   | `docs/architecture.md`, replace the two-line boundary bullet beginning ``- The quantization notebook is active`` in `## 2.1.4 Boundary decisions` | `- The quantization notebook is active but manual-only under Issue #66. Issue #62 qualifies only the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; the full notebook remains outside Tier A/B/C.` |
   | `docs/FINDINGS-ATLAS.md`, append to `## 9.2.2 Atlas Jupyter runtime is distinct from local CI` | `Issue #62 does not upgrade Atlas: Atlas runtime ownership remains Issue #65. The host-native Ollama boundary is unchanged, and no containerized Ollama service is added.` |
   | `docs/FINDINGS-ATLAS.md`, replace the three-sentence paragraph beginning `Atlas JupyterHub supplies a newer CPU Torch surface` in `## 9.2.2` | `Atlas JupyterHub is a distinct runtime and is not Issue #62 acceptance evidence. Issue #62 qualifies the repository Torch 2.11 CPU stack; Atlas runtime ownership remains Issue #65, and the full quantization notebook remains manual-only under Issue #66.` |
-  | `docs/dependency-contracts.md`, replace every byte after `## 6.1.2 Torch Stack Pin` through the byte before `## 6.1.3 Manual-Only Quantization Notebook` | `The supported Python 3.11 CPU matrix is torch==2.11.0, torchvision==0.26.0, torchaudio==2.11.0, pytorch-lightning==2.6.1, torchmetrics==1.9.0, torchao==0.18.0, torch-geometric==2.8.0.post1, pyg-lib==0.8.0, torch-scatter==2.1.2, and torch-sparse==0.6.18; thekaveh-nnx[lm]==0.2.0 remains the separately verified consumer pin.`<br><br>`torch-core-requirements.txt contains the Torch trio. torch-ecosystem-requirements.txt contains Lightning, TorchMetrics, and torchao. torch-requirements.txt contains the ecosystem include, the Torch 2.11 CPU PyG selector, pyg-lib, scatter, sparse, and PyG. torch-audit-requirements.txt contains core plus ecosystem plus PyG. pyg-extension-audit-requirements.txt contains only scatter and sparse; pyg-lib is an external-index artifact verified by WHEEL/RECORD, platform, ownership, import, and sampler gates.`<br><br>`make install-torch-stack has four stages: stage 0 upgrades pip only; stage 1 installs the Torch trio from the Linux CPU index or Darwin's native index; stage 2 installs torch-requirements.txt with --only-binary=pyg-lib,torch-scatter,torch-sparse; stage 3 installs remaining root requirements and binary-only thekaveh-nnx[lm]==0.2.0 last. Acceptance requires pip-check, the ten-component stack verifier, the NNx verifier, four-surface advisory reconciliation from six commands, full repository tests, zero-skip focused graph/quantization tests, Tier A/B/C 18/6/4, Darwin arm64, native Linux arm64 Docker, Linux x86_64 PR gates, and three-surface documentation parity. Any failure rejects the matrix and rollback restores the complete prior contract in a fresh environment or rebuilt image.` |
+  | `docs/dependency-contracts.md`, replace every byte after `## 6.1.2 Torch Stack Pin` through the byte before `## 6.1.3 Manual-Only Quantization Notebook` | `The supported Python 3.11 CPU matrix is torch==2.11.0, torchvision==0.26.0, torchaudio==2.11.0, pytorch-lightning==2.6.1, torchmetrics==1.9.0, torchao==0.18.0, torch-geometric==2.8.0.post1, pyg-lib==0.8.0, torch-scatter==2.1.2, and torch-sparse==0.6.18; thekaveh-nnx[lm]==0.2.0 remains the separately verified consumer pin.`<br><br>`torch-core-requirements.txt contains the Torch trio. torch-ecosystem-requirements.txt contains Lightning, TorchMetrics, and torchao. torch-requirements.txt contains the ecosystem include, the Torch 2.11 CPU PyG selector, pyg-lib, scatter, sparse, and PyG. torch-audit-requirements.txt contains core plus ecosystem plus PyG. pyg-extension-audit-requirements.txt contains only scatter and sparse; pyg-lib is an external-index artifact verified by WHEEL/RECORD, platform, ownership, import, and sampler gates.`<br><br>`Torch 2.11.0 with outer torch-geometric 2.8.0.post1 or torch-sparse 0.6.18 has one temporary verifier-local import debt: every captured record must be category identity DeprecationWarning with message \`torch.jit.script\` is deprecated. Please switch to \`torch.compile\` or \`torch.export\`. and exact selected-Torch RECORD origin torch/jit/_script.py. Count and line number are not pinned. Pytest remains -W error, no global filter is allowed, and a warning-free fresh-interpreter probe retires the exception.`<br><br>`make install-torch-stack has four stages: stage 0 upgrades pip only; stage 1 installs the Torch trio from the Linux CPU index or Darwin's native index; stage 2 installs torch-requirements.txt with --only-binary=pyg-lib,torch-scatter,torch-sparse; stage 3 installs remaining root requirements and binary-only thekaveh-nnx[lm]==0.2.0 last. Acceptance requires pip-check, the ten-component stack verifier, the NNx verifier, four-surface advisory reconciliation from six commands, full repository tests, zero-skip focused graph/quantization tests, Tier A/B/C 18/6/4, Darwin arm64, native Linux arm64 Docker, Linux x86_64 PR gates, and three-surface documentation parity. Any failure rejects the matrix and rollback restores the complete prior contract in a fresh environment or rebuilt image.` |
   | `docs/dependency-contracts.md`, replace all content in `## 6.1.3 Manual-Only Quantization Notebook` before `## 6.1.4` | `notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb remains manual-only under Issue #66. Issue #62 qualifies only the tiny PTQ/QAT dependency surface on torch==2.11.0, torchvision==0.26.0, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0. Do not add the complete notebook to Tier A/B/C without Issue #66 acceptance; Atlas remains Issue #65 and is not a substitute.` |
   | `docs/dependency-contracts.md`, replace all current boundary prose in `## 6.1.9 Atlas Versus Local/CI Dependency Boundaries` before `## 6.1.10` | `Atlas is Atlas-owned infrastructure and remains Issue #65. The checked-in Torch 2.11 CPU manifests are authoritative for make test, papermill CI, Dockerfile, and Codespaces; no Atlas package observation changes that contract. The complete quantization notebook remains manual-only under Issue #66 even though Issue #62 qualifies its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface.` |
   | `docs/dependency-contracts.md`, replace the complete section beginning `## 6.1.11 Bootstrap Tooling Gap` through the byte before `## 6.1.12 Deferred Reproducibility Hardening` | `## 6.1.11 Canonical Bootstrap Tooling`<br><br>`The canonical installer upgrades pip alone in stage 0 and installs every selected graph extension as a compatible binary wheel in stage 2. Docker, Codespaces, CI, and local setup delegate to make install-torch-stack; none carries a second bootstrap or dependency algorithm. Exact pip/setuptools locks, full Python lockfiles, and base-image digest pinning remain Issue #63 and do not change the Issue #62 four-stage install contract.` |
@@ -2489,7 +3207,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
 ---
 
-## 12.22.10 Task 7: Qualify one immutable final SHA, integrate through GitFlow, and clean up
+## 12.22.11 Task 7: Qualify one immutable final SHA, integrate through GitFlow, and clean up
 
 **Files:**
 - Modify before freeze only: current evidence paragraphs in `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `docs/env-setup.md`, `docs/FINDINGS-ATLAS.md`, `docs/dependency-contracts.md`, `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, `notebooks/quantization-mnist-ffnn-pytorch/README.md`, `tests/test_check_docs.py`, and this plan.
@@ -2499,8 +3217,15 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - Never modify: notebook source/output, Atlas files/gitlink, generated documentation, or protected-branch rules.
 
 **Interfaces:**
-- Consumes: reviewed Tasks 1-6 and a clean candidate branch.
+- Consumes: reviewed Tasks 1-6, including Task 2.1's immutable warning-debt keys and exact-origin
+  probe, and a clean candidate branch.
 - Produces: clean Darwin arm64, native Linux arm64 Docker, Linux x86_64 PR, advisory, full tests, Tier A/B/C, documentation, immutable-SHA, GitFlow, publication, and cleanup evidence.
+- Warning evidence: prequalification and final qualification each start a fresh interpreter with
+  neither PyG module preloaded, require one or more exact records at the torch-geometric boundary,
+  and run under global `-W error` with only the verifier-local `simplefilter("always")` capture.
+  Reports record public debt-key versions, outer component, positive observed count, exact category
+  name/message, POSIX inventory path, and owned-file SHA-256 without publishing a temporary absolute
+  path. Zero records trigger debt retirement; no ignore/default filter is accepted as evidence.
 
 - [ ] **Step 1: Create and verify a clean prequalification worktree**
 
@@ -2574,6 +3299,30 @@ Expected: the five hashes equal the block above and none of those paths appears 
   PY
   python -m pip check
   make verify-torch-stack
+  python -W error - <<'PY'
+  import sys
+
+  from importlib import metadata
+  from scripts.verify_torch_stack import (
+      DEFAULT_HOOKS,
+      _capture_selected_import,
+      _validate_import_warning_group,
+  )
+
+  assert "torch_geometric" not in sys.modules
+  assert "torch_sparse" not in sys.modules
+  module, caught = _capture_selected_import("torch_geometric", DEFAULT_HOOKS)
+  evidence = _validate_import_warning_group(
+      torch_distribution=metadata.distribution("torch"),
+      outer_component="torch-geometric",
+      outer_distribution=metadata.distribution("torch-geometric"),
+      caught=caught,
+  )
+  assert module.__name__ == "torch_geometric"
+  assert evidence.count == len(caught) and evidence.count >= 1
+  assert all(record.category is DeprecationWarning for record in caught)
+  print(f"prequalification exact import-warning debt count={evidence.count}")
+  PY
   make audit-advisories
   make verify-nnx-install
   pytest -p no:cacheprovider -W error --junitxml="$PREQUAL_ROOT/nnx-surface.xml" tests/nnx_surface -v
@@ -2589,9 +3338,11 @@ Expected: the five hashes equal the block above and none of those paths appears 
   Expected: the parser proves the kernelspec resource directory is below the isolated prefix and
   its complete `argv` is exactly `[venv-python, -m, ipykernel_launcher, -f, {connection_file}]`; every command exits
   0; the focused NNx suite treats warnings as errors and its JUnit totals have failures, errors,
-  and skipped all equal to zero; exact versions, WHEEL/RECORD/local-version/platform/CPU/NVIDIA/
-  import ownership, test counts, durations, and hashes are recorded. The audit-tool manifest is
-  installed before the final pip-check/stack/NNx boundary.
+  and skipped all equal to zero; the fresh probe observes a positive fully exact group without an
+  ignore filter; exact versions, WHEEL/RECORD/local-version/platform/CPU/NVIDIA/import ownership,
+  test counts, durations, and hashes are recorded. The audit-tool manifest is installed before the
+  final pip-check/stack/NNx boundary. A zero-warning fresh probe stops qualification and triggers
+  removal of the debt exception before any later step.
 
 - [ ] **Step 3: Qualify native Linux arm64 Docker without services**
 
@@ -2636,7 +3387,15 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
 - [ ] **Step 5: Record tracked prequalification, complete review, and commit before freeze**
 
-  Replace Task 6's pending sentence with exact candidate SHA/platform/test/tier/Docker results plus: `Merge acceptance additionally requires an immutable final-SHA rerun attached to Issue #62; this tracked candidate record is not a substitute for that external evidence.` Regenerate site/wiki; run focused docs tests, `make docs-check`, `make docs-wiki`, `make verify`, Ruff, and diff checks; then commit only the listed current-evidence files.
+  Replace Task 6's pending sentence with exact candidate SHA/platform/test/tier/Docker results plus
+  the observed positive torch-geometric warning count and the two approved immutable debt keys. State
+  that every observed record had category identity `builtins.DeprecationWarning`, the exact complete
+  TorchScript message, and RECORD path `torch/jit/_script.py`; do not record the disposable absolute
+  path and do not add any warning filter. Append: `Merge acceptance additionally requires an
+  immutable final-SHA rerun attached to Issue #62; this tracked candidate record is not a substitute
+  for that external evidence.` Regenerate site/wiki; run focused docs tests, `make docs-check`,
+  `make docs-wiki`, `make verify`, Ruff, and diff checks; then commit only the listed current-evidence
+  files.
 
   ```bash
   pytest -p no:cacheprovider tests/test_check_docs.py tests/test_manifest.py tests/test_transforms.py tests/test_build_docs.py tests/test_wiki.py -q
@@ -2716,6 +3475,55 @@ Expected: the five hashes equal the block above and none of those paths appears 
   PY
   python -m pip check
   make verify-torch-stack
+  python -W error - <<'PY'
+  import hashlib
+  import json
+  import os
+  import sys
+  from importlib import metadata
+  from pathlib import Path
+
+  from scripts.verify_torch_stack import (
+      DEFAULT_HOOKS,
+      _TORCH_SCRIPT_WARNING_PATH,
+      _capture_selected_import,
+      _validate_import_warning_group,
+  )
+
+  assert "torch_geometric" not in sys.modules
+  assert "torch_sparse" not in sys.modules
+  module, caught = _capture_selected_import("torch_geometric", DEFAULT_HOOKS)
+  evidence = _validate_import_warning_group(
+      torch_distribution=metadata.distribution("torch"),
+      outer_component="torch-geometric",
+      outer_distribution=metadata.distribution("torch-geometric"),
+      caught=caught,
+  )
+  assert module.__name__ == "torch_geometric"
+  assert evidence.count == len(caught) and evidence.count >= 1
+  assert all(record.category is DeprecationWarning for record in caught)
+  value = {
+      "torch_public_version": evidence.torch_public_version,
+      "outer_component": evidence.outer_component,
+      "outer_public_version": evidence.outer_public_version,
+      "count": evidence.count,
+      "category": "builtins.DeprecationWarning",
+      "message": evidence.message,
+      "origin_inventory_path": _TORCH_SCRIPT_WARNING_PATH.as_posix(),
+      "origin_sha256": hashlib.sha256(evidence.origin.read_bytes()).hexdigest(),
+      "global_warning_action": "error",
+      "local_capture_action": "always",
+  }
+  assert value["torch_public_version"] == "2.11.0"
+  assert (value["outer_component"], value["outer_public_version"]) == (
+      "torch-geometric", "2.8.0.post1",
+  )
+  assert value["origin_inventory_path"] == "torch/jit/_script.py"
+  (Path(os.environ["FINAL_ROOT"]) / "import-warning-debt.json").write_text(
+      json.dumps(value, indent=2, sort_keys=True) + "\n",
+      encoding="utf-8",
+  )
+  PY
   set -o pipefail
   make audit-advisories | tee "$FINAL_ROOT/advisory-cli.txt"
   python - <<'PY'
@@ -2825,7 +3633,14 @@ Expected: the five hashes equal the block above and none of those paths appears 
   PY
   ```
 
-  Expected: fresh preflight is clean; kernelspec uses `$FINAL_ROOT/venv/bin/python`; all dependency/advisory/test/lint/verifier/docs/Docker commands pass; Tier A/B/C report 18/6/4 with zero artifact errors; exact SHA matches; final status/diff are empty; Atlas gitlink is unchanged. Step 9 reads every `$FINAL_ROOT` evidence file and writes the report only to the validated primary-checkout ignored path and GitHub. Any missing/mismatched evidence, failure, or later tracked commit invalidates the freeze and requires a new full run.
+  Expected: fresh preflight is clean; kernelspec uses `$FINAL_ROOT/venv/bin/python`; all
+  dependency/advisory/test/lint/verifier/docs/Docker commands pass; the fresh interpreter records a
+  positive exact warning group in `import-warning-debt.json` while global warning action remains
+  `error`; Tier A/B/C report 18/6/4 with zero artifact errors; exact SHA matches; final status/diff
+  are empty; Atlas gitlink is unchanged. Zero warning records trigger debt retirement and invalidate
+  the freeze. Step 9 reads every `$FINAL_ROOT` evidence file and writes the report only to the
+  validated primary-checkout ignored path and GitHub. Any missing/mismatched evidence, warning
+  filter, failure, or later tracked commit invalidates the freeze and requires a new full run.
 
 - [ ] **Step 7: Push the immutable feature SHA and qualify the feature-to-develop PR**
 
@@ -3582,9 +4397,13 @@ Expected: the five hashes equal the block above and none of those paths appears 
       && rg -q 'Torch 2\.11' "$FINAL_ROOT/pages.html" \
       && rg -q 'pyg-lib.*torch-scatter.*torch-sparse' "$FINAL_ROOT/pages.html" \
       && rg -q 'Issue #66' "$FINAL_ROOT/pages.html" \
+      && rg -q 'torch\.jit\.script.*deprecated' "$FINAL_ROOT/pages.html" \
+      && rg -q 'torch/jit/_script\.py' "$FINAL_ROOT/pages.html" \
       && rg -q 'Torch 2\.11' "$FINAL_ROOT/wiki.html" \
       && rg -q 'pyg-lib.*torch-scatter.*torch-sparse' "$FINAL_ROOT/wiki.html" \
-      && rg -q 'Issue #66' "$FINAL_ROOT/wiki.html"; then
+      && rg -q 'Issue #66' "$FINAL_ROOT/wiki.html" \
+      && rg -q 'torch\.jit\.script.*deprecated' "$FINAL_ROOT/wiki.html" \
+      && rg -q 'torch/jit/_script\.py' "$FINAL_ROOT/wiki.html"; then
       PUBLICATION_READY=true
       break
     fi
@@ -3689,9 +4508,9 @@ Expected: the five hashes equal the block above and none of those paths appears 
       require(set(value) == {
           "schema_version", "identities", "platform", "selected_versions", "nnx_metadata",
           "tests", "tiers", "native_linux_arm64_docker", "advisory", "linux_x86_64",
-          "durations_seconds", "sha256", "pull_requests", "publication",
+          "import_warning_debt", "durations_seconds", "sha256", "pull_requests", "publication",
       }, "report top-level schema")
-      require(value["schema_version"] == 4, "report schema version")
+      require(value["schema_version"] == 5, "report schema version")
       require(set(value["identities"]) == {
           "feature_sha", "feature_pr_merge_sha", "develop_merge_sha",
           "release_pr_merge_sha", "release_merge_sha", "final_develop_sha",
@@ -3723,6 +4542,34 @@ Expected: the five hashes equal the block above and none of those paths appears 
       require(value["native_linux_arm64_docker"]["architecture"] == "arm64", "Docker arch")
       require(len(value["native_linux_arm64_docker"]["probes"]) == 3, "Docker probes")
       require(value["advisory"]["errors"] == [], "advisory result")
+      debt = value["import_warning_debt"]
+      require(set(debt) == {
+          "torch_public_version", "outer_component", "outer_public_version", "count",
+          "category", "message", "origin_inventory_path", "origin_sha256",
+          "global_warning_action", "local_capture_action",
+      }, "import warning debt schema")
+      require(debt["torch_public_version"] == "2.11.0", "warning Torch key")
+      require(
+          (debt["outer_component"], debt["outer_public_version"])
+          == ("torch-geometric", "2.8.0.post1"),
+          "warning outer key",
+      )
+      require(isinstance(debt["count"], int) and debt["count"] >= 1, "warning count")
+      require(debt["category"] == "builtins.DeprecationWarning", "warning category")
+      require(
+          debt["message"] == "`torch.jit.script` is deprecated. Please switch to "
+          "`torch.compile` or `torch.export`.",
+          "warning message",
+      )
+      require(debt["origin_inventory_path"] == "torch/jit/_script.py", "warning origin")
+      require(
+          isinstance(debt["origin_sha256"], str)
+          and len(debt["origin_sha256"]) == 64
+          and all(character in "0123456789abcdef" for character in debt["origin_sha256"]),
+          "warning origin hash",
+      )
+      require(debt["global_warning_action"] == "error", "global warning action")
+      require(debt["local_capture_action"] == "always", "local warning capture")
       require(value["tests"]["nnx"]["skipped"] == 0, "NNx skips")
       require(value["tests"]["repository"]["tests"] > 0, "repository tests")
       require(value["tiers"]["counts"] == {"a": 18, "b": 6, "c": 4}, "tier counts")
@@ -3833,6 +4680,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
       == ["combined-runtime", "torch", "documentation", "atlas-contract"],
       "final advisory surface order",
   )
+  import_warning_debt = load_json(final_root / "import-warning-debt.json")
 
   feature_pr_checks = load_json(final_root / "pr-checks.json")
   feature_pr_runs = load_json(final_root / "pr-runs.json")
@@ -3993,6 +4841,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
   )
   evidence_paths = [
       final_root / "advisory-evidence.json", final_root / "docker-evidence.json",
+      final_root / "import-warning-debt.json",
       final_root / "nnx-surface.xml", final_root / "repository.xml",
       final_root / "pr-checks.json", final_root / "pr-runs.json",
       final_root / "release-pr-checks.json", final_root / "release-pr-runs.json",
@@ -4004,7 +4853,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
           final_root / "sync-pr-checks.json", final_root / "sync-pr-runs.json",
       ))
   report = {
-      "schema_version": 4,
+      "schema_version": 5,
       "identities": identities,
       "platform": {
           "system": platform.system(),
@@ -4024,6 +4873,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
       "tiers": {"counts": tier_counts, "sha256": tier_hashes},
       "native_linux_arm64_docker": docker_report,
       "advisory": advisory,
+      "import_warning_debt": import_warning_debt,
       "linux_x86_64": {
           "feature_pr": feature_pr_evidence,
           "release_pr": release_pr_evidence,
@@ -4071,8 +4921,13 @@ Expected: the five hashes equal the block above and none of those paths appears 
   del missing_release_evidence["linux_x86_64"]["release_pr"]
   missing_final_develop_evidence = copy.deepcopy(report)
   del missing_final_develop_evidence["linux_x86_64"]["final_develop_push"]
+  missing_warning_debt = copy.deepcopy(report)
+  del missing_warning_debt["import_warning_debt"]
+  ignored_global_warnings = copy.deepcopy(report)
+  ignored_global_warnings["import_warning_debt"]["global_warning_action"] = "ignore"
   for mutation in (
       wrong_name, missing_metadata, missing_release_evidence, missing_final_develop_evidence,
+      missing_warning_debt, ignored_global_warnings,
   ):
       try:
           validate_report_schema(mutation)
@@ -4333,7 +5188,8 @@ Expected: the five hashes equal the block above and none of those paths appears 
   ```
 
   Expected: Pages and wiki return HTTP 200 and publish the matrix, three-wheel boundary,
-  manual-only Issue #66, and immutable evidence; the two explicit worktrees/environments/images
+  manual-only Issue #66, exact TorchScript warning debt/origin and retirement trigger, and immutable
+  evidence without a global ignore filter; the two explicit worktrees/environments/images
   and feature refs are gone before any completion comment or project mutation; no scoped PR or
   workflow run remains, including queued/in-progress runs for the final `origin/develop` identity;
   `main`/`develop` trees match; tracked status is clean; only then does the
@@ -4343,21 +5199,67 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
 ---
 
-## 12.22.11 Plan Self-Review Gate
+## 12.22.12 Plan Self-Review Gate
 
-- [x] **Spec coverage map:** 12.21.2-12.21.4 map to Task 1; 12.21.5-12.21.6 map to Task 2 and Task 7; 12.21.7-12.21.8 map to Task 3; 12.21.9 maps to Task 5; 12.21.10 maps to Task 4 and Task 7; 12.21.11 maps to Tasks 3 and 7; 12.21.12 maps to Task 6; 12.21.13 maps to Global Constraints and Tasks 4/6/7; 12.21.14 is preserved as design rationale; 12.21.15 maps to Global Constraints and Tasks 6/7; 12.21.16 maps to Task 7.
+- [x] **Spec coverage map:** 12.21.2-12.21.4 map to Task 1; 12.21.5 maps to Task 2 and
+  Task 7; 12.21.6 maps to Task 2, the independently reviewed Task 2.1, Task 3 consumer/AST
+  enforcement, Task 4 CI mutation enforcement, Task 6 operational documentation, and Task 7 fresh
+  evidence; 12.21.7-12.21.8 map to Task 3; 12.21.9 maps to Task 5; 12.21.10 maps to Task 4 and
+  Task 7; 12.21.11 maps to Tasks 3 and 7; 12.21.12 maps to Task 6; 12.21.13 maps to Global
+  Constraints and Tasks 4/6/7; 12.21.14 is preserved as design rationale; 12.21.15 maps to Global
+  Constraints and Tasks 6/7; 12.21.16 maps to Task 7.
 - [x] **Placeholder scan:** every code-changing step contains concrete code or exact replacement text; every test/run step has an exact command and expected result; no deferred marker or undefined neighboring interface remains.
-- [x] **Type consistency:** `InstallStage`, `InstallCommand`, `StackPin`, `StackContract`, `StackEvidence`, `DistributionView`, `CanaryHooks`, `VerificationHooks`, `Tier`, `InventoryLoader`, and `NotebookArtifact` have one spelling and one signature throughout.
-- [x] **Dependency order:** Task 1 produces manifests/installer; Task 2 consumes manifests and produces verifier; Task 3 consumes both and commits preserved WIP; Task 4 consumes installer/verifier/oracle; Task 5 consumes the clean final solve; Task 6 consumes implementation/audit truth; Task 7 consumes every tracked task.
+- [x] **Type consistency:** `InstallStage`, `InstallCommand`, `StackPin`, `StackContract`,
+  `StackEvidence`, `DistributionView`, `CanaryHooks`, `VerificationHooks`,
+  `ImportWarningEvidence`, `Tier`, `InventoryLoader`, and `NotebookArtifact` have one spelling and
+  one signature throughout.
+- [x] **Dependency order:** Task 1 produces manifests/installer; Task 2 consumes manifests and
+  produces the ten-component verifier; Task 2.1 reopens only verifier production/platform tests for
+  the approved import boundary; Task 3 adds consumer/AST enforcement, consumes the reviewed boundary,
+  and commits seven preserved WIP paths; Task 4 consumes installer/verifier/oracle and kills CI
+  warning-ignore mutations; Task 5 consumes the clean final solve; Task 6 consumes
+  implementation/audit/warning-debt truth; Task 7 consumes every tracked task.
 - [x] **Final-SHA order:** all tracked evidence and review corrections precede `FINAL_SHA`; final qualification writes only ignored/external evidence; any later tracked commit invalidates and restarts the full final run.
 - [x] **Boundary consistency:** current scope is pyg-lib/scatter/sparse, ten verifier components, three canaries, two supplement pins, four installer stages, stage-0 pip only, binary-only NNx last, Issue #65 Atlas ownership, Issue #66 quantization-notebook ownership, and no containerized Ollama.
+- [x] **Warning-boundary exactness:** immutable literal debt keys are Torch 2.11.0 with
+  torch-geometric 2.8.0.post1 or torch-sparse 0.6.18, independent of manifest expectations. Zero
+  captured warnings is normal production success; any nonempty group requires every record's exact
+  `DeprecationWarning` identity, full punctuation-preserving message, and strictly resolved equality
+  to the sole selected-Torch-owned `torch/jit/_script.py` `PackagePath`. Wrong component/version,
+  subclass/category, prefix/punctuation, basename/suffix outsider, mixed/extra group, broad wrapper,
+  origin omission, inventory failure, and CLI leakage mutations all have named tests. Count and line
+  number remain unpinned.
+- [x] **Warning-gate preservation:** no production module-cache eviction exists; selected zero-warning
+  imports are cache/order safe; scatter, sparse, sampler, NNx, consumer, CLI outer capture, focused
+  JUnit, and CI remain strict. Task 4 rejects `-W ignore`, warning-disable flags, and warning-ignore
+  environments. No global, pytest, environment, conftest, canary, sampler, NNx, or consumer filter is
+  authorized.
 - [x] **D10 executability:** every referenced parser/comparator is defined in the plan or already exists in `scripts/verify_repo.py`; current/historical slicing, complete CommonMark type-1/type-6 raw-HTML masking including `hgroup`, Result/summary/advisory validation, policy coupling, and ten-input hashes map failures to named `Finding` IDs.
 - [x] **Audit cardinality:** `AUDIT_SURFACES` generates six physical commands and merges them into four logical observations; only both supplements and documentation use `--disable-pip`, only supplements use `--no-deps`, and all six require exit 0/1 plus valid nonempty JSON.
-- [x] **Zero-skip and output gates:** focused, CI, prequalification, and final NNx runs use warnings-as-errors plus parsed JUnit totals; Tier A/B/C use recursive exact output sets with 18 nested, 6 basename, and 4 basename artifacts and no zero-code notebook.
+- [x] **Zero-skip and output gates:** focused, CI, prequalification, and final NNx runs use
+  warnings-as-errors plus parsed JUnit totals; the only local `always` capture is the exact selected
+  import wrapper and its fresh-interpreter probe; Tier A/B/C use recursive exact output sets with 18
+  nested, 6 basename, and 4 basename artifacts and no zero-code notebook.
 - [x] **Immutable identities:** feature HEAD, feature PR synthetic merge, develop merge, release PR synthetic merge, release merge, final post-sync develop SHA, and optional sync PR synthetic/actual merge SHAs are recorded separately; dispatch evidence is tied to the feature SHA, PR evidence to synthetic merge SHAs, final push evidence to the exact final develop SHA, and tree equality prevents content drift.
 - [x] **Current-doc bounds:** Task 6 uses the real `4.1.6` heading, replaces complete same-level dependency sections 6.1.2 and 6.1.11 plus the stale manifest-owned graph release paragraph, places generated-row tokens directly in both source specs, regenerates once, and stages/tests/parity-checks both specs, the generated canonical page, and `docs/notebooks/node_classification-reddit-gnn-pyg.md`.
-- [x] **External evidence schema:** the immutable report uses the exact ten distribution metadata names including `pytorch-lightning`, separate NNx metadata, final audit identities/result, full/NNx JUnit totals, Docker probes, Tier hashes/durations, distinct feature/release Linux PR checks/runs tied to their synthetic merge SHAs, the exact final-develop push runs, optional sync PR check/run URLs and hashes, and Pages/wiki evidence; schema mutations and missing evidence fail closed.
+- [x] **External evidence schema:** report schema 5 uses the exact ten distribution metadata names
+  including `pytorch-lightning`, separate NNx metadata, positive exact import-warning debt evidence
+  with no disposable absolute path, final audit identities/result, full/NNx JUnit totals, Docker
+  probes, Tier hashes/durations, distinct feature/release Linux PR checks/runs tied to their synthetic
+  merge SHAs, the exact final-develop push runs, optional sync PR check/run URLs and hashes, and
+  Pages/wiki evidence; missing debt evidence and an `ignore` global action are killed by schema
+  mutations.
+- [x] **Clean continuation and retirement:** r4 is reusable only after exact platform, Python,
+  distribution public-version, WHEEL/RECORD, prefix, and pip-check revalidation at Task 2.1 HEAD;
+  otherwise a fresh r5 is installed. A fresh interpreter with neither PyG module preloaded must
+  observe a positive exact torch-geometric group before `make verify-torch-stack`, both real sampler
+  paths, focused `-W error` JUnit, graph, and quantization gates. A zero group triggers removal of the
+  debt machinery, never acceptance from a cached import. Task 3 then finishes smoke tools and its
+  exact commit.
 - [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; release ownership on shared `develop -> main` requires the exact Issue-62 title identity plus bounded one-paragraph body/reference constraints, and ambiguous/broader candidates fail for manual review rather than close. Feature/release reuse still requires exact title/body/SHA, label, and successful Tier B. A needed `main -> develop` sync inventories first, reuses only exact current copy/SHA with successful required checks, closes only stale dedicated sync candidates, fails on ambiguity/collision, and never blindly creates. Dispatch and Pages runs remain new after snapshotted UTC/ID boundaries and complete within bounded polls; a separate 720-by-10-second exact-SHA poll requires successful final-develop `CI`, mechanically exceeds the 90-minute Tier A timeout by 30 minutes of queue headroom, and the final noncompleted-run audit includes final-develop plus optional sync identities with a queued-run blocking mutation.
 - [x] **Completion ordering:** Pages/report evidence is persisted in the primary ignored root, successful final-develop runs are proved, then validated cleanup, zero scoped PRs/runs, main/develop synchronization, clean status, and deleted temporary evidence roots are proved before any completion comment or project mutation. Only afterward does the plan publish the report, prove Issue #53 open before/after its completion comment, set and re-query Issue #62 as project Done, and run `gh issue close 62` as the final command.
-- [x] **Staging safety:** Task 1 and Task 2 exclude the five preserved Task 3 paths; Task 3 owns them after clean GREEN; generated docs and ignored evidence are absent from every `git add` command.
+- [x] **Staging safety:** historical Task 1/2 ownership excludes the original five preserved paths;
+  Task 2.1 hash-locks and excludes the current seven blocker-report paths and stages exactly
+  verifier production/platform tests; Task 3 owns all seven after clean GREEN; generated docs and
+  ignored evidence are absent from every `git add` command.
 - [x] **Historical integrity:** r1-r3 and prior commits remain evidence, not final completion claims; Issue #59/#60/#61 records and released history remain immutable; the one stale Issue #61 requirements hash is corrected only in Task 5's current-ledger evidence.

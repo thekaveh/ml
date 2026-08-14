@@ -257,12 +257,18 @@
   }
   ```
 
-  Add exact-manifest fixtures and one `FakeDistribution` implementing the declared protocol. Tests must reject missing/duplicate/ranged pins, includes in the wrong manifest, public-version drift, incompatible local versions, absent WHEEL/RECORD ownership, an imported module path absent from RECORD, x86-only wheels on Darwin arm64, non-CPU Linux Torch, any installed distribution whose normalized name begins `nvidia-`, and messages containing injected credentials, URLs, paths, installer output, or tracebacks.
+  Add exact-manifest fixtures and one `FakeDistribution` implementing the declared protocol. Tests must reject missing/duplicate/ranged pins, includes in the wrong manifest, public-version drift, incompatible local versions, absent WHEEL/RECORD ownership, an imported module path absent from RECORD, x86-only wheels on Darwin arm64, non-CPU Linux Torch, any installed distribution whose normalized name begins `nvidia-`, and messages containing injected credentials, URLs, paths, installer output, or tracebacks. Linux PyG-index local versions require the exact `pt211cpu` tag. Darwin arm64 accepts the exact `pt211` local tag or an absent local tag. An absent local tag is accepted only after independent WHEEL/RECORD, Python ABI/platform architecture, and mandatory runtime-canary checks pass.
 
   ```python
-  def test_local_pyg_versions_require_pt211cpu_and_compatible_wheel_tags(fake_stack):
+  def test_linux_local_pyg_versions_require_pt211cpu_and_compatible_wheel_tags(fake_stack):
       fake_stack.version("pyg-lib", "0.8.0+pt211cpu")
       fake_stack.wheel("pyg-lib", "Tag: cp311-cp311-manylinux_2_28_x86_64\n")
+      evidence = verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
+      assert evidence.backend == "pyg-lib"
+
+  def test_darwin_local_pyg_versions_accept_pt211_with_native_abi3_wheel(fake_stack):
+      fake_stack.version("pyg-lib", "0.8.0+pt211")
+      fake_stack.wheel("pyg-lib", "Tag: cp310-abi3-macosx_11_0_arm64\n")
       evidence = verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
       assert evidence.backend == "pyg-lib"
   ```
@@ -305,7 +311,7 @@
       return StackEvidence(contract.system, contract.machine, modules["torch"].__version__, "pyg-lib")
   ```
 
-  Compare public versions with `Version(distribution.version).public`, use `distribution.read_text("WHEEL")` for tags, and confirm the resolved module file is present in `distribution.files`/RECORD. Require `torch.version.cuda is None` and no CUDA distributions on Linux. Default canaries execute `torch_scatter.scatter`, `torch_sparse.SparseTensor.matmul`, `torch_cluster.knn`, one real `NeighborLoader` batch with positive seed/edge counts, and a two-node `SplineConv` with output shape `(2, 2)`; `hooks.nnx_verify()` runs last. Normalize failures to:
+  Compare public versions with `Version(distribution.version).public`, derive a present PyG local tag from the selected Torch major/minor plus the platform CPU suffix, use `distribution.read_text("WHEEL")` for tags, and confirm the resolved module file is present in `distribution.files`/RECORD. A missing local tag never bypasses the independent WHEEL/RECORD, Python ABI/platform architecture, or runtime-canary gates. Require `torch.version.cuda is None` and no CUDA distributions on Linux. Default canaries execute `torch_scatter.scatter`, `torch_sparse.SparseTensor.matmul`, `torch_cluster.knn`, one real `NeighborLoader` batch with positive seed/edge counts, and a two-node `SplineConv` with output shape `(2, 2)`; `hooks.nnx_verify()` runs last. Normalize failures to:
 
   ```text
   torch stack verification failed: <component>: <manifest|metadata|wheel|platform|cpu|abi|operator|sampler|nnx>

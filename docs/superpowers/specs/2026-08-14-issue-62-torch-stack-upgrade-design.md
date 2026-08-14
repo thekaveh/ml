@@ -141,11 +141,12 @@ expected versions from the canonical manifests and checks:
 - the exact NNx 0.2.0 distribution through the existing canonical-wheel verifier.
 
 Version comparison uses the manifest's public version as the package identity while separately
-validating PyG wheel provenance. Local wheel versions such as `0.8.0+pt211cpu` satisfy the public
-`0.8.0` pin only when their local tag, installed `WHEEL` tags, platform architecture, and runtime
-operator evidence match Torch 2.11. Darwin extension wheels that publish no local version tag must
-carry a native or universal macOS wheel tag and pass the same runtime ABI canary. The verifier does
-not treat either exact-string inequality or import success alone as compatibility evidence.
+validating PyG wheel provenance. Linux PyG-index local versions require the exact `pt211cpu` tag.
+Darwin arm64 accepts the exact `pt211` local tag or an absent local tag. An absent local tag is
+accepted only after independent WHEEL/RECORD, Python ABI/platform architecture, and mandatory
+runtime-canary checks pass. Darwin artifacts must carry a native arm64 or universal macOS wheel
+tag. The verifier does not treat either exact-string inequality or import success alone as
+compatibility evidence.
 
 Diagnostics disclose stable component and failure categories, not credentials, private index
 tokens, temporary paths, or captured installer output. CI and Docker call the same verifier after

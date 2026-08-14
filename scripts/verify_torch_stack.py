@@ -332,7 +332,9 @@ def _verify_local_version(pin: StackPin, version: Version, contract: StackContra
     if local is None:
         return
     torch_pin = next(item for item in contract.pins if item.distribution == "torch")
-    expected_pyg_local = f"pt{torch_pin.public_version.major}{torch_pin.public_version.minor}cpu"
+    expected_pyg_local = f"pt{torch_pin.public_version.major}{torch_pin.public_version.minor}"
+    if contract.system == "Linux":
+        expected_pyg_local += "cpu"
     if pin.distribution in _PYG_INDEX_DISTRIBUTIONS:
         if local != expected_pyg_local:
             raise TorchStackVerificationError(pin.distribution, "abi")

@@ -425,13 +425,13 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
 
 **Files:** no intended tracked changes; write sanitized ignored evidence under `.superpowers/sdd/`
 
-- [ ] **Step 1: Establish a clean released-wheel environment**
+- [x] **Step 1: Establish a clean released-wheel environment**
 
   From a disposable Python 3.11 environment, install the pinned Torch stack, runtime manifest,
   and docs manifest with the repository's documented order. Require exact NNx 0.2.2,
   non-editable/non-direct-url metadata, and canonical wheel ownership before any acceptance test.
 
-- [ ] **Step 2: Run focused and complete test gates**
+- [x] **Step 2: Run focused and complete test gates**
 
   ```bash
   make verify-nnx-install
@@ -447,7 +447,7 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
   Record exact pass/skip/warning counts. Only documented Torch 2.4.1 torchao backend skips and
   platform-specific PyG loader skips may remain, and every skip must execute its guard.
 
-- [ ] **Step 3: Run Tier A in full**
+- [x] **Step 3: Run Tier A in full**
 
   ```bash
   make smoke-tier-a
@@ -458,7 +458,7 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
   Require all 18 Tier A outputs, including 17 NNx consumers plus the NumPy control. Confirm source
   notebooks and tracked files remain unchanged.
 
-- [ ] **Step 4: Run Tier B and Tier C in full**
+- [x] **Step 4: Run Tier B and Tier C in full**
 
   ```bash
   make smoke-tier-b
@@ -468,7 +468,7 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
   Require all six Tier B and all four Tier C outputs in temporary directories. Do not overwrite
   committed notebooks or adopt graph seed changes.
 
-- [ ] **Step 5: Run the best-effort QAT checkpoint probe**
+- [x] **Step 5: Run the best-effort QAT checkpoint probe**
 
   In a separate disposable Python 3.11 environment with Torch >=2.5 and compatible torchao,
   install the 0.2.2 binary wheel and run a tiny QAT prepare/train/convert/LAST-checkpoint reload

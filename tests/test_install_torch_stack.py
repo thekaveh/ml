@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -18,21 +19,38 @@ from scripts.install_torch_stack import (
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CORE = "torch==2.11.0\ntorchvision==0.26.0\ntorchaudio==2.11.0\n"
-ECOSYSTEM = "pytorch-lightning==2.6.1\ntorchmetrics==1.9.0\ntorchao==0.18.0\n"
+ECOSYSTEM = (
+    "pytorch-lightning==2.6.1\n"
+    "torchmetrics==1.9.0\n"
+    "torchao==0.18.0\n"
+)
 RUNTIME_MANIFEST = (
     "-r torch-ecosystem-requirements.txt\n"
     "--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html\n"
-    "pyg-lib==0.8.0\ntorch-scatter==2.1.2\ntorch-sparse==0.6.18\n"
-    "torch-cluster==1.6.3\ntorch-spline-conv==1.2.2\ntorch_geometric==2.8.0.post1\n"
-)
-AUDIT = (
-    "-r torch-core-requirements.txt\n-r torch-ecosystem-requirements.txt\n"
+    "pyg-lib==0.8.0\n"
+    "torch-scatter==2.1.2\n"
+    "torch-sparse==0.6.18\n"
     "torch_geometric==2.8.0.post1\n"
 )
-PYG_EXTENSIONS = (
-    "torch-scatter==2.1.2\ntorch-sparse==0.6.18\n"
-    "torch-cluster==1.6.3\ntorch-spline-conv==1.2.2\n"
+AUDIT = (
+    "-r torch-core-requirements.txt\n"
+    "-r torch-ecosystem-requirements.txt\n"
+    "torch_geometric==2.8.0.post1\n"
 )
+SUPPLEMENT = (
+    "# Pre-resolved compiled PyG extension supplement for the strict audit.\n"
+    "# Runtime source: torch-requirements.txt retains the approved PyG wheel selector.\n"
+    "torch-scatter==2.1.2\n"
+    "torch-sparse==0.6.18\n"
+)
+MANIFESTS = {
+    "torch-core-requirements.txt": CORE,
+    "torch-ecosystem-requirements.txt": ECOSYSTEM,
+    "torch-requirements.txt": RUNTIME_MANIFEST,
+    "torch-audit-requirements.txt": AUDIT,
+    "pyg-extension-audit-requirements.txt": SUPPLEMENT,
+}
+UPGRADE_PIP = (sys.executable, "-m", "pip", "install", "--upgrade", "pip")
 LINUX_CORE = (
     sys.executable,
     "-m",
@@ -56,9 +74,7 @@ RUNTIME = (
     "-m",
     "pip",
     "install",
-    "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster",
-    "--no-binary=torch-spline-conv",
-    "--no-build-isolation",
+    "--only-binary=pyg-lib,torch-scatter,torch-sparse",
     "-r",
     "torch-requirements.txt",
 )
@@ -71,93 +87,233 @@ ROOT = (
     "-r",
     "requirements.txt",
 )
-UPGRADE_PIP = (sys.executable, "-m", "pip", "install", "--upgrade", "pip", "wheel")
 SUPPORTED_HOSTS = (("Linux", "x86_64"), ("Linux", "aarch64"), ("Darwin", "arm64"))
+LEGACY_MANIFEST_MUTATIONS = (
+    (
+        "torch_geometric==2.8.0.post1\n",
+        "torch-cluster==1.6.3\ntorch_geometric==2.8.0.post1\n",
+    ),
+    (
+        "torch_geometric==2.8.0.post1\n",
+        "torch-spline-conv==1.2.2\ntorch_geometric==2.8.0.post1\n",
+    ),
+)
+LEGACY_ARG_MUTATIONS = (
+    (
+        "--only-binary=pyg-lib,torch-scatter,torch-sparse",
+        "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster",
+    ),
+    (
+        '"-r",\n                "torch-requirements.txt",',
+        '"--no-binary=torch-spline-conv",\n                "--no-build-isolation",\n                "-r",\n                "torch-requirements.txt",',
+    ),
+    (("--upgrade", "pip"), ("--upgrade", "pip", "wheel")),
+)
+
+
+def _assert_canonical_manifests(repo: Path) -> None:
+    for name, expected in MANIFESTS.items():
+        assert (repo / name).read_text(encoding="utf-8") == expected
+    requirements = (repo / "requirements.txt").read_text(encoding="utf-8")
+    assert requirements.count("thekaveh-nnx[lm]==0.2.0") == 1
+    package_names = tuple(
+        re.sub(r"[-_.]+", "-", line.split("==", 1)[0]).lower()
+        for line in requirements.splitlines()
+        if line and not line.startswith("#") and "==" in line
+    )
+    assert "torchao" not in package_names
+
+
+def _assert_final_command_plan(commands: tuple[InstallCommand, ...], core: tuple[str, ...]) -> None:
+    assert tuple(item.stage for item in commands) == tuple(InstallStage)
+    assert tuple(item.argv for item in commands) == (UPGRADE_PIP, core, RUNTIME, ROOT)
 
 
 def test_canonical_manifest_bytes_are_exact() -> None:
-    assert (REPO_ROOT / "torch-core-requirements.txt").read_text(encoding="utf-8") == CORE
-    assert (REPO_ROOT / "torch-ecosystem-requirements.txt").read_text(encoding="utf-8") == ECOSYSTEM
-    assert (REPO_ROOT / "torch-requirements.txt").read_text(encoding="utf-8") == RUNTIME_MANIFEST
-    assert (REPO_ROOT / "torch-audit-requirements.txt").read_text(encoding="utf-8") == AUDIT
-    extension_lines = (REPO_ROOT / "pyg-extension-audit-requirements.txt").read_text(encoding="utf-8").splitlines()
-    assert "\n".join(line for line in extension_lines if not line.startswith("#")) + "\n" == PYG_EXTENSIONS
+    _assert_canonical_manifests(REPO_ROOT)
 
 
-def test_linux_and_darwin_command_plans_are_exact() -> None:
-    linux = build_install_commands(sys.executable, "Linux", "x86_64")
-    linux_arm64 = build_install_commands(sys.executable, "Linux", "aarch64")
-    darwin = build_install_commands(sys.executable, "Darwin", "arm64")
-
-    assert tuple(command.stage for command in linux) == tuple(InstallStage)
-    assert linux[0].argv == linux_arm64[0].argv == darwin[0].argv == UPGRADE_PIP
-    assert linux[1].argv == LINUX_CORE
-    assert darwin[1].argv == tuple(
-        token
-        for token in LINUX_CORE
-        if token not in ("--index-url", "https://download.pytorch.org/whl/cpu")
-    )
-    assert linux[2].argv == darwin[2].argv == RUNTIME
-    assert linux[3].stage is InstallStage.ROOT
-    assert linux[3].argv == darwin[3].argv == ROOT
+def test_final_four_stage_plans_are_exact() -> None:
+    for system, machine, core in (
+        ("Linux", "x86_64", LINUX_CORE),
+        ("Linux", "aarch64", LINUX_CORE),
+        ("Darwin", "arm64", DARWIN_CORE),
+    ):
+        _assert_final_command_plan(build_install_commands(sys.executable, system, machine), core)
 
 
-@pytest.mark.parametrize(
-    ("system", "machine"),
-    SUPPORTED_HOSTS,
-)
-def test_upgrade_stage_provisions_pip_and_wheel_before_core_and_runtime(
-    tmp_path: Path, system: str, machine: str
+def test_makefile_installer_and_codespace_recipes_are_exact() -> None:
+    lines = (REPO_ROOT / "Makefile").read_text(encoding="utf-8").splitlines()
+
+    def recipe(target: str) -> tuple[str, tuple[str, ...]]:
+        index = next(index for index, line in enumerate(lines) if line.startswith(f"{target}:"))
+        body: list[str] = []
+        for line in lines[index + 1 :]:
+            if line and not line.startswith(("\t", "#")):
+                break
+            if line.startswith("\t"):
+                body.append(line[1:])
+        return lines[index], tuple(body)
+
+    install_header, install_recipe = recipe("install-torch-stack")
+    codespace_header, codespace_recipe = recipe("codespace-setup")
+    assert install_header == "install-torch-stack:"
+    assert install_recipe == ("$(PYTHON) -m scripts.install_torch_stack",)
+    assert codespace_header == "codespace-setup: install-torch-stack"
+    assert codespace_recipe == ("$(MAKE) nlp-assets",)
+
+
+@pytest.mark.parametrize(("original", "replacement"), LEGACY_MANIFEST_MUTATIONS)
+def test_legacy_manifest_mutations_fail_the_exact_manifest_contract(
+    tmp_path: Path, original: str, replacement: str
 ) -> None:
-    commands = build_install_commands(sys.executable, system, machine)
-
-    assert commands[0] == InstallCommand(InstallStage.UPGRADE_PIP, UPGRADE_PIP)
-    assert commands[1].stage is InstallStage.CORE
-    assert commands[2].stage is InstallStage.RUNTIME
-
-    source = (REPO_ROOT / "scripts" / "install_torch_stack.py").read_text(encoding="utf-8")
-    original = '("--upgrade", "pip", "wheel")'
-    assert original in source
-    mutated = source.replace(original, '("--upgrade", "pip")', 1)
+    for name in MANIFESTS:
+        (tmp_path / name).write_text((REPO_ROOT / name).read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "requirements.txt").write_text(
+        (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    runtime = tmp_path / "torch-requirements.txt"
+    source = runtime.read_text(encoding="utf-8")
+    mutated = source.replace(original, replacement, 1)
     assert mutated != source
+    runtime.write_text(mutated, encoding="utf-8")
 
     with pytest.raises(AssertionError):
-        assert _commands_from_installer_source(tmp_path, mutated, system, machine)[0].argv == UPGRADE_PIP
+        _assert_canonical_manifests(tmp_path)
 
 
-def test_linux_arm64_conditional_wheel_omission_fails_the_supported_host_contract(
-    tmp_path: Path,
+def _import_mutated_installer(tmp_path: Path, source: str) -> ModuleType:
+    installer = tmp_path / "mutated_install_torch_stack.py"
+    installer.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("mutated_install_torch_stack", installer)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        assert sys.modules.pop(spec.name, None) is module
+    return module
+
+
+@pytest.mark.parametrize(("original", "replacement"), LEGACY_ARG_MUTATIONS)
+def test_legacy_argument_mutations_fail_the_exact_four_stage_contract(
+    tmp_path: Path, original: str | tuple[str, ...], replacement: str | tuple[str, ...]
 ) -> None:
     source = (REPO_ROOT / "scripts" / "install_torch_stack.py").read_text(encoding="utf-8")
-    original = 'pip + ("--upgrade", "pip", "wheel")'
-    replacement = (
-        'pip + (("--upgrade", "pip") if (system, machine) == ("Linux", "aarch64") '
-        'else ("--upgrade", "pip", "wheel"))'
-    )
+    if isinstance(original, tuple):
+        original = '"' + '", "'.join(original) + '"'
+        replacement = '"' + '", "'.join(replacement) + '"'
     assert original in source
     mutated = source.replace(original, replacement, 1)
     assert mutated != source
+    module = _import_mutated_installer(tmp_path, mutated)
 
     with pytest.raises(AssertionError):
-        assert tuple(
-            _commands_from_installer_source(tmp_path, mutated, system, machine)[0].argv
-            for system, machine in SUPPORTED_HOSTS
-        ) == (UPGRADE_PIP,) * len(SUPPORTED_HOSTS)
+        _assert_final_command_plan(
+            module.build_install_commands(sys.executable, "Linux", "x86_64"), LINUX_CORE
+        )
 
 
 @pytest.mark.parametrize(
-    ("system", "machine"),
-    (("Linux", "arm64"), ("Darwin", "x86_64"), ("Windows", "AMD64")),
+    ("original", "replacement"),
+    (
+        (
+            "--only-binary=pyg-lib,torch-scatter,torch-sparse",
+            "--only-binary=torch-scatter,torch-sparse",
+        ),
+        (
+            "--only-binary=pyg-lib,torch-scatter,torch-sparse",
+            "--only-binary=pyg-lib,torch-sparse",
+        ),
+        (
+            "--only-binary=pyg-lib,torch-scatter,torch-sparse",
+            "--only-binary=pyg-lib,torch-scatter",
+        ),
+        ("--only-binary=pyg-lib,torch-scatter,torch-sparse", "--only-binary=:all:"),
+    ),
+    ids=("missing-pyg-lib", "missing-scatter", "missing-sparse", "broad-binary-policy"),
 )
+def test_runtime_policy_mutations_fail_the_exact_four_stage_contract(
+    tmp_path: Path, original: str, replacement: str
+) -> None:
+    source = (REPO_ROOT / "scripts" / "install_torch_stack.py").read_text(encoding="utf-8")
+    assert original in source
+    mutated = source.replace(original, replacement, 1)
+    assert mutated != source
+    module = _import_mutated_installer(tmp_path, mutated)
+
+    with pytest.raises(AssertionError):
+        _assert_final_command_plan(
+            module.build_install_commands(sys.executable, "Linux", "x86_64"), LINUX_CORE
+        )
+
+
+def test_stage_order_root_position_and_command_count_mutations_fail_exact_contract(tmp_path: Path) -> None:
+    source = (REPO_ROOT / "scripts" / "install_torch_stack.py").read_text(encoding="utf-8")
+    upgrade = '        InstallCommand(InstallStage.UPGRADE_PIP, pip + ("--upgrade", "pip")),\n'
+    core = "        InstallCommand(InstallStage.CORE, core),\n"
+    runtime = (
+        "        InstallCommand(\n"
+        "            InstallStage.RUNTIME,\n"
+        "            pip\n"
+        "            + (\n"
+        '                "--only-binary=pyg-lib,torch-scatter,torch-sparse",\n'
+        '                "-r",\n'
+        '                "torch-requirements.txt",\n'
+        "            ),\n"
+        "        ),\n"
+    )
+    root = (
+        "        InstallCommand(\n"
+        "            InstallStage.ROOT,\n"
+        '            pip + ("--only-binary=thekaveh-nnx", "-r", "requirements.txt"),\n'
+        "        ),\n"
+    )
+    mutations = (
+        source.replace(upgrade + core, core + upgrade, 1),
+        source.replace(runtime + root, root + runtime, 1),
+        source.replace(root, root + root, 1),
+        source.replace('"--only-binary=thekaveh-nnx", ', "", 1),
+    )
+    for mutated in mutations:
+        assert mutated != source
+        module = _import_mutated_installer(tmp_path, mutated)
+        with pytest.raises(AssertionError):
+            _assert_final_command_plan(
+                module.build_install_commands(sys.executable, "Linux", "x86_64"), LINUX_CORE
+            )
+
+
+def test_unsupported_platform_and_nonzero_runner_mutations_fail_closed_contract(tmp_path: Path) -> None:
+    source = (REPO_ROOT / "scripts" / "install_torch_stack.py").read_text(encoding="utf-8")
+    unsupported = source.replace(
+        '(("Linux", "x86_64"), ("Linux", "aarch64"), ("Darwin", "arm64"))',
+        '(("Linux", "x86_64"), ("Linux", "aarch64"), ("Linux", "arm64"), ("Darwin", "arm64"))',
+        1,
+    )
+    ignores_failure = source.replace("if runner(command.argv, check=False).returncode != 0:", "if False:", 1)
+    for mutated in (unsupported, ignores_failure):
+        assert mutated != source
+
+    unsupported_module = _import_mutated_installer(tmp_path, unsupported)
+    with pytest.raises(pytest.fail.Exception):
+        with pytest.raises(unsupported_module.TorchStackInstallError, match="unsupported Torch stack platform"):
+            unsupported_module.build_install_commands(sys.executable, "Linux", "arm64")
+
+    runner_module = _import_mutated_installer(tmp_path, ignores_failure)
+    with pytest.raises(pytest.fail.Exception):
+        with pytest.raises(runner_module.TorchStackInstallError, match="torch stack installation failed: upgrade-pip"):
+            runner_module.install_torch_stack(
+                runner_module.build_install_commands(sys.executable, "Linux", "x86_64"),
+                runner=lambda argv, *, check: SimpleNamespace(returncode=1),
+            )
+
+
+@pytest.mark.parametrize(("system", "machine"), (("Linux", "arm64"), ("Darwin", "x86_64"), ("Windows", "AMD64")))
 def test_unsupported_platforms_fail_closed(system: str, machine: str) -> None:
     with pytest.raises(TorchStackInstallError, match="unsupported Torch stack platform"):
         build_install_commands(sys.executable, system, machine)
-
-
-def test_linux_arm64_uses_the_cpu_core_index() -> None:
-    commands = build_install_commands(sys.executable, "Linux", "aarch64")
-
-    assert commands[1].argv == LINUX_CORE
 
 
 def test_installer_runs_every_immutable_argv_plan_without_checking_runner() -> None:
@@ -188,94 +344,17 @@ def test_installer_stops_on_nonzero_with_a_redacted_stable_error() -> None:
     assert secret not in str(error.value)
 
 
-def test_installer_stops_at_failed_upgrade_stage_with_stable_error() -> None:
-    commands = build_install_commands(sys.executable, "Darwin", "arm64")
-    seen: list[tuple[str, ...]] = []
-
-    def runner(argv, *, check):
-        seen.append(tuple(argv))
-        return SimpleNamespace(returncode=1)
-
-    with pytest.raises(
-        TorchStackInstallError,
-        match=r"^torch stack installation failed: upgrade-pip$",
-    ):
-        install_torch_stack(commands, runner=runner)
-
-    assert seen == [UPGRADE_PIP]
-
-
-def _commands_from_installer_source(
-    tmp_path: Path, source: str, system: str = "Linux", machine: str = "x86_64"
-) -> tuple[InstallCommand, ...]:
-    installer = tmp_path / "mutated_install_torch_stack.py"
-    installer.write_text(source, encoding="utf-8")
-    spec = importlib.util.spec_from_file_location("mutated_install_torch_stack", installer)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module.build_install_commands(sys.executable, system, machine)
-
-
-def _runtime_argv_from_installer_source(tmp_path: Path, source: str) -> tuple[str, ...]:
-    return _commands_from_installer_source(tmp_path, source)[2].argv
-
-
-@pytest.mark.parametrize(
-    ("original", "replacement"),
-    (
-        (
-            "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster",
-            "--only-binary=:all:",
-        ),
-        (
-            "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster",
-            "--only-binary=pyg-lib,torch-scatter,torch-sparse",
-        ),
-        (
-            "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster",
-            "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster,torch-spline-conv",
-        ),
-        ('                "--no-binary=torch-spline-conv",\n', ""),
-        ('                "--no-build-isolation",\n', ""),
-    ),
-    ids=("broad", "omitted-wheel", "spline-wheel", "spline-source-removed", "build-isolation-removed"),
-)
-def test_runtime_policy_source_mutations_fail_the_exact_command_contract(
-    tmp_path: Path, original: str, replacement: str
-) -> None:
-    source = (REPO_ROOT / "scripts" / "install_torch_stack.py").read_text(encoding="utf-8")
-    assert _runtime_argv_from_installer_source(tmp_path, source) == RUNTIME
-
-    assert original in source
-    mutated = source.replace(original, replacement, 1)
-    assert mutated != source
-
-    with pytest.raises(AssertionError):
-        assert _runtime_argv_from_installer_source(tmp_path, mutated) == RUNTIME
-
-
-def test_root_stage_is_last_and_binary_only_for_nnx() -> None:
-    commands = build_install_commands(sys.executable, "Linux", "x86_64")
-
-    assert len(commands) == 4
-    assert commands[-1] == InstallCommand(InstallStage.ROOT, ROOT)
-    assert "--only-binary=thekaveh-nnx" in commands[-1].argv
-
-
 def test_cli_uses_platform_and_runner_seams(monkeypatch: pytest.MonkeyPatch) -> None:
     from scripts import install_torch_stack as module
 
     seen: list[tuple[tuple[str, ...], bool]] = []
     monkeypatch.setattr(module.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(module.platform, "machine", lambda: "arm64")
-    monkeypatch.setattr(module, "install_torch_stack", lambda commands: seen.extend((command.argv, False) for command in commands))
+    monkeypatch.setattr(
+        module,
+        "install_torch_stack",
+        lambda commands: seen.extend((command.argv, False) for command in commands),
+    )
 
     assert module.main() == 0
-    assert seen == [
-        (UPGRADE_PIP, False),
-        (DARWIN_CORE, False),
-        (RUNTIME, False),
-        (ROOT, False),
-    ]
+    assert seen == [(UPGRADE_PIP, False), (DARWIN_CORE, False), (RUNTIME, False), (ROOT, False)]

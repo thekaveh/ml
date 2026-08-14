@@ -222,7 +222,7 @@ install-torch-stack:
 
 # Full one-shot dep install for the GitHub Codespaces / "Reopen in Container"
 # path (README §3.4). Reuses the same Torch-first install order as CI and
-# Docker so PyG source-build fallback can import torch during extension builds.
+# Docker runtime uses three binary PyG wheels and has no source-build fallback.
 # Recursively invokes nlp-assets so the spaCy + NLTK download steps stay in
 # one place across the §3.2 (Docker), §3.3 (venv), and §3.4 (Codespaces) paths.
 codespace-setup: install-torch-stack

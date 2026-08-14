@@ -38,8 +38,6 @@ TORCH_RUNTIME_REQUIREMENTS = (
     "pyg-lib==0.8.0\n"
     "torch-scatter==2.1.2\n"
     "torch-sparse==0.6.18\n"
-    "torch-cluster==1.6.3\n"
-    "torch-spline-conv==1.2.2\n"
     "torch_geometric==2.8.0.post1\n"
 )
 TORCH_AUDIT_REQUIREMENTS = (
@@ -48,10 +46,10 @@ TORCH_AUDIT_REQUIREMENTS = (
     "torch_geometric==2.8.0.post1\n"
 )
 PYG_EXTENSION_AUDIT_REQUIREMENTS = (
+    "# Pre-resolved compiled PyG extension supplement for the strict audit.\n"
+    "# Runtime source: torch-requirements.txt retains the approved PyG wheel selector.\n"
     "torch-scatter==2.1.2\n"
     "torch-sparse==0.6.18\n"
-    "torch-cluster==1.6.3\n"
-    "torch-spline-conv==1.2.2\n"
 )
 
 
@@ -738,7 +736,7 @@ def test_real_torch_audit_projection_is_the_selector_free_runtime_mirror() -> No
     )
     extension_text = (REPO_ROOT / "pyg-extension-audit-requirements.txt").read_text(encoding="utf-8")
     assert tuple(line for line in extension_text.splitlines() if line and not line.startswith("#")) == tuple(
-        PYG_EXTENSION_AUDIT_REQUIREMENTS.splitlines()
+        line for line in PYG_EXTENSION_AUDIT_REQUIREMENTS.splitlines() if line and not line.startswith("#")
     )
     assert (REPO_ROOT / "torch-core-requirements.txt").read_text(encoding="utf-8") == TORCH_CORE_REQUIREMENTS
     assert (REPO_ROOT / "torch-ecosystem-requirements.txt").read_text(encoding="utf-8") == TORCH_ECOSYSTEM_REQUIREMENTS
@@ -748,7 +746,7 @@ def test_real_torch_audit_projection_is_the_selector_free_runtime_mirror() -> No
     "mutation",
     [
         lambda runtime, audit: runtime.write_text(
-            runtime.read_text(encoding="utf-8").replace("torch-cluster==1.6.3\n", ""),
+            runtime.read_text(encoding="utf-8").replace("pyg-lib==0.8.0\n", ""),
             encoding="utf-8",
         ),
         lambda runtime, audit: audit.write_text(

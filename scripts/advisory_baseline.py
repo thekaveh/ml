@@ -23,12 +23,17 @@ PYG_FIND_LINKS = "--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html"
 TORCH_CORE_LINES = ("torch==2.11.0", "torchvision==0.26.0", "torchaudio==2.11.0")
 TORCH_ECOSYSTEM_LINES = ("pytorch-lightning==2.6.1", "torchmetrics==1.9.0", "torchao==0.18.0")
 TORCH_RUNTIME_LINES = (
-    "-r torch-ecosystem-requirements.txt", PYG_FIND_LINKS, "pyg-lib==0.8.0", "torch-scatter==2.1.2",
-    "torch-sparse==0.6.18", "torch-cluster==1.6.3", "torch-spline-conv==1.2.2", "torch_geometric==2.8.0.post1",
+    "-r torch-ecosystem-requirements.txt",
+    PYG_FIND_LINKS,
+    "pyg-lib==0.8.0",
+    "torch-scatter==2.1.2",
+    "torch-sparse==0.6.18",
+    "torch_geometric==2.8.0.post1",
 )
 TORCH_AUDIT_LINES = ("-r torch-core-requirements.txt", "-r torch-ecosystem-requirements.txt", "torch_geometric==2.8.0.post1")
 PYG_EXTENSION_AUDIT_LINES = (
-    "torch-scatter==2.1.2", "torch-sparse==0.6.18", "torch-cluster==1.6.3", "torch-spline-conv==1.2.2",
+    "torch-scatter==2.1.2",
+    "torch-sparse==0.6.18",
 )
 SURFACE_ORDER = (
     "combined-runtime",

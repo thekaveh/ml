@@ -49,15 +49,13 @@ def build_install_commands(python: str, system: str, machine: str) -> tuple[Inst
         "torch-core-requirements.txt",
     )
     return (
-        InstallCommand(InstallStage.UPGRADE_PIP, pip + ("--upgrade", "pip", "wheel")),
+        InstallCommand(InstallStage.UPGRADE_PIP, pip + ("--upgrade", "pip")),
         InstallCommand(InstallStage.CORE, core),
         InstallCommand(
             InstallStage.RUNTIME,
             pip
             + (
-                "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster",
-                "--no-binary=torch-spline-conv",
-                "--no-build-isolation",
+                "--only-binary=pyg-lib,torch-scatter,torch-sparse",
                 "-r",
                 "torch-requirements.txt",
             ),

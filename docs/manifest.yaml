@@ -183,6 +183,10 @@ sections:
         number: "12.21"
         title: Issue 62 coordinated Torch stack upgrade design
         source: docs/superpowers/specs/2026-08-14-issue-62-torch-stack-upgrade-design.md
+      - id: issue-62-torch-stack-upgrade-implementation
+        number: "12.22"
+        title: Issue 62 coordinated Torch stack upgrade implementation plan
+        source: docs/superpowers/plans/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md
   - id: security
     number: "13"
     title: Security policy

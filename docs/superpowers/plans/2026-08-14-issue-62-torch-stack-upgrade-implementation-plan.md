@@ -129,7 +129,7 @@ def verify_smoke_outputs(
 
 - `.github/workflows/ci.yml`, `Dockerfile`, `.devcontainer/devcontainer.json`, `Makefile`, and `tests/test_verify_repo.py`: one install algorithm, complete cache inputs, no late install, no service startup.
 - `security/accepted-advisories.json`, `docs/dependency-contracts.md`, `scripts/verify_repo.py`, `tests/test_advisory_baseline.py`, `tests/test_verify_repo.py`, and `tests/test_check_docs.py`: current audit policy, ledger, D10 enforcement, and the Issue #61 requirements-hash correction.
-- `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, `docs/env-setup.md`, `docs/architecture.md`, `docs/FINDINGS-ATLAS.md`, `docs/dependency-contracts.md`, `docs/notebook-infrastructure.md`, `docs/notebooks/pruning-mnist-ffnn-pytorch.md`, `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, `notebooks/node_classification-reddit-gnn-pyg/README.md`, `notebooks/quantization-mnist-ffnn-pytorch/README.md`, `notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml`, `docs/assets/badges/pytorch.svg`, and current Make/CI/Docker/devcontainer comments: one operational story.
+- `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, `docs/env-setup.md`, `docs/architecture.md`, `docs/FINDINGS-ATLAS.md`, `docs/dependency-contracts.md`, `docs/notebook-infrastructure.md`, `docs/notebooks/node_classification-reddit-gnn-pyg.md`, `docs/notebooks/pruning-mnist-ffnn-pytorch.md`, `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, `notebooks/node_classification-reddit-gnn-pyg/README.md`, `notebooks/node_classification-reddit-gnn-pyg/docs/spec.yaml`, `notebooks/quantization-mnist-ffnn-pytorch/README.md`, `notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml`, `docs/assets/badges/pytorch.svg`, and current Make/CI/Docker/devcontainer comments: one operational story.
 - `.superpowers/sdd/issue62-advisory/`: ignored six-command audit evidence.
 - `/Users/kaveh/repos/ml-eng-lab/.superpowers/sdd/issue62-qualification-report.md`: ignored
   immutable-final-SHA evidence written to the validated primary checkout, never a disposable worktree.
@@ -1817,7 +1817,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
       "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption",
       "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt",
       "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2",
-      "h3", "h4", "h5", "h6", "head", "header", "hr", "html", "iframe", "legend", "li",
+      "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html", "iframe", "legend", "li",
       "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p",
       "param", "search", "section", "source", "summary", "table", "tbody", "td", "tfoot", "th", "thead",
       "title", "tr", "track", "ul",
@@ -2088,7 +2088,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
       "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption",
       "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt",
       "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2",
-      "h3", "h4", "h5", "h6", "head", "header", "hr", "html", "iframe", "legend", "li",
+      "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html", "iframe", "legend", "li",
       "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p",
       "param", "search", "section", "source", "summary", "table", "tbody", "td", "tfoot", "th", "thead",
       "title", "tr", "track", "ul",
@@ -2105,6 +2105,25 @@ Expected: the five hashes equal the block above and none of those paths appears 
       assert hidden not in masked
       assert visible in masked
       assert masked.count("\n") == source.count("\n")
+
+  @pytest.mark.parametrize("indent", ("", " ", "  ", "   "))
+  def test_dependency_raw_html_hgroup_hides_decoy_but_visible_current_section_is_enforced(
+      tmp_path, indent,
+  ):
+      repo = _issue62_ledger_repo(tmp_path)
+      ledger = repo / "docs/dependency-contracts.md"
+      marker = "### 6.1.1.2 Current Issue #62 four-surface audit"
+      original = ledger.read_text(encoding="utf-8")
+      assert original.count(marker) == 1
+      hidden_decoy = f"{indent}<hgroup>\n{marker}\n</hgroup>\n\n"
+      ledger.write_text(hidden_decoy + original, encoding="utf-8")
+      assert _d10_ids(repo) == set()
+      without_visible = hidden_decoy + original.replace(
+          marker, "### 6.1.1.2 Removed visible audit", 1,
+      )
+      assert without_visible != hidden_decoy + original
+      ledger.write_text(without_visible, encoding="utf-8")
+      assert "D10.dependency_ledger_count" in _d10_ids(repo)
 
   def test_dependency_raw_html_four_spaces_remains_markdown_code_not_html():
       module = _load_verify_module()
@@ -2157,6 +2176,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - Modify: `docs/FINDINGS-ATLAS.md`
 - Modify: `docs/dependency-contracts.md`
 - Modify generated canonical page: `docs/notebook-infrastructure.md`
+- Modify manifest-owned canonical page: `docs/notebooks/node_classification-reddit-gnn-pyg.md`
 - Modify: `docs/notebooks/pruning-mnist-ffnn-pytorch.md`
 - Modify: `docs/notebooks/quantization-mnist-ffnn-pytorch.md`
 - Modify: `notebooks/node_classification-reddit-gnn-pyg/README.md`
@@ -2269,6 +2289,21 @@ Expected: the five hashes equal the block above and none of those paths appears 
       manual = next(line for line in tier_mapping.splitlines() if line.startswith("- **Manual-only:**"))
       assert "Issue #66" in manual
       assert "Torch 2.11.0 + torchao 0.18.0" in manual
+
+  def test_issue62_graph_canonical_page_has_current_release_guidance():
+      text = (
+          REPO_ROOT / "docs/notebooks/node_classification-reddit-gnn-pyg.md"
+      ).read_text(encoding="utf-8")
+      pitfalls = _same_level_section(text, "8.13.7 Pitfalls")
+      exact = (
+          "- **Run both graph tiers during release review.** Issue #62 requires mandatory "
+          "zero-skip graph tests plus Tier B and Tier C execution on the supported Torch 2.11 "
+          "CPU stack. Sampling must prove preferred pyg-lib selection and forced torch-sparse "
+          "fallback; install with make install-torch-stack and prove with make verify-torch-stack."
+      )
+      assert exact in pitfalls
+      assert "Issue #61 completed Tier B and Tier C" not in pitfalls
+      assert "with `torch_sparse==0.6.18`" not in pitfalls
   ```
 
   Add `import yaml` to `tests/test_check_docs.py`; keep `REPO_ROOT` and the existing immutable
@@ -2311,6 +2346,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
   | `docs/dependency-contracts.md`, replace all content in `## 6.1.3 Manual-Only Quantization Notebook` before `## 6.1.4` | `notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb remains manual-only under Issue #66. Issue #62 qualifies only the tiny PTQ/QAT dependency surface on torch==2.11.0, torchvision==0.26.0, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0. Do not add the complete notebook to Tier A/B/C without Issue #66 acceptance; Atlas remains Issue #65 and is not a substitute.` |
   | `docs/dependency-contracts.md`, replace all current boundary prose in `## 6.1.9 Atlas Versus Local/CI Dependency Boundaries` before `## 6.1.10` | `Atlas is Atlas-owned infrastructure and remains Issue #65. The checked-in Torch 2.11 CPU manifests are authoritative for make test, papermill CI, Dockerfile, and Codespaces; no Atlas package observation changes that contract. The complete quantization notebook remains manual-only under Issue #66 even though Issue #62 qualifies its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface.` |
   | `docs/dependency-contracts.md`, replace the complete section beginning `## 6.1.11 Bootstrap Tooling Gap` through the byte before `## 6.1.12 Deferred Reproducibility Hardening` | `## 6.1.11 Canonical Bootstrap Tooling`<br><br>`The canonical installer upgrades pip alone in stage 0 and installs every selected graph extension as a compatible binary wheel in stage 2. Docker, Codespaces, CI, and local setup delegate to make install-torch-stack; none carries a second bootstrap or dependency algorithm. Exact pip/setuptools locks, full Python lockfiles, and base-image digest pinning remain Issue #63 and do not change the Issue #62 four-stage install contract.` |
+  | `docs/notebooks/node_classification-reddit-gnn-pyg.md`, replace the complete three-line pitfall beginning `- **Run both graph tiers during release review.** Issue #61 completed` | `- **Run both graph tiers during release review.** Issue #62 requires mandatory zero-skip graph tests plus Tier B and Tier C execution on the supported Torch 2.11 CPU stack. Sampling must prove preferred pyg-lib selection and forced torch-sparse fallback; install with make install-torch-stack and prove with make verify-torch-stack.` |
   | `docs/notebooks/pruning-mnist-ffnn-pytorch.md`, replace the four-line pitfall bullet beginning `- **Manual-only quantization cousin (§8.8) cannot run in CI.**` | `- **Quantization cousin (§8.8) remains manual-only under Issue #66.** This pruning notebook is Tier A and covered by the 18-output oracle. Issue #62 qualifies §8.8's tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface, but the complete quantization notebook remains outside Tier A/B/C.` |
   | `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, replace the opening manual-only paragraph from `The notebook is **manual-only**` through `remain historical evidence.` | `The notebook is **manual-only** under Issue #66 and is not in the Tier A/B/C papermill targets. Issue #62 qualifies only the tiny PTQ/QAT dependency surface on torch==2.11.0, torchvision==0.26.0, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0. Atlas remains Issue #65 and is not acceptance evidence. The older committed Torch 2.8.0 outputs remain historical evidence and are not rewritten.` |
   | `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, replace the table cell beginning ``| Manual-only (CI-excluded) |`` | `| Manual-only (CI-excluded) | Issue #62 qualifies the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; Issue #66 owns full-notebook execution outside Tier A/B/C. |` |
@@ -2376,6 +2412,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
       "docs/FINDINGS-ATLAS.md",
       "docs/dependency-contracts.md",
       "docs/notebook-infrastructure.md",
+      "docs/notebooks/node_classification-reddit-gnn-pyg.md",
       "docs/notebooks/pruning-mnist-ffnn-pytorch.md",
       "docs/notebooks/quantization-mnist-ffnn-pytorch.md",
       "docs/superpowers/plans/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md",
@@ -2409,7 +2446,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
   pytest -p no:cacheprovider tests/test_check_docs.py tests/test_manifest.py tests/test_transforms.py tests/test_build_docs.py tests/test_wiki.py -q
   ruff check tests/test_check_docs.py
   git diff --check
-  git add README.md CONTRIBUTING.md SECURITY.md CHANGELOG.md docs/env-setup.md docs/architecture.md docs/FINDINGS-ATLAS.md docs/dependency-contracts.md docs/notebook-infrastructure.md docs/notebooks/pruning-mnist-ffnn-pytorch.md docs/notebooks/quantization-mnist-ffnn-pytorch.md notebooks/node_classification-reddit-gnn-pyg/README.md notebooks/node_classification-reddit-gnn-pyg/docs/spec.yaml notebooks/quantization-mnist-ffnn-pytorch/README.md notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml docs/assets/badges/pytorch.svg Makefile .github/workflows/ci.yml Dockerfile .devcontainer/devcontainer.json tests/test_check_docs.py
+  git add README.md CONTRIBUTING.md SECURITY.md CHANGELOG.md docs/env-setup.md docs/architecture.md docs/FINDINGS-ATLAS.md docs/dependency-contracts.md docs/notebook-infrastructure.md docs/notebooks/node_classification-reddit-gnn-pyg.md docs/notebooks/pruning-mnist-ffnn-pytorch.md docs/notebooks/quantization-mnist-ffnn-pytorch.md notebooks/node_classification-reddit-gnn-pyg/README.md notebooks/node_classification-reddit-gnn-pyg/docs/spec.yaml notebooks/quantization-mnist-ffnn-pytorch/README.md notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml docs/assets/badges/pytorch.svg Makefile .github/workflows/ci.yml Dockerfile .devcontainer/devcontainer.json tests/test_check_docs.py
   git commit -m "docs: document supported Torch 2.11 runtime"
   ```
 
@@ -2789,16 +2826,16 @@ Expected: the five hashes equal the block above and none of those paths appears 
   current: list[str] = []
   obsolete: list[str] = []
   for row in rows:
-      canonical = (
-          row["title"] == title
-          and row["body"] == body
-          and row["headRefName"] == "codex/issue-62-torch-stack-upgrade"
+      owned = (
+          row["headRefName"] == "codex/issue-62-torch-stack-upgrade"
           and row["baseRefName"] == "develop"
       )
-      if not canonical:
+      if not owned:
           continue  # unrelated open PR: never close or reuse
-      assert row["body"].count("Issue #62") == 1
-      target = current if row["headRefOid"] == expected_sha else obsolete
+      canonical = row["title"] == title and row["body"] == body
+      if canonical:
+          assert row["body"].count("Issue #62") == 1
+      target = current if canonical and row["headRefOid"] == expected_sha else obsolete
       target.append(str(row["number"]))
   assert len(current) <= 1
   Path(current_path).write_text("\n".join(current) + ("\n" if current else ""))
@@ -3008,6 +3045,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
     "$RELEASE_TITLE" "$RELEASE_BODY" "$FINAL_ROOT/current-release-prs" \
     "$FINAL_ROOT/obsolete-release-prs" <<'PY'
   import json
+  import re
   import sys
   from pathlib import Path
 
@@ -3016,16 +3054,20 @@ Expected: the five hashes equal the block above and none of those paths appears 
   current: list[str] = []
   obsolete: list[str] = []
   for row in rows:
-      canonical = (
-          row["title"] == title
-          and row["body"] == body
-          and row["headRefName"] == "develop"
+      owned_pair = (
+          row["headRefName"] == "develop"
           and row["baseRefName"] == "main"
       )
-      if not canonical:
+      issue62_marker = re.search(
+          r"(?i)(?<![A-Za-z0-9])(?:Issue[ \t]*#?[ \t]*62|#62)(?![0-9])",
+          f'{row["title"]}\n{row["body"]}',
+      )
+      if not owned_pair or issue62_marker is None:
           continue  # unrelated open PR: never close or reuse
-      assert row["body"].count("Issue #62") == 2
-      target = current if row["headRefOid"] == expected_sha else obsolete
+      canonical = row["title"] == title and row["body"] == body
+      if canonical:
+          assert row["body"].count("Issue #62") == 2
+      target = current if canonical and row["headRefOid"] == expected_sha else obsolete
       target.append(str(row["number"]))
   assert len(current) <= 1
   Path(current_path).write_text("\n".join(current) + ("\n" if current else ""))
@@ -3089,8 +3131,28 @@ Expected: the five hashes equal the block above and none of those paths appears 
   RELEASE_PR_MERGE_SHA=$(git rev-parse "refs/issue62/pr-$RELEASE_PR-merge")
   test "$(git rev-parse "$RELEASE_PR_MERGE_SHA^{tree}")" = "$(git rev-parse "$DEVELOP_MERGE_SHA^{tree}")"
   gh pr checks "$RELEASE_PR" --repo "$REPO" --watch --fail-fast
-  test -z "$(gh pr checks "$RELEASE_PR" --repo "$REPO" --json name,bucket \
-    --jq '.[] | select(.bucket != "pass" and .name != "smoke-tier-c") | .bucket')"
+  gh pr checks "$RELEASE_PR" --repo "$REPO" --json name,state,bucket,link \
+    > "$FINAL_ROOT/release-pr-checks.json"
+  python - "$FINAL_ROOT/release-pr-checks.json" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  expected = {
+      "pytest-repository", "atlas-consumer-policy", "dependency-audit",
+      "pytest-nnx-surface", "verify-repo", "docs-build", "docker-build",
+      "tier-a-papermill", "smoke-tier-b",
+  }
+  by_name = {check["name"]: check for check in checks}
+  assert expected <= by_name.keys()
+  assert all(by_name[name]["bucket"] == "pass" for name in expected)
+  assert all(by_name[name]["link"].startswith("https://github.com/") for name in expected)
+  assert all(
+      check["bucket"] == "pass" or check["name"] == "smoke-tier-c"
+      for check in checks
+  )
+  PY
   gh run list --repo "$REPO" --commit "$RELEASE_PR_MERGE_SHA" --limit 50 \
     --json databaseId,workflowName,event,headSha,status,conclusion,url \
     > "$FINAL_ROOT/release-pr-runs.json"
@@ -3101,8 +3163,11 @@ Expected: the five hashes equal the block above and none of those paths appears 
 
   runs = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
   assert runs and all(run["headSha"] == sys.argv[2] for run in runs)
+  assert all(run["event"] == "pull_request" for run in runs)
   assert all(run["status"] == "completed" for run in runs)
   assert all(run["conclusion"] == "success" for run in runs)
+  assert {run["workflowName"] for run in runs} >= {"CI", "Docs gate"}
+  assert all(run["url"].startswith("https://github.com/") for run in runs)
   PY
   PAGES_BOUNDARY=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
   gh run list --repo "$REPO" --workflow pages.yml --event push --limit 100 \
@@ -3316,7 +3381,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
           "tests", "tiers", "native_linux_arm64_docker", "advisory", "linux_x86_64",
           "durations_seconds", "sha256", "pull_requests", "publication",
       }, "report top-level schema")
-      require(value["schema_version"] == 2, "report schema version")
+      require(value["schema_version"] == 3, "report schema version")
       require(set(value["selected_versions"]) == set(STACK_DISTRIBUTIONS), "distribution names")
       require(value["nnx_metadata"]["distribution"] == "thekaveh-nnx", "NNx metadata")
       require(set(value["platform"]) == {
@@ -3328,9 +3393,18 @@ Expected: the five hashes equal the block above and none of those paths appears 
       require(value["tests"]["nnx"]["skipped"] == 0, "NNx skips")
       require(value["tests"]["repository"]["tests"] > 0, "repository tests")
       require(value["tiers"]["counts"] == {"a": 18, "b": 6, "c": 4}, "tier counts")
-      require(set(value["linux_x86_64"]["check_urls"]) >= {
-          "pytest-repository", "dependency-audit", "pytest-nnx-surface", "smoke-tier-b",
-      }, "Linux check URLs")
+      require(set(value["linux_x86_64"]) == {
+          "feature_pr", "release_pr", "tier_c_dispatch_url",
+      }, "Linux PR evidence schema")
+      for key in ("feature_pr", "release_pr"):
+          pr_evidence = value["linux_x86_64"][key]
+          require(set(pr_evidence) == {
+              "merge_sha", "check_urls", "pr_run_urls",
+          }, f"{key} evidence schema")
+          require(set(pr_evidence["check_urls"]) >= {
+              "pytest-repository", "dependency-audit", "pytest-nnx-surface", "smoke-tier-b",
+          }, f"{key} Linux check URLs")
+          require(pr_evidence["pr_run_urls"], f"{key} Linux run URLs")
 
   identities = dict(zip(
       ("feature_sha", "feature_pr_merge_sha", "develop_merge_sha",
@@ -3374,8 +3448,10 @@ Expected: the five hashes equal the block above and none of those paths appears 
       "final advisory surface order",
   )
 
-  pr_checks = load_json(final_root / "pr-checks.json")
-  pr_runs = load_json(final_root / "pr-runs.json")
+  feature_pr_checks = load_json(final_root / "pr-checks.json")
+  feature_pr_runs = load_json(final_root / "pr-runs.json")
+  release_pr_checks = load_json(final_root / "release-pr-checks.json")
+  release_pr_runs = load_json(final_root / "release-pr-runs.json")
   pages_run = load_json(final_root / "pages-run.json")
   tier_c_run = load_json(final_root / "tier-c-run.json")
   require(pages_run["headSha"] == identities["release_merge_sha"], "Pages SHA")
@@ -3395,12 +3471,46 @@ Expected: the five hashes equal the block above and none of those paths appears 
       "pytest-repository", "atlas-consumer-policy", "dependency-audit", "pytest-nnx-surface",
       "verify-repo", "docs-build", "docker-build", "tier-a-papermill", "smoke-tier-b",
   }
-  by_check = {item["name"]: item for item in pr_checks}
-  require(expected_checks <= by_check.keys(), "missing Linux PR checks")
-  require(all(by_check[name]["bucket"] == "pass" for name in expected_checks), "PR check result")
-  require(all(by_check[name]["link"].startswith("https://github.com/") for name in expected_checks), "PR check URL")
-  require(pr_runs and all(item["headSha"] == identities["feature_pr_merge_sha"] for item in pr_runs), "PR run SHA")
-  require(all(item["url"].startswith("https://github.com/") for item in pr_runs), "PR run URL")
+
+  def pr_evidence(
+      checks: list[dict[str, object]],
+      runs: list[dict[str, object]],
+      expected_sha: str,
+      label: str,
+  ) -> dict[str, object]:
+      by_check = {item["name"]: item for item in checks}
+      require(expected_checks <= by_check.keys(), f"missing {label} Linux PR checks")
+      require(
+          all(by_check[name]["bucket"] == "pass" for name in expected_checks),
+          f"{label} PR check result",
+      )
+      require(
+          all(by_check[name]["link"].startswith("https://github.com/") for name in expected_checks),
+          f"{label} PR check URL",
+      )
+      require(runs and all(item["headSha"] == expected_sha for item in runs), f"{label} PR run SHA")
+      require(all(item["event"] == "pull_request" for item in runs), f"{label} PR run event")
+      require(
+          all(item["status"] == "completed" and item["conclusion"] == "success" for item in runs),
+          f"{label} PR run result",
+      )
+      require(
+          {item["workflowName"] for item in runs} >= {"CI", "Docs gate"},
+          f"{label} PR workflows",
+      )
+      require(all(item["url"].startswith("https://github.com/") for item in runs), f"{label} PR run URL")
+      return {
+          "merge_sha": expected_sha,
+          "check_urls": {name: by_check[name]["link"] for name in sorted(expected_checks)},
+          "pr_run_urls": sorted({item["url"] for item in runs}),
+      }
+
+  feature_pr_evidence = pr_evidence(
+      feature_pr_checks, feature_pr_runs, identities["feature_pr_merge_sha"], "feature",
+  )
+  release_pr_evidence = pr_evidence(
+      release_pr_checks, release_pr_runs, identities["release_pr_merge_sha"], "release",
+  )
 
   tier_counts: dict[str, int] = {}
   tier_hashes: dict[str, str] = {}
@@ -3427,7 +3537,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
       "security/accepted-advisories.json",
   )
   report = {
-      "schema_version": 2,
+      "schema_version": 3,
       "identities": identities,
       "platform": {
           "system": platform.system(),
@@ -3448,8 +3558,8 @@ Expected: the five hashes equal the block above and none of those paths appears 
       "native_linux_arm64_docker": docker_report,
       "advisory": advisory,
       "linux_x86_64": {
-          "check_urls": {name: by_check[name]["link"] for name in sorted(expected_checks)},
-          "pr_run_urls": sorted({item["url"] for item in pr_runs}),
+          "feature_pr": feature_pr_evidence,
+          "release_pr": release_pr_evidence,
           "tier_c_dispatch_url": tier_c_run["url"],
       },
       "durations_seconds": {
@@ -3472,6 +3582,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
                   final_root / "advisory-evidence.json", final_root / "docker-evidence.json",
                   final_root / "nnx-surface.xml", final_root / "repository.xml",
                   final_root / "pr-checks.json", final_root / "pr-runs.json",
+                  final_root / "release-pr-checks.json", final_root / "release-pr-runs.json",
                   final_root / "tier-c-run.json", final_root / "pages-run.json",
               )
           },
@@ -3493,7 +3604,9 @@ Expected: the five hashes equal the block above and none of those paths appears 
   )
   missing_metadata = copy.deepcopy(report)
   del missing_metadata["native_linux_arm64_docker"]["architecture"]
-  for mutation in (wrong_name, missing_metadata):
+  missing_release_evidence = copy.deepcopy(report)
+  del missing_release_evidence["linux_x86_64"]["release_pr"]
+  for mutation in (wrong_name, missing_metadata, missing_release_evidence):
       try:
           validate_report_schema(mutation)
       except (KeyError, TypeError, ValueError):
@@ -3510,8 +3623,6 @@ Expected: the five hashes equal the block above and none of those paths appears 
   gh pr comment "$RELEASE_PR" --repo "$REPO" \
     --body-file "$REPORT_PATH"
   gh issue comment 62 --repo "$REPO" --body-file "$REPORT_PATH"
-  gh issue close 62 --repo "$REPO" --reason completed \
-    --comment "Released by feature PR #$FEATURE_PR at $DEVELOP_MERGE_SHA and release PR #$RELEASE_PR at $RELEASE_MERGE_SHA; immutable feature evidence is $FEATURE_SHA."
   gh issue view 53 --repo "$REPO" --json state > "$FINAL_ROOT/issue53-before.json"
   test "$(jq -r .state "$FINAL_ROOT/issue53-before.json")" = OPEN
   gh issue comment 53 --repo "$REPO" \
@@ -3541,6 +3652,24 @@ Expected: the five hashes equal the block above and none of those paths appears 
   test -n "$PROJECT_ID" && test -n "$ITEM_ID" && test -n "$STATUS_FIELD_ID" && test -n "$DONE_OPTION_ID"
   gh project item-edit --id "$ITEM_ID" --project-id "$PROJECT_ID" \
     --field-id "$STATUS_FIELD_ID" --single-select-option-id "$DONE_OPTION_ID"
+  gh api graphql -f query='query {
+    repository(owner:"thekaveh", name:"ml-eng-lab") {
+      issue(number:62) {
+        projectItems(first:20) { nodes {
+          id
+          project { id number title }
+          fieldValues(first:20) { nodes {
+            ... on ProjectV2ItemFieldSingleSelectValue {
+              name
+              field { ... on ProjectV2SingleSelectField { id name } }
+            }
+          } }
+        } }
+      }
+    }
+  }' > "$FINAL_ROOT/project-item-after.json"
+  test "$(jq -r '.data.repository.issue.projectItems.nodes | length' "$FINAL_ROOT/project-item-after.json")" = 1
+  test "$(jq -r '.data.repository.issue.projectItems.nodes[0].fieldValues.nodes[] | select(.field.name == "Status") | .name' "$FINAL_ROOT/project-item-after.json")" = Done
   ```
 
   Clean only the exact validated Issue #62 targets. Do not use globs, delete unrelated containers,
@@ -3582,19 +3711,67 @@ Expected: the five hashes equal the block above and none of those paths appears 
   done < /private/tmp/issue62-reuse-refs.txt
   rm -f /private/tmp/issue62-reuse-refs.txt
   test -z "$(git for-each-ref --format='%(refname)' refs/issue62/)"
-  test -z "$(gh pr list --repo "$REPO" --state open --head codex/issue-62-torch-stack-upgrade --json number --jq '.[].number')"
-  test -z "$(gh run list --repo "$REPO" --branch codex/issue-62-torch-stack-upgrade \
-    --status in_progress --json databaseId --jq '.[].databaseId')"
+  gh pr list --repo "$REPO" --state open --limit 1000 \
+    --json number,title,body,baseRefName,headRefName \
+    > /private/tmp/issue62-open-prs-final.json
+  python - /private/tmp/issue62-open-prs-final.json <<'PY'
+  import json
+  import re
+  import sys
+  from pathlib import Path
+
+  rows = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  marker = re.compile(r"(?i)(?<![A-Za-z0-9])(?:Issue[ \t]*#?[ \t]*62|#62)(?![0-9])")
+  scoped = []
+  for row in rows:
+      feature_owned = (
+          row["headRefName"] == "codex/issue-62-torch-stack-upgrade"
+          and row["baseRefName"] == "develop"
+      )
+      marked = marker.search(f'{row["title"]}\n{row["body"]}') is not None
+      release_owned = marked and row["headRefName"] == "develop" and row["baseRefName"] == "main"
+      sync_owned = marked and row["headRefName"] == "main" and row["baseRefName"] == "develop"
+      if feature_owned or release_owned or sync_owned:
+          scoped.append(row["number"])
+  assert not scoped, f"open Issue #62 PRs remain: {scoped}"
+  PY
+  rm -f /private/tmp/issue62-open-prs-final.json
+  gh run list --repo "$REPO" --limit 1000 \
+    --json databaseId,headBranch,headSha,status,url \
+    > /private/tmp/issue62-open-runs-final.json
+  python - /private/tmp/issue62-open-runs-final.json "$FEATURE_SHA" "$PR_MERGE_SHA" \
+    "$DEVELOP_MERGE_SHA" "$RELEASE_PR_MERGE_SHA" "$RELEASE_MERGE_SHA" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  rows = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  owned_shas = set(sys.argv[2:])
+  scoped = [
+      row for row in rows
+      if row["status"] != "completed"
+      and (
+          row["headBranch"] == "codex/issue-62-torch-stack-upgrade"
+          or row["headSha"] in owned_shas
+      )
+  ]
+  assert not scoped, f"open Issue #62 workflow runs remain: {scoped}"
+  PY
+  rm -f /private/tmp/issue62-open-runs-final.json
   test "$(git -C infra rev-parse HEAD)" = 61c7c5103660e2226bf107c115dae42bf46f8374
   git diff --exit-code origin/main origin/develop
   test -z "$(git status --porcelain=v1)"
   test -z "$(find notebooks -type d \( -name runs -o -name checkpoints \) -print)"
+  gh issue close 62 --repo "$REPO" --reason completed \
+    --comment "Released by feature PR #$FEATURE_PR at $DEVELOP_MERGE_SHA and release PR #$RELEASE_PR at $RELEASE_MERGE_SHA; immutable feature evidence is $FEATURE_SHA."
   ```
 
   Expected: Pages and wiki return HTTP 200 and publish the matrix, three-wheel boundary,
-  manual-only Issue #66, and immutable evidence; #62 is closed and Done; #53 remains open; #65/#66
-  remain open and unchanged; the two explicit worktrees/environments/images and feature refs are
-  gone; no scoped workflow is in progress; `main`/`develop` trees match; and tracked status is clean.
+  manual-only Issue #66, and immutable evidence; #53 remains open; #65/#66 remain open and
+  unchanged; Issue #62 is verified Done in the project; the two explicit
+  worktrees/environments/images and feature refs are gone; no scoped PR or workflow run remains;
+  `main`/`develop` trees match; tracked status is clean; and closing Issue #62 is the final
+  completion action.
 
 ---
 
@@ -3606,12 +3783,13 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - [x] **Dependency order:** Task 1 produces manifests/installer; Task 2 consumes manifests and produces verifier; Task 3 consumes both and commits preserved WIP; Task 4 consumes installer/verifier/oracle; Task 5 consumes the clean final solve; Task 6 consumes implementation/audit truth; Task 7 consumes every tracked task.
 - [x] **Final-SHA order:** all tracked evidence and review corrections precede `FINAL_SHA`; final qualification writes only ignored/external evidence; any later tracked commit invalidates and restarts the full final run.
 - [x] **Boundary consistency:** current scope is pyg-lib/scatter/sparse, ten verifier components, three canaries, two supplement pins, four installer stages, stage-0 pip only, binary-only NNx last, Issue #65 Atlas ownership, Issue #66 quantization-notebook ownership, and no containerized Ollama.
-- [x] **D10 executability:** every referenced parser/comparator is defined in the plan or already exists in `scripts/verify_repo.py`; current/historical slicing, raw-HTML masking, Result/summary/advisory validation, policy coupling, and ten-input hashes map failures to named `Finding` IDs.
+- [x] **D10 executability:** every referenced parser/comparator is defined in the plan or already exists in `scripts/verify_repo.py`; current/historical slicing, complete CommonMark type-1/type-6 raw-HTML masking including `hgroup`, Result/summary/advisory validation, policy coupling, and ten-input hashes map failures to named `Finding` IDs.
 - [x] **Audit cardinality:** `AUDIT_SURFACES` generates six physical commands and merges them into four logical observations; only both supplements and documentation use `--disable-pip`, only supplements use `--no-deps`, and all six require exit 0/1 plus valid nonempty JSON.
 - [x] **Zero-skip and output gates:** focused, CI, prequalification, and final NNx runs use warnings-as-errors plus parsed JUnit totals; Tier A/B/C use recursive exact output sets with 18 nested, 6 basename, and 4 basename artifacts and no zero-code notebook.
 - [x] **Immutable identities:** feature HEAD, feature PR synthetic merge, develop merge, release PR synthetic merge, and release merge are recorded separately; dispatch evidence is tied to the feature SHA, PR evidence to synthetic merge SHAs, and tree equality prevents content drift.
-- [x] **Current-doc bounds:** Task 6 uses the real `4.1.6` heading, replaces complete same-level dependency sections 6.1.2 and 6.1.11, places generated-row tokens directly in both source specs, regenerates once, and stages both specs plus the generated canonical page.
-- [x] **External evidence schema:** the immutable report uses the exact ten distribution metadata names including `pytorch-lightning`, separate NNx metadata, final audit identities/result, full/NNx JUnit totals, Docker probes, Tier hashes/durations, Linux PR URLs, and Pages/wiki evidence; schema mutations and missing evidence fail closed.
-- [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; reuse requires exact Issue #62 fields, label, merge SHA, and successful Tier B; dispatch and Pages runs must be new after snapshotted UTC/ID boundaries and complete within bounded polls.
+- [x] **Current-doc bounds:** Task 6 uses the real `4.1.6` heading, replaces complete same-level dependency sections 6.1.2 and 6.1.11 plus the stale manifest-owned graph release paragraph, places generated-row tokens directly in both source specs, regenerates once, and stages/tests/parity-checks both specs, the generated canonical page, and `docs/notebooks/node_classification-reddit-gnn-pyg.md`.
+- [x] **External evidence schema:** the immutable report uses the exact ten distribution metadata names including `pytorch-lightning`, separate NNx metadata, final audit identities/result, full/NNx JUnit totals, Docker probes, Tier hashes/durations, distinct feature and release Linux PR checks/runs tied to their synthetic merge SHAs, and Pages/wiki evidence; schema mutations and missing evidence fail closed.
+- [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; every dedicated feature head/base candidate and every explicitly Issue-62-marked release head/base candidate is owned and closed or considered, while reuse requires exact title/body/SHA, label, and successful Tier B; dispatch and Pages runs must be new after snapshotted UTC/ID boundaries and complete within bounded polls.
+- [x] **Completion ordering:** Issue #53 open-before/open-after proof, Issue #62 project Done verification, validated cleanup, zero scoped PRs/runs, main/develop synchronization, and clean status all precede `gh issue close 62`, which is the final completion action.
 - [x] **Staging safety:** Task 1 and Task 2 exclude the five preserved Task 3 paths; Task 3 owns them after clean GREEN; generated docs and ignored evidence are absent from every `git add` command.
 - [x] **Historical integrity:** r1-r3 and prior commits remain evidence, not final completion claims; Issue #59/#60/#61 records and released history remain immutable; the one stale Issue #61 requirements hash is corrected only in Task 5's current-ledger evidence.

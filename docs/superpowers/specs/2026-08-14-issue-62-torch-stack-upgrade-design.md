@@ -170,17 +170,34 @@ Diagnostics disclose stable component and failure categories, not credentials, p
 tokens, temporary paths, or captured installer output. CI and Docker call the same verifier after
 `pip check` and before repository tests or notebook workloads.
 
-The verifier has one local import-boundary exception for the outer component `torch-geometric` or
-`torch-sparse`. It wraps each selected `hooks.import_module()` call in a fresh warning capture with
-`simplefilter("always")`; every other selected import must capture zero warnings. For either
-exception component, one or more captured warnings are accepted only when every record has all
-three exact properties:
+The verifier has one local import-boundary exception with two immutable debt keys:
+
+- Torch exactly 2.11.0 with outer component torch-geometric exactly 2.8.0.post1; or
+- Torch exactly 2.11.0 with outer component torch-sparse exactly 0.6.18.
+
+These values are explicit verifier constants independent of generic manifest-derived expectations.
+Any Torch or outer-component version drift fails the exception even when the warning category,
+message, and origin still match. The verifier wraps each selected `hooks.import_module()` call in a
+fresh warning capture with `simplefilter("always")`. Capturing zero warnings is normal success and
+does not exercise the exception; a transitive import, repeated call, or different selected-import
+order may legitimately reuse Python's module cache. Production verification never deletes or
+replaces entries in `sys.modules`. Any nonempty captured group for either immutable debt key is
+accepted only when every record has all three exact properties:
 
 - `record.category is DeprecationWarning`, so subclasses do not match;
 - `str(record.message)` equals `` `torch.jit.script` is deprecated. Please switch to
   `torch.compile` or `torch.export`. `` including punctuation; and
-- the resolved `record.filename` equals the selected, RECORD-owned Torch distribution file
-  `torch/jit/_script.py`.
+- the resolved `record.filename` equals the exact selected Torch-owned warning file described
+  below.
+
+Any nonempty group for every other outer component fails.
+
+The expected warning file is derived from the selected Torch distribution's `Distribution.files`
+inventory. Exactly one RECORD-owned `PackagePath` must have POSIX path
+`torch/jit/_script.py`, and it must resolve through that selected distribution's location and
+ownership to one concrete file. Missing, duplicate, unlocatable, or non-owned entries fail closed.
+Warning-origin equality compares the fully resolved paths exactly; basename, suffix, package-root,
+and other path heuristics are prohibited. Source line number is not part of the predicate.
 
 The entire captured group must match; a mixed group fails. The wrapper consumes only that exact
 group before returning the imported module, so the CLI's outer warning capture remains strict.
@@ -191,14 +208,25 @@ single import wrapper fails. No pytest, global, environment, or conftest warning
 
 Verifier tests accept an exact one-or-more matching group and reject a wrong category or subclass,
 message or punctuation, origin path, outer component, a mixed group, and a matching warning emitted
-outside the import boundary. Mutation tests also reject broad message prefixes, `issubclass`,
-omitted origin validation, a wrapper applied to every import, and any broader filter. Acceptance
-requires the actual selected r4 imports plus the pyg-lib-preferred and forced torch-sparse sampler
-paths to pass under the unchanged warning-as-error and JUnit gates.
+outside the import boundary. Version mutations independently change Torch, torch-geometric, and
+torch-sparse while keeping the warning records exact; each must fail the relevant debt key. Origin
+mutations include same-basename and matching-suffix files outside the selected Torch inventory.
+Mutation tests also reject broad message prefixes, `issubclass`, omitted origin validation, a
+wrapper applied to every import, and any broader filter.
 
-This exception is temporary upstream compatibility debt. Every Torch or PyG upgrade revalidates
-all three identities and removes the exception as soon as the selected upstream imports are
-warning-free; version drift never inherits the exception automatically.
+Cached, repeated, and order-sensitive fakes prove that zero warnings remain ordinary success and
+that any nonempty group must match completely regardless of which debt-key component imports first.
+They never evict a production module. Separately, acceptance starts a fresh interpreter in which
+neither `torch_geometric` nor `torch_sparse` is preloaded, imports the actual selected
+torch-geometric boundary, and requires a nonempty exact group without fixing its count. The same
+fresh-r4 acceptance then proves the pyg-lib-preferred and forced torch-sparse sampler paths under
+the unchanged warning-as-error and JUnit gates.
+
+This exception is temporary upstream compatibility debt. Every Torch or PyG upgrade requires
+explicit design review; no changed version inherits either debt key. Retirement is decided only by
+the fresh-interpreter probe, never by a cached zero-warning import. When that probe becomes
+warning-free, the exception and its debt-specific machinery are removed rather than carried
+forward.
 
 ## 12.21.7 PyG compatibility boundary
 

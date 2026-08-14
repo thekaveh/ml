@@ -3456,8 +3456,19 @@ Expected: the five hashes equal the block above and none of those paths appears 
   if test -n "${SYNC_PR:-}"; then
     test "$FINAL_DEVELOP_SHA" = "$SYNC_PR_MERGE_SHA"
   fi
+  TIER_A_TIMEOUT_MINUTES=90
+  FINAL_DEVELOP_QUEUE_HEADROOM_MINUTES=30
+  FINAL_DEVELOP_POLL_ATTEMPTS=720
+  FINAL_DEVELOP_POLL_INTERVAL_SECONDS=10
+  test "$TIER_A_TIMEOUT_MINUTES" -eq 90
+  test "$FINAL_DEVELOP_QUEUE_HEADROOM_MINUTES" -ge 30
+  test "$((FINAL_DEVELOP_POLL_ATTEMPTS * FINAL_DEVELOP_POLL_INTERVAL_SECONDS))" -ge 7200
+  test "$((FINAL_DEVELOP_POLL_ATTEMPTS * FINAL_DEVELOP_POLL_INTERVAL_SECONDS))" -eq \
+    "$(((TIER_A_TIMEOUT_MINUTES + FINAL_DEVELOP_QUEUE_HEADROOM_MINUTES) * 60))"
+  test "$((FINAL_DEVELOP_POLL_ATTEMPTS * FINAL_DEVELOP_POLL_INTERVAL_SECONDS))" -gt \
+    "$((TIER_A_TIMEOUT_MINUTES * 60))"
   FINAL_DEVELOP_RUNS_READY=false
-  for ATTEMPT in $(seq 1 180); do
+  for ATTEMPT in $(seq 1 "$FINAL_DEVELOP_POLL_ATTEMPTS"); do
     gh run list --repo "$REPO" --commit "$FINAL_DEVELOP_SHA" --limit 100 \
       --json databaseId,workflowName,event,headSha,status,conclusion,url \
       > "$FINAL_ROOT/final-develop-runs.json"
@@ -3489,7 +3500,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
       FINAL_DEVELOP_RUNS_READY=true
       break
     fi
-    sleep 10
+    sleep "$FINAL_DEVELOP_POLL_INTERVAL_SECONDS"
   done
   test "$FINAL_DEVELOP_RUNS_READY" = true
   python - "$FINAL_ROOT/final-develop-runs.json" "$FINAL_DEVELOP_SHA" <<'PY'
@@ -3512,9 +3523,12 @@ Expected: the five hashes equal the block above and none of those paths appears 
   ```
 
   Expected: `FINAL_DEVELOP_SHA` names the post-sync `origin/develop` commit; when a sync PR was
-  required it is the actual `SYNC_PR_MERGE_SHA`. The bounded poll records at least the successful
-  `CI` push run for that exact SHA, records every other exact-SHA run as completed/successful, and
-  the embedded queued-run mutation proves completion remains blocked while any such run is pending.
+  required it is the actual `SYNC_PR_MERGE_SHA`. The bounded 120-minute poll exceeds the Tier A
+  90-minute timeout by 30 minutes of queue headroom, records at least the successful `CI` push run
+  for that exact SHA, records every other exact-SHA run as completed/successful, and the embedded
+  queued-run mutation proves completion remains blocked while any such run is pending. The
+  arithmetic assertions fail before polling if an edit lowers the bound below the required
+  90-minute runtime plus queue headroom.
 
 - [ ] **Step 9: Verify publication, clean Issue #62 state, then publish completion and close**
 
@@ -4308,7 +4322,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - [x] **Immutable identities:** feature HEAD, feature PR synthetic merge, develop merge, release PR synthetic merge, release merge, final post-sync develop SHA, and optional sync PR synthetic/actual merge SHAs are recorded separately; dispatch evidence is tied to the feature SHA, PR evidence to synthetic merge SHAs, final push evidence to the exact final develop SHA, and tree equality prevents content drift.
 - [x] **Current-doc bounds:** Task 6 uses the real `4.1.6` heading, replaces complete same-level dependency sections 6.1.2 and 6.1.11 plus the stale manifest-owned graph release paragraph, places generated-row tokens directly in both source specs, regenerates once, and stages/tests/parity-checks both specs, the generated canonical page, and `docs/notebooks/node_classification-reddit-gnn-pyg.md`.
 - [x] **External evidence schema:** the immutable report uses the exact ten distribution metadata names including `pytorch-lightning`, separate NNx metadata, final audit identities/result, full/NNx JUnit totals, Docker probes, Tier hashes/durations, distinct feature/release Linux PR checks/runs tied to their synthetic merge SHAs, the exact final-develop push runs, optional sync PR check/run URLs and hashes, and Pages/wiki evidence; schema mutations and missing evidence fail closed.
-- [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; release ownership on shared `develop -> main` requires the exact Issue-62 title identity plus bounded one-paragraph body/reference constraints, and ambiguous/broader candidates fail for manual review rather than close. Feature/release reuse still requires exact title/body/SHA, label, and successful Tier B. A needed `main -> develop` sync inventories first, reuses only exact current copy/SHA with successful required checks, closes only stale dedicated sync candidates, fails on ambiguity/collision, and never blindly creates. Dispatch and Pages runs remain new after snapshotted UTC/ID boundaries and complete within bounded polls; a separate bounded exact-SHA poll requires successful final-develop `CI`, and the final noncompleted-run audit includes final-develop plus optional sync identities with a queued-run blocking mutation.
+- [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; release ownership on shared `develop -> main` requires the exact Issue-62 title identity plus bounded one-paragraph body/reference constraints, and ambiguous/broader candidates fail for manual review rather than close. Feature/release reuse still requires exact title/body/SHA, label, and successful Tier B. A needed `main -> develop` sync inventories first, reuses only exact current copy/SHA with successful required checks, closes only stale dedicated sync candidates, fails on ambiguity/collision, and never blindly creates. Dispatch and Pages runs remain new after snapshotted UTC/ID boundaries and complete within bounded polls; a separate 720-by-10-second exact-SHA poll requires successful final-develop `CI`, mechanically exceeds the 90-minute Tier A timeout by 30 minutes of queue headroom, and the final noncompleted-run audit includes final-develop plus optional sync identities with a queued-run blocking mutation.
 - [x] **Completion ordering:** Pages/report evidence is persisted in the primary ignored root, successful final-develop runs are proved, then validated cleanup, zero scoped PRs/runs, main/develop synchronization, clean status, and deleted temporary evidence roots are proved before any completion comment or project mutation. Only afterward does the plan publish the report, prove Issue #53 open before/after its completion comment, set and re-query Issue #62 as project Done, and run `gh issue close 62` as the final command.
 - [x] **Staging safety:** Task 1 and Task 2 exclude the five preserved Task 3 paths; Task 3 owns them after clean GREEN; generated docs and ignored evidence are absent from every `git add` command.
 - [x] **Historical integrity:** r1-r3 and prior commits remain evidence, not final completion claims; Issue #59/#60/#61 records and released history remain immutable; the one stale Issue #61 requirements hash is corrected only in Task 5's current-ledger evidence.

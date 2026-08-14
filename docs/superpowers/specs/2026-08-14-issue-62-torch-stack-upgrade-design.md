@@ -211,6 +211,9 @@ message or punctuation, origin path, outer component, a mixed group, and a match
 outside the import boundary. Version mutations independently change Torch, torch-geometric, and
 torch-sparse while keeping the warning records exact; each must fail the relevant debt key. Origin
 mutations include same-basename and matching-suffix files outside the selected Torch inventory.
+Independent inventory mutations remove the exact `torch/jit/_script.py` `PackagePath`, duplicate
+that exact POSIX `PackagePath`, and make selected-distribution location or resolution fail or
+produce no concrete owned file. Each mutation must fail closed with a stable redacted diagnostic.
 Mutation tests also reject broad message prefixes, `issubclass`, omitted origin validation, a
 wrapper applied to every import, and any broader filter.
 

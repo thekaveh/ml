@@ -3426,17 +3426,95 @@ Expected: the five hashes equal the block above and none of those paths appears 
   assert all(by_name[name]["link"].startswith("https://github.com/") for name in required)
   PY
     git fetch origin "+refs/pull/$SYNC_PR/merge:refs/issue62/pr-$SYNC_PR-merge"
-    SYNC_PR_MERGE_SHA=$(git rev-parse "refs/issue62/pr-$SYNC_PR-merge")
-    test "$(git rev-parse "$SYNC_PR_MERGE_SHA^{tree}")" = \
+    SYNC_PR_TEST_MERGE_SHA=$(git rev-parse "refs/issue62/pr-$SYNC_PR-merge")
+    test "$(git rev-parse "$SYNC_PR_TEST_MERGE_SHA^{tree}")" = \
       "$(git rev-parse "$RELEASE_MERGE_SHA^{tree}")"
+    gh run list --repo "$REPO" --commit "$SYNC_PR_TEST_MERGE_SHA" --limit 50 \
+      --json databaseId,workflowName,event,headSha,status,conclusion,url \
+      > "$FINAL_ROOT/sync-pr-runs.json"
+    python - "$FINAL_ROOT/sync-pr-runs.json" "$SYNC_PR_TEST_MERGE_SHA" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  runs = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  assert runs and all(run["headSha"] == sys.argv[2] for run in runs)
+  assert all(run["event"] == "pull_request" for run in runs)
+  assert all(run["status"] == "completed" and run["conclusion"] == "success" for run in runs)
+  assert {run["workflowName"] for run in runs} >= {"CI", "Docs gate"}
+  assert all(run["url"].startswith("https://github.com/") for run in runs)
+  PY
     gh pr merge "$SYNC_PR" --repo "$REPO" --merge
+    SYNC_PR_MERGE_SHA=$(gh pr view "$SYNC_PR" --repo "$REPO" --json mergeCommit \
+      --jq .mergeCommit.oid)
     git fetch origin main develop
+    test "$(git rev-parse origin/develop)" = "$SYNC_PR_MERGE_SHA"
   fi
+  FINAL_DEVELOP_SHA=$(git rev-parse origin/develop)
+  test "$(git rev-parse "$FINAL_DEVELOP_SHA^{tree}")" = \
+    "$(git rev-parse "$RELEASE_MERGE_SHA^{tree}")"
+  if test -n "${SYNC_PR:-}"; then
+    test "$FINAL_DEVELOP_SHA" = "$SYNC_PR_MERGE_SHA"
+  fi
+  FINAL_DEVELOP_RUNS_READY=false
+  for ATTEMPT in $(seq 1 180); do
+    gh run list --repo "$REPO" --commit "$FINAL_DEVELOP_SHA" --limit 100 \
+      --json databaseId,workflowName,event,headSha,status,conclusion,url \
+      > "$FINAL_ROOT/final-develop-runs.json"
+    if python - "$FINAL_ROOT/final-develop-runs.json" "$FINAL_DEVELOP_SHA" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  def completion_ready(runs: list[dict[str, object]], expected_sha: str) -> bool:
+      scoped = [run for run in runs if run["headSha"] == expected_sha]
+      push_names = {
+          run["workflowName"] for run in scoped if run["event"] == "push"
+      }
+      return "CI" in push_names and bool(scoped) and all(
+          run["status"] == "completed" for run in scoped
+      )
+
+  expected_sha = sys.argv[2]
+  queued_mutation = [{
+      "databaseId": 1, "workflowName": "CI", "event": "push",
+      "headSha": expected_sha, "status": "queued", "conclusion": "", "url": "https://github.com/x",
+  }]
+  assert not completion_ready(queued_mutation, expected_sha)
+  runs = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  if not completion_ready(runs, expected_sha):
+      raise SystemExit(1)
+  PY
+    then
+      FINAL_DEVELOP_RUNS_READY=true
+      break
+    fi
+    sleep 10
+  done
+  test "$FINAL_DEVELOP_RUNS_READY" = true
+  python - "$FINAL_ROOT/final-develop-runs.json" "$FINAL_DEVELOP_SHA" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  runs = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  scoped = [run for run in runs if run["headSha"] == sys.argv[2]]
+  assert scoped and all(run["status"] == "completed" for run in scoped)
+  assert all(run["conclusion"] == "success" for run in scoped)
+  push_runs = [run for run in scoped if run["event"] == "push"]
+  assert {run["workflowName"] for run in push_runs} >= {"CI"}
+  assert all(run["url"].startswith("https://github.com/") for run in scoped)
+  PY
   git diff --exit-code origin/main origin/develop
   git merge-base --is-ancestor origin/main origin/develop
   gh api "repos/$REPO/rulesets/18620095" > "$FINAL_ROOT/ruleset-after.json"
   cmp "$FINAL_ROOT/ruleset.json" "$FINAL_ROOT/ruleset-after.json"
   ```
+
+  Expected: `FINAL_DEVELOP_SHA` names the post-sync `origin/develop` commit; when a sync PR was
+  required it is the actual `SYNC_PR_MERGE_SHA`. The bounded poll records at least the successful
+  `CI` push run for that exact SHA, records every other exact-SHA run as completed/successful, and
+  the embedded queued-run mutation proves completion remains blocked while any such run is pending.
 
 - [ ] **Step 9: Verify publication, clean Issue #62 state, then publish completion and close**
 
@@ -3478,8 +3556,9 @@ Expected: the five hashes equal the block above and none of those paths appears 
   case "$REPORT_PATH" in "$PRIMARY_ROOT/.superpowers/sdd/issue62-qualification-report.md") ;; *) exit 1;; esac
   mkdir -p "$PRIMARY_ROOT/.superpowers/sdd"
   python - "$FINAL_SHA" "$PR_MERGE_SHA" "$DEVELOP_MERGE_SHA" \
-    "$RELEASE_PR_MERGE_SHA" "$RELEASE_MERGE_SHA" "$FEATURE_PR_URL" "$RELEASE_PR_URL" \
-    "$REPORT_PATH" <<'PY'
+    "$RELEASE_PR_MERGE_SHA" "$RELEASE_MERGE_SHA" "$FINAL_DEVELOP_SHA" \
+    "${SYNC_PR_TEST_MERGE_SHA:-}" "${SYNC_PR_MERGE_SHA:-}" \
+    "$FEATURE_PR_URL" "$RELEASE_PR_URL" "${SYNC_PR_URL:-}" "$REPORT_PATH" <<'PY'
   from __future__ import annotations
 
   import copy
@@ -3498,7 +3577,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
   root = Path.cwd()
   final_root = Path(os.environ["FINAL_ROOT"])
   primary_root = Path(os.environ["PRIMARY_ROOT"]).resolve()
-  report_path = Path(sys.argv[8]).resolve()
+  report_path = Path(sys.argv[12]).resolve()
   assert report_path == primary_root / ".superpowers/sdd/issue62-qualification-report.md"
   STACK_DISTRIBUTIONS = {
       "torch": "torch",
@@ -3563,7 +3642,30 @@ Expected: the five hashes equal the block above and none of those paths appears 
           "tests", "tiers", "native_linux_arm64_docker", "advisory", "linux_x86_64",
           "durations_seconds", "sha256", "pull_requests", "publication",
       }, "report top-level schema")
-      require(value["schema_version"] == 3, "report schema version")
+      require(value["schema_version"] == 4, "report schema version")
+      require(set(value["identities"]) == {
+          "feature_sha", "feature_pr_merge_sha", "develop_merge_sha",
+          "release_pr_merge_sha", "release_merge_sha", "final_develop_sha",
+          "sync_pr_test_merge_sha", "sync_pr_merge_sha",
+      }, "identity schema")
+      fixed_identities = (
+          "feature_sha", "feature_pr_merge_sha", "develop_merge_sha",
+          "release_pr_merge_sha", "release_merge_sha", "final_develop_sha",
+      )
+      require(
+          all(isinstance(value["identities"][key], str)
+              and len(value["identities"][key]) == 40 for key in fixed_identities),
+          "required identity values",
+      )
+      sync_test = value["identities"]["sync_pr_test_merge_sha"]
+      sync_merge = value["identities"]["sync_pr_merge_sha"]
+      require(
+          (sync_test is None and sync_merge is None)
+          or (isinstance(sync_test, str) and len(sync_test) == 40
+              and isinstance(sync_merge, str) and len(sync_merge) == 40
+              and sync_merge == value["identities"]["final_develop_sha"]),
+          "optional sync identities",
+      )
       require(set(value["selected_versions"]) == set(STACK_DISTRIBUTIONS), "distribution names")
       require(value["nnx_metadata"]["distribution"] == "thekaveh-nnx", "NNx metadata")
       require(set(value["platform"]) == {
@@ -3576,7 +3678,8 @@ Expected: the five hashes equal the block above and none of those paths appears 
       require(value["tests"]["repository"]["tests"] > 0, "repository tests")
       require(value["tiers"]["counts"] == {"a": 18, "b": 6, "c": 4}, "tier counts")
       require(set(value["linux_x86_64"]) == {
-          "feature_pr", "release_pr", "tier_c_dispatch_url",
+          "feature_pr", "release_pr", "sync_pr", "final_develop_push",
+          "tier_c_dispatch_url",
       }, "Linux PR evidence schema")
       for key in ("feature_pr", "release_pr"):
           pr_evidence = value["linux_x86_64"][key]
@@ -3587,16 +3690,68 @@ Expected: the five hashes equal the block above and none of those paths appears 
               "pytest-repository", "dependency-audit", "pytest-nnx-surface", "smoke-tier-b",
           }, f"{key} Linux check URLs")
           require(pr_evidence["pr_run_urls"], f"{key} Linux run URLs")
+      final_develop = value["linux_x86_64"]["final_develop_push"]
+      require(set(final_develop) == {
+          "merge_sha", "workflow_names", "run_urls",
+      }, "final develop push schema")
+      require(
+          final_develop["merge_sha"] == value["identities"]["final_develop_sha"],
+          "final develop push SHA",
+      )
+      require("CI" in final_develop["workflow_names"], "final develop CI push")
+      require(final_develop["run_urls"], "final develop run URLs")
+      sync_pr = value["linux_x86_64"]["sync_pr"]
+      if sync_merge is None:
+          require(sync_pr is None, "unexpected sync PR evidence")
+      else:
+          require(set(sync_pr) == {
+              "test_merge_sha", "merge_sha", "url", "check_urls", "run_urls",
+          }, "sync PR evidence schema")
+          require(sync_pr["test_merge_sha"] == sync_test, "sync PR test SHA")
+          require(sync_pr["merge_sha"] == sync_merge, "sync PR merge SHA")
+          require(set(sync_pr["check_urls"]) >= {
+              "pytest-repository", "atlas-consumer-policy", "dependency-audit",
+          }, "sync PR check URLs")
+          require(sync_pr["run_urls"], "sync PR run URLs")
+      require(set(value["pull_requests"]) == {"feature", "release", "sync"}, "PR URL schema")
+      require(
+          (value["pull_requests"]["sync"] is None) == (sync_merge is None),
+          "optional sync PR URL",
+      )
+      evidence_hashes = value["sha256"]["evidence_files"]
+      require("final-develop-runs.json" in evidence_hashes, "final develop evidence hash")
+      if sync_merge is not None:
+          require(
+              {"sync-pr-checks.json", "sync-pr-runs.json"} <= evidence_hashes.keys(),
+              "sync evidence hashes",
+          )
 
   identities = dict(zip(
       ("feature_sha", "feature_pr_merge_sha", "develop_merge_sha",
-       "release_pr_merge_sha", "release_merge_sha"),
-      sys.argv[1:6],
+       "release_pr_merge_sha", "release_merge_sha", "final_develop_sha"),
+      sys.argv[1:7],
       strict=True,
   ))
-  pr_urls = {"feature": sys.argv[6], "release": sys.argv[7]}
-  assert all(len(value) == 40 for value in identities.values())
-  assert all(value.startswith("https://github.com/") for value in pr_urls.values())
+  identities["sync_pr_test_merge_sha"] = sys.argv[7] or None
+  identities["sync_pr_merge_sha"] = sys.argv[8] or None
+  pr_urls = {"feature": sys.argv[9], "release": sys.argv[10], "sync": sys.argv[11] or None}
+  assert all(len(identities[key]) == 40 for key in (
+      "feature_sha", "feature_pr_merge_sha", "develop_merge_sha",
+      "release_pr_merge_sha", "release_merge_sha", "final_develop_sha",
+  ))
+  assert (
+      identities["sync_pr_test_merge_sha"] is None
+      and identities["sync_pr_merge_sha"] is None
+      and pr_urls["sync"] is None
+  ) or (
+      len(identities["sync_pr_test_merge_sha"]) == 40
+      and len(identities["sync_pr_merge_sha"]) == 40
+      and identities["sync_pr_merge_sha"] == identities["final_develop_sha"]
+      and pr_urls["sync"].startswith("https://github.com/")
+  )
+  assert all(
+      value is None or value.startswith("https://github.com/") for value in pr_urls.values()
+  )
 
   verify_junit(final_root / "nnx-surface.xml")
   test_evidence = {
@@ -3634,6 +3789,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
   feature_pr_runs = load_json(final_root / "pr-runs.json")
   release_pr_checks = load_json(final_root / "release-pr-checks.json")
   release_pr_runs = load_json(final_root / "release-pr-runs.json")
+  final_develop_runs = load_json(final_root / "final-develop-runs.json")
   pages_run = load_json(final_root / "pages-run.json")
   tier_c_run = load_json(final_root / "tier-c-run.json")
   require(pages_run["headSha"] == identities["release_merge_sha"], "Pages SHA")
@@ -3693,6 +3849,74 @@ Expected: the five hashes equal the block above and none of those paths appears 
   release_pr_evidence = pr_evidence(
       release_pr_checks, release_pr_runs, identities["release_pr_merge_sha"], "release",
   )
+  require(
+      final_develop_runs
+      and all(run["headSha"] == identities["final_develop_sha"] for run in final_develop_runs),
+      "final develop run SHA",
+  )
+  require(
+      all(run["status"] == "completed" and run["conclusion"] == "success"
+          for run in final_develop_runs),
+      "final develop run result",
+  )
+  final_develop_push_runs = [run for run in final_develop_runs if run["event"] == "push"]
+  require(
+      {run["workflowName"] for run in final_develop_push_runs} >= {"CI"},
+      "final develop CI push run",
+  )
+  require(
+      all(run["url"].startswith("https://github.com/") for run in final_develop_runs),
+      "final develop run URL",
+  )
+  final_develop_evidence = {
+      "merge_sha": identities["final_develop_sha"],
+      "workflow_names": sorted({run["workflowName"] for run in final_develop_push_runs}),
+      "run_urls": sorted({run["url"] for run in final_develop_runs}),
+  }
+  sync_pr_evidence = None
+  if identities["sync_pr_merge_sha"] is not None:
+      sync_checks = load_json(final_root / "sync-pr-checks.json")
+      sync_runs = load_json(final_root / "sync-pr-runs.json")
+      sync_required = {"pytest-repository", "atlas-consumer-policy", "dependency-audit"}
+      sync_by_check = {item["name"]: item for item in sync_checks}
+      require(sync_required <= sync_by_check.keys(), "missing sync PR checks")
+      require(
+          all(sync_by_check[name]["bucket"] == "pass" for name in sync_required),
+          "sync PR check result",
+      )
+      require(
+          all(sync_by_check[name]["link"].startswith("https://github.com/")
+              for name in sync_required),
+          "sync PR check URL",
+      )
+      require(
+          sync_runs
+          and all(run["headSha"] == identities["sync_pr_test_merge_sha"] for run in sync_runs),
+          "sync PR run SHA",
+      )
+      require(all(run["event"] == "pull_request" for run in sync_runs), "sync PR run event")
+      require(
+          all(run["status"] == "completed" and run["conclusion"] == "success"
+              for run in sync_runs),
+          "sync PR run result",
+      )
+      require(
+          {run["workflowName"] for run in sync_runs} >= {"CI", "Docs gate"},
+          "sync PR workflows",
+      )
+      require(
+          all(run["url"].startswith("https://github.com/") for run in sync_runs),
+          "sync PR run URL",
+      )
+      sync_pr_evidence = {
+          "test_merge_sha": identities["sync_pr_test_merge_sha"],
+          "merge_sha": identities["sync_pr_merge_sha"],
+          "url": pr_urls["sync"],
+          "check_urls": {
+              name: sync_by_check[name]["link"] for name in sorted(sync_required)
+          },
+          "run_urls": sorted({run["url"] for run in sync_runs}),
+      }
 
   tier_counts: dict[str, int] = {}
   tier_hashes: dict[str, str] = {}
@@ -3718,8 +3942,20 @@ Expected: the five hashes equal the block above and none of those paths appears 
       "vulnerability-audit-requirements.txt",
       "security/accepted-advisories.json",
   )
+  evidence_paths = [
+      final_root / "advisory-evidence.json", final_root / "docker-evidence.json",
+      final_root / "nnx-surface.xml", final_root / "repository.xml",
+      final_root / "pr-checks.json", final_root / "pr-runs.json",
+      final_root / "release-pr-checks.json", final_root / "release-pr-runs.json",
+      final_root / "tier-c-run.json", final_root / "pages-run.json",
+      final_root / "final-develop-runs.json",
+  ]
+  if identities["sync_pr_merge_sha"] is not None:
+      evidence_paths.extend((
+          final_root / "sync-pr-checks.json", final_root / "sync-pr-runs.json",
+      ))
   report = {
-      "schema_version": 3,
+      "schema_version": 4,
       "identities": identities,
       "platform": {
           "system": platform.system(),
@@ -3742,6 +3978,8 @@ Expected: the five hashes equal the block above and none of those paths appears 
       "linux_x86_64": {
           "feature_pr": feature_pr_evidence,
           "release_pr": release_pr_evidence,
+          "sync_pr": sync_pr_evidence,
+          "final_develop_push": final_develop_evidence,
           "tier_c_dispatch_url": tier_c_run["url"],
       },
       "durations_seconds": {
@@ -3760,13 +3998,7 @@ Expected: the five hashes equal the block above and none of those paths appears 
           },
           "evidence_files": {
               path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-              for path in (
-                  final_root / "advisory-evidence.json", final_root / "docker-evidence.json",
-                  final_root / "nnx-surface.xml", final_root / "repository.xml",
-                  final_root / "pr-checks.json", final_root / "pr-runs.json",
-                  final_root / "release-pr-checks.json", final_root / "release-pr-runs.json",
-                  final_root / "tier-c-run.json", final_root / "pages-run.json",
-              )
+              for path in evidence_paths
           },
       },
       "pull_requests": pr_urls,
@@ -3788,7 +4020,11 @@ Expected: the five hashes equal the block above and none of those paths appears 
   del missing_metadata["native_linux_arm64_docker"]["architecture"]
   missing_release_evidence = copy.deepcopy(report)
   del missing_release_evidence["linux_x86_64"]["release_pr"]
-  for mutation in (wrong_name, missing_metadata, missing_release_evidence):
+  missing_final_develop_evidence = copy.deepcopy(report)
+  del missing_final_develop_evidence["linux_x86_64"]["final_develop_push"]
+  for mutation in (
+      wrong_name, missing_metadata, missing_release_evidence, missing_final_develop_evidence,
+  ):
       try:
           validate_report_schema(mutation)
       except (KeyError, TypeError, ValueError):
@@ -3805,6 +4041,42 @@ Expected: the five hashes equal the block above and none of those paths appears 
   mkdir -p "$COMPLETION_ROOT"
   git -C "$PRIMARY_ROOT" check-ignore -q .superpowers/sdd/issue62-completion/issue53-before.json
   test -s "$REPORT_PATH"
+  gh run list --repo "$REPO" --limit 1000 \
+    --json databaseId,headBranch,headSha,status,url \
+    > /private/tmp/issue62-open-runs-pre-cleanup.json
+  python - /private/tmp/issue62-open-runs-pre-cleanup.json "$FEATURE_SHA" "$PR_MERGE_SHA" \
+    "$DEVELOP_MERGE_SHA" "$RELEASE_PR_MERGE_SHA" "$RELEASE_MERGE_SHA" \
+    "$FINAL_DEVELOP_SHA" "${SYNC_PR_TEST_MERGE_SHA:-}" "${SYNC_PR_MERGE_SHA:-}" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  rows = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  owned_shas = {value for value in sys.argv[2:] if value}
+  expected_final_develop = sys.argv[7]
+
+  def noncompleted(candidates: list[dict[str, object]]) -> list[dict[str, object]]:
+      return [
+          row for row in candidates
+          if row["status"] != "completed"
+          and (
+              row["headBranch"] == "codex/issue-62-torch-stack-upgrade"
+              or row["headSha"] in owned_shas
+          )
+      ]
+
+  queued_mutation = [{
+      "databaseId": 1,
+      "headBranch": "develop",
+      "headSha": expected_final_develop,
+      "status": "queued",
+      "url": "https://github.com/example/run/1",
+  }]
+  assert noncompleted(queued_mutation), "queued FINAL_DEVELOP_SHA must block cleanup"
+  scoped = noncompleted(rows)
+  assert not scoped, f"pre-cleanup Issue #62 workflow runs remain: {scoped}"
+  PY
+  rm -f /private/tmp/issue62-open-runs-pre-cleanup.json
   ```
 
   No PR/issue completion comment, project mutation, or issue close has occurred yet. Clean only the
@@ -3904,21 +4176,35 @@ Expected: the five hashes equal the block above and none of those paths appears 
     --json databaseId,headBranch,headSha,status,url \
     > /private/tmp/issue62-open-runs-final.json
   python - /private/tmp/issue62-open-runs-final.json "$FEATURE_SHA" "$PR_MERGE_SHA" \
-    "$DEVELOP_MERGE_SHA" "$RELEASE_PR_MERGE_SHA" "$RELEASE_MERGE_SHA" <<'PY'
+    "$DEVELOP_MERGE_SHA" "$RELEASE_PR_MERGE_SHA" "$RELEASE_MERGE_SHA" \
+    "$FINAL_DEVELOP_SHA" "${SYNC_PR_TEST_MERGE_SHA:-}" "${SYNC_PR_MERGE_SHA:-}" <<'PY'
   import json
   import sys
   from pathlib import Path
 
   rows = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-  owned_shas = set(sys.argv[2:])
-  scoped = [
-      row for row in rows
-      if row["status"] != "completed"
-      and (
-          row["headBranch"] == "codex/issue-62-torch-stack-upgrade"
-          or row["headSha"] in owned_shas
-      )
-  ]
+  owned_shas = {value for value in sys.argv[2:] if value}
+  expected_final_develop = sys.argv[7]
+  queued_mutation = [{
+      "databaseId": 1,
+      "headBranch": "develop",
+      "headSha": expected_final_develop,
+      "status": "queued",
+      "url": "https://github.com/example/run/1",
+  }]
+
+  def noncompleted(rows):
+      return [
+          row for row in rows
+          if row["status"] != "completed"
+          and (
+              row["headBranch"] == "codex/issue-62-torch-stack-upgrade"
+              or row["headSha"] in owned_shas
+          )
+      ]
+
+  assert noncompleted(queued_mutation), "queued FINAL_DEVELOP_SHA mutation must block completion"
+  scoped = noncompleted(rows)
   assert not scoped, f"open Issue #62 workflow runs remain: {scoped}"
   PY
   rm -f /private/tmp/issue62-open-runs-final.json
@@ -4000,7 +4286,8 @@ Expected: the five hashes equal the block above and none of those paths appears 
   Expected: Pages and wiki return HTTP 200 and publish the matrix, three-wheel boundary,
   manual-only Issue #66, and immutable evidence; the two explicit worktrees/environments/images
   and feature refs are gone before any completion comment or project mutation; no scoped PR or
-  workflow run remains; `main`/`develop` trees match; tracked status is clean; only then does the
+  workflow run remains, including queued/in-progress runs for the final `origin/develop` identity;
+  `main`/`develop` trees match; tracked status is clean; only then does the
   plan comment with the primary ignored report, prove #53 open before/after its completion comment,
   verify Issue #62 as project Done, and close Issue #62 as the final command. Issues #65/#66 remain
   open and unchanged.
@@ -4018,10 +4305,10 @@ Expected: the five hashes equal the block above and none of those paths appears 
 - [x] **D10 executability:** every referenced parser/comparator is defined in the plan or already exists in `scripts/verify_repo.py`; current/historical slicing, complete CommonMark type-1/type-6 raw-HTML masking including `hgroup`, Result/summary/advisory validation, policy coupling, and ten-input hashes map failures to named `Finding` IDs.
 - [x] **Audit cardinality:** `AUDIT_SURFACES` generates six physical commands and merges them into four logical observations; only both supplements and documentation use `--disable-pip`, only supplements use `--no-deps`, and all six require exit 0/1 plus valid nonempty JSON.
 - [x] **Zero-skip and output gates:** focused, CI, prequalification, and final NNx runs use warnings-as-errors plus parsed JUnit totals; Tier A/B/C use recursive exact output sets with 18 nested, 6 basename, and 4 basename artifacts and no zero-code notebook.
-- [x] **Immutable identities:** feature HEAD, feature PR synthetic merge, develop merge, release PR synthetic merge, and release merge are recorded separately; dispatch evidence is tied to the feature SHA, PR evidence to synthetic merge SHAs, and tree equality prevents content drift.
+- [x] **Immutable identities:** feature HEAD, feature PR synthetic merge, develop merge, release PR synthetic merge, release merge, final post-sync develop SHA, and optional sync PR synthetic/actual merge SHAs are recorded separately; dispatch evidence is tied to the feature SHA, PR evidence to synthetic merge SHAs, final push evidence to the exact final develop SHA, and tree equality prevents content drift.
 - [x] **Current-doc bounds:** Task 6 uses the real `4.1.6` heading, replaces complete same-level dependency sections 6.1.2 and 6.1.11 plus the stale manifest-owned graph release paragraph, places generated-row tokens directly in both source specs, regenerates once, and stages/tests/parity-checks both specs, the generated canonical page, and `docs/notebooks/node_classification-reddit-gnn-pyg.md`.
-- [x] **External evidence schema:** the immutable report uses the exact ten distribution metadata names including `pytorch-lightning`, separate NNx metadata, final audit identities/result, full/NNx JUnit totals, Docker probes, Tier hashes/durations, distinct feature and release Linux PR checks/runs tied to their synthetic merge SHAs, and Pages/wiki evidence; schema mutations and missing evidence fail closed.
-- [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; release ownership on shared `develop -> main` requires the exact Issue-62 title identity plus bounded one-paragraph body/reference constraints, and ambiguous/broader candidates fail for manual review rather than close. Feature/release reuse still requires exact title/body/SHA, label, and successful Tier B. A needed `main -> develop` sync inventories first, reuses only exact current copy/SHA with successful required checks, closes only stale dedicated sync candidates, fails on ambiguity/collision, and never blindly creates. Dispatch and Pages runs remain new after snapshotted UTC/ID boundaries and complete within bounded polls.
-- [x] **Completion ordering:** Pages/report evidence is persisted in the primary ignored root, then validated cleanup, zero scoped PRs/runs, main/develop synchronization, clean status, and deleted temporary evidence roots are proved before any completion comment or project mutation. Only afterward does the plan publish the report, prove Issue #53 open before/after its completion comment, set and re-query Issue #62 as project Done, and run `gh issue close 62` as the final command.
+- [x] **External evidence schema:** the immutable report uses the exact ten distribution metadata names including `pytorch-lightning`, separate NNx metadata, final audit identities/result, full/NNx JUnit totals, Docker probes, Tier hashes/durations, distinct feature/release Linux PR checks/runs tied to their synthetic merge SHAs, the exact final-develop push runs, optional sync PR check/run URLs and hashes, and Pages/wiki evidence; schema mutations and missing evidence fail closed.
+- [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; release ownership on shared `develop -> main` requires the exact Issue-62 title identity plus bounded one-paragraph body/reference constraints, and ambiguous/broader candidates fail for manual review rather than close. Feature/release reuse still requires exact title/body/SHA, label, and successful Tier B. A needed `main -> develop` sync inventories first, reuses only exact current copy/SHA with successful required checks, closes only stale dedicated sync candidates, fails on ambiguity/collision, and never blindly creates. Dispatch and Pages runs remain new after snapshotted UTC/ID boundaries and complete within bounded polls; a separate bounded exact-SHA poll requires successful final-develop `CI`, and the final noncompleted-run audit includes final-develop plus optional sync identities with a queued-run blocking mutation.
+- [x] **Completion ordering:** Pages/report evidence is persisted in the primary ignored root, successful final-develop runs are proved, then validated cleanup, zero scoped PRs/runs, main/develop synchronization, clean status, and deleted temporary evidence roots are proved before any completion comment or project mutation. Only afterward does the plan publish the report, prove Issue #53 open before/after its completion comment, set and re-query Issue #62 as project Done, and run `gh issue close 62` as the final command.
 - [x] **Staging safety:** Task 1 and Task 2 exclude the five preserved Task 3 paths; Task 3 owns them after clean GREEN; generated docs and ignored evidence are absent from every `git add` command.
 - [x] **Historical integrity:** r1-r3 and prior commits remain evidence, not final completion claims; Issue #59/#60/#61 records and released history remain immutable; the one stale Issue #61 requirements hash is corrected only in Task 5's current-ledger evidence.

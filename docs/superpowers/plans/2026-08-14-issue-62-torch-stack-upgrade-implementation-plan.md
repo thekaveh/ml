@@ -198,8 +198,10 @@ At every Task 2.1 preservation boundary use the complete portable Python oracle 
 step. It parses scoped NUL-delimited porcelain without depending on output order, requires exact
 ` M` for those five tracked files and exact `??` for the two JUnit files, checks all seven worktree
 hashes and all five HEAD-byte hashes, proves both JUnit paths absent from HEAD, and requires the
-complete index to be empty. Any committed byte, staged byte, rename, deletion, type change, clean
-path, extra scoped status, or hash drift stops Task 2.1.
+complete index to satisfy `git diff-index --cached --quiet HEAD --`. The same helper is exercised at
+all four Task 2.1 boundaries, and Step 1 proves a temporary `git add -N` intent-to-add entry makes it
+fail. Any committed byte, staged or intent-to-add byte, unrelated index entry, rename, deletion, type
+change, clean path, extra scoped status, or hash drift stops Task 2.1.
 
 ---
 
@@ -903,6 +905,7 @@ path, extra scoped status, or hash drift stops Task 2.1.
   import hashlib
   import subprocess
   from pathlib import Path
+  from tempfile import TemporaryDirectory
 
   expected_hashes = {
       "tests/nnx_surface/conftest.py": "2a79d47551b294205c799abbcca74020cb344d7a6fd849de34f49fcd0efa769b",
@@ -938,9 +941,28 @@ path, extra scoped status, or hash drift stops Task 2.1.
       assert path in expected_status and path not in actual_status, (status, path)
       actual_status[path] = status
   assert actual_status == expected_status, actual_status
-  assert subprocess.check_output(
-      ["git", "diff", "--cached", "--name-only"], text=True,
-  ) == ""
+  def _index_is_completely_empty(repo: Path = Path(".")) -> bool:
+      return subprocess.run(
+          ["git", "diff-index", "--cached", "--quiet", "HEAD", "--"],
+          cwd=repo,
+          check=False,
+      ).returncode == 0
+
+  assert _index_is_completely_empty()
+  with TemporaryDirectory(prefix="issue62-index-mutation-") as temporary:
+      mutation_repo = Path(temporary)
+      subprocess.run(["git", "init", "-q", str(mutation_repo)], check=True)
+      subprocess.run([
+          "git", "-C", str(mutation_repo),
+          "-c", "user.name=Issue 62 Plan",
+          "-c", "user.email=issue62-plan@example.invalid",
+          "commit", "--allow-empty", "-q", "-m", "base",
+      ], check=True)
+      (mutation_repo / "intent.txt").write_text("intent\n", encoding="utf-8")
+      subprocess.run([
+          "git", "-C", str(mutation_repo), "add", "-N", "intent.txt",
+      ], check=True)
+      assert not _index_is_completely_empty(mutation_repo)
   for path, expected_hash in expected_hashes.items():
       assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected_hash, path
       if path in expected_head_hashes:
@@ -959,9 +981,10 @@ path, extra scoped status, or hash drift stops Task 2.1.
 
   Expected: scoped porcelain is exactly five ` M` entries and two `??` entries regardless of output
   order; the seven worktree hashes and five recorded HEAD hashes exactly match 12.22.3; neither JUnit
-  path exists in HEAD; and the complete index is empty. A staged, partially or fully committed,
-  renamed, deleted, type-changed, clean, or otherwise different WIP status or HEAD byte fails. If any
-  assertion fails, stop and
+  path exists in HEAD; the complete `diff-index` gate is empty; and the temporary `git add -N`
+  mutation is rejected. A staged, intent-to-add, partially or fully committed, renamed, deleted,
+  type-changed, clean, or otherwise different WIP status or HEAD byte fails. If any assertion fails,
+  stop and
   reconcile it against
   `.superpowers/sdd/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan/task-3-final-report.md`;
   do not restore, edit, or stage the file from Task 2.1.
@@ -1460,9 +1483,14 @@ path, extra scoped status, or hash drift stops Task 2.1.
       assert path in expected_status and path not in actual_status, (status, path)
       actual_status[path] = status
   assert actual_status == expected_status, actual_status
-  assert subprocess.check_output(
-      ["git", "diff", "--cached", "--name-only"], text=True,
-  ) == ""
+  def _index_is_completely_empty(repo: Path = Path(".")) -> bool:
+      return subprocess.run(
+          ["git", "diff-index", "--cached", "--quiet", "HEAD", "--"],
+          cwd=repo,
+          check=False,
+      ).returncode == 0
+
+  assert _index_is_completely_empty()
   for path, expected_hash in expected_hashes.items():
       assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected_hash, path
       if path in expected_head_hashes:
@@ -1530,9 +1558,14 @@ path, extra scoped status, or hash drift stops Task 2.1.
       assert path in expected_status and path not in actual_status, (status, path)
       actual_status[path] = status
   assert actual_status == expected_status, actual_status
-  assert subprocess.check_output(
-      ["git", "diff", "--cached", "--name-only"], text=True,
-  ) == ""
+  def _index_is_completely_empty(repo: Path = Path(".")) -> bool:
+      return subprocess.run(
+          ["git", "diff-index", "--cached", "--quiet", "HEAD", "--"],
+          cwd=repo,
+          check=False,
+      ).returncode == 0
+
+  assert _index_is_completely_empty()
   for path, expected_hash in expected_hashes.items():
       assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected_hash, path
       if path in expected_head_hashes:
@@ -1721,9 +1754,14 @@ path, extra scoped status, or hash drift stops Task 2.1.
       assert path in expected_status and path not in actual_status, (status, path)
       actual_status[path] = status
   assert actual_status == expected_status, actual_status
-  assert subprocess.check_output(
-      ["git", "diff", "--cached", "--name-only"], text=True,
-  ) == ""
+  def _index_is_completely_empty(repo: Path = Path(".")) -> bool:
+      return subprocess.run(
+          ["git", "diff-index", "--cached", "--quiet", "HEAD", "--"],
+          cwd=repo,
+          check=False,
+      ).returncode == 0
+
+  assert _index_is_completely_empty()
   for path, expected_hash in expected_hashes.items():
       assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected_hash, path
       if path in expected_head_hashes:
@@ -2180,7 +2218,7 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   pytest -p no:cacheprovider -W error --junitxml="$FOCUS_ROOT/focused.xml" tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_makefile_contract.py -q
   python -m scripts.verify_junit "$FOCUS_ROOT/focused.xml"
   test "$(git rev-parse HEAD)" = "$TASK21_SHA"
-  test -z "$(git diff --cached --name-only)"
+  git diff-index --cached --quiet HEAD --
   ```
 
   If the selected environment or handoff state is missing or invalid, stop Task 3 and return to Task
@@ -2382,36 +2420,51 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   )
   _SHELL_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.DOTALL)
 
-  def _normalize_shell_argv(argv: Sequence[str]) -> tuple[str, ...]:
+  @dataclass(frozen=True)
+  class ShellCommand:
+      argv: tuple[str, ...]
+      environment: Mapping[str, str]
+      wrappers: tuple[str, ...]
+
+  def _parse_shell_command(argv: Sequence[str]) -> ShellCommand:
       tokens = list(argv)
+      environment: dict[str, str] = {}
+      wrappers: list[str] = []
       while tokens:
-          if tokens[0] in {"sudo", "env"} or _SHELL_ASSIGNMENT_RE.fullmatch(tokens[0]):
-              tokens.pop(0)
+          if tokens[0] in {"sudo", "env"}:
+              wrappers.append(tokens.pop(0))
+              continue
+          if _SHELL_ASSIGNMENT_RE.fullmatch(tokens[0]):
+              name, value = tokens.pop(0).split("=", 1)
+              environment[name] = value
               continue
           break
-      return tuple(tokens)
+      return ShellCommand(tuple(tokens), environment, tuple(wrappers))
 
-  def _shell_argvs(source: str) -> tuple[tuple[str, ...], ...]:
+  def _shell_commands(source: str) -> tuple[ShellCommand, ...]:
       logical = source.replace("\\\n", " ").replace("\n", ";")
       lexer = shlex.shlex(logical, posix=True, punctuation_chars=";&|")
       lexer.whitespace_split = True
       lexer.commenters = "#"
-      commands: list[tuple[str, ...]] = []
+      commands: list[ShellCommand] = []
       current: list[str] = []
       for token in lexer:
           if token in _SHELL_SEPARATORS:
               if current:
-                  normalized = _normalize_shell_argv(current)
-                  if normalized:
-                      commands.append(normalized)
+                  command = _parse_shell_command(current)
+                  if command.argv:
+                      commands.append(command)
                   current = []
           else:
               current.append(token)
       if current:
-          normalized = _normalize_shell_argv(current)
-          if normalized:
-              commands.append(normalized)
+          command = _parse_shell_command(current)
+          if command.argv:
+              commands.append(command)
       return tuple(commands)
+
+  def _shell_argvs(source: str) -> tuple[tuple[str, ...], ...]:
+      return tuple(command.argv for command in _shell_commands(source))
 
   def _attribute_chain(node: ast.AST) -> tuple[str, ...]:
       names: list[str] = []
@@ -2494,9 +2547,22 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   def test_package_change_classifier_normalizes_wrappers(command):
       (argv,) = _shell_argvs(command)
       assert _is_package_or_data_change(argv)
+
+  def test_shell_parser_preserves_inline_warning_environment_and_wrappers():
+      (command,) = _shell_commands(
+          "sudo env PYTHONWARNINGS=ignore "
+          "PYTEST_ADDOPTS='-W default' pytest -W error tests/nnx_surface"
+      )
+      assert command.argv == ("pytest", "-W", "error", "tests/nnx_surface")
+      assert command.environment == {
+          "PYTHONWARNINGS": "ignore",
+          "PYTEST_ADDOPTS": "-W default",
+      }
+      assert command.wrappers == ("sudo", "env")
   ```
 
-  Add imports for `ast`, `Path`, `re`, `Sequence`, and `shlex`. Test escaped line continuations,
+  Add `import ast`, `import re`, `import shlex`, `from dataclasses import dataclass`,
+  `from pathlib import Path`, and `from typing import Mapping, Sequence`. Test escaped line continuations,
   physical newline separation, and leading `sudo`/`env`/assignment normalization. Parameterize mutations with direct `pip`/`pip3`,
   `python -m pip`, `uv pip`, `apt`, `apt-get`, `conda`, `python -m spacy download`, direct
   `spacy download`, direct `nltk download`, `python -m nltk.downloader`, `sudo apt install`,
@@ -2507,10 +2573,11 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   workload. Each mutation must fail. Positive tests retain allowed system/docs/NLP setup before the
   final pip-check and prove exactly one canonical installer.
 
-  Preserve warning-as-error as an exact CI contract. Parse every separated or joined `-W` option in
-  the NNx-surface pytest argv plus workflow/job/step warning environments. The sole effective warning
-  action must be `error`, expressed by the unchanged adjacent `-W error` tokens exactly once;
-  retaining those tokens does not excuse any appended action:
+  Preserve warning-as-error as an exact CI contract. Parse every separated or joined `-W` option and
+  both long `--pythonwarnings` forms in the NNx-surface pytest argv; preserve leading shell
+  assignments/wrappers; and combine inline plus workflow/job/step warning environments. The sole
+  effective warning action must be `error`, expressed by the unchanged adjacent `-W error` tokens
+  exactly once; retaining those tokens does not excuse any appended action:
 
   ```python
   _WARNING_ACTIONS = ("default", "error", "ignore", "always", "module", "once")
@@ -2534,10 +2601,14 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
       index = 0
       while index < len(argv):
           token = argv[index]
-          if token == "-W":
+          if token in {"-W", "--pythonwarnings"}:
               assert index + 1 < len(argv), argv
               actions.append(_warning_action(argv[index + 1]))
               index += 2
+              continue
+          if token.startswith("--pythonwarnings="):
+              actions.append(_warning_action(token.split("=", 1)[1]))
+              index += 1
               continue
           if token.startswith("-W"):
               actions.append(_warning_action(token[2:]))
@@ -2550,7 +2621,6 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
 
   def _assert_no_warning_bypass(argv: Sequence[str]) -> None:
       assert _FORBIDDEN_WARNING_ARGV.isdisjoint(argv)
-      assert not any(token.startswith("--pythonwarnings=") for token in argv)
       assert not any("filterwarnings=" in token for token in argv)
 
   def _environment_warning_actions(env: object) -> tuple[str, ...]:
@@ -2596,14 +2666,16 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
       steps = job["steps"]
       assert isinstance(steps, list)
       step = next(item for item in steps if item.get("name") == "Run NNx-surface tests")
-      pytest_argvs = tuple(
-          argv
-          for argv in _shell_argvs(step["run"])
-          if argv and Path(argv[0]).name == "pytest"
+      pytest_commands = tuple(
+          command
+          for command in _shell_commands(step["run"])
+          if command.argv and Path(command.argv[0]).name == "pytest"
       )
-      assert len(pytest_argvs) == 1, pytest_argvs
+      assert len(pytest_commands) == 1, pytest_commands
+      command = pytest_commands[0]
       _assert_warning_error_command(
-          pytest_argvs[0],
+          command.argv,
+          command.environment,
           workflow.get("env"),
           job.get("env"),
           step.get("env"),
@@ -2624,6 +2696,9 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
           "-W always",
           "-Walways",
           "-Werror",
+          "--pythonwarnings ignore",
+          "--pythonwarnings=default",
+          "--pythonwarnings=ignore::DeprecationWarning",
           "--disable-warnings",
       ),
   )
@@ -2642,7 +2717,7 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
       with pytest.raises(AssertionError):
           _assert_nnx_warning_contract(mutated)
 
-  @pytest.mark.parametrize("level", ("job", "step"))
+  @pytest.mark.parametrize("level", ("workflow", "job", "step"))
   @pytest.mark.parametrize(
       ("name", "value"),
       (
@@ -2673,9 +2748,34 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
           item for item in job["steps"]
           if item.get("name") == "Run NNx-surface tests"
       )
-      owner = job if level == "job" else step
+      owner = {"workflow": mutated, "job": job, "step": step}[level]
       owner.setdefault("env", {})[name] = value
       assert "-W error" in step["run"]
+      with pytest.raises(AssertionError):
+          _assert_nnx_warning_contract(mutated)
+
+  @pytest.mark.parametrize(
+      "prefix",
+      (
+          "PYTHONWARNINGS=ignore",
+          "PYTEST_ADDOPTS='-W ignore'",
+          "env PYTHONWARNINGS=ignore::DeprecationWarning",
+          "env PYTEST_ADDOPTS='-Wdefault'",
+          "sudo env PYTEST_ADDOPTS='-Wignore::DeprecationWarning'",
+      ),
+  )
+  def test_nnx_ci_rejects_inline_warning_environment(prefix):
+      workflow = yaml.safe_load(
+          (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+      )
+      mutated = copy.deepcopy(workflow)
+      step = next(
+          item for item in mutated["jobs"]["pytest-nnx-surface"]["steps"]
+          if item.get("name") == "Run NNx-surface tests"
+      )
+      original = step["run"]
+      step["run"] = original.replace("pytest -p", f"{prefix} pytest -p", 1)
+      assert step["run"] != original and "-W error" in step["run"]
       with pytest.raises(AssertionError):
           _assert_nnx_warning_contract(mutated)
 
@@ -2686,22 +2786,28 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
       _assert_nnx_warning_contract(workflow)
       assert _warning_actions(("pytest", "-Werror")) == ("error",)
       assert _warning_actions(("pytest", "-W", "error")) == ("error",)
+      assert _warning_actions(("pytest", "--pythonwarnings", "ignore")) == ("ignore",)
+      assert _warning_actions(("pytest", "--pythonwarnings=default")) == ("default",)
       _assert_warning_error_command(("pytest", "-W", "error"))
       for argv in (
           ("pytest", "-Werror"),
           ("pytest", "-W", "error", "-W", "ignore"),
           ("pytest", "-Werror", "-Wdefault"),
           ("pytest", "-W", "error", "-Wignore::DeprecationWarning"),
+          ("pytest", "-W", "error", "--pythonwarnings", "ignore"),
+          ("pytest", "-W", "error", "--pythonwarnings=default"),
       ):
           with pytest.raises(AssertionError):
               _assert_warning_error_command(argv)
   ```
 
-  Add `copy` to the imports. `_assert_nnx_warning_contract` must parse workflow-, job-, and step-level
-  environment, reject every `PYTHONWARNINGS` filter or warning-bearing `PYTEST_ADDOPTS` while the
-  original CLI `-W error` remains, and fail on duplicate `error` actions too. Positive CI, Docker,
-  Codespaces, Make, and verifier tests require no warning-related environment variable, alternate
-  action, filterwarnings override, or warning-disable flag.
+  Add `copy` to the imports. `_assert_nnx_warning_contract` must parse both
+  `--pythonwarnings VALUE` and `--pythonwarnings=VALUE`; preserve leading assignments and `sudo`/`env`
+  wrappers as `ShellCommand.environment`/`.wrappers`; and combine inline plus workflow-, job-, and
+  step-level environment with CLI actions. It rejects every `PYTHONWARNINGS` filter or warning-bearing
+  `PYTEST_ADDOPTS` while the original CLI `-W error` remains, and fails on duplicate `error` actions
+  too. Positive CI, Docker, Codespaces, Make, and verifier tests require no warning-related
+  environment variable, alternate action, filterwarnings override, or warning-disable flag.
 
 - [ ] **Step 2: Write Docker and Codespaces RED contracts**
 
@@ -5741,8 +5847,9 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
 - [x] **Placeholder scan:** every code-changing step contains concrete code or exact replacement text; every test/run step has an exact command and expected result; no deferred marker or undefined neighboring interface remains.
 - [x] **Type consistency:** `InstallStage`, `InstallCommand`, `StackPin`, `StackContract`,
   `StackEvidence`, `DistributionView`, `CanaryHooks`, `VerificationHooks`,
-  `ImportWarningSpec`, `ImportWarningEvidence`, `Tier`, `InventoryLoader`, and `NotebookArtifact`
-  have one spelling and one signature throughout. `ImportWarningSpec.lineno` drives
+  `ImportWarningSpec`, `ImportWarningEvidence`, `ShellCommand`, `Tier`, `InventoryLoader`, and
+  `NotebookArtifact` have one spelling and one signature throughout. `ShellCommand` retains argv,
+  inline environment, and wrappers before warning analysis; `ImportWarningSpec.lineno` drives
   `warn_explicit`; fixtures vary it across 1, 73, and 10000 while the production predicate is
   source-guarded from reading it.
 - [x] **Dependency order:** Task 1 produces manifests/installer; Task 2 consumes manifests and
@@ -5763,12 +5870,13 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   have named tests. Count and line number remain unpinned.
 - [x] **Warning-gate preservation:** no production module-cache eviction exists; selected zero-warning
   imports are cache/order safe; scatter, sparse, sampler, NNx, consumer, CLI outer capture, focused
-  JUnit, and CI remain strict. Task 4 parses every separated/joined `-W` option and workflow/job/step
-  `PYTHONWARNINGS`/`PYTEST_ADDOPTS`, requires the unchanged adjacent `-W error` exactly once as the
-  sole effective action, and rejects
-  appended ignore/default/once/module/always/category-qualified actions and warning-disable flags
-  while the original `-W error` remains. No global, pytest, environment, conftest, canary, sampler,
-  NNx, or consumer filter is authorized.
+  JUnit, and CI remain strict. Task 4 parses every separated/joined `-W` option, both
+  `--pythonwarnings VALUE`/`--pythonwarnings=VALUE` forms, preserved leading shell assignments and
+  `sudo`/`env` wrappers, and inline/workflow/job/step `PYTHONWARNINGS`/`PYTEST_ADDOPTS`. It requires
+  the unchanged adjacent `-W error` exactly once as the sole effective action and rejects appended
+  ignore/default/once/module/always/category-qualified actions and warning-disable flags while the
+  original `-W error` remains. No global, pytest, environment, conftest, canary, sampler, NNx, or
+  consumer filter is authorized.
 - [x] **D10 executability:** every referenced parser/comparator is defined in the plan or already exists in `scripts/verify_repo.py`; current/historical slicing, complete CommonMark type-1/type-6 raw-HTML masking including `hgroup`, Result/summary/advisory validation, policy coupling, and ten-input hashes map failures to named `Finding` IDs.
 - [x] **Audit cardinality:** `AUDIT_SURFACES` generates six physical commands and merges them into four logical observations; only both supplements and documentation use `--disable-pip`, only supplements use `--no-deps`, and all six require exit 0/1 plus valid nonempty JSON.
 - [x] **Zero-skip and output gates:** focused, CI, prequalification, and final NNx runs use
@@ -5800,7 +5908,9 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
 - [x] **Staging safety:** historical Task 1/2 ownership excludes the original five preserved paths;
   at Task 2.1 entry, pre-stage, post-commit, clean qualification, and Task 3 handoff the portable
   NUL-delimited oracle requires exact five-` M`/two-`??` status, seven worktree hashes, five immutable
-  HEAD-byte hashes, two HEAD absences, and a completely empty index. Task 2.1 stages exactly verifier
-  production/platform tests; Task 3 owns all seven only after clean GREEN; generated docs and ignored
-  evidence are absent from every `git add` command.
+  HEAD-byte hashes, two HEAD absences, and `git diff-index --cached --quiet HEAD --`. The reusable
+  complete-index oracle is exercised at all four boundaries and a temporary `git add -N` mutation
+  proves intent-to-add cannot hide from it. Task 2.1 stages exactly verifier production/platform
+  tests; Task 3 owns all seven only after clean GREEN; generated docs and ignored evidence are absent
+  from every `git add` command.
 - [x] **Historical integrity:** r1-r3 and prior commits remain evidence, not final completion claims; Issue #59/#60/#61 records and released history remain immutable; the one stale Issue #61 requirements hash is corrected only in Task 5's current-ledger evidence.

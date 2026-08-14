@@ -375,6 +375,32 @@ def test_design_and_plan_state_the_same_platform_local_version_policy() -> None:
         assert claim in plan
 
 
+def test_task2_plan_inventories_and_runs_the_platform_regression_gate() -> None:
+    plan = (
+        REPO_ROOT / "docs/superpowers/plans/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md"
+    ).read_text(encoding="utf-8")
+    task2 = plan.split("## 12.22.5 Task 2:", 1)[1].split("## 12.22.6 Task 3:", 1)[0]
+    test_path = "tests/test_verify_torch_stack_platform.py"
+    pytest_command = (
+        "pytest -p no:cacheprovider tests/test_verify_torch_stack.py "
+        f"{test_path} tests/test_makefile_contract.py -q"
+    )
+    ruff_command = (
+        "ruff check scripts/verify_torch_stack.py tests/test_verify_torch_stack.py "
+        f"{test_path} tests/test_makefile_contract.py"
+    )
+    git_add_command = (
+        "git add scripts/verify_torch_stack.py tests/test_verify_torch_stack.py "
+        f"{test_path} Makefile tests/test_makefile_contract.py "
+        "docs/superpowers/plans/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md"
+    )
+
+    assert f"- Create: `{test_path}`" in task2
+    assert task2.count(pytest_command) == 2
+    assert ruff_command in task2
+    assert git_add_command in task2
+
+
 def test_reported_darwin_wheel_tag_is_python311_compatible() -> None:
     contract = verifier.load_stack_contract(REPO_ROOT, "Darwin", "arm64")
     tag = next(iter(verifier.parse_tag("cp310-abi3-macosx_11_0_arm64")))

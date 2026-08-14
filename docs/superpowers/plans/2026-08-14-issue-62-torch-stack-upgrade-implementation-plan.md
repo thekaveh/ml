@@ -235,6 +235,7 @@
 **Files:**
 - Create: `scripts/verify_torch_stack.py`
 - Create: `tests/test_verify_torch_stack.py`
+- Create: `tests/test_verify_torch_stack_platform.py`
 - Modify: `Makefile`
 - Modify: `tests/test_makefile_contract.py`
 
@@ -280,7 +281,7 @@
 - [x] **Step 3: Run RED**
 
   ```bash
-  pytest -p no:cacheprovider tests/test_verify_torch_stack.py tests/test_makefile_contract.py -q
+  pytest -p no:cacheprovider tests/test_verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_makefile_contract.py -q
   ```
 
   Expected: collection failure because `scripts.verify_torch_stack` does not exist.
@@ -333,11 +334,11 @@
 - [x] **Step 6: Prove GREEN and commit**
 
   ```bash
-  pytest -p no:cacheprovider tests/test_verify_torch_stack.py tests/test_makefile_contract.py -q
-  ruff check scripts/verify_torch_stack.py tests/test_verify_torch_stack.py tests/test_makefile_contract.py
+  pytest -p no:cacheprovider tests/test_verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_makefile_contract.py -q
+  ruff check scripts/verify_torch_stack.py tests/test_verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_makefile_contract.py
   python -m py_compile scripts/verify_torch_stack.py
   git diff --check
-  git add scripts/verify_torch_stack.py tests/test_verify_torch_stack.py Makefile tests/test_makefile_contract.py docs/superpowers/plans/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md
+  git add scripts/verify_torch_stack.py tests/test_verify_torch_stack.py tests/test_verify_torch_stack_platform.py Makefile tests/test_makefile_contract.py docs/superpowers/plans/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md
   git commit -m "test: add canonical Torch stack verifier"
   ```
 

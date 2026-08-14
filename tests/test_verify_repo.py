@@ -4646,6 +4646,192 @@ def test_ci_tier_a_uses_temporary_outputs_and_preserves_sources():
     assert "TIER_A_OUT ?= /tmp/ml-tier-a" in (REPO / "Makefile").read_text(encoding="utf-8")
 
 
+_TIER_NNX_CONTRACTS = {
+    "tier-a-papermill": {
+        "workload": {"name": "Run Tier-A notebooks (papermill)", "run": "make smoke-tier-a"},
+        "bridge": (
+            {"name": "Download spaCy en_core_web_sm model", "run": "python -m spacy download en_core_web_sm"},
+            {"name": "Download NLTK vader_lexicon", "run": 'python -c "import nltk; nltk.download(\'vader_lexicon\', quiet=True)"'},
+        ),
+    },
+    "smoke-tier-b": {
+        "workload": {"name": "Smoke-run Tier-B notebooks", "run": "make smoke-tier-b"},
+        "bridge": (),
+    },
+    "smoke-tier-c": {
+        "workload": {"name": "Smoke-run Tier-C notebooks", "run": "make smoke-tier-c"},
+        "bridge": (),
+    },
+}
+
+
+def _assert_tier_nnx_provenance_contract(workflow: dict, job_name: str) -> None:
+    _assert_no_nnx_environment_overrides(workflow)
+    job = workflow["jobs"][job_name]
+    contract = _TIER_NNX_CONTRACTS[job_name]
+
+    assert "container" not in job
+    assert "services" not in job
+    assert "continue-on-error" not in job
+    assert all("continue-on-error" not in step for step in job["steps"])
+    assert all(
+        "atlas" not in " ".join(str(step.get(field, "")).lower() for field in ("name", "run"))
+        for step in job["steps"]
+    )
+
+    install_index = next(
+        index
+        for index, step in enumerate(job["steps"])
+        if step.get("name") == "Install dependencies"
+    )
+    install = job["steps"][install_index]
+    assert install == {
+        "name": "Install dependencies",
+        "run": (
+            "make install-torch-stack\n"
+            "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
+        ),
+    }
+
+    verifier_indexes = [
+        index
+        for index, step in enumerate(job["steps"])
+        if step.get("name") == "Verify canonical NNx installation"
+    ]
+    assert len(verifier_indexes) == 1
+    verifier_index = verifier_indexes[0]
+    verifier = job["steps"][verifier_index]
+    assert verifier == {
+        "name": "Verify canonical NNx installation",
+        "run": "make verify-nnx-install",
+    }
+    assert tuple(job["steps"][install_index + 1:verifier_index]) == contract["bridge"]
+    assert job["steps"][verifier_index + 1] == contract["workload"]
+    assert all(
+        "pip install" not in step.get("run", "").lower()
+        for step in job["steps"][verifier_index + 1:]
+    )
+
+
+@pytest.mark.parametrize(
+    "job_name",
+    ("tier-a-papermill", "smoke-tier-b", "smoke-tier-c"),
+    ids=("tier_a_nnx", "tier_b_nnx", "tier_c_nnx"),
+)
+def test_ci_tier_nnx_provenance_contract(job_name):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+
+    _assert_tier_nnx_provenance_contract(workflow, job_name)
+
+
+def _valid_tier_nnx_provenance_workflow(job_name: str) -> dict:
+    workflow = deepcopy(_load_workflow(REPO / ".github/workflows/ci.yml"))
+    job = workflow["jobs"][job_name]
+    contract = _TIER_NNX_CONTRACTS[job_name]
+    steps = job["steps"]
+    install = next(step for step in steps if step.get("name") == "Install dependencies")
+    install["run"] = (
+        "make install-torch-stack\n"
+        "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
+    )
+    workload_index = next(
+        index for index, step in enumerate(steps) if step == contract["workload"]
+    )
+    if any(step.get("name") == "Verify canonical NNx installation" for step in steps):
+        return workflow
+    if job_name == "tier-a-papermill":
+        steps[workload_index - 1] = {
+            "name": "Verify canonical NNx installation",
+            "run": "make verify-nnx-install",
+        }
+    else:
+        steps.insert(
+            workload_index,
+            {
+                "name": "Verify canonical NNx installation",
+                "run": "make verify-nnx-install",
+            },
+        )
+    return workflow
+
+
+@pytest.mark.parametrize(
+    "job_name",
+    ("tier-a-papermill", "smoke-tier-b", "smoke-tier-c"),
+    ids=("tier_a_nnx", "tier_b_nnx", "tier_c_nnx"),
+)
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "removed_verifier",
+        "reversed_verifier_workload",
+        "plain_install",
+        "editable_install",
+        "path_install",
+        "direct_url_install",
+        "late_install",
+        "alternate_requirements",
+        "job_pythonpath",
+        "job_allow_editable",
+        "failure_masking",
+        "atlas_step",
+        "services",
+        "container",
+        "renamed_workload",
+    ),
+)
+def test_ci_tier_nnx_provenance_contract_rejects_mutations(job_name, mutation):
+    workflow = _valid_tier_nnx_provenance_workflow(job_name)
+    _assert_tier_nnx_provenance_contract(workflow, job_name)
+    job = workflow["jobs"][job_name]
+    steps = job["steps"]
+    install = next(step for step in steps if step.get("name") == "Install dependencies")
+    verifier_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Verify canonical NNx installation"
+    )
+
+    if mutation == "removed_verifier":
+        steps.pop(verifier_index)
+    elif mutation == "reversed_verifier_workload":
+        steps[verifier_index], steps[verifier_index + 1] = (
+            steps[verifier_index + 1],
+            steps[verifier_index],
+        )
+    elif mutation == "plain_install":
+        install["run"] = "make install-torch-stack\npython -m pip install -r requirements.txt\n"
+    elif mutation == "editable_install":
+        install["run"] = "make install-torch-stack\npython -m pip install -e .\n"
+    elif mutation == "path_install":
+        install["run"] = "make install-torch-stack\npython -m pip install ./vendor/nnx\n"
+    elif mutation == "direct_url_install":
+        install["run"] = "make install-torch-stack\npython -m pip install https://example.invalid/nnx.whl\n"
+    elif mutation == "late_install":
+        steps.insert(verifier_index + 1, {"name": "Late install", "run": "python -m pip install -r requirements.txt"})
+    elif mutation == "alternate_requirements":
+        install["run"] = "make install-torch-stack\npython -m pip install --only-binary=thekaveh-nnx -r ci-requirements.txt\n"
+    elif mutation == "job_pythonpath":
+        job["env"] = {"PYTHONPATH": "/tmp/override"}
+    elif mutation == "job_allow_editable":
+        job["env"] = {"NNX_ALLOW_EDITABLE": "1"}
+    elif mutation == "failure_masking":
+        job["continue-on-error"] = "true"
+    elif mutation == "atlas_step":
+        steps.insert(verifier_index, {"name": "Start Atlas", "run": "make atlas-up"})
+    elif mutation == "services":
+        job["services"] = {"atlas": {"image": "example.invalid/atlas"}}
+    elif mutation == "container":
+        job["container"] = "python:3.11"
+    elif mutation == "renamed_workload":
+        steps[verifier_index + 1]["run"] = "make smoke-tier-renamed"
+    else:
+        raise AssertionError(f"unhandled mutation: {mutation}")
+
+    with pytest.raises(AssertionError):
+        _assert_tier_nnx_provenance_contract(workflow, job_name)
+
+
 def test_atlas_docs_preserve_mounted_workspace_and_track_ownership():
     numpy_spec = yaml.safe_load(
         (REPO / "notebooks/image_classification-mnist-ffnn-numpy/docs/spec.yaml").read_text(

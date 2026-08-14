@@ -10,8 +10,8 @@
 # and Tier B on PRs labeled `tier-b-smoke`.
 #
 # All targets assume the selected Python can run papermill and the notebooks'
-# kernel can import nnx. nnx is consumed from PyPI via the `thekaveh-nnx[lm]==0.2.0`
-# pin in requirements.txt (as of 2026-06-14). The `[lm]` extra pulls
+# kernel can import nnx. nnx is consumed from PyPI via the `thekaveh-nnx[lm]==0.2.2`
+# pin in requirements.txt (as of 2026-08-13). The `[lm]` extra pulls
 # tokenizers+datasets for the two notebooks that call train_bpe /
 # NNTokenizerParams (text_generation-tinyshakespeare-... and
 # preference_alignment-toy-dpo-...) — issue #12. Without it those

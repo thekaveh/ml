@@ -606,6 +606,10 @@ NNX_PENDING_ACCEPTANCE = (
     "Final release acceptance remains pending the complete Tier A/B/C consumer matrix in "
     "Task 5; no completed-matrix claim is made here."
 )
+NNX_PREMATURE_ACCEPTANCE_CLAIMS = (
+    "accepted only after the complete Tier A/B/C consumer matrix",
+    "Tier A/B/C release-acceptance workloads have completed successfully",
+)
 NNX_TIER_BOUNDARY = (
     "The release-acceptance tiers apply the same canonical wheel boundary immediately before "
     "each workload: Tier A covers 17 NNx consumers plus the NumPy control, Tier B covers the "
@@ -640,10 +644,15 @@ def _assert_nnx_022_floors(ledger: str) -> None:
 def _assert_nnx_pending_acceptance_boundary(ledger: str, overview: str) -> None:
     normalized_ledger = _normalize_markdown(ledger)
     normalized_overview = _normalize_markdown(overview)
+    acceptance_section = normalized_overview.split("## 7.2 Consumption", 1)[1].split(
+        "## 7.3 The 2026-06-14 PyPI migration", 1
+    )[0]
     assert NNX_TIER_BOUNDARY in normalized_ledger
     assert NNX_QAT_BOUNDARY in normalized_ledger
-    assert NNX_PENDING_ACCEPTANCE in normalized_overview
-    assert "matrix completed and accepted" not in normalized_overview
+    assert NNX_PENDING_ACCEPTANCE in acceptance_section
+    assert "matrix completed and accepted" not in acceptance_section
+    for claim in NNX_PREMATURE_ACCEPTANCE_CLAIMS:
+        assert claim not in acceptance_section
 
 
 def _assert_nnx_atlas_row(ledger: str) -> None:
@@ -817,6 +826,38 @@ def test_nnx_acceptance_boundary_rejects_mutations(surface, old, new):
         overview = _normalize_markdown(overview).replace(old, new, 1)
     with pytest.raises(AssertionError):
         _assert_nnx_pending_acceptance_boundary(ledger, overview)
+
+
+@pytest.mark.parametrize(
+    "claim",
+    (
+        "The API was accepted only after the complete Tier A/B/C consumer matrix.",
+        "All Tier A/B/C release-acceptance workloads have completed successfully.",
+    ),
+)
+def test_nnx_acceptance_boundary_rejects_additive_premature_acceptance_claim(claim):
+    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
+    _assert_nnx_pending_acceptance_boundary(ledger, overview)
+
+    mutated = _normalize_markdown(overview).replace(
+        NNX_PENDING_ACCEPTANCE,
+        f"{NNX_PENDING_ACCEPTANCE} {claim}",
+    )
+    with pytest.raises(AssertionError):
+        _assert_nnx_pending_acceptance_boundary(ledger, mutated)
+
+
+def test_nnx_acceptance_boundary_allows_historical_claims_outside_current_section():
+    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
+    historical_claims = " ".join(NNX_PREMATURE_ACCEPTANCE_CLAIMS)
+    mutated = overview.replace(
+        "## 7.3 The 2026-06-14 PyPI migration",
+        f"## 7.3 The 2026-06-14 PyPI migration\n\n{historical_claims}",
+    )
+
+    _assert_nnx_pending_acceptance_boundary(ledger, mutated)
 
 
 def test_nnx_historical_and_atlas_owned_0_2_0_evidence_remains_explicit():

@@ -346,7 +346,7 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
 **Files:** the current documentation files listed in §12.20.2, `tests/test_check_docs.py`, and
 `docs/manifest.yaml` only if a manifest correction is genuinely needed
 
-- [ ] **Step 1: Write documentation-contract RED tests**
+- [x] **Step 1: Write documentation-contract RED tests**
 
   Require:
 
@@ -363,20 +363,20 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
   - Issue #58/historical release records remaining historical; and
   - consecutive projected design/plan entries 12.19 and 12.20.
 
-- [ ] **Step 2: Run focused docs tests and capture RED**
+- [x] **Step 2: Run focused docs tests and capture RED**
 
   ```bash
   pytest -p no:cacheprovider tests/test_check_docs.py -q \
     -k 'nnx or manifest or tabular_regression or checkpoint'
   ```
 
-- [ ] **Step 3: Update current release entry points**
+- [x] **Step 3: Update current release entry points**
 
   Update current 0.2.0 references in README, contributor guidance, Makefile commentary, badge,
   NNx overview, architecture, dependency contracts, TinyShakespeare docs/README, and DPO README.
   Add one Unreleased changelog entry describing adoption and evidence; do not rewrite older entries.
 
-- [ ] **Step 4: Resolve tabular-regression prose without changing execution**
+- [x] **Step 4: Resolve tabular-regression prose without changing execution**
 
   In the finding ledger, task README, task spec, canonical notebook page, and the notebook's
   relevant Markdown cell, state that 0.2.2 supports floating regression targets through
@@ -384,13 +384,13 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
   reuse the established sklearn/NNx split. Do not change code, execution counts, outputs, or
   metrics.
 
-- [ ] **Step 5: Correct every current checkpoint claim**
+- [x] **Step 5: Correct every current checkpoint claim**
 
   Replace active `NNRun.load("best")` guidance in NNx overview, concepts, Iris canonical page,
   dimensionality-reduction canonical page, and Iris spec with the valid checkpoint API. Preserve
   historical changelog and maintenance references describing the prior defect.
 
-- [ ] **Step 6: Regenerate and inspect all three surfaces**
+- [x] **Step 6: Regenerate and inspect all three surfaces**
 
   ```bash
   make docs-check
@@ -401,7 +401,7 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
   ledger, and tabular-regression page. Confirm current markers and links are equivalent after
   transformation, design/plan nav entries are consecutive, and generated trees remain ignored.
 
-- [ ] **Step 7: Run Task 4 GREEN gates**
+- [x] **Step 7: Run Task 4 GREEN gates**
 
   ```bash
   pytest -p no:cacheprovider tests/test_check_docs.py tests/test_build_docs.py \
@@ -413,7 +413,7 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
   git diff --check
   ```
 
-- [ ] **Step 8: Commit Task 4**
+- [x] **Step 8: Commit Task 4**
 
   Stage the exact changed canonical files and tests, then:
 

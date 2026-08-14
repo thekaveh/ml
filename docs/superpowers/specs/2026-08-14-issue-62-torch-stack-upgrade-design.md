@@ -28,10 +28,10 @@ The selected matrix is:
 | PyTorch Lightning | 2.6.1 | Upstream-recommended patched version before the active `>=2.6.2` supply-chain advisory range |
 | TorchMetrics | 1.9.0 | Current stable metric layer compatible with Python 3.11 and the selected Lightning line |
 | torchao | 0.18.0 | Current stable release; exact pin replaces the non-reproducible lower bound |
-| torch-geometric | 2.8.0.post1 | Current stable PyG patch with Torch 2.11 support |
+| torch-geometric | 2.8.0.post1 | Current stable PyG patch with Torch 2.11 support and bounded import-warning debt |
 | pyg-lib | 0.8.0 | Preferred graph sampling and operator wheel from the Torch 2.11 PyG index |
 | torch-scatter | 2.1.2 | Current extension release with Torch 2.11 wheels |
-| torch-sparse | 0.6.18 | Current extension release with Torch 2.11 wheels and existing NeighborLoader fallback |
+| torch-sparse | 0.6.18 | Torch 2.11 wheel and NeighborLoader fallback with bounded import-warning debt |
 | thekaveh-nnx | 0.2.0 | Unchanged root and Atlas-compatible consumer contract established by Issue #61 |
 
 Primary compatibility evidence is the upstream
@@ -42,6 +42,10 @@ Primary compatibility evidence is the upstream
 [PyG installation guidance](https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html),
 [PyTorch 2.11 support issue](https://github.com/pyg-team/pytorch_geometric/issues/10508),
 [PyG extension-migration tracking issue](https://github.com/pyg-team/pytorch_geometric/issues/10716),
+[Torch 2.11 `torch.jit.script` warning source](https://github.com/pytorch/pytorch/blob/v2.11.0/torch/jit/_script.py#L1488-L1494),
+[torch-sparse 0.6.18 storage decorator](https://github.com/rusty1s/pytorch_sparse/blob/0.6.18/torch_sparse/storage.py#L21),
+[PyG 2.8 typing import catch](https://github.com/pyg-team/pytorch_geometric/blob/2.8.0/torch_geometric/typing.py#L166-L172),
+[PyG 2.8 `SelectOutput` decorator](https://github.com/pyg-team/pytorch_geometric/blob/2.8.0/torch_geometric/nn/pool/select/base.py#L65),
 [Torch 2.11 PyG wheel index](https://data.pyg.org/whl/torch-2.11.0+cpu.html), and the
 [Lightning security advisory](https://github.com/Lightning-AI/pytorch-lightning/security/advisories/GHSA-w37p-236h-pfx3).
 The implementation refreshes these sources before installation because this dated design record
@@ -56,6 +60,13 @@ static consumer review found no active notebook import of either legacy package.
 PyG 2.8's documented migration of their functionality to `pyg-lib>=0.6.0`, this evidence removes
 both separate packages from the selected repository contract rather than weakening the failed
 gate.
+
+A fourth clean Darwin arm64 review run, r4, installed the final three-extension matrix and proved
+both the pyg-lib-preferred and forced torch-sparse `NeighborLoader` paths. It then found that the
+selected torch-sparse 0.6.18 and torch-geometric 2.8.0.post1 import paths invoke deprecated
+`torch.jit.script` under Torch 2.11. No warning-free release exists within the approved matrix.
+With `simplefilter("always")`, the PyG import produced 19 identical warnings in that run; this is
+diagnostic evidence, not a count that the contract fixes permanently.
 
 ## 12.21.3 Why Torch 2.11 is the selected line
 
@@ -159,6 +170,36 @@ Diagnostics disclose stable component and failure categories, not credentials, p
 tokens, temporary paths, or captured installer output. CI and Docker call the same verifier after
 `pip check` and before repository tests or notebook workloads.
 
+The verifier has one local import-boundary exception for the outer component `torch-geometric` or
+`torch-sparse`. It wraps each selected `hooks.import_module()` call in a fresh warning capture with
+`simplefilter("always")`; every other selected import must capture zero warnings. For either
+exception component, one or more captured warnings are accepted only when every record has all
+three exact properties:
+
+- `record.category is DeprecationWarning`, so subclasses do not match;
+- `str(record.message)` equals `` `torch.jit.script` is deprecated. Please switch to
+  `torch.compile` or `torch.export`. `` including punctuation; and
+- the resolved `record.filename` equals the selected, RECORD-owned Torch distribution file
+  `torch/jit/_script.py`.
+
+The entire captured group must match; a mixed group fails. The wrapper consumes only that exact
+group before returning the imported module, so the CLI's outer warning capture remains strict.
+The existing `_run_warning_free` boundaries around scatter, sparse, the real sampler, and NNx are
+unchanged. Pytest still runs with `-W error`; JUnit still requires a positive test count and zero
+failures, errors, and skips; both graph backends remain mandatory; and any warning outside this
+single import wrapper fails. No pytest, global, environment, or conftest warning filter is allowed.
+
+Verifier tests accept an exact one-or-more matching group and reject a wrong category or subclass,
+message or punctuation, origin path, outer component, a mixed group, and a matching warning emitted
+outside the import boundary. Mutation tests also reject broad message prefixes, `issubclass`,
+omitted origin validation, a wrapper applied to every import, and any broader filter. Acceptance
+requires the actual selected r4 imports plus the pyg-lib-preferred and forced torch-sparse sampler
+paths to pass under the unchanged warning-as-error and JUnit gates.
+
+This exception is temporary upstream compatibility debt. Every Torch or PyG upgrade revalidates
+all three identities and removes the exception as soon as the selected upstream imports are
+warning-free; version drift never inherits the exception automatically.
+
 ## 12.21.7 PyG compatibility boundary
 
 The Reddit graph notebooks and NNx surface tests require a working neighborhood sampler. Existing
@@ -232,6 +273,8 @@ gate, and the focused jobs remain diagnostic evidence. Workflow contract tests e
 - Linux CPU provenance and no CUDA package selection;
 - compatible pyg-lib, torch-scatter, and torch-sparse wheels with no failure masking or optional
   compiled-extension skips in canonical jobs;
+- only the verifier-local, exact import-warning exception, with no workflow, pytest, environment,
+  or conftest warning filter;
 - no Atlas initialization or service, container, Ollama, or ComfyUI startup; and
 - unchanged binary-only NNx selection and canonical verification.
 
@@ -256,6 +299,12 @@ The mandatory clean-environment sequence is:
 9. prove source notebooks, tracked files, the Atlas gitlink, and generated-output boundaries remain
    clean.
 
+Implementation inserts a separately reviewed Task 2.1 verifier correction before Task 3 resumes.
+Task 2.1 changes only the verifier and its owned tests for the import-warning boundary above. Task
+3 retains its existing dirty work-in-progress files, then reruns the full clean-r4 sequence from a
+fresh environment, including selected imports, both real sampler paths, `pytest -W error`, and the
+zero-failure/error/skip JUnit gate before continuing.
+
 Tier A must complete 18/18, Tier B 6/6, and Tier C 4/4. Tier B is enabled on the feature pull
 request through its label-controlled job; Tier C runs through manual workflow dispatch on the
 exact feature SHA. The ordinary feature PR alone is not complete evidence because those jobs are
@@ -270,6 +319,7 @@ Current documentation changes cover:
 - the now-importable but still manual-only quantization surface;
 - the PyG sampler and three-wheel compiled-extension acceptance contract, including the explicit
   exclusion of unused legacy operators;
+- the temporary exact-match TorchScript import-warning debt and its upgrade-time removal trigger;
 - the refreshed advisory snapshot and residual risk;
 - contributor and rollback procedures; and
 - durable Unreleased history in `CHANGELOG.md`.
@@ -324,6 +374,13 @@ Weakening or bypassing that failed import would make the contract less trustwort
 design instead validates the three upstream-listed wheels and requires future consumers of the
 migrated operators to add focused acceptance evidence when they appear.
 
+### 12.21.14.6 Suppress TorchScript deprecations globally
+
+A pytest, environment, conftest, or process-wide filter would hide unrelated warnings and weaken
+the repository's warning-free acceptance gate. The selected exception instead proves component,
+category identity, complete message, and owned origin inside one import call, then leaves every
+outer warning boundary unchanged.
+
 ## 12.21.15 Failure handling and rollback
 
 The candidate is rejected or returned to design review if:
@@ -332,6 +389,7 @@ The candidate is rejected or returned to design review if:
 - clean Linux or Darwin resolution, `pip check`, or provenance fails;
 - any selected compiled extension cannot resolve as the required wheel, import, or execute its
   canary;
+- any import warning falls outside the exact temporary group or appears outside its local wrapper;
 - PyG sampling, NNx 0.2.0, torchao PTQ/QAT, repository tests, Docker, or a notebook tier fails;
 - Linux selects CUDA packages;
 - an advisory identity or accepted version is not explicitly reconciled;

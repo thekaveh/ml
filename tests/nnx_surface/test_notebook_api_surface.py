@@ -593,6 +593,8 @@ def test_nnx_unknown_kwarg_guard_catches_bad_kwarg():
 
 
 def test_nnx_unknown_kwarg_guard_allows_real_kwargs():
+    accepted = _nnx_ctor_accepted_params()
+    assert {"seed", "sampler"} <= accepted["NNGraphDataset"]
     good = _synthetic_nb({
         "cell_type": "code",
         "source": [
@@ -600,7 +602,28 @@ def test_nnx_unknown_kwarg_guard_allows_real_kwargs():
         ],
         "outputs": [],
     })
-    assert not find_nnx_unknown_kwargs(good, {"NNGraphDataset": {"ds_class", "n_neighbors", "n_workers", "transform", "batch_sizes", "root_dir", "seed", "sampler"}})
+    assert not find_nnx_unknown_kwargs(good, accepted)
+
+
+@pytest.mark.parametrize("missing_kwarg", ["seed", "sampler"])
+def test_nnx_unknown_kwarg_guard_rejects_removed_022_graph_kwargs(missing_kwarg: str):
+    accepted = _nnx_ctor_accepted_params()
+    assert {"seed", "sampler"} <= accepted["NNGraphDataset"]
+    accepted["NNGraphDataset"].remove(missing_kwarg)
+    good = _synthetic_nb({
+        "cell_type": "code",
+        "source": [
+            "d = NNGraphDataset(ds_class=R, n_neighbors=[2], n_workers=4, transform=t, seed=0, sampler=\"full\")\n"
+        ],
+        "outputs": [],
+    })
+
+    violations = find_nnx_unknown_kwargs(good, accepted)
+
+    assert violations == [
+        f"code_cell[0]: NNGraphDataset(...) unknown kwarg(s) ['{missing_kwarg}'] "
+        "(not in installed nnx signature)"
+    ]
 
 
 def _called_name(node: ast.Call) -> str | None:

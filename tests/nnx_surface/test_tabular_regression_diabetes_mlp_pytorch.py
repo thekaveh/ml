@@ -63,7 +63,7 @@ def test_tabular_regression_targets_are_float_column_vectors_and_train():
             output_dim=regression.output_dim,
         ),
     )
-    model.train(
+    run = model.train(
         params=(
             NNTrainParams(
                 n_epochs=1,
@@ -79,6 +79,7 @@ def test_tabular_regression_targets_are_float_column_vectors_and_train():
             .with_val_loader(value=regression.val_loader)
         )
     )
+    assert run is not None
     X = frame[_FEATURE_COLS].to_numpy(dtype=np.float32, copy=True)
     expected = torch.from_numpy(frame[[_TARGET_COL]].to_numpy(dtype=np.float32, copy=True))
     prediction, _ = model.predict(X=X)

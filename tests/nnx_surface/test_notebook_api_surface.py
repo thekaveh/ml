@@ -189,6 +189,90 @@ def _assert_single_gen_reference_call(nb: dict) -> None:
     assert keywords["salt"].value == "single-gen-reference"
 
 
+_RUN_IDENTITY_SALT_CONTRACTS = {
+    "notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/notebook.ipynb": (
+        ("lora_run", "lora_model", "lora-adaptation"),
+        ("dora_run", "dora_model", "dora-adaptation"),
+    ),
+    "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook1.ipynb": (
+        (None, "model", "phase2-model-selection-notebook1"),
+    ),
+    "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook2.ipynb": (
+        (None, "model", "phase2-model-selection-notebook2"),
+    ),
+}
+
+
+def _assert_peft_train_call(
+    nb: dict,
+    *,
+    target: str,
+    model_name: str,
+    salt: str | None,
+) -> None:
+    call = _assigned_call(nb, target)
+    assert (
+        isinstance(call.func, ast.Attribute)
+        and call.func.attr == "train"
+        and isinstance(call.func.value, ast.Name)
+        and call.func.value.id == model_name
+    )
+    assert call.args == []
+    expected_keyword_names = ["params"] if salt is None else ["params", "salt"]
+    assert [keyword.arg for keyword in call.keywords] == expected_keyword_names
+    params = call.keywords[0].value
+    assert isinstance(params, ast.Call)
+    assert isinstance(params.func, ast.Name)
+    assert params.func.id == "train_params"
+    assert params.args == []
+    expected_params = {
+        "loader": "fmnist_ds.train_loader",
+        "val_loader": "fmnist_ds.val_loader",
+        "n_epochs": "ADAPT_EPOCHS",
+        "lr": "LR_ADAPT",
+    }
+    assert [keyword.arg for keyword in params.keywords] == list(expected_params)
+    assert {
+        keyword.arg: ast.unparse(keyword.value) for keyword in params.keywords
+    } == expected_params
+    if salt is not None:
+        salt_node = call.keywords[1].value
+        assert isinstance(salt_node, ast.Constant)
+        assert salt_node.value == salt
+
+
+def _assert_reddit_shared_root_train_call(nb: dict, *, salt: str) -> None:
+    matches: list[ast.Call] = []
+    for cell in _code_cells(nb):
+        lines = [
+            line
+            for line in "".join(_source_lines(cell)).splitlines()
+            if not line.lstrip().startswith(("%", "!"))
+        ]
+        try:
+            tree = ast.parse("\n".join(lines))
+        except SyntaxError:
+            continue
+        matches.extend(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "train"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "model"
+        )
+    assert len(matches) == 1, f"expected one model.train call, found {len(matches)}"
+    call = matches[0]
+    assert call.args == []
+    assert [keyword.arg for keyword in call.keywords] == ["params", "salt"]
+    assert isinstance(call.keywords[0].value, ast.Name)
+    assert call.keywords[0].value.id == "train_param"
+    salt_node = call.keywords[1].value
+    assert isinstance(salt_node, ast.Constant)
+    assert salt_node.value == salt
+
+
 # --- scan checkers (also exercised directly by the synthetic unit tests) -----
 
 def find_misplaced_utils_attrs(nb: dict, forbidden: set[str]) -> list[str]:
@@ -259,6 +343,159 @@ def test_knowledge_distillation_baseline_has_a_distinct_stable_run_identity():
     assert isinstance(born_again_keywords["train_params"], ast.Call)
     assert isinstance(born_again_keywords["train_params"].func, ast.Name)
     assert born_again_keywords["train_params"].func.id == "train_params"
+
+
+def test_run_identity_salt_policy_is_limited_to_proven_collision_contracts():
+    assert _RUN_IDENTITY_SALT_CONTRACTS == {
+        "notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/notebook.ipynb": (
+            ("lora_run", "lora_model", "lora-adaptation"),
+            ("dora_run", "dora_model", "dora-adaptation"),
+        ),
+        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook1.ipynb": (
+            (None, "model", "phase2-model-selection-notebook1"),
+        ),
+        "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook2.ipynb": (
+            (None, "model", "phase2-model-selection-notebook2"),
+        ),
+    }
+    salts = [
+        salt
+        for contracts in _RUN_IDENTITY_SALT_CONTRACTS.values()
+        for _, _, salt in contracts
+    ]
+    assert len(salts) == len(set(salts)) == 4
+
+
+def test_peft_comparison_has_exact_stable_run_identity_contracts():
+    path = REPO_ROOT / next(iter(_RUN_IDENTITY_SALT_CONTRACTS))
+    nb = json.loads(path.read_text(encoding="utf-8"))
+
+    _assert_peft_train_call(
+        nb,
+        target="full_ft_run",
+        model_name="full_ft",
+        salt=None,
+    )
+    for target, model_name, salt in _RUN_IDENTITY_SALT_CONTRACTS[
+        path.relative_to(REPO_ROOT).as_posix()
+    ]:
+        _assert_peft_train_call(
+            nb,
+            target=target,
+            model_name=model_name,
+            salt=salt,
+        )
+
+
+@pytest.mark.parametrize(
+    ("target", "model_name", "expected_salt", "call"),
+    (
+        (
+            "lora_run",
+            "lora_model",
+            "lora-adaptation",
+            "lora_model.train(params=train_params(loader=fmnist_ds.train_loader, "
+            "val_loader=fmnist_ds.val_loader, n_epochs=ADAPT_EPOCHS, lr=LR_ADAPT))",
+        ),
+        (
+            "lora_run",
+            "lora_model",
+            "lora-adaptation",
+            "lora_model.train(params=train_params(loader=fmnist_ds.train_loader, "
+            "val_loader=fmnist_ds.val_loader, n_epochs=ADAPT_EPOCHS, lr=LR_ADAPT), "
+            "salt=adapter_salt)",
+        ),
+        (
+            "lora_run",
+            "lora_model",
+            "lora-adaptation",
+            "lora_model.train(params=train_params(loader=fmnist_ds.train_loader, "
+            "val_loader=fmnist_ds.val_loader, n_epochs=ADAPT_EPOCHS, lr=LR_ADAPT), "
+            'salt="dora-adaptation")',
+        ),
+        (
+            "dora_run",
+            "dora_model",
+            "dora-adaptation",
+            "dora_model.train(params=train_params(loader=fmnist_ds.train_loader, "
+            "val_loader=fmnist_ds.val_loader, n_epochs=ADAPT_EPOCHS, lr=LR_ADAPT), "
+            'salt="lora-adaptation")',
+        ),
+        (
+            "dora_run",
+            "dora_model",
+            "dora-adaptation",
+            "dora_model.train(params=train_params(loader=fmnist_ds.train_loader, "
+            "val_loader=fmnist_ds.val_loader, n_epochs=ADAPT_EPOCHS, lr=LR_ADAPT), "
+            'salt="dora-adaptation", salt="dora-adaptation")',
+        ),
+    ),
+)
+def test_peft_run_identity_guard_rejects_mutations(
+    target: str,
+    model_name: str,
+    expected_salt: str,
+    call: str,
+):
+    nb = _synthetic_nb(
+        {
+            "cell_type": "code",
+            "source": [f"{target} = {call}\n"],
+            "outputs": [],
+        }
+    )
+    with pytest.raises(AssertionError):
+        _assert_peft_train_call(
+            nb,
+            target=target,
+            model_name=model_name,
+            salt=expected_salt,
+        )
+
+
+@pytest.mark.parametrize(
+    ("path", "salt"),
+    tuple(
+        (path, contracts[0][2])
+        for path, contracts in _RUN_IDENTITY_SALT_CONTRACTS.items()
+        if path.startswith("notebooks/node_classification-reddit-gnn-pyg/")
+    ),
+)
+def test_reddit_shared_root_sweeps_have_exact_stable_run_identity_contracts(
+    path: str,
+    salt: str,
+):
+    nb = json.loads((REPO_ROOT / path).read_text(encoding="utf-8"))
+    _assert_reddit_shared_root_train_call(nb, salt=salt)
+
+
+@pytest.mark.parametrize(
+    "call",
+    (
+        "model.train(params=train_param)",
+        "model.train(params=train_param, salt=run_salt)",
+        'model.train(params=train_param, salt="phase2-model-selection-notebook2")',
+        (
+            'model.train(params=train_param, salt="phase2-model-selection-notebook1", '
+            'salt="phase2-model-selection-notebook1")'
+        ),
+        'candidate.train(params=train_param, salt="phase2-model-selection-notebook1")',
+        'model.train(train_param, salt="phase2-model-selection-notebook1")',
+    ),
+)
+def test_reddit_shared_root_identity_guard_rejects_mutations(call: str):
+    nb = _synthetic_nb(
+        {
+            "cell_type": "code",
+            "source": [f"run = {call}\n"],
+            "outputs": [],
+        }
+    )
+    with pytest.raises(AssertionError):
+        _assert_reddit_shared_root_train_call(
+            nb,
+            salt="phase2-model-selection-notebook1",
+        )
 
 
 @pytest.mark.parametrize(

@@ -13,6 +13,12 @@ but Phase 3's full training runs are multi-day CPU jobs whose August-2023 output
 in place (Tier-C, do not re-execute). The `torch_sparse` dependency is Linux-only, so the task
 cannot run on macOS; it executes on the CI Linux runner and the Atlas JupyterHub runtime.
 
+Historical-output boundary: The committed Phase 2 and Phase 3 outputs and repeated run IDs are
+a historical NNx 0.2.0 snapshot, not current NNx 0.2.2 acceptance evidence. Current Phase 2
+notebooks 1 and 2 use stable `phase2-model-selection-notebook1` and
+`phase2-model-selection-notebook2` salts because they share one run root; locked Phase 3 code
+remains unchanged.
+
 ## 8.13.1 Problem & motivation
 
 Reddit2 is a post-to-subreddit graph: each node is a post, each edge connects posts that a shared
@@ -231,7 +237,8 @@ for net_enum, heads in net_specs:
                     n_epochs=n_epochs,
                     optim=NNOptimParams(name=Optims.ADAM, max_lr=lr,
                                         weight_decay=5e-4, momentum=(0.9, 0.999)),
-                ).with_train_loader(value=train_loader).with_val_loader(value=val_loader))
+                ).with_train_loader(value=train_loader).with_val_loader(value=val_loader),
+                    salt="phase2-model-selection-notebook1")
                 trains[str(run)] = (model, run.idps)
 ```
 
@@ -240,6 +247,10 @@ The four-way product is the 16-combination sweep of Notebook 1. `NNParams` is wh
 `NNOptimParams` carries the optimizer. The ranking keys `trains` by `str(run)` (the model's
 printed signature, e.g. `GraphAttNN={dims=[602, 128, 41], dropout=0.25, heads=4}`) and sorts by
 the minimum validation error across all iteration data points:
+
+Notebook 2 uses the same call shape with `salt="phase2-model-selection-notebook2"`. These stable
+notebook-specific salts prevent matched smoke configurations from claiming the same identity in
+the shared task-local `runs/` root; Phase 3 remains unsalted and unchanged.
 
 ```python
 top_model_names = sorted(

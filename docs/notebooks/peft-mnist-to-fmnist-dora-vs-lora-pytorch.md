@@ -14,6 +14,11 @@ readable: how much accuracy does each adapter recover at what fraction of the tr
 budget, and how does the magnitude-vector decomposition separate DoRA from LoRA. A full
 fine-tune control and a save/load round-trip complete the comparison.
 
+Historical-output boundary: The committed outputs and repeated adaptation run IDs are a
+historical NNx 0.2.0 snapshot, not current NNx 0.2.2 acceptance evidence. Current execution
+keeps the full-fine-tune control unsalted and assigns stable `lora-adaptation` and
+`dora-adaptation` salts to the adapter runs so each experiment has a distinct history.
+
 ## 8.12.1 Problem & motivation
 
 When you have a model trained on task A and want it on task B with minimal extra training,
@@ -198,7 +203,8 @@ n_trainable_lora = count_trainable(lora_model.net)
 # ...
 lora_run = lora_model.train(params=train_params(
     loader=fmnist_ds.train_loader, val_loader=fmnist_ds.val_loader,
-    n_epochs=ADAPT_EPOCHS, lr=LR_ADAPT))
+    n_epochs=ADAPT_EPOCHS, lr=LR_ADAPT),
+    salt="lora-adaptation")
 ```
 
 `apply_lora_to` wraps every `Linear` matched by the pattern, sets `requires_grad=False` on the
@@ -206,6 +212,10 @@ base weights, sets `requires_grad=True` on `A` and `B`, and returns the wrap cou
 `apply_dora_to` is the same plus the magnitude vector. Both return the wrap count so the caller
 can assert the adapter actually attached — `assert any(isinstance(m, LoRALinear) for m in
 lora_model.net.modules())` is the belt-and-suspenders check.
+
+The full-fine-tune call deliberately keeps NNx's default unsalted identity. The adapter calls use
+`salt="lora-adaptation"` and `salt="dora-adaptation"` because their live wrappers are not part of
+the otherwise-identical serialized run state.
 
 ### 8.12.5.3 Save/load round-trip
 

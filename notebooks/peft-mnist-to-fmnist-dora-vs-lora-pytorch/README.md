@@ -15,6 +15,8 @@ LoRA (Hu et al., 2021) is the dominant adapter recipe: freeze the pretrained wei
 
 This notebook runs both recipes on the same MNIST → Fashion-MNIST cross-task adaptation so the recipe-level trade-offs are directly readable.
 
+Historical-output boundary: The committed outputs and repeated adaptation run IDs are a historical NNx 0.2.0 snapshot, not current NNx 0.2.2 acceptance evidence. Current execution keeps the full-fine-tune control unsalted and assigns stable `lora-adaptation` and `dora-adaptation` salts to the adapter runs so each experiment has a distinct history.
+
 ## 3. What's in the notebook
 
 > **Tip:** GitHub may show "Unable to render code block" on output cells with large matplotlib PNGs. [View this notebook on nbviewer](https://nbviewer.org/github/thekaveh/ml-eng-lab/blob/main/notebooks/peft-mnist-to-fmnist-dora-vs-lora-pytorch/notebook.ipynb) for full rendering.

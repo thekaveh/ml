@@ -90,6 +90,7 @@ SENSITIVE = (
     "https://user:password@packages.invalid/private?token=secret "
     "/Users/example/private/installer.log Traceback RuntimeError installer-output"
 )
+WARNING_SENSITIVE = f"{SENSITIVE}\ncredential=second-secret"
 
 
 def _write_manifests(repo: Path, replacements: dict[str, str] | None = None) -> None:
@@ -406,6 +407,34 @@ def test_each_runtime_canary_failure_is_fail_closed(fake_stack: FakeStack, faile
     assert SENSITIVE not in "".join(traceback.format_exception(caught.type, caught.value, caught.tb))
 
 
+def test_warning_only_canary_fails_at_its_direct_api_boundary(fake_stack: FakeStack) -> None:
+    def warning_canary(modules):
+        warn(WARNING_SENSITIVE)
+
+    assert "https://" in WARNING_SENSITIVE
+    assert "user:password" in WARNING_SENSITIVE
+    assert "/Users/" in WARNING_SENSITIVE
+    assert "\n" in WARNING_SENSITIVE
+    fake_stack.hooks = dataclasses.replace(
+        fake_stack.hooks,
+        canaries=dataclasses.replace(fake_stack.hooks.canaries, cluster=warning_canary),
+    )
+
+    with warnings.catch_warnings(record=True) as escaped:
+        warnings.simplefilter("always")
+        with pytest.raises(
+            TorchStackVerificationError,
+            match=r"^torch stack verification failed: cluster: operator$",
+        ) as caught:
+            verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
+
+    diagnostic = "".join(traceback.format_exception(caught.type, caught.value, caught.tb))
+    assert escaped == []
+    assert fake_stack.calls == ["scatter", "sparse"]
+    for sensitive in ("user:password", "packages.invalid", "/Users/example/private", "second-secret"):
+        assert sensitive not in diagnostic
+
+
 def test_pytest_skip_from_a_canary_is_a_verification_failure(fake_stack: FakeStack) -> None:
     def skip(modules):
         pytest.skip(SENSITIVE)
@@ -429,13 +458,44 @@ def test_nnx_delegation_cannot_skip_or_warn_and_continue(fake_stack: FakeStack) 
 
     fake_stack.hooks = dataclasses.replace(fake_stack.hooks, nnx_verify=skip_nnx)
 
-    with pytest.warns(UserWarning), pytest.raises(
-        TorchStackVerificationError,
-        match=r"^torch stack verification failed: nnx: nnx$",
-    ):
-        verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
+    with warnings.catch_warnings(record=True) as escaped:
+        warnings.simplefilter("always")
+        with pytest.raises(
+            TorchStackVerificationError,
+            match=r"^torch stack verification failed: nnx: nnx$",
+        ) as caught:
+            verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
 
+    assert escaped == []
     assert fake_stack.calls == ["scatter", "sparse", "cluster", "sampler", "spline"]
+    assert SENSITIVE not in "".join(traceback.format_exception(caught.type, caught.value, caught.tb))
+
+
+def test_warning_only_nnx_fails_at_its_direct_api_boundary(fake_stack: FakeStack) -> None:
+    def warning_nnx():
+        warn(WARNING_SENSITIVE)
+        fake_stack.calls.append("nnx")
+        return NnxInstallEvidence("canonical-wheel", "thekaveh-nnx", "0.2.0")
+
+    assert "https://" in WARNING_SENSITIVE
+    assert "user:password" in WARNING_SENSITIVE
+    assert "/Users/" in WARNING_SENSITIVE
+    assert "\n" in WARNING_SENSITIVE
+    fake_stack.hooks = dataclasses.replace(fake_stack.hooks, nnx_verify=warning_nnx)
+
+    with warnings.catch_warnings(record=True) as escaped:
+        warnings.simplefilter("always")
+        with pytest.raises(
+            TorchStackVerificationError,
+            match=r"^torch stack verification failed: nnx: nnx$",
+        ) as caught:
+            verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
+
+    diagnostic = "".join(traceback.format_exception(caught.type, caught.value, caught.tb))
+    assert escaped == []
+    assert fake_stack.calls == ["scatter", "sparse", "cluster", "sampler", "spline", "nnx"]
+    for sensitive in ("user:password", "packages.invalid", "/Users/example/private", "second-secret"):
+        assert sensitive not in diagnostic
 
 
 def test_environment_variables_cannot_bypass_canaries_or_nnx(fake_stack: FakeStack, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -890,11 +950,14 @@ def test_verifier_module_has_no_environment_or_pytest_bypass() -> None:
 def test_source_mutations_cannot_omit_a_canary_or_nnx(tmp_path: Path, omitted: str) -> None:
     source = (REPO_ROOT / "scripts" / "verify_torch_stack.py").read_text(encoding="utf-8")
     if omitted == "nnx":
-        original = "        hooks.nnx_verify()"
-        replacement = "        object()"
+        original = '    _run_warning_free("nnx", "nnx", hooks.nnx_verify)'
+        replacement = "    object()"
     else:
-        original = "            canary(modules)"
-        replacement = f'            if name != "{omitted}":\n                canary(modules)'
+        original = "        _run_warning_free(name, category, canary, modules)"
+        replacement = (
+            f'        if name != "{omitted}":\n'
+            "            _run_warning_free(name, category, canary, modules)"
+        )
     mutated = source.replace(original, replacement, 1)
     assert mutated != source
     module_path = tmp_path / f"mutated_verify_torch_stack_{omitted}.py"

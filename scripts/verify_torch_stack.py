@@ -500,6 +500,23 @@ DEFAULT_HOOKS = VerificationHooks(
 )
 
 
+def _run_warning_free(
+    component: str,
+    category: str,
+    operation: Callable[..., object],
+    *args: object,
+) -> object:
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = operation(*args)
+    except BaseException:
+        raise TorchStackVerificationError(component, category) from None
+    if caught:
+        raise TorchStackVerificationError(component, category) from None
+    return result
+
+
 def verify_torch_stack(
     repo: Path = REPO_ROOT,
     hooks: VerificationHooks = DEFAULT_HOOKS,
@@ -538,10 +555,7 @@ def verify_torch_stack(
         ("spline", "operator"),
     )
     for (name, category), canary in zip(names_and_categories, dataclasses.astuple(hooks.canaries), strict=True):
-        try:
-            canary(modules)
-        except BaseException:
-            raise TorchStackVerificationError(name, category) from None
+        _run_warning_free(name, category, canary, modules)
     try:
         torch_version = Version(str(modules["torch"].__version__))
         torch_pin = next(pin for pin in contract.pins if pin.distribution == "torch")
@@ -558,10 +572,7 @@ def verify_torch_stack(
         raise
     except BaseException:
         raise TorchStackVerificationError("torch", "metadata") from None
-    try:
-        hooks.nnx_verify()
-    except BaseException:
-        raise TorchStackVerificationError("nnx", "nnx") from None
+    _run_warning_free("nnx", "nnx", hooks.nnx_verify)
     return evidence
 
 

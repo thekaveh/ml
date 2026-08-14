@@ -786,16 +786,6 @@ def test_real_torch_audit_projection_is_the_selector_free_runtime_mirror() -> No
             runtime.read_text(encoding="utf-8") + f"{PYG_FIND_LINKS}\n",
             encoding="utf-8",
         ),
-        lambda runtime, audit: (
-            runtime.write_text(
-                runtime.read_text(encoding="utf-8").replace("-r torch-core-requirements.txt\n", ""),
-                encoding="utf-8",
-            ),
-            audit.write_text(
-                audit.read_text(encoding="utf-8").replace("-r torch-core-requirements.txt\n", ""),
-                encoding="utf-8",
-            ),
-        ),
     ],
     ids=(
         "missing-pin",
@@ -807,12 +797,30 @@ def test_real_torch_audit_projection_is_the_selector_free_runtime_mirror() -> No
         "missing-selector",
         "changed-selector",
         "duplicate-selector",
-        "synchronized-missing-core-include",
     ),
 )
 def test_audit_rejects_torch_projection_drift_before_running_audit(tmp_path: Path, mutation) -> None:
     runtime, audit, _ = _write_torch_requirements(tmp_path)
     mutation(runtime, audit)
+    _, runner = _audit_runner()
+
+    with pytest.raises(AdvisoryBaselineError, match="torch audit projection"):
+        run_audit_surfaces(tmp_path, runner=runner)
+
+
+def test_audit_rejects_synchronized_missing_ecosystem_include_before_running_audit(
+    tmp_path: Path,
+) -> None:
+    runtime, audit, _ = _write_torch_requirements(tmp_path)
+    original_runtime = runtime.read_text(encoding="utf-8")
+    original_audit = audit.read_text(encoding="utf-8")
+    mutated_runtime = original_runtime.replace("-r torch-ecosystem-requirements.txt\n", "", 1)
+    mutated_audit = original_audit.replace("-r torch-ecosystem-requirements.txt\n", "", 1)
+
+    assert mutated_runtime != original_runtime
+    assert mutated_audit != original_audit
+    runtime.write_text(mutated_runtime, encoding="utf-8")
+    audit.write_text(mutated_audit, encoding="utf-8")
     _, runner = _audit_runner()
 
     with pytest.raises(AdvisoryBaselineError, match="torch audit projection"):

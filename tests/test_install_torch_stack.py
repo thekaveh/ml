@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -78,6 +79,7 @@ def test_linux_and_darwin_command_plans_are_exact() -> None:
     darwin = build_install_commands(sys.executable, "Darwin", "arm64")
 
     assert tuple(command.stage for command in linux) == tuple(InstallStage)
+    assert linux[0].argv == (sys.executable, "-m", "pip", "install", "--upgrade", "pip")
     assert linux[1].argv == LINUX_CORE
     assert darwin[1].argv == tuple(
         token
@@ -132,21 +134,49 @@ def test_installer_stops_on_nonzero_with_a_redacted_stable_error() -> None:
     assert secret not in str(error.value)
 
 
-@pytest.mark.parametrize(
-    "replacement",
-    (
-        "--only-binary=:all:",
-        "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster,torch-spline-conv",
-        "--only-binary=pyg-lib,torch-scatter,torch-sparse",
-    ),
-)
-def test_runtime_wheel_policy_is_not_broadened_or_weakened(replacement: str) -> None:
-    command = build_install_commands(sys.executable, "Linux", "x86_64")[2]
+def _runtime_argv_from_installer_source(tmp_path: Path, source: str) -> tuple[str, ...]:
+    installer = tmp_path / "mutated_install_torch_stack.py"
+    installer.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("mutated_install_torch_stack", installer)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module.build_install_commands(sys.executable, "Linux", "x86_64")[2].argv
 
-    assert command.argv[4] == "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster"
-    assert replacement != command.argv[4]
-    assert "--no-binary=torch-spline-conv" in command.argv
-    assert "--no-build-isolation" in command.argv
+
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    (
+        (
+            "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster",
+            "--only-binary=:all:",
+        ),
+        (
+            "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster",
+            "--only-binary=pyg-lib,torch-scatter,torch-sparse",
+        ),
+        (
+            "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster",
+            "--only-binary=pyg-lib,torch-scatter,torch-sparse,torch-cluster,torch-spline-conv",
+        ),
+        ('                "--no-binary=torch-spline-conv",\n', ""),
+        ('                "--no-build-isolation",\n', ""),
+    ),
+    ids=("broad", "omitted-wheel", "spline-wheel", "spline-source-removed", "build-isolation-removed"),
+)
+def test_runtime_policy_source_mutations_fail_the_exact_command_contract(
+    tmp_path: Path, original: str, replacement: str
+) -> None:
+    source = (REPO_ROOT / "scripts" / "install_torch_stack.py").read_text(encoding="utf-8")
+    assert _runtime_argv_from_installer_source(tmp_path, source) == RUNTIME
+
+    assert original in source
+    mutated = source.replace(original, replacement, 1)
+    assert mutated != source
+
+    with pytest.raises(AssertionError):
+        assert _runtime_argv_from_installer_source(tmp_path, mutated) == RUNTIME
 
 
 def test_root_stage_is_last_and_binary_only_for_nnx() -> None:

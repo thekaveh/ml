@@ -183,14 +183,23 @@ c1317797fa4bed5c51d702a225f4320166119092e70169d460b76c61b0e5c42b  scripts/verify
 Task 2.1 must not edit, stage, or commit those files. Its focused unit gates use only
 `tests/test_verify_torch_stack_platform.py`; its clean-environment acceptance executes the preserved
 consumer/JUnit files without changing them. Task 3 resumes and commits all seven only after the
-corrected clean matrix passes. At every Task 2.1 preservation gate run:
+corrected clean matrix passes. The corresponding immutable HEAD-byte hashes for the five tracked WIP
+paths are:
 
-```bash
-shasum -a 256 tests/nnx_surface/conftest.py tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_makefile_contract.py tests/test_verify_torch_stack.py scripts/verify_junit.py tests/test_verify_junit.py
-git diff --cached --name-only
+```text
+0649d1efc2f30efcac32380b8a882747dc05d7594851bccb530a60477637d3cf  tests/nnx_surface/conftest.py
+83efa9e6fcb5ce450627b07da992188e686219bec43974ba11941b518046492e  tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py
+5a56de1adf69689ebdb8269af9796de226764d9b1b01182e45e443df70ee2a36  tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py
+b63db26ddc652678867e6ea89c508314c078f488cec5ad772846f5b862a24d75  tests/test_makefile_contract.py
+6b11c7c4df34a3d41fdb145619fb6b489b70462ec4723f360546dbc315fccd78  tests/test_verify_torch_stack.py
 ```
 
-Expected: all seven hashes equal the block above and none of those paths appears in the staged list.
+At every Task 2.1 preservation boundary use the complete portable Python oracle reproduced in that
+step. It parses scoped NUL-delimited porcelain without depending on output order, requires exact
+` M` for those five tracked files and exact `??` for the two JUnit files, checks all seven worktree
+hashes and all five HEAD-byte hashes, proves both JUnit paths absent from HEAD, and requires the
+complete index to be empty. Any committed byte, staged byte, rename, deletion, type change, clean
+path, extra scoped status, or hash drift stops Task 2.1.
 
 ---
 
@@ -885,13 +894,75 @@ Expected: all seven hashes equal the block above and none of those paths appears
 
 - [ ] **Step 1: Revalidate the seven-file preservation boundary before RED**
 
+  Run this portable, ordering-independent boundary oracle. It scopes porcelain parsing to the seven
+  preserved paths because Task 2.1's two owned paths may be dirty between RED and commit, but it
+  requires the complete repository index to be empty:
+
   ```bash
-  shasum -a 256 tests/nnx_surface/conftest.py tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_makefile_contract.py tests/test_verify_torch_stack.py scripts/verify_junit.py tests/test_verify_junit.py
-  git diff --cached --name-only
+  python - <<'PY'
+  import hashlib
+  import subprocess
+  from pathlib import Path
+
+  expected_hashes = {
+      "tests/nnx_surface/conftest.py": "2a79d47551b294205c799abbcca74020cb344d7a6fd849de34f49fcd0efa769b",
+      "tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py": "5404739e06297d275bbd17f88482d9439be798182dd2b87c675b0239c654b75c",
+      "tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py": "9895e01ae9d6844c1c78cc55a87b363b21ca198fddd3ba261ddd0122aae41214",
+      "tests/test_makefile_contract.py": "57a40818f5ce6832540050a8bbba5898540cb542f0acad3a0afbdcf3bbefa5d9",
+      "tests/test_verify_torch_stack.py": "203a940b20bbd9c51b2e4e647c710cae6ef920b2774455b6272521c2983ce91a",
+      "scripts/verify_junit.py": "c1317797fa4bed5c51d702a225f4320166119092e70169d460b76c61b0e5c42b",
+      "tests/test_verify_junit.py": "311639a91891daa15603fd82ae655ebdea67315bff77bacdc5e78b6ff3c751d9",
+  }
+  expected_head_hashes = {
+      "tests/nnx_surface/conftest.py": "0649d1efc2f30efcac32380b8a882747dc05d7594851bccb530a60477637d3cf",
+      "tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py": "83efa9e6fcb5ce450627b07da992188e686219bec43974ba11941b518046492e",
+      "tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py": "5a56de1adf69689ebdb8269af9796de226764d9b1b01182e45e443df70ee2a36",
+      "tests/test_makefile_contract.py": "b63db26ddc652678867e6ea89c508314c078f488cec5ad772846f5b862a24d75",
+      "tests/test_verify_torch_stack.py": "6b11c7c4df34a3d41fdb145619fb6b489b70462ec4723f360546dbc315fccd78",
+  }
+  expected_status = {
+      path: ("??" if path in {"scripts/verify_junit.py", "tests/test_verify_junit.py"} else " M")
+      for path in expected_hashes
+  }
+  raw = subprocess.check_output([
+      "git", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--",
+      *expected_hashes,
+  ])
+  actual_status: dict[str, str] = {}
+  for record in raw.split(b"\0"):
+      if not record:
+          continue
+      assert len(record) >= 4 and record[2:3] == b" ", record
+      status = record[:2].decode("ascii")
+      path = record[3:].decode("utf-8")
+      assert path in expected_status and path not in actual_status, (status, path)
+      actual_status[path] = status
+  assert actual_status == expected_status, actual_status
+  assert subprocess.check_output(
+      ["git", "diff", "--cached", "--name-only"], text=True,
+  ) == ""
+  for path, expected_hash in expected_hashes.items():
+      assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected_hash, path
+      if path in expected_head_hashes:
+          head_bytes = subprocess.check_output(["git", "show", f"HEAD:{path}"])
+          assert hashlib.sha256(head_bytes).hexdigest() == expected_head_hashes[path], path
+      else:
+          assert subprocess.run(
+              ["git", "cat-file", "-e", f"HEAD:{path}"],
+              check=False,
+              stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL,
+          ).returncode != 0, path
+  print("Task 3 WIP boundary ok: five tracked modifications, two untracked JUnit paths, empty index")
+  PY
   ```
 
-  Expected: the seven hashes exactly match 12.22.3 and the staged list is empty. If any hash differs,
-  stop and reconcile it against
+  Expected: scoped porcelain is exactly five ` M` entries and two `??` entries regardless of output
+  order; the seven worktree hashes and five recorded HEAD hashes exactly match 12.22.3; neither JUnit
+  path exists in HEAD; and the complete index is empty. A staged, partially or fully committed,
+  renamed, deleted, type-changed, clean, or otherwise different WIP status or HEAD byte fails. If any
+  assertion fails, stop and
+  reconcile it against
   `.superpowers/sdd/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan/task-3-final-report.md`;
   do not restore, edit, or stage the file from Task 2.1.
 
@@ -918,6 +989,7 @@ Expected: all seven hashes equal the block above and none of those paths appears
       category: type[Warning]
       message: str
       filename: Path
+      lineno: int
 
   class TorchScriptDeprecationSubclass(DeprecationWarning):
       pass
@@ -931,12 +1003,13 @@ Expected: all seven hashes equal the block above and none of those paths appears
       )
       return Path(owned.locate()).resolve(strict=True)
 
-  def _exact_warning(stack: PlatformStack) -> ImportWarningSpec:
+  def _exact_warning(stack: PlatformStack, *, lineno: int = 73) -> ImportWarningSpec:
       return ImportWarningSpec(
           DeprecationWarning,
           "`torch.jit.script` is deprecated. Please switch to "
           "`torch.compile` or `torch.export`.",
           _torch_warning_path(stack),
+          lineno,
       )
 
   # Methods added to PlatformStack:
@@ -954,7 +1027,7 @@ Expected: all seven hashes equal the block above and none of those paths appears
               record.message,
               record.category,
               filename=str(record.filename),
-              lineno=73,
+              lineno=record.lineno,
           )
       return module
   ```
@@ -975,8 +1048,25 @@ Expected: all seven hashes equal the block above and none of those paths appears
 
   Then parameterize `torch-geometric` and `torch-sparse` with one, two, and nineteen identical
   records. Require `verify_torch_stack` to return normal `StackEvidence` for every count. Assert no
-  test pins `WarningMessage.lineno`, and vary the fixture line between 1 and 10,000 in a separate
-  passing test.
+  production predicate pins `WarningMessage.lineno`; add this exact passing test and source guard:
+
+  ```python
+  @pytest.mark.parametrize("lineno", (1, 73, 10_000))
+  def test_exact_warning_line_number_is_not_part_of_the_predicate(
+      tmp_path: Path,
+      lineno: int,
+  ) -> None:
+      stack = PlatformStack(tmp_path, "Darwin", "arm64")
+      stack.warn_on_import("torch-geometric", _exact_warning(stack, lineno=lineno))
+      assert verify_torch_stack(repo=REPO_ROOT, hooks=stack.hooks).backend == "pyg-lib"
+
+  def test_production_warning_predicate_does_not_read_lineno() -> None:
+      source = (REPO_ROOT / "scripts/verify_torch_stack.py").read_text(encoding="utf-8")
+      validator = source.split("def _validate_import_warning_group(", 1)[1].split(
+          "def _import_with_selected_warning_boundary(", 1,
+      )[0]
+      assert ".lineno" not in validator
+  ```
 
 - [ ] **Step 3: Add RED near-miss, mixed-group, and version-key tests**
 
@@ -1036,6 +1126,47 @@ Expected: all seven hashes equal the block above and none of those paths appears
   keeping warning records exact. Call `_validate_import_warning_group` directly with those fake
   distributions so manifest-derived expected versions cannot cause the result; each mutation must
   fail its immutable key with `<outer>: abi`.
+
+  Separately prove the complete verifier rejects public-version-preserving foreign local versions
+  before it reaches the affected import. This prevents the public-only debt validator from becoming
+  a provenance or debt-retirement oracle:
+
+  ```python
+  @pytest.mark.parametrize(
+      ("component", "version"),
+      (
+          ("torch", "2.11.0+cpu"),
+          ("torch", "2.11.1"),
+          ("torch-geometric", "2.8.0.post1+foreign"),
+          ("torch-geometric", "2.8.1"),
+          ("torch-sparse", "0.6.18+pt211cpu"),
+          ("torch-sparse", "0.6.19+pt211"),
+      ),
+      ids=(
+          "torch-foreign-local", "torch-wrong-public",
+          "geometric-foreign-local", "geometric-wrong-public",
+          "sparse-foreign-local", "sparse-wrong-public",
+      ),
+  )
+  def test_full_verifier_rejects_foreign_version_before_debt_probe(
+      tmp_path: Path,
+      component: str,
+      version: str,
+  ) -> None:
+      stack = PlatformStack(tmp_path, "Darwin", "arm64")
+      stack.version(component, version)
+      stack.warn_on_import(component, _exact_warning(stack))
+      with pytest.raises(
+          TorchStackVerificationError,
+          match=rf"^torch stack verification failed: {component}: (metadata|abi)$",
+      ):
+          verify_torch_stack(repo=REPO_ROOT, hooks=stack.hooks)
+      assert IMPORTS[component] not in stack.import_calls
+  ```
+
+  Initialize `self.import_calls: list[str] = []` in `PlatformStack` and append `import_name` as the
+  first line of `_import_module`. The test's absence assertion proves local-version, public-version,
+  wheel/provenance gates run before the warning boundary for the affected component.
 
 - [ ] **Step 4: Add RED fail-closed Torch-origin inventory tests**
 
@@ -1290,13 +1421,68 @@ Expected: all seven hashes equal the block above and none of those paths appears
   ruff check scripts/verify_torch_stack.py tests/test_verify_torch_stack_platform.py
   python -m py_compile scripts/verify_torch_stack.py tests/test_verify_torch_stack_platform.py
   git diff --check
-  shasum -a 256 tests/nnx_surface/conftest.py tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_makefile_contract.py tests/test_verify_torch_stack.py scripts/verify_junit.py tests/test_verify_junit.py
-  git diff --cached --name-only
+  python - <<'PY'
+  import hashlib
+  import subprocess
+  from pathlib import Path
+
+  expected_hashes = {
+      "tests/nnx_surface/conftest.py": "2a79d47551b294205c799abbcca74020cb344d7a6fd849de34f49fcd0efa769b",
+      "tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py": "5404739e06297d275bbd17f88482d9439be798182dd2b87c675b0239c654b75c",
+      "tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py": "9895e01ae9d6844c1c78cc55a87b363b21ca198fddd3ba261ddd0122aae41214",
+      "tests/test_makefile_contract.py": "57a40818f5ce6832540050a8bbba5898540cb542f0acad3a0afbdcf3bbefa5d9",
+      "tests/test_verify_torch_stack.py": "203a940b20bbd9c51b2e4e647c710cae6ef920b2774455b6272521c2983ce91a",
+      "scripts/verify_junit.py": "c1317797fa4bed5c51d702a225f4320166119092e70169d460b76c61b0e5c42b",
+      "tests/test_verify_junit.py": "311639a91891daa15603fd82ae655ebdea67315bff77bacdc5e78b6ff3c751d9",
+  }
+  expected_head_hashes = {
+      "tests/nnx_surface/conftest.py": "0649d1efc2f30efcac32380b8a882747dc05d7594851bccb530a60477637d3cf",
+      "tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py": "83efa9e6fcb5ce450627b07da992188e686219bec43974ba11941b518046492e",
+      "tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py": "5a56de1adf69689ebdb8269af9796de226764d9b1b01182e45e443df70ee2a36",
+      "tests/test_makefile_contract.py": "b63db26ddc652678867e6ea89c508314c078f488cec5ad772846f5b862a24d75",
+      "tests/test_verify_torch_stack.py": "6b11c7c4df34a3d41fdb145619fb6b489b70462ec4723f360546dbc315fccd78",
+  }
+  expected_status = {
+      path: ("??" if path in {"scripts/verify_junit.py", "tests/test_verify_junit.py"} else " M")
+      for path in expected_hashes
+  }
+  raw = subprocess.check_output([
+      "git", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--",
+      *expected_hashes,
+  ])
+  actual_status: dict[str, str] = {}
+  for record in raw.split(b"\0"):
+      if not record:
+          continue
+      assert len(record) >= 4 and record[2:3] == b" ", record
+      status = record[:2].decode("ascii")
+      path = record[3:].decode("utf-8")
+      assert path in expected_status and path not in actual_status, (status, path)
+      actual_status[path] = status
+  assert actual_status == expected_status, actual_status
+  assert subprocess.check_output(
+      ["git", "diff", "--cached", "--name-only"], text=True,
+  ) == ""
+  for path, expected_hash in expected_hashes.items():
+      assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected_hash, path
+      if path in expected_head_hashes:
+          head_bytes = subprocess.check_output(["git", "show", f"HEAD:{path}"])
+          assert hashlib.sha256(head_bytes).hexdigest() == expected_head_hashes[path], path
+      else:
+          assert subprocess.run(
+              ["git", "cat-file", "-e", f"HEAD:{path}"],
+              check=False,
+              stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL,
+          ).returncode != 0, path
+  print("Task 3 WIP boundary ok before Task 2.1 staging")
+  PY
   ```
 
   Expected: both pytest commands pass, every listed mutation is killed, Ruff and compilation exit 0,
-  the seven hashes still match 12.22.3, and the index remains empty. The existing intentional Task 3
-  WIP is not a failure of this focused gate.
+  the seven worktree hashes, exact statuses, five HEAD hashes, and two HEAD absences still match
+  12.22.3, and the complete index remains empty.
+  The existing intentional Task 3 WIP is not a failure of this focused gate.
 
 - [ ] **Step 10: Commit only the reviewed Task 2.1 ownership**
 
@@ -1305,16 +1491,76 @@ Expected: all seven hashes equal the block above and none of those paths appears
   git diff --cached --name-only
   git diff --cached --check
   git commit -m "fix: bound selected Torch import warnings"
+  python - <<'PY'
+  import hashlib
+  import subprocess
+  from pathlib import Path
+
+  expected_hashes = {
+      "tests/nnx_surface/conftest.py": "2a79d47551b294205c799abbcca74020cb344d7a6fd849de34f49fcd0efa769b",
+      "tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py": "5404739e06297d275bbd17f88482d9439be798182dd2b87c675b0239c654b75c",
+      "tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py": "9895e01ae9d6844c1c78cc55a87b363b21ca198fddd3ba261ddd0122aae41214",
+      "tests/test_makefile_contract.py": "57a40818f5ce6832540050a8bbba5898540cb542f0acad3a0afbdcf3bbefa5d9",
+      "tests/test_verify_torch_stack.py": "203a940b20bbd9c51b2e4e647c710cae6ef920b2774455b6272521c2983ce91a",
+      "scripts/verify_junit.py": "c1317797fa4bed5c51d702a225f4320166119092e70169d460b76c61b0e5c42b",
+      "tests/test_verify_junit.py": "311639a91891daa15603fd82ae655ebdea67315bff77bacdc5e78b6ff3c751d9",
+  }
+  expected_head_hashes = {
+      "tests/nnx_surface/conftest.py": "0649d1efc2f30efcac32380b8a882747dc05d7594851bccb530a60477637d3cf",
+      "tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py": "83efa9e6fcb5ce450627b07da992188e686219bec43974ba11941b518046492e",
+      "tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py": "5a56de1adf69689ebdb8269af9796de226764d9b1b01182e45e443df70ee2a36",
+      "tests/test_makefile_contract.py": "b63db26ddc652678867e6ea89c508314c078f488cec5ad772846f5b862a24d75",
+      "tests/test_verify_torch_stack.py": "6b11c7c4df34a3d41fdb145619fb6b489b70462ec4723f360546dbc315fccd78",
+  }
+  expected_status = {
+      path: ("??" if path in {"scripts/verify_junit.py", "tests/test_verify_junit.py"} else " M")
+      for path in expected_hashes
+  }
+  raw = subprocess.check_output([
+      "git", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--",
+      *expected_hashes,
+  ])
+  actual_status: dict[str, str] = {}
+  for record in raw.split(b"\0"):
+      if not record:
+          continue
+      assert len(record) >= 4 and record[2:3] == b" ", record
+      status = record[:2].decode("ascii")
+      path = record[3:].decode("utf-8")
+      assert path in expected_status and path not in actual_status, (status, path)
+      actual_status[path] = status
+  assert actual_status == expected_status, actual_status
+  assert subprocess.check_output(
+      ["git", "diff", "--cached", "--name-only"], text=True,
+  ) == ""
+  for path, expected_hash in expected_hashes.items():
+      assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected_hash, path
+      if path in expected_head_hashes:
+          head_bytes = subprocess.check_output(["git", "show", f"HEAD:{path}"])
+          assert hashlib.sha256(head_bytes).hexdigest() == expected_head_hashes[path], path
+      else:
+          assert subprocess.run(
+              ["git", "cat-file", "-e", f"HEAD:{path}"],
+              check=False,
+              stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL,
+          ).returncode != 0, path
+  print("Task 3 WIP boundary ok after Task 2.1 commit")
+  PY
   ```
 
   Expected staged paths are exactly the two paths in `git add`; commit subject is exactly
-  `fix: bound selected Torch import warnings`. Immediately rerun the seven hashes and require
-  `git diff --cached --name-only` to be empty. Review the commit independently before Task 3 resumes.
+  `fix: bound selected Torch import warnings`. The post-commit boundary requires exact five-modified/
+  two-untracked porcelain, seven worktree hashes, five exact HEAD hashes, two HEAD absences, and an
+  empty complete index. Review the
+  commit independently before Task 3 resumes.
 
 - [ ] **Step 11: Revalidate r4 or create r5, prove the real boundary, then hand back to Task 3**
 
   Existing r4 may be reused only if every command in this preflight succeeds at the current Task 2.1
-  HEAD. Run it in a fresh shell so an earlier modified `PATH` cannot select another environment:
+  HEAD. Run it in a fresh shell so an earlier modified `PATH` cannot select another environment.
+  This public-version inventory is only an early rejection gate; it cannot qualify warning debt or
+  decide retirement:
 
   ```bash
   export TASK21_SHA=$(git rev-parse HEAD)
@@ -1346,6 +1592,7 @@ Expected: all seven hashes equal the block above and none of those paths appears
       assert len(wheels) == len(records) == 1 and wheels[0].parent == records[0].parent
   PY
   python -m pip check
+  test "$(git rev-parse HEAD)" = "$TASK21_SHA"
   ```
 
   If any r4 preflight command fails, do not continue in r4. Open a fresh shell and create r5 exactly:
@@ -1359,11 +1606,25 @@ Expected: all seven hashes equal the block above and none of those paths appears
   export MPLCONFIGDIR="$FOCUS_ROOT/matplotlib"
   make install-torch-stack
   python -m pip check
+  test "$(git rev-parse HEAD)" = "$TASK21_SHA"
   ```
 
-  In the selected clean environment, run a fresh-interpreter debt probe before any PyG import. It
-  deliberately uses `-W error` globally and one local `always` capture at the approved boundary;
-  it introduces no ignore filter:
+  Before any debt probe, qualify the selected r4/r5 with the complete production oracle in its own
+  process. This is mandatory even after the public-version preflight: it proves exact local versions,
+  WHEEL ABI/platform tags, RECORD ownership and import ownership, CPU/NVIDIA constraints, canaries,
+  and every other `make verify-torch-stack` invariant. A foreign local build such as
+  `2.8.0.post1+foreign` must fail here before its matching public version can reach the warning probe:
+
+  ```bash
+  test "$(git rev-parse HEAD)" = "$TASK21_SHA"
+  test "$(python -c 'import sys; print(sys.prefix)')" = "$FOCUS_ROOT/venv"
+  make verify-torch-stack
+  test "$(git rev-parse HEAD)" = "$TASK21_SHA"
+  ```
+
+  Only after that full verifier succeeds, run this separate fresh-interpreter debt probe before any
+  PyG import. It deliberately uses `-W error` globally and one local `always` capture at the approved
+  boundary; it introduces no ignore filter:
 
   ```bash
   python -W error - <<'PY'
@@ -1400,10 +1661,10 @@ Expected: all seven hashes equal the block above and none of those paths appears
   Stop, remove `_IMPORT_WARNING_DEBT_KEYS` and all debt-specific machinery in a reviewed RED-GREEN
   correction, then rerun from a new clean environment. Never infer retirement from a cached import.
 
-  Continue with the unchanged strict gates:
+  Continue with the unchanged strict sampler, NNx, and focused gates. The full stack verifier above
+  is deliberately not folded into the probe process:
 
   ```bash
-  make verify-torch-stack
   python -W error - <<'PY'
   import importlib
 
@@ -1421,14 +1682,71 @@ Expected: all seven hashes equal the block above and none of those paths appears
   pytest -p no:cacheprovider -W error --junitxml="$FOCUS_ROOT/focused.xml" tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_makefile_contract.py -q
   python -m scripts.verify_junit "$FOCUS_ROOT/focused.xml"
   test "$(git rev-parse HEAD)" = "$TASK21_SHA"
-  shasum -a 256 tests/nnx_surface/conftest.py tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_makefile_contract.py tests/test_verify_torch_stack.py scripts/verify_junit.py tests/test_verify_junit.py
+  python - <<'PY'
+  import hashlib
+  import subprocess
+  from pathlib import Path
+
+  expected_hashes = {
+      "tests/nnx_surface/conftest.py": "2a79d47551b294205c799abbcca74020cb344d7a6fd849de34f49fcd0efa769b",
+      "tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py": "5404739e06297d275bbd17f88482d9439be798182dd2b87c675b0239c654b75c",
+      "tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py": "9895e01ae9d6844c1c78cc55a87b363b21ca198fddd3ba261ddd0122aae41214",
+      "tests/test_makefile_contract.py": "57a40818f5ce6832540050a8bbba5898540cb542f0acad3a0afbdcf3bbefa5d9",
+      "tests/test_verify_torch_stack.py": "203a940b20bbd9c51b2e4e647c710cae6ef920b2774455b6272521c2983ce91a",
+      "scripts/verify_junit.py": "c1317797fa4bed5c51d702a225f4320166119092e70169d460b76c61b0e5c42b",
+      "tests/test_verify_junit.py": "311639a91891daa15603fd82ae655ebdea67315bff77bacdc5e78b6ff3c751d9",
+  }
+  expected_head_hashes = {
+      "tests/nnx_surface/conftest.py": "0649d1efc2f30efcac32380b8a882747dc05d7594851bccb530a60477637d3cf",
+      "tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py": "83efa9e6fcb5ce450627b07da992188e686219bec43974ba11941b518046492e",
+      "tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py": "5a56de1adf69689ebdb8269af9796de226764d9b1b01182e45e443df70ee2a36",
+      "tests/test_makefile_contract.py": "b63db26ddc652678867e6ea89c508314c078f488cec5ad772846f5b862a24d75",
+      "tests/test_verify_torch_stack.py": "6b11c7c4df34a3d41fdb145619fb6b489b70462ec4723f360546dbc315fccd78",
+  }
+  expected_status = {
+      path: ("??" if path in {"scripts/verify_junit.py", "tests/test_verify_junit.py"} else " M")
+      for path in expected_hashes
+  }
+  raw = subprocess.check_output([
+      "git", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--",
+      *expected_hashes,
+  ])
+  actual_status: dict[str, str] = {}
+  for record in raw.split(b"\0"):
+      if not record:
+          continue
+      assert len(record) >= 4 and record[2:3] == b" ", record
+      status = record[:2].decode("ascii")
+      path = record[3:].decode("utf-8")
+      assert path in expected_status and path not in actual_status, (status, path)
+      actual_status[path] = status
+  assert actual_status == expected_status, actual_status
+  assert subprocess.check_output(
+      ["git", "diff", "--cached", "--name-only"], text=True,
+  ) == ""
+  for path, expected_hash in expected_hashes.items():
+      assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected_hash, path
+      if path in expected_head_hashes:
+          head_bytes = subprocess.check_output(["git", "show", f"HEAD:{path}"])
+          assert hashlib.sha256(head_bytes).hexdigest() == expected_head_hashes[path], path
+      else:
+          assert subprocess.run(
+              ["git", "cat-file", "-e", f"HEAD:{path}"],
+              check=False,
+              stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL,
+          ).returncode != 0, path
+  print("Task 3 WIP boundary ok after Task 2.1 clean qualification")
+  PY
   ```
 
-  Expected: `make verify-torch-stack` succeeds while its unchanged CLI outer capture remains strict;
-  the fresh probe observes one or more exact records; both real sampler paths execute; focused graph,
-  quantization, verifier, platform, and Make tests run under `-W error`; JUnit reports a positive test
-  count and zero failures/errors/skips; current HEAD remains the reviewed Task 2.1 SHA; and all seven
-  Task 3 hashes still match. Then resume Task 3 in the order stated below.
+  Expected: the separate-process full verifier succeeds before the fresh probe while its unchanged CLI
+  outer capture remains strict; the probe observes one or more exact records; both real sampler paths
+  execute; focused graph, quantization, verifier, platform, and Make tests run under `-W error`; JUnit
+  reports a positive test count and zero failures/errors/skips; current HEAD remains the reviewed Task
+  2.1 SHA; and exact five-modified/two-untracked porcelain, seven worktree hashes, five HEAD hashes,
+  two HEAD absences, and the complete empty index still match. Then keep `FOCUS_ROOT`, `TASK21_SHA`, and this exact selected r4/r5
+  shell for Task 3 Step 6.
 
 ---
 
@@ -1456,11 +1774,14 @@ Expected: all seven hashes equal the block above and none of those paths appears
   `tests/test_verify_torch_stack_platform.py` remain owned by the reviewed Task 2.1 commit.
 
 **Resume brief after Task 2.1:** First complete Step 1's consumer/AST additions below without
-changing the already proved production/platform boundary. Then reuse only the r4/r5 environment
-that passed Task 2.1 Step 11, rerun Step 6's focused command and JUnit parser, and proceed directly
-through Steps 7-10: smoke-output RED, implementation, smoke/JUnit/mutation GREEN, and the exact Task
-3 commit. Do not recreate JUnit files, repeat completed graph/quantization edits, or stage anything
-until the focused clean gate is green.
+changing the already proved production/platform boundary. Then preserve and reuse exactly the
+Task 2.1-selected `FOCUS_ROOT` (r4 or r5) and reviewed `TASK21_SHA`; Step 6 reasserts interpreter
+prefix, platform, current HEAD, complete stack provenance, and a separate fresh positive probe before
+its focused command and JUnit parser. Never recreate/reinstall r4 from Task 2 HEAD. If the handoff is
+invalid, return to Task 2.1 Step 11; only a new r5 after the full provenance-plus-probe sequence may
+replace it. Then proceed directly through Steps 7-10: smoke-output RED, implementation,
+smoke/JUnit/mutation GREEN, and the exact Task 3 commit. Do not recreate JUnit files, repeat completed
+graph/quantization edits, or stage anything until the focused clean gate is green.
 
 - [ ] **Step 1: Reconcile the preserved verifier tests with Task 2's final boundary**
 
@@ -1786,24 +2107,68 @@ until the focused clean gate is green.
   `junit verification ok: tests=<N> failures=0 errors=0 skipped=0`, and returns 1 with the stable
   missing/invalid/schema/outcome category. Run the tests again; expected GREEN is all passing.
 
-- [ ] **Step 6: Prove graph and quantization GREEN in a brand-new environment**
+- [ ] **Step 6: Reuse the Task 2.1-qualified environment and prove focused GREEN**
 
-  Discard every r1-r3 environment. From a clean Task 2 HEAD create one new disposable environment and invoke the installer once:
+  Continue in the exact shell and selected r4-or-r5 environment that passed Task 2.1 Step 11. Do not
+  recreate r4, reinstall from Task 2 HEAD, or select a different interpreter. `FOCUS_ROOT` and
+  `TASK21_SHA` are handoff state, not values to recompute here:
 
   ```bash
-  FOCUS_ROOT=$(mktemp -d /private/tmp/ml-eng-lab-issue62-focus-r4.XXXXXX)
-  python3.11 -m venv "$FOCUS_ROOT/venv"
-  export PATH="$FOCUS_ROOT/venv/bin:$PATH"
-  export PIP_CACHE_DIR="$FOCUS_ROOT/pip-cache"
-  export MPLCONFIGDIR="$FOCUS_ROOT/matplotlib"
-  make install-torch-stack
+  test -n "${FOCUS_ROOT:-}"
+  test -n "${TASK21_SHA:-}"
+  case "$FOCUS_ROOT" in
+    /private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6|/private/tmp/ml-eng-lab-issue62-focus-r5.*) ;;
+    *) exit 1 ;;
+  esac
+  test "$(git rev-parse HEAD)" = "$TASK21_SHA"
+  test -x "$FOCUS_ROOT/venv/bin/python"
+  test "$(command -v python)" = "$FOCUS_ROOT/venv/bin/python"
+  test "$(python -c 'import sys; print(sys.prefix)')" = "$FOCUS_ROOT/venv"
+  test "$(python -c 'import platform; print(platform.system(), platform.machine())')" = "Darwin arm64"
+  test "$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = 3.11
   python -m pip check
   make verify-torch-stack
-  python - <<'PY'
+  test "$(git rev-parse HEAD)" = "$TASK21_SHA"
+  ```
+
+  The full verifier is a separate process and must pass again before this fresh positive probe. The
+  probe starts another interpreter, verifies neither PyG outer module is preloaded, and observes the
+  exact approved torch-geometric group under global `-W error`:
+
+  ```bash
+  python -W error - <<'PY'
+  import sys
+  from importlib import metadata
+
+  from scripts.verify_torch_stack import (
+      DEFAULT_HOOKS,
+      _capture_selected_import,
+      _validate_import_warning_group,
+  )
+
+  assert "torch_geometric" not in sys.modules
+  assert "torch_sparse" not in sys.modules
+  torch_distribution = metadata.distribution("torch")
+  outer_distribution = metadata.distribution("torch-geometric")
+  module, caught = _capture_selected_import("torch_geometric", DEFAULT_HOOKS)
+  evidence = _validate_import_warning_group(
+      torch_distribution=torch_distribution,
+      outer_component="torch-geometric",
+      outer_distribution=outer_distribution,
+      caught=caught,
+  )
+  assert module.__name__ == "torch_geometric"
+  assert evidence.count == len(caught) and evidence.count >= 1
+  assert evidence.torch_public_version == "2.11.0"
+  assert evidence.outer_public_version == "2.8.0.post1"
+  print(f"exact torch-geometric import warning debt observed: count={evidence.count}")
+  PY
+  python -W error - <<'PY'
   import importlib
 
-  from scripts.verify_torch_stack import IMPORTS, _sampler_canary
+  from scripts.verify_torch_stack import IMPORTS, _sampler_canary, verify_torch_stack
 
+  verify_torch_stack()
   modules = {
       name: importlib.import_module(import_name)
       for name, import_name in IMPORTS.items()
@@ -1814,12 +2179,19 @@ until the focused clean gate is green.
   make verify-nnx-install
   pytest -p no:cacheprovider -W error --junitxml="$FOCUS_ROOT/focused.xml" tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_makefile_contract.py -q
   python -m scripts.verify_junit "$FOCUS_ROOT/focused.xml"
+  test "$(git rev-parse HEAD)" = "$TASK21_SHA"
+  test -z "$(git diff --cached --name-only)"
   ```
 
-  Expected: installer completes with the final binary boundary; verifier reports pyg-lib; the
-  direct canary body executes actual PyG 2.8 through preferred pyg-lib and forced torch-sparse;
-  pytest treats warnings as errors; `verify_junit` reports a positive test count with failures=0,
-  errors=0, skipped=0. Any skip, warning, import failure, or ABI failure stops Task 3.
+  If the selected environment or handoff state is missing or invalid, stop Task 3 and return to Task
+  2.1 Step 11. The only fallback is a newly installed r5; that step must repeat its complete prefix,
+  platform, HEAD, pip, full `make verify-torch-stack` provenance and separate fresh positive probe
+  before Task 3 may resume. Expected here: the reused full verifier reports the exact supported
+  stack; the fresh probe reports nonempty exact debt; the direct canary body executes actual PyG 2.8
+  through preferred pyg-lib and forced torch-sparse; pytest treats warnings as errors; `verify_junit`
+  reports a positive count with failures=0, errors=0, skipped=0; current HEAD remains `TASK21_SHA`;
+  and the complete index remains empty while Task 3's consumer/AST work stays uncommitted. A zero
+  warning, skip, warning leakage, import failure, ABI failure, or staged Task 3 byte stops Task 3.
 
 - [ ] **Step 7: Write smoke-output oracle RED tests**
 
@@ -2135,51 +2507,201 @@ until the focused clean gate is green.
   workload. Each mutation must fail. Positive tests retain allowed system/docs/NLP setup before the
   final pip-check and prove exactly one canonical installer.
 
-  Preserve warning-as-error as an exact CI contract. Parse command argv and workflow environment,
-  then require the NNx-surface pytest command to contain adjacent tokens `-W`, `error` exactly once
-  and reject every broader suppression form:
+  Preserve warning-as-error as an exact CI contract. Parse every separated or joined `-W` option in
+  the NNx-surface pytest argv plus workflow/job/step warning environments. The sole effective warning
+  action must be `error`, expressed by the unchanged adjacent `-W error` tokens exactly once;
+  retaining those tokens does not excuse any appended action:
 
   ```python
+  _WARNING_ACTIONS = ("default", "error", "ignore", "always", "module", "once")
   _FORBIDDEN_WARNING_ARGV = frozenset((
       "--disable-warnings",
       "--disable-pytest-warnings",
-      "-Wignore",
-      "-Wdefault",
-      "-Wonce",
-      "-Wmodule",
   ))
 
-  def _assert_warning_error_command(argv: tuple[str, ...]) -> None:
+  def _warning_action(specification: str) -> str:
+      action = specification.split(":", 1)[0].strip().lower()
+      if not action:
+          return "default"
+      if action == "all":
+          return "always"
+      matches = tuple(candidate for candidate in _WARNING_ACTIONS if candidate.startswith(action))
+      assert len(matches) == 1, specification
+      return matches[0]
+
+  def _warning_actions(argv: Sequence[str]) -> tuple[str, ...]:
+      actions: list[str] = []
+      index = 0
+      while index < len(argv):
+          token = argv[index]
+          if token == "-W":
+              assert index + 1 < len(argv), argv
+              actions.append(_warning_action(argv[index + 1]))
+              index += 2
+              continue
+          if token.startswith("-W"):
+              actions.append(_warning_action(token[2:]))
+          index += 1
+      return tuple(actions)
+
+  def _pythonwarnings_actions(value: object) -> tuple[str, ...]:
+      assert isinstance(value, str) and value, value
+      return tuple(_warning_action(part) for part in value.split(","))
+
+  def _assert_no_warning_bypass(argv: Sequence[str]) -> None:
+      assert _FORBIDDEN_WARNING_ARGV.isdisjoint(argv)
+      assert not any(token.startswith("--pythonwarnings=") for token in argv)
+      assert not any("filterwarnings=" in token for token in argv)
+
+  def _environment_warning_actions(env: object) -> tuple[str, ...]:
+      if env is None:
+          return ()
+      assert isinstance(env, dict), env
+      actions: list[str] = []
+      if "PYTHONWARNINGS" in env:
+          actions.extend(_pythonwarnings_actions(env["PYTHONWARNINGS"]))
+      if "PYTEST_ADDOPTS" in env:
+          assert isinstance(env["PYTEST_ADDOPTS"], str), env["PYTEST_ADDOPTS"]
+          addopts = tuple(shlex.split(env["PYTEST_ADDOPTS"]))
+          _assert_no_warning_bypass(addopts)
+          actions.extend(_warning_actions(addopts))
+      return tuple(actions)
+
+  def _assert_warning_error_command(
+      argv: tuple[str, ...],
+      *environments: object,
+  ) -> None:
+      _assert_no_warning_bypass(argv)
+      command_actions = _warning_actions(argv)
+      environment_actions = tuple(
+          action
+          for env in environments
+          for action in _environment_warning_actions(env)
+      )
       assert sum(
           argv[index:index + 2] == ("-W", "error")
           for index in range(len(argv) - 1)
-      ) == 1
-      assert _FORBIDDEN_WARNING_ARGV.isdisjoint(argv)
-      assert not any(token.startswith("--pythonwarnings=") for token in argv)
-      assert not any(token.startswith("filterwarnings=") for token in argv)
-
-  def test_nnx_ci_rejects_warning_ignore_mutations(tmp_path):
-      source = (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-      mutations = (
-          source.replace("-W error", "-W ignore", 1),
-          source.replace("-W error", "-Wignore", 1),
-          source.replace("-W error", "--disable-warnings", 1),
-          source.replace(
-              "- name: Run NNx-surface tests",
-              "- name: Run NNx-surface tests\n    env:\n      PYTHONWARNINGS: ignore",
-              1,
-          ),
+      ) == 1, argv
+      assert command_actions == ("error",), command_actions
+      assert command_actions + environment_actions == ("error",), (
+          command_actions,
+          environment_actions,
       )
-      for mutated in mutations:
-          assert mutated != source
+
+  def _assert_nnx_warning_contract(workflow: dict[str, object]) -> None:
+      jobs = workflow["jobs"]
+      assert isinstance(jobs, dict)
+      job = jobs["pytest-nnx-surface"]
+      assert isinstance(job, dict)
+      steps = job["steps"]
+      assert isinstance(steps, list)
+      step = next(item for item in steps if item.get("name") == "Run NNx-surface tests")
+      pytest_argvs = tuple(
+          argv
+          for argv in _shell_argvs(step["run"])
+          if argv and Path(argv[0]).name == "pytest"
+      )
+      assert len(pytest_argvs) == 1, pytest_argvs
+      _assert_warning_error_command(
+          pytest_argvs[0],
+          workflow.get("env"),
+          job.get("env"),
+          step.get("env"),
+      )
+
+  @pytest.mark.parametrize(
+      "suffix",
+      (
+          "-W ignore",
+          "-Wignore",
+          "-W default",
+          "-Wdefault",
+          "-Wignore::DeprecationWarning",
+          "-W once",
+          "-Wonce",
+          "-W module",
+          "-Wmodule",
+          "-W always",
+          "-Walways",
+          "-Werror",
+          "--disable-warnings",
+      ),
+  )
+  def test_nnx_ci_rejects_appended_warning_cli_actions(suffix):
+      workflow = yaml.safe_load(
+          (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+      )
+      mutated = copy.deepcopy(workflow)
+      step = next(
+          item for item in mutated["jobs"]["pytest-nnx-surface"]["steps"]
+          if item.get("name") == "Run NNx-surface tests"
+      )
+      original = step["run"]
+      step["run"] = original.replace("-W error", f"-W error {suffix}", 1)
+      assert step["run"] != original and "-W error" in step["run"]
+      with pytest.raises(AssertionError):
+          _assert_nnx_warning_contract(mutated)
+
+  @pytest.mark.parametrize("level", ("job", "step"))
+  @pytest.mark.parametrize(
+      ("name", "value"),
+      (
+          ("PYTHONWARNINGS", "ignore"),
+          ("PYTHONWARNINGS", "default"),
+          ("PYTHONWARNINGS", "ignore::DeprecationWarning"),
+          ("PYTHONWARNINGS", "once"),
+          ("PYTHONWARNINGS", "module"),
+          ("PYTHONWARNINGS", "always"),
+          ("PYTHONWARNINGS", "error"),
+          ("PYTEST_ADDOPTS", "-W ignore"),
+          ("PYTEST_ADDOPTS", "-Wdefault"),
+          ("PYTEST_ADDOPTS", "-Wignore::DeprecationWarning"),
+          ("PYTEST_ADDOPTS", "-W once"),
+          ("PYTEST_ADDOPTS", "-Wmodule"),
+          ("PYTEST_ADDOPTS", "-Walways"),
+          ("PYTEST_ADDOPTS", "-Werror"),
+          ("PYTEST_ADDOPTS", "--disable-warnings"),
+      ),
+  )
+  def test_nnx_ci_rejects_appended_warning_environment(level, name, value):
+      workflow = yaml.safe_load(
+          (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+      )
+      mutated = copy.deepcopy(workflow)
+      job = mutated["jobs"]["pytest-nnx-surface"]
+      step = next(
+          item for item in job["steps"]
+          if item.get("name") == "Run NNx-surface tests"
+      )
+      owner = job if level == "job" else step
+      owner.setdefault("env", {})[name] = value
+      assert "-W error" in step["run"]
+      with pytest.raises(AssertionError):
+          _assert_nnx_warning_contract(mutated)
+
+  def test_nnx_ci_warning_contract_accepts_only_original_error_action():
+      workflow = yaml.safe_load(
+          (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+      )
+      _assert_nnx_warning_contract(workflow)
+      assert _warning_actions(("pytest", "-Werror")) == ("error",)
+      assert _warning_actions(("pytest", "-W", "error")) == ("error",)
+      _assert_warning_error_command(("pytest", "-W", "error"))
+      for argv in (
+          ("pytest", "-Werror"),
+          ("pytest", "-W", "error", "-W", "ignore"),
+          ("pytest", "-Werror", "-Wdefault"),
+          ("pytest", "-W", "error", "-Wignore::DeprecationWarning"),
+      ):
           with pytest.raises(AssertionError):
-              _assert_nnx_warning_contract(yaml.safe_load(mutated))
+              _assert_warning_error_command(argv)
   ```
 
-  `_assert_nnx_warning_contract` must reject a job or step environment whose normalized
-  `PYTHONWARNINGS` is anything other than absent, and must reject `PYTEST_ADDOPTS` containing an
-  ignore/default/once/module warning action. Positive CI, Docker, Codespaces, Make, and verifier
-  tests require no warning-related environment variable or ignore flag.
+  Add `copy` to the imports. `_assert_nnx_warning_contract` must parse workflow-, job-, and step-level
+  environment, reject every `PYTHONWARNINGS` filter or warning-bearing `PYTEST_ADDOPTS` while the
+  original CLI `-W error` remains, and fail on duplicate `error` actions too. Positive CI, Docker,
+  Codespaces, Make, and verifier tests require no warning-related environment variable, alternate
+  action, filterwarnings override, or warning-disable flag.
 
 - [ ] **Step 2: Write Docker and Codespaces RED contracts**
 
@@ -3223,6 +3745,9 @@ until the focused clean gate is green.
 - Warning evidence: prequalification and final qualification each start a fresh interpreter with
   neither PyG module preloaded, require one or more exact records at the torch-geometric boundary,
   and run under global `-W error` with only the verifier-local `simplefilter("always")` capture.
+  Each probe follows a successful full `make verify-torch-stack` in a separate process, so exact
+  local versions, WHEEL ABI/platform, RECORD/import ownership, and CPU/NVIDIA truth—not matching
+  public versions alone—qualify the environment before debt or retirement is evaluated.
   Reports record public debt-key versions, outer component, positive observed count, exact category
   name/message, POSIX inventory path, and owned-file SHA-256 without publishing a temporary absolute
   path. Zero records trigger debt retirement; no ignore/default filter is accepted as evidence.
@@ -3338,8 +3863,9 @@ until the focused clean gate is green.
   Expected: the parser proves the kernelspec resource directory is below the isolated prefix and
   its complete `argv` is exactly `[venv-python, -m, ipykernel_launcher, -f, {connection_file}]`; every command exits
   0; the focused NNx suite treats warnings as errors and its JUnit totals have failures, errors,
-  and skipped all equal to zero; the fresh probe observes a positive fully exact group without an
-  ignore filter; exact versions, WHEEL/RECORD/local-version/platform/CPU/NVIDIA/import ownership,
+  and skipped all equal to zero; a separate-process full stack verifier precedes the fresh probe,
+  which observes a positive fully exact group without an ignore filter; exact versions,
+  WHEEL/RECORD/local-version/platform/CPU/NVIDIA/import ownership,
   test counts, durations, and hashes are recorded. The audit-tool manifest is installed before the
   final pip-check/stack/NNx boundary. A zero-warning fresh probe stops qualification and triggers
   removal of the debt exception before any later step.
@@ -3410,7 +3936,11 @@ until the focused clean gate is green.
 
   Expected: tests, docs, verifier, Ruff, and diff checks pass; only the ten listed tracked paths enter the evidence commit; generated projections remain ignored.
 
-  Review every branch commit and the complete diff for spec coverage, exact final manifests, mutation resistance, safe diagnostics, platform claims, advisory parity, Docker/CI ordering, notebook cleanliness, immutable history, Atlas non-diff, and rollback atomicity. Resolve each finding with a separate RED-GREEN commit and repeat review until zero findings remain.
+  Review every branch commit and the complete diff for spec coverage, exact final manifests,
+  mutation resistance (including appended separated/joined `-W` actions plus job/step
+  `PYTHONWARNINGS` and `PYTEST_ADDOPTS`), safe diagnostics, platform claims, advisory parity,
+  Docker/CI ordering, notebook cleanliness, immutable history, Atlas non-diff, and rollback atomicity.
+  Resolve each finding with a separate RED-GREEN commit and repeat review until zero findings remain.
 
 - [ ] **Step 6: Freeze one final SHA and rerun every local acceptance gate from scratch**
 
@@ -5211,8 +5741,10 @@ until the focused clean gate is green.
 - [x] **Placeholder scan:** every code-changing step contains concrete code or exact replacement text; every test/run step has an exact command and expected result; no deferred marker or undefined neighboring interface remains.
 - [x] **Type consistency:** `InstallStage`, `InstallCommand`, `StackPin`, `StackContract`,
   `StackEvidence`, `DistributionView`, `CanaryHooks`, `VerificationHooks`,
-  `ImportWarningEvidence`, `Tier`, `InventoryLoader`, and `NotebookArtifact` have one spelling and
-  one signature throughout.
+  `ImportWarningSpec`, `ImportWarningEvidence`, `Tier`, `InventoryLoader`, and `NotebookArtifact`
+  have one spelling and one signature throughout. `ImportWarningSpec.lineno` drives
+  `warn_explicit`; fixtures vary it across 1, 73, and 10000 while the production predicate is
+  source-guarded from reading it.
 - [x] **Dependency order:** Task 1 produces manifests/installer; Task 2 consumes manifests and
   produces the ten-component verifier; Task 2.1 reopens only verifier production/platform tests for
   the approved import boundary; Task 3 adds consumer/AST enforcement, consumes the reviewed boundary,
@@ -5227,13 +5759,16 @@ until the focused clean gate is green.
   `DeprecationWarning` identity, full punctuation-preserving message, and strictly resolved equality
   to the sole selected-Torch-owned `torch/jit/_script.py` `PackagePath`. Wrong component/version,
   subclass/category, prefix/punctuation, basename/suffix outsider, mixed/extra group, broad wrapper,
-  origin omission, inventory failure, and CLI leakage mutations all have named tests. Count and line
-  number remain unpinned.
+  origin omission, inventory failure, foreign local/public versions, and CLI leakage mutations all
+  have named tests. Count and line number remain unpinned.
 - [x] **Warning-gate preservation:** no production module-cache eviction exists; selected zero-warning
   imports are cache/order safe; scatter, sparse, sampler, NNx, consumer, CLI outer capture, focused
-  JUnit, and CI remain strict. Task 4 rejects `-W ignore`, warning-disable flags, and warning-ignore
-  environments. No global, pytest, environment, conftest, canary, sampler, NNx, or consumer filter is
-  authorized.
+  JUnit, and CI remain strict. Task 4 parses every separated/joined `-W` option and workflow/job/step
+  `PYTHONWARNINGS`/`PYTEST_ADDOPTS`, requires the unchanged adjacent `-W error` exactly once as the
+  sole effective action, and rejects
+  appended ignore/default/once/module/always/category-qualified actions and warning-disable flags
+  while the original `-W error` remains. No global, pytest, environment, conftest, canary, sampler,
+  NNx, or consumer filter is authorized.
 - [x] **D10 executability:** every referenced parser/comparator is defined in the plan or already exists in `scripts/verify_repo.py`; current/historical slicing, complete CommonMark type-1/type-6 raw-HTML masking including `hgroup`, Result/summary/advisory validation, policy coupling, and ten-input hashes map failures to named `Finding` IDs.
 - [x] **Audit cardinality:** `AUDIT_SURFACES` generates six physical commands and merges them into four logical observations; only both supplements and documentation use `--disable-pip`, only supplements use `--no-deps`, and all six require exit 0/1 plus valid nonempty JSON.
 - [x] **Zero-skip and output gates:** focused, CI, prequalification, and final NNx runs use
@@ -5250,16 +5785,22 @@ until the focused clean gate is green.
   Pages/wiki evidence; missing debt evidence and an `ignore` global action are killed by schema
   mutations.
 - [x] **Clean continuation and retirement:** r4 is reusable only after exact platform, Python,
-  distribution public-version, WHEEL/RECORD, prefix, and pip-check revalidation at Task 2.1 HEAD;
-  otherwise a fresh r5 is installed. A fresh interpreter with neither PyG module preloaded must
-  observe a positive exact torch-geometric group before `make verify-torch-stack`, both real sampler
-  paths, focused `-W error` JUnit, graph, and quantization gates. A zero group triggers removal of the
-  debt machinery, never acceptance from a cached import. Task 3 then finishes smoke tools and its
-  exact commit.
+  prefix, public-version inventory, and pip-check preflight at Task 2.1 HEAD; otherwise a fresh r5 is
+  installed. The selected r4/r5 then passes a separate-process full `make verify-torch-stack`, proving
+  exact local versions, WHEEL ABI/platform, RECORD/import ownership, and CPU/NVIDIA truth before a
+  fresh interpreter with neither PyG module preloaded may observe a positive exact torch-geometric
+  group. Thus a matching public version with a foreign local build cannot falsely qualify or retire
+  debt. Task 3 reuses exactly that `FOCUS_ROOT` and `TASK21_SHA`, reasserts provenance, repeats the
+  separate full verifier and fresh positive probe, and only then runs both real sampler paths,
+  focused `-W error` JUnit, graph, and quantization gates. A broken handoff returns to Task 2.1 and
+  permits only a fully requalified r5; a zero group triggers removal of the debt machinery, never
+  acceptance from a cached import. Task 3 then finishes smoke tools and its exact commit.
 - [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; release ownership on shared `develop -> main` requires the exact Issue-62 title identity plus bounded one-paragraph body/reference constraints, and ambiguous/broader candidates fail for manual review rather than close. Feature/release reuse still requires exact title/body/SHA, label, and successful Tier B. A needed `main -> develop` sync inventories first, reuses only exact current copy/SHA with successful required checks, closes only stale dedicated sync candidates, fails on ambiguity/collision, and never blindly creates. Dispatch and Pages runs remain new after snapshotted UTC/ID boundaries and complete within bounded polls; a separate 720-by-10-second exact-SHA poll requires successful final-develop `CI`, mechanically exceeds the 90-minute Tier A timeout by 30 minutes of queue headroom, and the final noncompleted-run audit includes final-develop plus optional sync identities with a queued-run blocking mutation.
 - [x] **Completion ordering:** Pages/report evidence is persisted in the primary ignored root, successful final-develop runs are proved, then validated cleanup, zero scoped PRs/runs, main/develop synchronization, clean status, and deleted temporary evidence roots are proved before any completion comment or project mutation. Only afterward does the plan publish the report, prove Issue #53 open before/after its completion comment, set and re-query Issue #62 as project Done, and run `gh issue close 62` as the final command.
 - [x] **Staging safety:** historical Task 1/2 ownership excludes the original five preserved paths;
-  Task 2.1 hash-locks and excludes the current seven blocker-report paths and stages exactly
-  verifier production/platform tests; Task 3 owns all seven after clean GREEN; generated docs and
-  ignored evidence are absent from every `git add` command.
+  at Task 2.1 entry, pre-stage, post-commit, clean qualification, and Task 3 handoff the portable
+  NUL-delimited oracle requires exact five-` M`/two-`??` status, seven worktree hashes, five immutable
+  HEAD-byte hashes, two HEAD absences, and a completely empty index. Task 2.1 stages exactly verifier
+  production/platform tests; Task 3 owns all seven only after clean GREEN; generated docs and ignored
+  evidence are absent from every `git add` command.
 - [x] **Historical integrity:** r1-r3 and prior commits remain evidence, not final completion claims; Issue #59/#60/#61 records and released history remain immutable; the one stale Issue #61 requirements hash is corrected only in Task 5's current-ledger evidence.

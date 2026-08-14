@@ -7,14 +7,18 @@ import importlib
 import platform
 import re
 import sys
+import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from importlib import metadata
 from importlib.metadata import PackagePath
+from io import StringIO
 from pathlib import Path
 from types import ModuleType
 from typing import Protocol
 
+from packaging.tags import Tag, compatible_tags, cpython_tags, parse_tag
 from packaging.version import Version
 
 from scripts.verify_nnx_install import verify_nnx_install
@@ -48,6 +52,9 @@ _MANIFEST_NAMES = (
     _AUDIT_MANIFEST,
     _EXTENSION_AUDIT_MANIFEST,
 )
+_ERROR_CATEGORIES = frozenset(
+    ("manifest", "metadata", "wheel", "platform", "cpu", "abi", "operator", "sampler", "nnx")
+)
 _CORE_NAMES = frozenset(("torch", "torchvision", "torchaudio"))
 _ECOSYSTEM_NAMES = frozenset(("pytorch-lightning", "torchmetrics", "torchao"))
 _RUNTIME_NAMES = frozenset(
@@ -67,8 +74,20 @@ _PYG_INDEX_DISTRIBUTIONS = frozenset(
     ("pyg-lib", "torch-scatter", "torch-sparse", "torch-cluster")
 )
 _COMPILED_DISTRIBUTIONS = _PYG_INDEX_DISTRIBUTIONS | {"torch-spline-conv"}
+_BINARY_DISTRIBUTIONS = _COMPILED_DISTRIBUTIONS | _CORE_NAMES
 _SUPPORTED_PLATFORMS = frozenset(
     (("Linux", "x86_64"), ("Linux", "aarch64"), ("Darwin", "arm64"))
+)
+_PYTHON_311_ABIS = frozenset(
+    (tag.interpreter, tag.abi)
+    for tag in (
+        *cpython_tags(python_version=(3, 11), platforms=("placeholder",)),
+        *compatible_tags(
+            python_version=(3, 11),
+            interpreter="cp311",
+            platforms=("placeholder",),
+        ),
+    )
 )
 _PIN_PATTERN = re.compile(
     r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)=="
@@ -276,33 +295,36 @@ def _wheel_inventory(distribution_name: str, distribution: DistributionView) -> 
         raise TorchStackVerificationError(distribution_name, "wheel") from None
 
 
-def _wheel_tags(distribution_name: str, distribution: DistributionView) -> tuple[str, ...]:
+def _wheel_tags(distribution_name: str, distribution: DistributionView) -> tuple[Tag, ...]:
     try:
         wheel = distribution.read_text("WHEEL")
         if not isinstance(wheel, str):
             raise TorchStackVerificationError(distribution_name, "wheel")
-        tags = tuple(
-            line.partition(":")[2].strip().lower()
+        raw_tags = tuple(
+            line.partition(":")[2].strip()
             for line in wheel.splitlines()
             if line.lower().startswith("tag:") and line.partition(":")[2].strip()
         )
-        if not tags:
+        if not raw_tags:
             raise TorchStackVerificationError(distribution_name, "wheel")
-        return tags
+        return tuple(tag for raw_tag in raw_tags for tag in parse_tag(raw_tag))
     except TorchStackVerificationError:
         raise
     except BaseException:
         raise TorchStackVerificationError(distribution_name, "wheel") from None
 
 
-def _tag_matches_platform(tag: str, contract: StackContract) -> bool:
-    if tag.endswith("-any"):
+def _tag_matches_platform(tag: Tag, contract: StackContract) -> bool:
+    platform_tag = tag.platform
+    if platform_tag == "any":
         return True
     if contract.system == "Darwin":
-        return "macosx_" in tag and (tag.endswith("_arm64") or tag.endswith("_universal2"))
+        return "macosx_" in platform_tag and (
+            platform_tag.endswith("_arm64") or platform_tag.endswith("_universal2")
+        )
     if contract.machine == "aarch64":
-        return ("manylinux" in tag or "linux_" in tag) and tag.endswith("_aarch64")
-    return ("manylinux" in tag or "linux_" in tag) and tag.endswith("_x86_64")
+        return ("manylinux" in platform_tag or "linux_" in platform_tag) and platform_tag.endswith("_aarch64")
+    return ("manylinux" in platform_tag or "linux_" in platform_tag) and platform_tag.endswith("_x86_64")
 
 
 def _verify_local_version(pin: StackPin, version: Version, contract: StackContract) -> None:
@@ -330,11 +352,16 @@ def _verify_distribution(pin: StackPin, distribution: DistributionView, contract
     _verify_local_version(pin, version, contract)
     _wheel_inventory(pin.distribution, distribution)
     tags = _wheel_tags(pin.distribution, distribution)
-    compatible = tuple(tag for tag in tags if _tag_matches_platform(tag, contract))
-    if not compatible:
-        raise TorchStackVerificationError(pin.distribution, "platform")
-    if pin.distribution in _COMPILED_DISTRIBUTIONS and all(tag.endswith("-any") for tag in compatible):
+    platform_compatible = tuple(tag for tag in tags if _tag_matches_platform(tag, contract))
+    if pin.distribution in _BINARY_DISTRIBUTIONS and all(tag.platform == "any" for tag in tags):
         raise TorchStackVerificationError(pin.distribution, "wheel")
+    if not platform_compatible:
+        raise TorchStackVerificationError(pin.distribution, "platform")
+    if pin.distribution in _BINARY_DISTRIBUTIONS and not any(
+        tag.platform != "any" and (tag.interpreter, tag.abi) in _PYTHON_311_ABIS
+        for tag in platform_compatible
+    ):
+        raise TorchStackVerificationError(pin.distribution, "abi")
 
 
 def _verify_record_ownership(pin: StackPin, distribution: DistributionView, module: ModuleType) -> None:
@@ -440,13 +467,29 @@ def _installed_distribution_names() -> tuple[str, ...]:
     return tuple(str(distribution.metadata["Name"]) for distribution in metadata.distributions())
 
 
+def _verify_canonical_nnx() -> object:
+    try:
+        evidence = verify_nnx_install(environ={})
+        if (
+            evidence.mode != "canonical-wheel"
+            or evidence.distribution != "thekaveh-nnx"
+            or evidence.version != "0.2.0"
+        ):
+            raise TorchStackVerificationError("nnx", "nnx")
+        return evidence
+    except TorchStackVerificationError:
+        raise
+    except BaseException:
+        raise TorchStackVerificationError("nnx", "nnx") from None
+
+
 DEFAULT_HOOKS = VerificationHooks(
     distribution=metadata.distribution,
     installed_names=_installed_distribution_names,
     import_module=importlib.import_module,
     system=platform.system,
     machine=platform.machine,
-    nnx_verify=verify_nnx_install,
+    nnx_verify=_verify_canonical_nnx,
     canaries=CanaryHooks(
         scatter=_scatter_canary,
         sparse=_sparse_canary,
@@ -500,25 +543,96 @@ def verify_torch_stack(
         except BaseException:
             raise TorchStackVerificationError(name, category) from None
     try:
+        torch_version = Version(str(modules["torch"].__version__))
+        torch_pin = next(pin for pin in contract.pins if pin.distribution == "torch")
+        if torch_version.public != torch_pin.public_version.public:
+            raise TorchStackVerificationError("torch", "metadata")
+        _verify_local_version(torch_pin, torch_version, contract)
+        evidence = StackEvidence(
+            contract.system,
+            contract.machine,
+            str(torch_version),
+            "pyg-lib",
+        )
+    except TorchStackVerificationError:
+        raise
+    except BaseException:
+        raise TorchStackVerificationError("torch", "metadata") from None
+    try:
         hooks.nnx_verify()
     except BaseException:
         raise TorchStackVerificationError("nnx", "nnx") from None
+    return evidence
+
+
+def _validated_cli_evidence(evidence: StackEvidence) -> StackEvidence:
     try:
-        torch_version = str(modules["torch"].__version__)
+        if (
+            not isinstance(evidence, StackEvidence)
+            or (evidence.system, evidence.machine) not in _SUPPORTED_PLATFORMS
+            or evidence.backend != "pyg-lib"
+        ):
+            raise TorchStackVerificationError("verifier", "metadata")
+        torch_version = Version(evidence.torch_version)
+        if (
+            torch_version.public != "2.11.0"
+            or str(torch_version) != evidence.torch_version
+            or torch_version.local not in (None, "cpu")
+            or (evidence.system == "Darwin" and torch_version.local is not None)
+        ):
+            raise TorchStackVerificationError("verifier", "metadata")
+        return evidence
+    except TorchStackVerificationError:
+        raise
     except BaseException:
-        raise TorchStackVerificationError("torch", "metadata") from None
-    return StackEvidence(contract.system, contract.machine, torch_version, "pyg-lib")
+        raise TorchStackVerificationError("verifier", "metadata") from None
+
+
+def _validated_cli_error(error: TorchStackVerificationError) -> TorchStackVerificationError:
+    try:
+        allowed_components = frozenset(IMPORTS) | frozenset(_MANIFEST_NAMES) | {
+            "platform",
+            "inventory",
+            "scatter",
+            "sparse",
+            "cluster",
+            "sampler",
+            "spline",
+            "nnx",
+            "verifier",
+        }
+        if error.component not in allowed_components or error.category not in _ERROR_CATEGORIES:
+            raise TorchStackVerificationError("verifier", "metadata")
+        return TorchStackVerificationError(error.component, error.category)
+    except TorchStackVerificationError:
+        raise
+    except BaseException:
+        raise TorchStackVerificationError("verifier", "metadata") from None
 
 
 def main() -> int:
     """Run the canonical verifier without exposing third-party diagnostics."""
-    try:
-        evidence = verify_torch_stack()
-    except TorchStackVerificationError as error:
-        print(error, file=sys.stderr)
-        return 1
-    except BaseException:
-        print(TorchStackVerificationError("verifier", "metadata"), file=sys.stderr)
+    failure: TorchStackVerificationError | None = None
+    evidence: StackEvidence | None = None
+    with (
+        redirect_stdout(StringIO()),
+        redirect_stderr(StringIO()),
+        warnings.catch_warnings(record=True) as caught_warnings,
+    ):
+        warnings.simplefilter("always")
+        try:
+            evidence = _validated_cli_evidence(verify_torch_stack())
+        except TorchStackVerificationError as error:
+            try:
+                failure = _validated_cli_error(error)
+            except TorchStackVerificationError as invalid_error:
+                failure = invalid_error
+        except BaseException:
+            failure = TorchStackVerificationError("verifier", "metadata")
+    if failure is None and caught_warnings:
+        failure = TorchStackVerificationError("verifier", "metadata")
+    if failure is not None or evidence is None:
+        print(failure or TorchStackVerificationError("verifier", "metadata"), file=sys.stderr)
         return 1
     print(
         f"Torch stack verified: torch {evidence.torch_version}; "

@@ -4,6 +4,7 @@ import dataclasses
 import importlib.util
 import sys
 import traceback
+import warnings
 from importlib.metadata import PackagePath
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -13,6 +14,7 @@ import pytest
 from packaging.version import Version
 
 import scripts.verify_torch_stack as verifier_module
+from scripts.verify_nnx_install import NnxInstallEvidence
 from scripts.verify_torch_stack import (
     IMPORTS,
     CanaryHooks,
@@ -83,6 +85,7 @@ COMPILED = {
     "torch-cluster",
     "torch-spline-conv",
 }
+BINARY_WHEELS = COMPILED | {"torch", "torchvision", "torchaudio"}
 SENSITIVE = (
     "https://user:password@packages.invalid/private?token=secret "
     "/Users/example/private/installer.log Traceback RuntimeError installer-output"
@@ -150,7 +153,7 @@ class FakeStack:
             module_path = root / import_name.replace(".", "/") / "__init__.py"
             module_path.parent.mkdir(parents=True, exist_ok=True)
             module_path.touch()
-            wheel_tag = platform_tag if distribution in COMPILED else "py3-none-any"
+            wheel_tag = platform_tag if distribution in BINARY_WHEELS else "py3-none-any"
             self.distributions[distribution] = FakeDistribution(
                 distribution,
                 EXPECTED_VERSIONS[distribution],
@@ -505,6 +508,358 @@ def test_cli_prints_one_stable_success_summary(monkeypatch: pytest.MonkeyPatch, 
     captured = capsys.readouterr()
     assert captured.err == ""
     assert captured.out == "Torch stack verified: torch 2.11.0+cpu; Linux x86_64; backend pyg-lib\n"
+
+
+def test_cli_suppresses_dependency_output_on_success(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def noisy_success():
+        print(SENSITIVE)
+        print(SENSITIVE, file=sys.stderr)
+        return StackEvidence("Linux", "x86_64", "2.11.0+cpu", "pyg-lib")
+
+    monkeypatch.setattr(verifier_module, "verify_torch_stack", noisy_success)
+
+    assert verifier_module.main() == 0
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out == "Torch stack verified: torch 2.11.0+cpu; Linux x86_64; backend pyg-lib\n"
+    assert SENSITIVE not in captured.out
+
+
+def test_cli_converts_dependency_warning_to_one_redacted_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def warning_success():
+        warnings.warn(SENSITIVE)
+        return StackEvidence("Linux", "x86_64", "2.11.0+cpu", "pyg-lib")
+
+    monkeypatch.setattr(verifier_module, "verify_torch_stack", warning_success)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = verifier_module.main()
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert caught == []
+    assert captured.out == ""
+    assert captured.err == "torch stack verification failed: verifier: metadata\n"
+    assert SENSITIVE not in captured.err
+
+
+def test_cli_suppresses_dependency_noise_while_preserving_stable_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def noisy_failure():
+        print(SENSITIVE)
+        print(SENSITIVE, file=sys.stderr)
+        warnings.warn(SENSITIVE)
+        raise TorchStackVerificationError("sampler", "sampler")
+
+    monkeypatch.setattr(verifier_module, "verify_torch_stack", noisy_failure)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = verifier_module.main()
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert caught == []
+    assert captured.out == ""
+    assert captured.err == "torch stack verification failed: sampler: sampler\n"
+    assert SENSITIVE not in captured.err
+
+
+def test_cli_rejects_injected_verification_error_fields(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def injected_failure():
+        raise TorchStackVerificationError(f"torch\n{SENSITIVE}", "metadata")
+
+    monkeypatch.setattr(verifier_module, "verify_torch_stack", injected_failure)
+
+    assert verifier_module.main() == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "torch stack verification failed: verifier: metadata\n"
+    assert SENSITIVE not in captured.err
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    (
+        StackEvidence("Linux\nhttps://token.invalid", "x86_64", "2.11.0+cpu", "pyg-lib"),
+        StackEvidence("Linux", "x86_64\n/Users/private", "2.11.0+cpu", "pyg-lib"),
+        StackEvidence("Linux", "x86_64", "2.11.0+cpu\ncredential=secret", "pyg-lib"),
+        StackEvidence("Linux", "x86_64", "2.11.0+cpu", "pyg-lib\nTraceback"),
+        StackEvidence("Darwin", "arm64", "2.11.0+cpu", "pyg-lib"),
+    ),
+    ids=("system", "machine", "version", "backend", "darwin-cpu-local"),
+)
+def test_cli_rejects_injected_success_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    evidence: StackEvidence,
+) -> None:
+    monkeypatch.setattr(verifier_module, "verify_torch_stack", lambda: evidence)
+
+    assert verifier_module.main() == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "torch stack verification failed: verifier: metadata\n"
+    assert "token.invalid" not in captured.err
+    assert "/Users/private" not in captured.err
+    assert "credential=secret" not in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_default_nnx_hook_ignores_editable_environment_and_requires_canonical_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[dict[str, str]] = []
+
+    def fake_verify_nnx_install(*, environ):
+        seen.append(environ)
+        return NnxInstallEvidence(
+            mode="canonical-wheel",
+            distribution="thekaveh-nnx",
+            version="0.2.0",
+        )
+
+    monkeypatch.setenv("NNX_ALLOW_EDITABLE", "1")
+    monkeypatch.setattr(verifier_module, "verify_nnx_install", fake_verify_nnx_install)
+
+    evidence = verifier_module.DEFAULT_HOOKS.nnx_verify()
+
+    assert seen == [{}]
+    assert evidence == NnxInstallEvidence("canonical-wheel", "thekaveh-nnx", "0.2.0")
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    (
+        NnxInstallEvidence("editable-development", "thekaveh-nnx", "0.2.0"),
+        NnxInstallEvidence("canonical-wheel", "other-nnx", "0.2.0"),
+        NnxInstallEvidence("canonical-wheel", "thekaveh-nnx", "0.2.1"),
+    ),
+)
+def test_default_nnx_hook_rejects_noncanonical_evidence(
+    monkeypatch: pytest.MonkeyPatch, evidence: NnxInstallEvidence
+) -> None:
+    seen: list[dict[str, str]] = []
+
+    def fake_verify_nnx_install(*, environ):
+        seen.append(environ)
+        return evidence
+
+    monkeypatch.setattr(verifier_module, "verify_nnx_install", fake_verify_nnx_install)
+
+    with pytest.raises(
+        TorchStackVerificationError,
+        match=r"^torch stack verification failed: nnx: nnx$",
+    ):
+        verifier_module.DEFAULT_HOOKS.nnx_verify()
+
+    assert seen == [{}]
+
+
+class _ExplodingTorchVersion:
+    def __init__(self, module_file: str) -> None:
+        self.__file__ = module_file
+        self.version = SimpleNamespace(cuda=None)
+
+    @property
+    def __version__(self):
+        raise RuntimeError(SENSITIVE)
+
+
+def test_torch_version_evidence_is_validated_before_nnx(fake_stack: FakeStack) -> None:
+    torch_file = fake_stack.modules["torch"].__file__
+    assert torch_file is not None
+    fake_stack.modules["torch"] = _ExplodingTorchVersion(torch_file)
+
+    with pytest.raises(
+        TorchStackVerificationError,
+        match=r"^torch stack verification failed: torch: metadata$",
+    ):
+        verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
+
+    assert fake_stack.calls == ["scatter", "sparse", "cluster", "sampler", "spline"]
+
+
+def test_injected_torch_version_is_rejected_before_nnx(fake_stack: FakeStack) -> None:
+    fake_stack.modules["torch"].__version__ = "2.11.0+cpu\nhttps://token.invalid/private"
+
+    with pytest.raises(
+        TorchStackVerificationError,
+        match=r"^torch stack verification failed: torch: metadata$",
+    ):
+        verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
+
+    assert fake_stack.calls == ["scatter", "sparse", "cluster", "sampler", "spline"]
+
+
+@pytest.mark.parametrize("distribution", tuple(sorted(BINARY_WHEELS)))
+@pytest.mark.parametrize(
+    ("tag", "category"),
+    (
+        ("cp310-cp310-manylinux_2_28_x86_64", "abi"),
+        ("cp311-cp310-manylinux_2_28_x86_64", "abi"),
+        ("py3-none-any", "wheel"),
+    ),
+    ids=("python-310", "wrong-abi", "pure-any"),
+)
+def test_binary_wheels_require_python311_abi_and_platform(
+    fake_stack: FakeStack, distribution: str, tag: str, category: str
+) -> None:
+    fake_stack.wheel(distribution, f"Tag: {tag}\n")
+
+    with pytest.raises(
+        TorchStackVerificationError,
+        match=rf"^torch stack verification failed: {distribution}: {category}$",
+    ):
+        verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
+
+
+@pytest.mark.parametrize("distribution", tuple(sorted(BINARY_WHEELS)))
+@pytest.mark.parametrize(
+    "python_abi",
+    ("cp311-cp311", "cp311-abi3", "cp311-none", "cp310-abi3", "py3-none"),
+)
+def test_binary_wheels_accept_python311_compatible_tags(
+    fake_stack: FakeStack, distribution: str, python_abi: str
+) -> None:
+    fake_stack.wheel(distribution, f"Tag: {python_abi}-manylinux_2_28_x86_64\n")
+
+    evidence = verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
+
+    assert evidence.torch_version == "2.11.0"
+
+
+@pytest.mark.parametrize(
+    "distribution",
+    ("pytorch-lightning", "torchmetrics", "torchao", "torch-geometric"),
+)
+def test_pure_python_distributions_retain_any_wheels(fake_stack: FakeStack, distribution: str) -> None:
+    fake_stack.wheel(distribution, "Tag: py3-none-any\n")
+
+    assert verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks).backend == "pyg-lib"
+
+
+@dataclasses.dataclass
+class _CanaryResult:
+    shape: tuple[int, ...]
+    elements: int = 1
+
+    def numel(self) -> int:
+        return self.elements
+
+
+class _DefaultCanaryRig:
+    def __init__(self) -> None:
+        self.events: list[str] = []
+        self.scatter_result = _CanaryResult((2,))
+        self.sparse_result = _CanaryResult((2, 1))
+        self.cluster_result = _CanaryResult((2, 2), elements=4)
+        self.batch = SimpleNamespace(batch_size=1, num_edges=1)
+        self.spline_result = _CanaryResult((2, 2))
+        rig = self
+
+        class SparseTensor:
+            def __init__(inner_self, **kwargs):
+                rig.events.append("sparse-init")
+                inner_self.kwargs = kwargs
+
+            def matmul(inner_self, matrix):
+                rig.events.append("sparse-matmul")
+                return rig.sparse_result
+
+        class NeighborLoader:
+            def __init__(inner_self, data, **kwargs):
+                rig.events.append("neighbor-loader")
+                inner_self.data = data
+                inner_self.kwargs = kwargs
+
+            def __iter__(inner_self):
+                rig.events.append("neighbor-batch")
+                return iter((rig.batch,))
+
+        class SplineConv:
+            def __init__(inner_self, *args, **kwargs):
+                rig.events.append("spline-init")
+
+            def __call__(inner_self, *args):
+                rig.events.append("spline-forward")
+                return rig.spline_result
+
+        self.modules = {
+            "torch": SimpleNamespace(tensor=lambda value: value),
+            "torch-scatter": SimpleNamespace(scatter=self._scatter),
+            "torch-sparse": SimpleNamespace(SparseTensor=SparseTensor),
+            "torch-cluster": SimpleNamespace(knn=self._knn),
+            "torch-geometric": SimpleNamespace(
+                data=SimpleNamespace(Data=self._data),
+                loader=SimpleNamespace(NeighborLoader=NeighborLoader),
+                nn=SimpleNamespace(SplineConv=SplineConv),
+            ),
+        }
+
+    def _scatter(self, *args, **kwargs):
+        self.events.append("scatter")
+        return self.scatter_result
+
+    def _knn(self, *args, **kwargs):
+        self.events.append("cluster-knn")
+        return self.cluster_result
+
+    def _data(self, **kwargs):
+        self.events.append("graph-data")
+        return SimpleNamespace(**kwargs)
+
+
+def test_default_canary_bodies_execute_all_required_operators() -> None:
+    rig = _DefaultCanaryRig()
+
+    verifier_module._scatter_canary(rig.modules)
+    verifier_module._sparse_canary(rig.modules)
+    verifier_module._cluster_canary(rig.modules)
+    verifier_module._sampler_canary(rig.modules)
+    verifier_module._spline_canary(rig.modules)
+
+    assert rig.events == [
+        "scatter",
+        "sparse-init",
+        "sparse-matmul",
+        "cluster-knn",
+        "graph-data",
+        "neighbor-loader",
+        "neighbor-batch",
+        "spline-init",
+        "spline-forward",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("canary", "mutation"),
+    (
+        ("scatter", lambda rig: setattr(rig, "scatter_result", _CanaryResult((1,)))),
+        ("sparse", lambda rig: setattr(rig, "sparse_result", _CanaryResult((1, 1)))),
+        ("cluster", lambda rig: setattr(rig, "cluster_result", _CanaryResult((1, 2), elements=2))),
+        ("cluster", lambda rig: setattr(rig, "cluster_result", _CanaryResult((2, 0), elements=0))),
+        ("sampler", lambda rig: setattr(rig.batch, "batch_size", 0)),
+        ("sampler", lambda rig: setattr(rig.batch, "num_edges", 0)),
+        ("spline", lambda rig: setattr(rig, "spline_result", _CanaryResult((2, 1)))),
+    ),
+    ids=("scatter-shape", "sparse-shape", "cluster-shape", "cluster-empty", "sampler-seed", "sampler-edge", "spline-shape"),
+)
+def test_default_canary_bodies_reject_empty_or_weakened_results(canary: str, mutation) -> None:
+    rig = _DefaultCanaryRig()
+    mutation(rig)
+
+    with pytest.raises(RuntimeError):
+        getattr(verifier_module, f"_{canary}_canary")(rig.modules)
 
 
 def test_verification_hooks_are_explicit_and_frozen(fake_stack: FakeStack) -> None:

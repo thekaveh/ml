@@ -1029,11 +1029,12 @@ PEFT_HISTORICAL_OUTPUT_NOTICE = (
     "and `dora-adaptation` salts to the adapter runs so each experiment has a distinct history."
 )
 REDDIT_HISTORICAL_OUTPUT_NOTICE = (
-    "Historical-output boundary: The committed Phase 2 and Phase 3 outputs and repeated run IDs "
-    "are a historical NNx 0.2.0 snapshot, not current NNx 0.2.2 acceptance evidence. Current "
-    "Phase 2 notebooks 1 and 2 use stable `phase2-model-selection-notebook1` and "
-    "`phase2-model-selection-notebook2` salts because they share one run root; locked Phase 3 "
-    "code remains unchanged."
+    "Historical-output boundary: The committed Reddit results are a preserved August 2023-era, "
+    "pre-NNx-0.2.0 output snapshot. The notebook sources were later adapted to the NNx 0.2.0 "
+    "API without re-executing those results, so the preserved outputs are not current NNx 0.2.2 "
+    "acceptance evidence. Current Phase 2 notebooks 1 and 2 use stable "
+    "`phase2-model-selection-notebook1` and `phase2-model-selection-notebook2` salts because "
+    "they share one run root; locked Phase 3 code remains unchanged."
 )
 
 
@@ -1089,7 +1090,10 @@ def test_reddit_historical_outputs_and_current_identity_contract_are_in_sync():
     )
     expected = " ".join(REDDIT_HISTORICAL_OUTPUT_NOTICE.split())
     for surface, text in surfaces.items():
-        assert expected in " ".join(text.split()), surface
+        normalized = " ".join(text.split())
+        assert expected in normalized, surface
+        assert "historical NNx 0.2.0 snapshot" not in normalized, surface
+        assert "repeated run IDs" not in normalized, surface
     assert 'salt="phase2-model-selection-notebook1"' in surfaces["canonical guide"]
     assert 'salt="phase2-model-selection-notebook2"' in surfaces["canonical guide"]
 

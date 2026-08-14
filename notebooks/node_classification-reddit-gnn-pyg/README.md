@@ -18,7 +18,7 @@ A staged investigation of how graph-structural information improves node classif
 
 The Phase-3 notebooks preserve August-2023 training outputs and serve as the primary experimental record; the codebase here lets the analysis be re-run on demand.
 
-Historical-output boundary: The committed Phase 2 and Phase 3 outputs and repeated run IDs are a historical NNx 0.2.0 snapshot, not current NNx 0.2.2 acceptance evidence. Current Phase 2 notebooks 1 and 2 use stable `phase2-model-selection-notebook1` and `phase2-model-selection-notebook2` salts because they share one run root; locked Phase 3 code remains unchanged.
+Historical-output boundary: The committed Reddit results are a preserved August 2023-era, pre-NNx-0.2.0 output snapshot. The notebook sources were later adapted to the NNx 0.2.0 API without re-executing those results, so the preserved outputs are not current NNx 0.2.2 acceptance evidence. Current Phase 2 notebooks 1 and 2 use stable `phase2-model-selection-notebook1` and `phase2-model-selection-notebook2` salts because they share one run root; locked Phase 3 code remains unchanged.
 
 ## 3. What's in the notebook(s)
 

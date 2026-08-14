@@ -13,11 +13,12 @@ but Phase 3's full training runs are multi-day CPU jobs whose August-2023 output
 in place (Tier-C, do not re-execute). The `torch_sparse` dependency is Linux-only, so the task
 cannot run on macOS; it executes on the CI Linux runner and the Atlas JupyterHub runtime.
 
-Historical-output boundary: The committed Phase 2 and Phase 3 outputs and repeated run IDs are
-a historical NNx 0.2.0 snapshot, not current NNx 0.2.2 acceptance evidence. Current Phase 2
-notebooks 1 and 2 use stable `phase2-model-selection-notebook1` and
-`phase2-model-selection-notebook2` salts because they share one run root; locked Phase 3 code
-remains unchanged.
+Historical-output boundary: The committed Reddit results are a preserved August 2023-era,
+pre-NNx-0.2.0 output snapshot. The notebook sources were later adapted to the NNx 0.2.0 API
+without re-executing those results, so the preserved outputs are not current NNx 0.2.2 acceptance
+evidence. Current Phase 2 notebooks 1 and 2 use stable
+`phase2-model-selection-notebook1` and `phase2-model-selection-notebook2` salts because they share
+one run root; locked Phase 3 code remains unchanged.
 
 ## 8.13.1 Problem & motivation
 

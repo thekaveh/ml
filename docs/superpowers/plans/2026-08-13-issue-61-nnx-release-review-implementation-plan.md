@@ -476,6 +476,11 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
   through `NNModel.from_checkpoint`, then verify prediction shape/type. Record inability to create
   the environment as a concern; do not alter root manifests or weaken the main acceptance matrix.
 
+  The 0.2.2 trial reconstructed the converted model with exact prediction parity. The retained
+  0.2.0 fallback also completed prepare/train/convert/LAST reload and inference, but its
+  pre-`on_train_end` LAST checkpoint has no transform metadata and reloads ordinary linear
+  modules; that non-blocking fidelity limitation is recorded in the ignored acceptance report.
+
 - [x] **Step 6: Request task-level and broad reviews**
 
   Have fresh reviewers compare every task commit with this plan and the approved design. Then
@@ -499,12 +504,18 @@ generic parser defect is proven, `scripts/verify_repo.py` or `scripts/advisory_b
   comparator gates passed. The controller owns the final complete 0.2.0 matrix and independent
   re-review for the Step 8 decision.
 
-- [ ] **Step 8: Decide adopt or retain**
+- [x] **Step 8: Decide adopt or retain**
 
   Retain 0.2.2 only when all mandatory local gates and task reviews pass. If a blocker is inherent
   to 0.2.2, revert the root pin and only release-coupled current changes, reinstall 0.2.0, rerun
   the complete matrix, and publish the precise incompatibility. Never partially retain new-only
   consumer calls under a reverted pin.
+
+  Final decision: retain 0.2.0. The clean local 0.2.2 trial passed every repository and notebook
+  gate but required five `NNModel.train(..., salt=...)` calls that the unchanged recommended Atlas
+  JupyterHub runtime cannot execute. After removing those trial-only calls and restoring the
+  Atlas-compatible root pin, a fresh canonical 0.2.0 environment passed Step 2, Tier A 18/18,
+  Tier B 6/6, and Tier C 4/4 with clean source and artifact checks.
 
 ## 12.20.8 Task 6: GitFlow Rollout, Bookkeeping, and Cleanup
 

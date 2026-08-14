@@ -330,6 +330,45 @@ def test_installer_runs_every_immutable_argv_plan_without_checking_runner() -> N
     assert all(isinstance(command.argv, tuple) for command in commands)
 
 
+def _assert_upgrade_failure_stops_the_full_plan(module: ModuleType) -> None:
+    commands = module.build_install_commands(sys.executable, "Linux", "x86_64")
+    seen: list[tuple[str, ...]] = []
+    secret = "https://token@example.test/private-output"
+
+    def runner(argv, *, check):
+        seen.append(tuple(argv))
+        return SimpleNamespace(returncode=1, stdout=secret, stderr=secret)
+
+    with pytest.raises(module.TorchStackInstallError) as error:
+        module.install_torch_stack(commands, runner=runner)
+
+    assert str(error.value) == "torch stack installation failed: upgrade-pip"
+    assert secret not in str(error.value)
+    assert seen == [UPGRADE_PIP]
+
+
+def test_installer_stops_after_a_failed_upgrade_stage() -> None:
+    from scripts import install_torch_stack as module
+
+    _assert_upgrade_failure_stops_the_full_plan(module)
+
+
+def test_upgrade_failure_mutation_cannot_continue_to_later_stages(tmp_path: Path) -> None:
+    source = (REPO_ROOT / "scripts" / "install_torch_stack.py").read_text(encoding="utf-8")
+    original = "        if runner(command.argv, check=False).returncode != 0:\n"
+    replacement = (
+        "        result = runner(command.argv, check=False)\n"
+        "        if command.stage is not InstallStage.UPGRADE_PIP and result.returncode != 0:\n"
+    )
+    assert original in source
+    mutated = source.replace(original, replacement, 1)
+    assert mutated != source
+    module = _import_mutated_installer(tmp_path, mutated)
+
+    with pytest.raises((AssertionError, pytest.fail.Exception)):
+        _assert_upgrade_failure_stops_the_full_plan(module)
+
+
 def test_installer_stops_on_nonzero_with_a_redacted_stable_error() -> None:
     commands = build_install_commands(sys.executable, "Linux", "x86_64")
     secret = "https://token@example.test/private-output"

@@ -65,7 +65,7 @@ ml-eng-lab/
 ├── Makefile                                   (papermill tier targets)
 ├── security/                                  (accepted-advisory policy)
 ├── docs/                                      (env/runtime docs, dependency contracts, findings, maintenance log)
-├── requirements.txt + torch-*.txt + pyg-extension-audit-requirements.txt (runtime pins plus audit projections; thekaveh-nnx[lm]==0.2.0)
+├── requirements.txt + torch-*.txt + pyg-extension-audit-requirements.txt (runtime pins plus audit projections; thekaveh-nnx[lm]==0.2.2)
 ├── infra/                                     (Atlas git submodule; pinned infrastructure)
 ├── atlas.consumer.yml                         (ml-eng Atlas consumer contract)
 ├── compose/                                   (parent-owned Atlas compose overlays)
@@ -129,7 +129,7 @@ docker run -p 8888:8888 -v "$(pwd):/home/jovyan/work" --shm-size=4g ml-eng-lab
 ```bash
 python -m venv .venv && source .venv/bin/activate
 make install-torch-stack
-pip install -r requirements.txt   # pulls thekaveh-nnx[lm]==0.2.0 from PyPI
+pip install -r requirements.txt   # pulls thekaveh-nnx[lm]==0.2.2 from PyPI
 make nlp-assets  # one-time spaCy + NLTK assets used by the 2 NLP Tier-A notebooks
 jupyter lab
 ```
@@ -226,7 +226,7 @@ See [docs/env-setup.md](docs/env-setup.md) for the tier mapping.
 
 Throughout this README, `NNx` refers to the [GitHub project](https://github.com/thekaveh/NNx); the importable Python package is lowercase `nnx`; the PyPI distribution is [`thekaveh-nnx`](https://pypi.org/project/thekaveh-nnx/).
 
-The library is consumed via PyPI — `thekaveh-nnx[lm]==0.2.0` is pinned in `requirements.txt` (since 2026-06-14, replacing the prior git-submodule editable install). The `[lm]` extra pulls the BPE tokenizer + datasets backbone for the two notebooks that call `train_bpe`/`NNTokenizerParams` (`notebooks/text_generation-tinyshakespeare-transformer-pytorch/notebook.ipynb` and `notebooks/preference_alignment-toy-dpo-pytorch/notebook.ipynb`); without it both `ImportError` (issue #12). Notebooks import via `from nnx.X import Y` exactly as before — only the distribution name and install mechanism changed.
+The library is consumed via PyPI — `thekaveh-nnx[lm]==0.2.2` is pinned in `requirements.txt` (adopted 2026-08-13 with immutable release provenance and canonical-wheel consumer coverage; Tier A/B/C remain the complete release-acceptance boundary). The PyPI migration replaced the prior git-submodule editable install on 2026-06-14. The `[lm]` extra pulls the BPE tokenizer + datasets backbone for the two notebooks that call `train_bpe`/`NNTokenizerParams` (`notebooks/text_generation-tinyshakespeare-transformer-pytorch/notebook.ipynb` and `notebooks/preference_alignment-toy-dpo-pytorch/notebook.ipynb`); without it both `ImportError` (issue #12). Notebooks import via `from nnx.X import Y` exactly as before — only the distribution name and install mechanism changed.
 
 Released-wheel evidence is defined by the [canonical dependency contract](docs/dependency-contracts.md)
 and checked locally with `make verify-nnx-install`. For intentional upstream development, install

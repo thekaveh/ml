@@ -13,6 +13,16 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **NNx 0.2.2 adoption:** advanced the single root requirement to
+  `thekaveh-nnx[lm]==0.2.2` after canonical-wheel consumer coverage. The reviewed non-yanked
+  universal wheel has SHA-256
+  `ee56474926fdfd5329721f067cf1b8ae31955627c6949844e09ee4a7bb2bb9d7`, the immutable `v0.2.2`
+  release targets `edfd197f3f54d4eb67313d46a80e823e6239c5b6`, and upstream licensing changed from MIT
+  to Apache-2.0. Current guidance records Tier A/B/C as the complete acceptance boundary,
+  quantization as a best-effort Torch >=2.5 side-environment probe, floating tabular targets via
+  `target_dtype=torch.float32`, and checkpoint restore via
+  `NNCheckpoint.load(run=RUN_ID, type=Checkpoints.BEST)`; historical 0.2.0 and Atlas-owned
+  runtime evidence remain unchanged.
 - **Machine-readable advisory baseline gate:** added the reviewed
   `security/accepted-advisories.json` policy, fail-closed four-surface `make audit-advisories`
   comparison, JSON-to-current-ledger verification, and isolated `dependency-audit` CI job. New

@@ -1,6 +1,7 @@
 # tests/test_check_docs.py
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -544,7 +545,7 @@ def test_real_user_docs_publish_advisory_baseline_contract():
     assert "`make audit-advisories` runs all four audit surfaces without suppression" in ledger
     assert "`torch-audit-requirements.txt` and `pyg-extension-audit-requirements.txt` form the selector-free" in ledger
     assert "canonical semantic partition must reconstruct `torch-requirements.txt`" in ledger
-    assert "The commands below are historical capture evidence" in ledger
+    assert "The commands below mirror the current selector-free audit projection" in ledger
     assert "New primary advisory IDs and accepted-version drift fail the gate." in ledger
     assert "reconciliation evidence, not proof of remediation" in ledger
     assert "JSON policy and current Markdown ledger rows together through review" in ledger
@@ -571,18 +572,19 @@ def test_real_user_docs_publish_advisory_baseline_contract():
 
 def test_real_user_docs_publish_current_vulnerability_snapshot():
     ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    normalized_ledger = " ".join(ledger.split())
     security = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
     assert "### 6.1.1.1 Reproducible four-surface audit" in ledger
     assert "### 6.1.1.2 Current accepted advisories" in ledger
     assert "### 6.1.1.3 Alias-aware historical reconciliation" in ledger
-    assert "2026-08-12" in ledger
+    assert "Last reviewed: 2026-08-13" in ledger
     assert "--disable-pip -r docs-requirements.txt" in ledger
     assert (
         "Any exit other than 0/1, missing output, or malformed JSON invalidates the "
         "observation."
-        in ledger
+        in normalized_ledger
     )
     assert (
         "Absent from the 2026-08-12 snapshot; archived audit provenance only" in ledger
@@ -621,7 +623,11 @@ def test_nnx_wheel_contract_is_consistent_across_canonical_user_docs():
 
     dependency_contract = docs["docs/dependency-contracts.md"]
     for evidence in (
-        "thekaveh-nnx[lm]==0.2.0",
+        "thekaveh-nnx[lm]==0.2.2",
+        "ee56474926fdfd5329721f067cf1b8ae31955627c6949844e09ee4a7bb2bb9d7",
+        "edfd197f3f54d4eb67313d46a80e823e6239c5b6",
+        "Apache-2.0",
+        "Stable, universal, not yanked",
         "rejects any `direct_url.json`",
         "`WHEEL`, `RECORD`, and `nnx/__init__.py`",
         "distribution-owned import origin",
@@ -648,6 +654,144 @@ def test_nnx_wheel_contract_is_consistent_across_canonical_user_docs():
         "validated editable-development mode",
     ):
         assert changed_fact in changelog
+
+
+def test_nnx_current_pin_references_match_the_single_root_requirement():
+    requirement = "thekaveh-nnx[lm]==0.2.2"
+    root_requirements = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
+    assert [line for line in root_requirements.splitlines() if line.startswith("thekaveh-nnx")] == [
+        requirement
+    ]
+
+    current_pin_docs = (
+        "README.md",
+        "CONTRIBUTING.md",
+        "docs/assets/badges/nnx.svg",
+        "docs/architecture.md",
+        "docs/notebooks/text_generation-tinyshakespeare-transformer-pytorch.md",
+        "notebooks/text_generation-tinyshakespeare-transformer-pytorch/README.md",
+        "notebooks/preference_alignment-toy-dpo-pytorch/README.md",
+    )
+    for path in current_pin_docs:
+        text = (REPO_ROOT / path).read_text(encoding="utf-8")
+        assert "0.2.0" not in text, path
+        assert "0.2.2" in text, path
+
+    nnx_overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
+    dependency_ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    assert "thekaveh-nnx[lm]==0.2.2" in nnx_overview
+    assert nnx_overview.count("thekaveh-nnx[lm]==0.2.0") == 1
+    assert "thekaveh-nnx[lm]==0.2.2" in dependency_ledger
+    assert "`thekaveh-nnx` / `nnx` 0.2.0" in dependency_ledger
+
+
+def test_nnx_release_evidence_records_complete_consumer_validation_boundary():
+    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
+    normalized_ledger = " ".join(ledger.split())
+
+    for evidence in (
+        "Python `>=3.10`",
+        "Torch `>=2.0`",
+        "torch-geometric `>=2.4`",
+        "Tier A",
+        "Tier B",
+        "Tier C",
+        "canonical wheel",
+        "best-effort",
+        "QAT",
+        "Torch >=2.5",
+    ):
+        assert evidence in normalized_ledger
+    assert "0.2.1" in overview
+    assert "0.2.2" in overview
+
+
+def test_nnx_historical_and_atlas_owned_0_2_0_evidence_remains_explicit():
+    ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    issue_58_design = (
+        REPO_ROOT / "docs/superpowers/specs/2026-08-12-issue-58-nnx-wheel-contract-design.md"
+    ).read_text(encoding="utf-8")
+    issue_58_plan = (
+        REPO_ROOT
+        / "docs/superpowers/plans/2026-08-12-issue-58-nnx-wheel-contract-implementation-plan.md"
+    ).read_text(encoding="utf-8")
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert "`thekaveh-nnx` / `nnx` 0.2.0" in ledger
+    assert "Atlas-owned" in ledger
+    assert "0.2.0" in issue_58_design
+    assert "0.2.0" in issue_58_plan
+    assert "NNx v0.2.0 usage-conformance pass" in changelog
+
+
+def test_tabular_regression_docs_record_resolved_nnx_target_dtype_support():
+    paths = (
+        "docs/FINDINGS-NNX.md",
+        "docs/notebooks/tabular_regression-diabetes-mlp-pytorch.md",
+        "notebooks/tabular_regression-diabetes-mlp-pytorch/README.md",
+        "notebooks/tabular_regression-diabetes-mlp-pytorch/docs/spec.yaml",
+        "notebooks/tabular_regression-diabetes-mlp-pytorch/notebook.ipynb",
+    )
+    docs = {path: (REPO_ROOT / path).read_text(encoding="utf-8") for path in paths}
+
+    for path, text in docs.items():
+        assert "target_dtype=torch.float32" in text, path
+        assert "0.2.2" in text, path
+    assert "Resolved in 0.2.2" in docs["docs/FINDINGS-NNX.md"]
+    assert "intentionally retains" in docs[
+        "docs/notebooks/tabular_regression-diabetes-mlp-pytorch.md"
+    ]
+    assert "established sklearn/NNx split" in docs[
+        "notebooks/tabular_regression-diabetes-mlp-pytorch/README.md"
+    ]
+    for finding in ("9.1.1.1", "9.1.1.2", "9.1.1.4", "9.1.1.5"):
+        assert f"### {finding}" in docs["docs/FINDINGS-NNX.md"]
+        assert "Open" in docs["docs/FINDINGS-NNX.md"].split(f"### {finding}", 1)[1].split("###", 1)[0]
+
+    notebook = json.loads(docs["notebooks/tabular_regression-diabetes-mlp-pytorch/notebook.ipynb"])
+    markdown = "\n".join(
+        "".join(cell["source"]) if isinstance(cell["source"], list) else cell["source"]
+        for cell in notebook["cells"]
+        if cell["cell_type"] == "markdown"
+    )
+    assert "classification only" not in markdown
+
+
+def test_checkpoint_docs_use_current_nnx_checkpoint_api():
+    current_checkpoint_docs = (
+        "docs/nnx-library.md",
+        "docs/concepts.md",
+        "docs/notebooks/tabular_classification-iris-mlp-pytorch.md",
+        "docs/notebooks/dim_reduction-iris-autoencoder-pytorch.md",
+        "notebooks/tabular_classification-iris-mlp-pytorch/docs/spec.yaml",
+    )
+    for path in current_checkpoint_docs:
+        text = (REPO_ROOT / path).read_text(encoding="utf-8")
+        assert "NNRun.load" not in text, path
+        assert "NNCheckpoint.load(run=RUN_ID, type=Checkpoints.BEST)" in text, path
+
+
+def test_real_manifest_declares_issue_61_design_and_implementation_records_consecutively():
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    records = next(section for section in manifest.sections if section.id == "design-records")
+    start = next(
+        index
+        for index, child in enumerate(records.children)
+        if child.id == "issue-61-nnx-release-review-design"
+    )
+    assert [
+        (child.number, child.source) for child in records.children[start : start + 2]
+    ] == [
+        (
+            "12.19",
+            "docs/superpowers/specs/2026-08-13-issue-61-nnx-release-review-design.md",
+        ),
+        (
+            "12.20",
+            "docs/superpowers/plans/2026-08-13-issue-61-nnx-release-review-implementation-plan.md",
+        ),
+    ]
 
 
 def test_real_user_facing_docs_match_the_atlas_runtime_contract():

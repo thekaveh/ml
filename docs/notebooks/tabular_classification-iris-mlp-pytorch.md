@@ -241,9 +241,9 @@ shared params object.
 The `run` returned by `model.train(...)` is an `NNRun` — the framework's training-history object.
 Its `idps` attribute is a list of iteration data points, each carrying `train_edp` and
 `val_edp` (evaluation data points with `error`, `accuracy`, `precision`, `recall`, `f1`).
-`NNRun` is also the serialization surface: `NNRun.load("best")` restores the best checkpoint
-from disk in a fresh session, which is how a downstream evaluation or deployment script would
-reload a trained model without re-running the training loop. In this notebook the live `run`
+Persisted state is restored in a fresh session with
+`NNCheckpoint.load(run=RUN_ID, type=Checkpoints.BEST)`, which is how a downstream evaluation or
+deployment script would reload a trained model without re-running the training loop. In this notebook the live `run`
 object is sufficient — the candidates train in seconds — but the same `NNModel` / `NNRun`
 contract scales to the longer-running image-classification and generative tasks.
 
@@ -355,9 +355,9 @@ every candidate) is the unambiguous winner.
 - **Add k-fold cross-validation.** Replaces the single-split verdict with a mean-plus-spread
   over five folds; closes the "on this split" caveat in the pitfalls section at the cost of
   five times the training compute (still seconds on CPU for Iris).
-- **Persist and reload via `NNRun.load("best")`.** The notebook uses the live `run` object
+- **Persist and reload via `NNCheckpoint.load(run=RUN_ID, type=Checkpoints.BEST)`.** The notebook uses the live `run` object
   because the candidates train in seconds; a follow-up that saves each `NNRun` to
-  `./runs/` and reloads it via `NNRun.load("best")` exercises the serialization contract
+  `./runs/` and reloads its best checkpoint exercises the serialization contract
   that the longer-running image and generative tasks depend on.
 - **Per-class calibration.** Swap the softmax head for a temperature-scaled variant and plot
   reliability diagrams per species; answers "is the *versicolor* confidence trustworthy, or

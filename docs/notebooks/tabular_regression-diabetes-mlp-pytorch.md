@@ -8,10 +8,10 @@ explicitly so the recipe is reusable for the future regression tasks on the road
 (anomaly-detection autoencoders, time-series forecasting).
 
 The notebook is **Tier-A** — CPU re-runs in ~22 seconds and it is re-executed end-to-end in CI on
-every pull request. It is also the first notebook that **cannot use `nnx.NNTabularDataset`**,
-because that helper hard-coerces targets to `torch.long` and is therefore classification-only.
-§3.3 of the notebook builds the `DataLoader`s by hand with `dtype=torch.float32` targets shaped
-`(N, 1)`; the present page explains why that workaround is necessary and how it generalizes.
+every pull request. NNx 0.2.2 supports floating regression targets through
+`NNTabularDataset(target_dtype=torch.float32)`, producing targets shaped `(batch, 1)`. This
+notebook intentionally retains its manual `DataLoader`s to reuse the established sklearn/NNx
+split and preserve the recorded comparison metrics.
 
 The falsifiable hypothesis tested by the notebook is that on a 442-sample classical-statistics
 benchmark, **linear and KNN baselines are surprisingly hard to beat** — the MLPs are interesting
@@ -31,13 +31,12 @@ This notebook exists for three reasons:
 
 1. **Land the first regression slot.** Classification and regression diverge at the output head,
    the loss, and the metrics; the notebook makes each divergence first-class. `nnx` exposes the
-   right primitives (`output_dim=1`, `Losses.MEAN_SQUARED_ERROR`, manual `DataLoader`s), and the
+   right primitives (`output_dim=1`, `Losses.MEAN_SQUARED_ERROR`, floating targets), and the
    notebook is the canonical demo of composing them.
-2. **Surface a real footgun in the nnx API.** `nnx.NNTabularDataset` coerces targets to
-   `torch.long` — it is hard-coded for classification. Using it for regression silently truncates
-   the fractional disease-progression scores and then crashes inside the loss computation when the
-   network outputs floats. The notebook's §3.3 builds the loaders manually and the README §6
-   records the gotcha for downstream regression notebooks.
+2. **Preserve one split across frameworks.** NNx 0.2.2 accepts
+   `target_dtype=torch.float32` for regression, while the default retains classification targets.
+   The notebook's §3.3 deliberately keeps the manual loaders so every sklearn and NNx candidate
+   consumes the same train, validation, and test split.
 3. **Head-to-head against classical baselines.** `sklearn.LinearRegression` (closed-form OLS) and
    `sklearn.KNeighborsRegressor(k=5)` (smoothed local average) bracket the MLP story from both
    ends — the closed-form floor and the classical non-linear floor. The MLPs are then evaluated
@@ -56,7 +55,7 @@ well-conditioned and the MLPs cannot extract additional non-linear signal before
 | R² / RMSE / MAE | `sklearn.metrics.{r2_score, mean_squared_error, mean_absolute_error}` |
 | StandardScaler | Re-fit on train only; applied to val + test (anti-leakage) |
 | MLP (multi-layer perceptron) | `nnx.FeedFwdNN` with `hidden_dims` swept over `[8]` and `[32, 16]` |
-| Manual DataLoader construction | `TensorDataset` + `DataLoader` because `NNTabularDataset` is classification-only |
+| Manual DataLoader construction | `TensorDataset` + `DataLoader` preserves the established sklearn/NNx split; NNx 0.2.2 offers `target_dtype=torch.float32` for future callers |
 | Closed-form OLS baseline | `sklearn.LinearRegression` — the linear floor to beat |
 | Local-averaging baseline | `sklearn.KNeighborsRegressor(k=5)` — the classical non-linear floor |
 | Reproducibility | `nnx.set_seed(0)` pins Python `random`, NumPy, PyTorch CPU + CUDA + cuDNN |
@@ -65,8 +64,8 @@ The `nnx` flat re-exports consumed are: `NNModel`, `NNParams`, `NNModelParams`, 
 `NNOptimParams`, `Devices`, `Losses`, `Nets`, `Optims`, `Activations`, `set_seed`. The enums
 (`Nets.FEED_FWD`, `Losses.MEAN_SQUARED_ERROR`, `Optims.ADAM`, `Devices.CPU`,
 `Activations.RELU`) make the model + training contract read as configuration rather than magic
-strings. Notice that `NNTabularDataset` is *not* in this list — the regression case has to drop
-one layer of abstraction.
+strings. `NNTabularDataset` is not used because its split would differ from the shared sklearn
+comparison, not because 0.2.2 lacks regression-target support.
 
 ## 8.2.3 Mathematical formulation
 
@@ -174,7 +173,7 @@ The split is 70/15/15: train=308, val=67, test=67. `StandardScaler` is fit on th
 split here is **not stratified**: regression targets are continuous, so stratification is
 inapplicable. The `random_state=0` pin is what makes the recorded numbers reproducible.
 
-### 8.2.5.3 Manual DataLoader construction (the regression workaround)
+### 8.2.5.3 Manual DataLoader construction (split preservation)
 
 ```python
 def make_loader(X, y, batch_size, shuffle):
@@ -190,12 +189,11 @@ def make_loader(X, y, batch_size, shuffle):
     )
 ```
 
-This is the **load-bearing regression workaround**. `nnx.NNTabularDataset` would coerce the
-target to `torch.long`, silently truncating the fractional disease-progression scores and then
-crashing inside MSE. The `unsqueeze(-1)` is the second non-obvious bit: MSE between a network
-output of shape `(B, 1)` and a target of shape `(B,)` would broadcast and produce a different
-reduction than intended. The notebook's docstring even records the workaround: *"For regression,
-prefer to construct the DataLoaders yourself and pass them through `NNTrainParams`."*
+NNx 0.2.2 can express the target contract as
+`NNTabularDataset(..., target_dtype=torch.float32)`. The manual construction remains intentional:
+it reuses the established sklearn/NNx split rather than asking the wrapper to create another one.
+The `unsqueeze(-1)` is still load-bearing: MSE between a network output of shape `(B, 1)` and a
+target of shape `(B,)` would broadcast and produce a different reduction than intended.
 
 ### 8.2.5.4 MLP construction
 
@@ -317,11 +315,10 @@ the differences are pure variance.
 
 ## 8.2.7 Pitfalls & edge cases
 
-- **`nnx.NNTabularDataset` is classification-only.** Its `__post_init__` coerces targets to
-  `torch.long`; using it for regression silently truncates fractional targets and then crashes
-  inside MSE. The notebook's §3.3 builds the loaders manually with `dtype=torch.float32`
-  targets, and downstream regression notebooks (anomaly-detection autoencoder, time-series
-  forecasting) will need the same workaround until the upstream nnx API gains a regression mode.
+- **`nnx.NNTabularDataset` defaults to classification targets.** NNx 0.2.2 requires the explicit
+  `target_dtype=torch.float32` argument for floating regression targets shaped `(batch, 1)`.
+  This notebook's manual loaders are an intentional split-preservation choice; future regression
+  notebooks may use the wrapper when an NNx-owned split is appropriate.
 - **Targets must be shaped `(N, 1)` to match `output_dim=1`.** Passing `(N,)` targets into MSE
   against a `(B, 1)` network output broadcasts across the trailing dim and silently produces a
   different reduction than intended. The `unsqueeze(-1)` in `make_loader` is load-bearing.

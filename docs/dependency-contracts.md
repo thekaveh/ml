@@ -295,9 +295,25 @@ update this section.
 
 ## 6.1.6 NNx PyPI Pin and Editable Override Boundary
 
-`requirements.txt` pins `thekaveh-nnx[lm]==0.2.0`. That PyPI distribution is
-the canonical contract for ml-eng-lab notebook verification and CI. Record canonical local
-evidence with:
+`requirements.txt` pins `thekaveh-nnx[lm]==0.2.2`. That PyPI distribution is
+the canonical contract for ml-eng-lab notebook verification and CI.
+
+The reviewed release evidence is immutable and distinct from the install contract:
+
+| Release | Immutable tag commit | Published wheel SHA-256 | Status |
+| --- | --- | --- | --- |
+| 0.2.1 | `074ef22944a39eca8d65052ffa8d01520c5f1f1c` | `d0296143a714f9bb310b508406c6e3b3a21fa0a03d867345bef346e9fb556f20` | Stable, universal, not yanked |
+| 0.2.2 | `edfd197f3f54d4eb67313d46a80e823e6239c5b6` | `ee56474926fdfd5329721f067cf1b8ae31955627c6949844e09ee4a7bb2bb9d7` | Latest stable, universal, not yanked |
+
+The immutable [v0.2.2 release](https://github.com/thekaveh/NNx/releases/tag/v0.2.2) and
+[PyPI project](https://pypi.org/project/thekaveh-nnx/) record the universal wheel. NNx changed
+its upstream license from MIT to Apache-2.0. Version 0.2.2 retains Python `>=3.10`, Torch
+`>=2.0`, torchvision `>=0.15`, and torch-geometric `>=2.4`; those floors remain compatible with
+the repository's existing Python, Torch, and PyG contracts. The published wheel hash is reviewed
+provenance, not a second requirement or a complete dependency lock; Issue #63 retains hash-lock
+ownership.
+
+Record canonical local evidence with:
 
 ```bash
 make verify-nnx-install
@@ -313,6 +329,15 @@ CI selects the NNx wheel with `--only-binary=thekaveh-nnx` in both `pytest-repos
 `pytest-nnx-surface`, then runs `make verify-nnx-install` after installation and immediately before
 tests. This binary-only selection is not a cryptographic hash lock and does not lock the whole
 dependency graph; Issue #63 owns future NNx wheel hash locking.
+
+The release-acceptance tiers apply the same canonical wheel boundary immediately before each
+workload: Tier A covers 17 NNx consumers plus the NumPy control, Tier B covers the image baseline
+and active Reddit exploration/model-selection notebooks, and Tier C covers the four historical
+Reddit final pipelines without overwriting their recorded outputs. A failure in any Tier A, Tier B,
+or Tier C workload is blocking. QAT remains a best-effort isolated Torch >=2.5 side-environment
+checkpoint probe because the canonical Torch 2.4.1 stack cannot import the
+required torchao surface; it does not replace the three canonical tiers or change repository
+requirements.
 
 Editable installs are allowed only for intentional upstream NNx development. After installing an
 external checkout editable, run:
@@ -350,7 +375,7 @@ also succeeded; no Ollama or ComfyUI container was running for the consumer.
 | Surface | Observed in Atlas JupyterHub | Contract meaning |
 | --- | --- | --- |
 | Python | CPython 3.11.10 | Remote notebook interpreter |
-| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; `tokenizers` 0.22.2 | Matches notebook imports and the `[lm]` extra |
+| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; `tokenizers` 0.22.2 | Atlas-owned image evidence; matches notebook imports and the `[lm]` extra at the observed version |
 | Torch | `torch` 2.11.0+cpu; `torchvision` 0.26.0+cpu; `torchaudio` 2.11.0+cpu | Atlas runtime is newer than local/CI; do not infer a local pin bump |
 | Torch extensions | `torchao` 0.17.0; `torch-geometric` 2.6.1; `python-louvain` 0.16 | Required import surfaces are present |
 | NLP | spaCy 3.8.14, `en_core_web_sm` 3.8.0; NLTK 3.10.0 with VADER | Both task assets resolve |
@@ -363,7 +388,7 @@ smoke.
 
 ## 6.1.9 Atlas Versus Local/CI Dependency Boundaries
 
-Atlas's runtime image is infrastructure-owned and may advance independently of
+Atlas's runtime image is Atlas-owned infrastructure and may advance independently of
 the checked-in local/CI manifests. The local/CI Torch 2.4.1 contract remains the
 source of truth for `make test`, papermill CI, Dockerfile, and Codespaces.
 Conversely, notebooks using the remote kernel rely on the observed Atlas package

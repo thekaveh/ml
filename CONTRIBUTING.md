@@ -5,7 +5,7 @@ A short guide for adding new notebook experiment folders and modifying shared co
 ## 1. Conventions
 
 - This is a notebook-driven ML lab. Each active task is a self-contained directory under `notebooks/` using the `[task]-[dataset]-[model]-[framework]` naming convention. Do not introduce a `tasks/` subdirectory or family-prefixed dirs (`vision/`, `nlp/`, ...).
-- Shared library code lives in **`thekaveh-nnx`** — the PyTorch toolkit installed from PyPI ([source: `thekaveh/NNx`](https://github.com/thekaveh/NNx)), pinned in `requirements.txt` to `thekaveh-nnx[lm]==0.2.0` (since 2026-06-14). Notebooks import via `from nnx.X import Y`. Do not reintroduce a local `common/` directory — `scripts/verify_repo.py` enforces this via `S7.forbidden_toplevel`.
+- Shared library code lives in **`thekaveh-nnx`** — the PyTorch toolkit installed from PyPI ([source: `thekaveh/NNx`](https://github.com/thekaveh/NNx)), pinned in `requirements.txt` to `thekaveh-nnx[lm]==0.2.2` (adopted 2026-08-13). Notebooks import via `from nnx.X import Y`. Do not reintroduce a local `common/` directory — `scripts/verify_repo.py` enforces this via `S7.forbidden_toplevel`.
 - The `notebooks/archive/` directory holds preserved-as-is experiments. Read-only.
 - New notebooks should include a top markdown cell stating purpose and dataset, plus the canonical §1–§6 hierarchy (Overview / Setup / Data / Model / Training / Evaluation & Results). Phase-1 exploration notebooks use a variant: §1, §2, §3 Dataset deep-dive.
 

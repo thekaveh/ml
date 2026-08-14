@@ -86,7 +86,7 @@ merged.
 
 - `notebooks/archive/` is preserved as read-only historical material and excluded from active
   notebook validation.
-- `thekaveh-nnx[lm]==0.2.0` is consumed from PyPI; shared library changes land upstream in
+- `thekaveh-nnx[lm]==0.2.2` is consumed from PyPI; shared library changes land upstream in
   `thekaveh/NNx` before this repo bumps the pin.
 - The quantization notebook is active but manual-only until the pinned Torch stack can satisfy
   `torchao>=0.17`.

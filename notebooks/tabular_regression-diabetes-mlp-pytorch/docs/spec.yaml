@@ -20,7 +20,7 @@ math:
     label: "Coefficient of determination"
     latex: "R^2 = 1 - \\frac{\\sum_i (y_i - \\hat{y}_i)^2}{\\sum_i (y_i - \\bar{y})^2}"
 code_walkthrough:
-  - { anchor: "make_loader(...)", note: "manual float32 DataLoader; NNTabularDataset is classification-only" }
+  - { anchor: "make_loader(...)", note: "manual float32 DataLoader intentionally preserves the established sklearn/NNx split; NNx 0.2.2 also supports target_dtype=torch.float32" }
   - { anchor: "Losses.MEAN_SQUARED_ERROR", note: "recipe-defining loss choice with output_dim=1" }
   - { anchor: "model.predict(X).logits.squeeze(-1)", note: "collapses (N,1) network output to (N,)" }
 results:
@@ -29,7 +29,7 @@ results:
   - { metric: "R2 (MLP deep [32,16])", value: "0.130" }
   - { metric: "R2 (KNN k=5)", value: "0.028" }
 pitfalls:
-  - "NNTabularDataset coerces targets to torch.long — classification only; build DataLoaders manually for regression."
+  - "NNx 0.2.2 supports NNTabularDataset(target_dtype=torch.float32); this notebook retains manual loaders to preserve the established sklearn/NNx split."
   - "Targets must be unsqueezed to (N,1) to match output_dim=1 against MSE."
   - "EarlyStopping default monitor val_edp.error is wrong for regression; use val_edp.loss."
   - "Deeper MLP overfits the 308-sample train split before extracting any non-linear signal."

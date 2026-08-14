@@ -211,7 +211,7 @@ GitHub Actions, pip-audit, MkDocs Material, GitHub wiki, Git, and GitHub CLI.
 `tests/nnx_surface/test_notebook_api_surface.py`, and, only if needed,
 `tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py`
 
-- [ ] **Step 1: Write the regression-dataset contract**
+- [x] **Step 1: Write the regression-dataset contract**
 
   Build a deterministic tiny pandas frame and require:
 
@@ -226,33 +226,33 @@ GitHub Actions, pip-audit, MkDocs Material, GitHub wiki, Git, and GitHub CLI.
   shape. Add a paired default-`None` test proving Iris-style integer class targets remain
   contiguous `torch.long` values and retain multi-class `output_dim`.
 
-- [ ] **Step 2: Write additive facade contracts**
+- [x] **Step 2: Write additive facade contracts**
 
   Import `ConvNN`, `NNConvParams`, `FeedFwdMoENN`, `NNMoEParams`, and `Nets` from `nnx` only.
   Construct the smallest valid Conv and MoE configurations, assert `Nets.CONV` and
   `Nets.FEED_FWD_MOE`, and execute one shape-level forward pass where the public model contract
   permits it. Do not migrate any notebook to these architectures.
 
-- [ ] **Step 3: Extend the graph signature guard**
+- [x] **Step 3: Extend the graph signature guard**
 
   Add synthetic accepted calls with `seed=0` and `sampler="full"` and make the accepted-signature
   fixture include both names. Do not edit Reddit notebooks; the live signature-derived scan must
   continue to validate their existing kwargs.
 
-- [ ] **Step 4: Capture release-delta RED in a disposable 0.2.0 environment**
+- [x] **Step 4: Capture release-delta RED in a disposable 0.2.0 environment**
 
   Create a temporary Python 3.11 virtual environment outside the repository, install the released
   0.2.0 binary wheel plus only the focused test dependencies, and run the new release-surface
   tests. Expected RED: regression target dtype and/or new facade/graph contracts are absent.
   Delete the disposable environment after recording the sanitized result.
 
-- [ ] **Step 5: Install and verify the clean 0.2.2 wheel in a disposable environment**
+- [x] **Step 5: Install and verify the clean 0.2.2 wheel in a disposable environment**
 
   Install the repository manifests using the existing Torch-first order and exact binary-only NNx
   command. Run `make verify-nnx-install` with the disposable interpreter and record version,
   non-editable provenance, WHEEL/RECORD ownership, and import origin without disclosing host paths.
 
-- [ ] **Step 6: Run focused GREEN tests**
+- [x] **Step 6: Run focused GREEN tests**
 
   ```bash
   make verify-nnx-install
@@ -269,7 +269,7 @@ GitHub Actions, pip-audit, MkDocs Material, GitHub wiki, Git, and GitHub CLI.
   If the host interpreter is editable, run these gates inside the verified disposable wheel
   environment; do not set `NNX_ALLOW_EDITABLE=1` for release evidence.
 
-- [ ] **Step 7: Commit Task 2**
+- [x] **Step 7: Commit Task 2**
 
   ```bash
   git add tests/nnx_surface/test_tabular_regression_diabetes_mlp_pytorch.py \

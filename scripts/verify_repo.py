@@ -1521,44 +1521,95 @@ def _workflow_action_pin_findings(repo: Path) -> list[Finding]:
     return findings
 
 
-def _literal_assignment_values(source: str, name: str) -> set[str]:
+_EXPECTED_TORCH_STACK_IMPORTS = {
+    "torch": "torch",
+    "torchvision": "torchvision",
+    "torchaudio": "torchaudio",
+    "pytorch-lightning": "pytorch_lightning",
+    "torchmetrics": "torchmetrics",
+    "torchao": "torchao",
+    "torch-geometric": "torch_geometric",
+    "pyg-lib": "pyg_lib",
+    "torch-scatter": "torch_scatter",
+    "torch-sparse": "torch_sparse",
+}
+_EXPECTED_RUNTIME_ONLY_MODULES = frozenset({
+    "numpy", "torch", "torchvision", "torch_geometric", "torch_sparse",
+    "torch_scatter", "pyg_lib", "matplotlib", "seaborn", "pandas", "sklearn",
+    "scipy", "networkx", "community", "nnx", "tqdm",
+})
+_EXPECTED_RUNTIME_AVAILABLE_IMPORTS = (
+    "torch", "torch_geometric", "pyg_lib", "torch_scatter", "torch_sparse",
+)
+
+
+def _protected_name_bindings(tree: ast.AST, name: str) -> list[ast.AST]:
+    bindings: list[ast.AST] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id == name:
+            bindings.append(node)
+        elif isinstance(node, ast.arg) and node.arg == name:
+            bindings.append(node)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
+            bindings.append(node)
+        elif isinstance(node, ast.alias) and (node.asname == name or node.name == name):
+            bindings.append(node)
+        elif isinstance(node, ast.ExceptHandler) and node.name == name:
+            bindings.append(node)
+        elif isinstance(node, ast.MatchAs) and node.name == name:
+            bindings.append(node)
+    return bindings
+
+
+def _literal_assignment_values(source: str, name: str) -> object:
     tree = ast.parse(source)
-    bindings = [
+    assignments = [
         node for node in tree.body
-        if (
-            isinstance(node, ast.Assign)
-            and any(
-                isinstance(target, ast.Name) and target.id == name
-                for target in node.targets
-            )
-        )
-        or (
-            isinstance(node, (ast.AnnAssign, ast.AugAssign))
-            and isinstance(node.target, ast.Name)
-            and node.target.id == name
-        )
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == name
     ]
-    if len(bindings) != 1 or not isinstance(bindings[0], ast.Assign):
+    if len(assignments) != 1:
         raise ValueError(f"{name} must have exactly one direct assignment")
-    assignment = bindings[0]
+    assignment = assignments[0]
+    if _protected_name_bindings(tree, name) != [assignment.targets[0]]:
+        raise ValueError(f"{name} must not be rebound")
     value = assignment.value
-    if (
-        name == "_RUNTIME_ONLY_MODULES"
-        and isinstance(value, ast.Call)
-        and isinstance(value.func, ast.Name)
-        and value.func.id == "frozenset"
-        and len(value.args) == 1
-        and not value.keywords
-    ):
-        value = value.args[0]
-    parsed = ast.literal_eval(value)
-    if isinstance(parsed, dict):
-        parsed = set(parsed.values())
-    if not isinstance(parsed, (set, tuple, list)) or not all(
-        isinstance(item, str) for item in parsed
-    ):
-        raise ValueError(f"{name} must be a literal import collection")
-    return set(parsed)
+    if name == "IMPORTS":
+        if not isinstance(value, ast.Dict) or any(key is None for key in value.keys):
+            raise ValueError("IMPORTS must be a plain literal dictionary")
+        pairs = [
+            (ast.literal_eval(key), ast.literal_eval(item))
+            for key, item in zip(value.keys, value.values, strict=True)
+        ]
+        if not all(isinstance(key, str) and isinstance(item, str) for key, item in pairs):
+            raise ValueError("IMPORTS must map strings to strings")
+        if len({key for key, _ in pairs}) != len(pairs):
+            raise ValueError("IMPORTS must not repeat keys")
+        return dict(pairs)
+    if name == "_RUNTIME_ONLY_MODULES":
+        if not (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "frozenset"
+            and len(value.args) == 1
+            and not value.keywords
+            and isinstance(value.args[0], ast.Set)
+        ):
+            raise ValueError("_RUNTIME_ONLY_MODULES must be a frozenset literal")
+        items = [ast.literal_eval(item) for item in value.args[0].elts]
+        if not all(isinstance(item, str) for item in items) or len(set(items)) != len(items):
+            raise ValueError("_RUNTIME_ONLY_MODULES must contain unique strings")
+        return frozenset(items)
+    if name == "_RUNTIME_AVAILABLE_IMPORTS":
+        if not isinstance(value, ast.Tuple):
+            raise ValueError("_RUNTIME_AVAILABLE_IMPORTS must be a tuple literal")
+        items = tuple(ast.literal_eval(item) for item in value.elts)
+        if not all(isinstance(item, str) for item in items) or len(set(items)) != len(items):
+            raise ValueError("_RUNTIME_AVAILABLE_IMPORTS must contain unique strings")
+        return items
+    raise ValueError(f"unknown protected declaration: {name}")
 
 
 def _workflow_run_commands(source: str) -> tuple[str, ...]:
@@ -1636,9 +1687,9 @@ def _python_command_imports(commands: Iterable[str]) -> set[str]:
 
 def _torch_runtime_contract_findings(repo: Path) -> list[Finding]:
     declarations = (
-        ("scripts/verify_torch_stack.py", "IMPORTS", _TORCH_RUNTIME_IMPORTS),
-        ("scripts/verify_repo.py", "_RUNTIME_ONLY_MODULES", _TORCH_RUNTIME_IMPORTS),
-        ("scripts/verify_repo.py", "_RUNTIME_AVAILABLE_IMPORTS", _TORCH_RUNTIME_IMPORTS),
+        ("scripts/verify_torch_stack.py", "IMPORTS", _EXPECTED_TORCH_STACK_IMPORTS),
+        ("scripts/verify_repo.py", "_RUNTIME_ONLY_MODULES", _EXPECTED_RUNTIME_ONLY_MODULES),
+        ("scripts/verify_repo.py", "_RUNTIME_AVAILABLE_IMPORTS", _EXPECTED_RUNTIME_AVAILABLE_IMPORTS),
     )
     findings: list[Finding] = []
     for location, name, required in declarations:
@@ -1646,9 +1697,13 @@ def _torch_runtime_contract_findings(repo: Path) -> list[Finding]:
             values = _literal_assignment_values(
                 (repo / location).read_text(encoding="utf-8"), name
             )
-            missing = required - values
-            forbidden = values & _FORBIDDEN_TORCH_RUNTIME_IMPORTS
-            drift = name == "_RUNTIME_AVAILABLE_IMPORTS" and values != required
+            if isinstance(values, dict):
+                import_values = set(values.values())
+            else:
+                import_values = set(values)
+            missing = _TORCH_RUNTIME_IMPORTS - import_values
+            forbidden = import_values & _FORBIDDEN_TORCH_RUNTIME_IMPORTS
+            drift = values != required
             if missing or forbidden or drift:
                 findings.append(Finding(
                     id="D10.torch_runtime_contract", check="docs", severity="error",
@@ -1657,7 +1712,7 @@ def _torch_runtime_contract_findings(repo: Path) -> list[Finding]:
                     detail={
                         "missing": sorted(missing),
                         "forbidden": sorted(forbidden),
-                        "actual": sorted(values),
+                        "actual": sorted(import_values),
                     },
                 ))
         except (OSError, SyntaxError, StopIteration, ValueError):

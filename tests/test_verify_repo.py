@@ -2695,6 +2695,40 @@ def test_torch_runtime_contract_rejects_nonliteral_declaration(tmp_path: Path) -
     assert _torch_runtime_contract_findings(repo)
 
 
+@pytest.mark.parametrize("mutation", (
+    "\nif True:\n    IMPORTS = IMPORTS\n",
+    "\nif (_RUNTIME_ONLY_MODULES := _RUNTIME_ONLY_MODULES):\n    pass\n",
+    "\ndef _shadow(_RUNTIME_AVAILABLE_IMPORTS):\n    return _RUNTIME_AVAILABLE_IMPORTS\n",
+))
+def test_torch_runtime_contract_rejects_nested_and_nonplain_rebindings(
+    tmp_path: Path, mutation: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / ("scripts/verify_torch_stack.py" if "IMPORTS =" in mutation else "scripts/verify_repo.py")
+    target.write_text(target.read_text(encoding="utf-8") + mutation, encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize("replacement", (
+    "[\n    \"torch\", \"torch_geometric\", \"pyg_lib\", \"torch_scatter\", \"torch_sparse\",\n]",
+    "(\n    \"torch\", \"torch_geometric\", \"pyg_lib\", \"torch_scatter\", \"torch_sparse\", \"torch\",\n)",
+    "(\n    \"torch_sparse\", \"torch_scatter\", \"pyg_lib\", \"torch_geometric\", \"torch\",\n)",
+))
+def test_torch_runtime_contract_requires_exact_available_import_tuple(
+    tmp_path: Path, replacement: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / "scripts/verify_repo.py"
+    source = target.read_text(encoding="utf-8")
+    start = source.index("_RUNTIME_AVAILABLE_IMPORTS = ")
+    end = source.index("\n_TORCH_RUNTIME_IMPORTS", start)
+    mutated = source[:start] + f"_RUNTIME_AVAILABLE_IMPORTS = {replacement}" + source[end:]
+    target.write_text(mutated, encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
 def test_full_execution_uses_temporary_tier_a_outputs(tmp_path, monkeypatch):
     verify_repo = _load_verify_module()
     repo = _temp_repo(tmp_path)

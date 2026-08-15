@@ -1410,6 +1410,44 @@ def test_issue62_manual_quantization_guidance_uses_fresh_canonical_environment()
         assert "side pair" not in current, path
 
 
+_ISSUE62_FOCUSED_MANUAL_PROBE = (
+    "the focused manual quantization probe in a fresh canonical environment installed by "
+    "`make install-torch-stack`"
+)
+
+_ISSUE62_FULL_QUANTIZATION_EXECUTION_CLAIMS = (
+    "execute the quantization notebook manually",
+    "complete notebook execution",
+    "full notebook execution",
+)
+
+
+def _assert_issue62_nnx_review_uses_only_focused_quantization_probe(section: str) -> None:
+    assert _ISSUE62_FOCUSED_MANUAL_PROBE in section
+    for claim in _ISSUE62_FULL_QUANTIZATION_EXECUTION_CLAIMS:
+        assert claim not in section
+
+
+def test_issue62_nnx_review_requires_only_the_focused_manual_quantization_probe() -> None:
+    text = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    shared_code = _same_level_section(text, "4. Modifying shared code")
+
+    _assert_issue62_nnx_review_uses_only_focused_quantization_probe(shared_code)
+
+
+@pytest.mark.parametrize("claim", _ISSUE62_FULL_QUANTIZATION_EXECUTION_CLAIMS)
+def test_issue62_nnx_review_rejects_full_quantization_execution_requirement(claim: str) -> None:
+    text = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    shared_code = _same_level_section(text, "4. Modifying shared code")
+    replacement = f"{claim} in a fresh canonical environment installed by `make install-torch-stack`"
+    mutated = shared_code.replace(_ISSUE62_FOCUSED_MANUAL_PROBE, replacement, 1)
+    assert mutated != shared_code
+    assert claim in mutated
+
+    with pytest.raises(AssertionError):
+        _assert_issue62_nnx_review_uses_only_focused_quantization_probe(mutated)
+
+
 def test_issue62_dependency_sections_replace_complete_old_contracts():
     text = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
     torch_section = _same_level_section(text, "6.1.2 Torch Stack Pin")

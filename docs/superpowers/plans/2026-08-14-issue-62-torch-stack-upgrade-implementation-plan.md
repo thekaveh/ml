@@ -5231,12 +5231,14 @@ graph edits, or stage anything until the focused clean gate is green.
   REPO=thekaveh/ml-eng-lab
   FEATURE_REF=codex/issue-62-torch-stack-upgrade
   FEATURE_SHA="$FINAL_SHA"
-  gh issue view 65 --repo "$REPO" --json state,title,body,labels,assignees,projectItems,updatedAt \
+  gh issue view 65 --repo "$REPO" --json state,title,body,labels,assignees,projectItems \
     > "$FINAL_ROOT/issue65-before.json"
-  gh issue view 66 --repo "$REPO" --json state,title,body,labels,assignees,projectItems,updatedAt \
+  gh issue view 66 --repo "$REPO" --json state,title,body,labels,assignees,projectItems \
     > "$FINAL_ROOT/issue66-before.json"
+  test "$(jq -r .state "$FINAL_ROOT/issue65-before.json")" = OPEN
+  test "$(jq -r .state "$FINAL_ROOT/issue66-before.json")" = OPEN
   test "$(git rev-parse HEAD)" = "$FEATURE_SHA"
-  git push --set-upstream origin "HEAD:refs/heads/$FEATURE_REF"
+  git push origin "HEAD:refs/heads/$FEATURE_REF"
   test "$(git ls-remote origin "refs/heads/$FEATURE_REF" | cut -f1)" = "$FEATURE_SHA"
   FEATURE_TITLE='build: upgrade supported Torch stack to 2.11'
   FEATURE_BODY='Implements Issue #62 without closing it before release: supported binary pyg-lib/scatter/sparse boundary, ten-component verifier, advisory reconciliation, NNx 0.2.0, and Tier 18/6/4 evidence. Atlas Issue #65 and quantization Issue #66 remain out of scope; no service was started.'
@@ -5433,7 +5435,9 @@ graph edits, or stage anything until the focused clean gate is green.
 
   Expected: every applicable PR check is green on the recorded synthetic `PR_MERGE_SHA`; the
   conditionally skipped PR-event `smoke-tier-c` job is not evidence and is replaced by the successful
-  dispatch on exact `FEATURE_SHA`; no pending, skipped, neutral, cancelled, stale-SHA, or rerun-masked
+  dispatch on exact `FEATURE_SHA`; the detached qualification checkout pushes the explicit remote
+  ref without attempting to establish a local upstream; no pending, skipped, neutral, cancelled,
+  stale-SHA, or rerun-masked
   result is accepted as evidence. Attach the ignored Darwin/native-arm64/advisory/Tier 18/6/4 report and the Linux
   x86_64 run/check URLs to Issue #62 and the PR.
 
@@ -5989,9 +5993,9 @@ graph edits, or stage anything until the focused clean gate is green.
     sleep 10
   done
   test "$PUBLICATION_READY" = true
-  gh issue view 65 --repo "$REPO" --json state,title,body,labels,assignees,projectItems,updatedAt \
+  gh issue view 65 --repo "$REPO" --json state,title,body,labels,assignees,projectItems \
     > "$FINAL_ROOT/issue65-after.json"
-  gh issue view 66 --repo "$REPO" --json state,title,body,labels,assignees,projectItems,updatedAt \
+  gh issue view 66 --repo "$REPO" --json state,title,body,labels,assignees,projectItems \
     > "$FINAL_ROOT/issue66-after.json"
   cmp "$FINAL_ROOT/issue65-before.json" "$FINAL_ROOT/issue65-after.json"
   cmp "$FINAL_ROOT/issue66-before.json" "$FINAL_ROOT/issue66-after.json"
@@ -6147,6 +6151,26 @@ graph edits, or stage anything until the focused clean gate is green.
           and len(debt["origin_sha256"]) == 64
           and all(character in "0123456789abcdef" for character in debt["origin_sha256"]),
           "warning origin hash",
+      )
+      torch_distribution = distribution("torch")
+      torch_matches = tuple(
+          path for path in (torch_distribution.files or ())
+          if path.as_posix() == "torch/jit/_script.py"
+      )
+      require(len(torch_matches) == 1, "warning RECORD origin cardinality")
+      require(
+          getattr(torch_matches[0], "dist", None) is torch_distribution,
+          "warning RECORD origin ownership",
+      )
+      torch_origin = torch_distribution.locate_file(torch_matches[0]).resolve(strict=True)
+      require(
+          torch_origin == torch_matches[0].locate().resolve(strict=True),
+          "warning RECORD origin resolution",
+      )
+      require(torch_origin.is_file(), "warning RECORD origin concrete file")
+      require(
+          debt["origin_sha256"] == hashlib.sha256(torch_origin.read_bytes()).hexdigest(),
+          "warning RECORD origin content hash",
       )
       require(debt["global_warning_action"] == "error", "global warning action")
       require(debt["local_capture_action"] == "always", "local warning capture")
@@ -6578,6 +6602,8 @@ graph edits, or stage anything until the focused clean gate is green.
   del missing_warning_debt["import_warning_debt"]
   ignored_global_warnings = copy.deepcopy(report)
   ignored_global_warnings["import_warning_debt"]["global_warning_action"] = "ignore"
+  wrong_import_warning_hash = copy.deepcopy(report)
+  wrong_import_warning_hash["import_warning_debt"]["origin_sha256"] = "0" * 64
   missing_qat_debt = copy.deepcopy(report)
   del missing_qat_debt["qat_warning_debt"]
   wrong_qat_key = copy.deepcopy(report)
@@ -6588,7 +6614,8 @@ graph edits, or stage anything until the focused clean gate is green.
   bypassed_qat_global_warnings["qat_warning_debt"]["global_warning_action"] = "default"
   for mutation in (
       wrong_name, missing_metadata, missing_release_evidence, missing_final_develop_evidence,
-      missing_warning_debt, ignored_global_warnings, missing_qat_debt, wrong_qat_key,
+      missing_warning_debt, ignored_global_warnings, wrong_import_warning_hash,
+      missing_qat_debt, wrong_qat_key,
       zero_qat_warnings, bypassed_qat_global_warnings,
   ):
       try:
@@ -6856,8 +6883,10 @@ graph edits, or stage anything until the focused clean gate is green.
   workflow run remains, including queued/in-progress runs for the final `origin/develop` identity;
   `main`/`develop` trees match; tracked status is clean; only then does the
   plan comment with the primary ignored report, prove #53 open before/after its completion comment,
-  verify Issue #62 as project Done, and close Issue #62 as the final command. Issues #65/#66 remain
-  open and unchanged.
+  verify Issue #62 as project Done, and close Issue #62 as the final command. Issue #65/#66
+  preflight first proves both are open, and before/after snapshots compare only substantive
+  `state,title,body,labels,assignees,projectItems` fields so expected cross-reference timestamp
+  churn cannot create a false mismatch; both issues remain open and substantively unchanged.
 
 ---
 
@@ -6934,7 +6963,9 @@ graph edits, or stage anything until the focused clean gate is green.
 - [x] **Current-doc bounds:** Task 6 uses the real `4.1.6` heading, replaces complete same-level dependency sections 6.1.2 and 6.1.11 plus the stale manifest-owned graph release paragraph, places generated-row tokens directly in both source specs, regenerates once, and stages/tests/parity-checks both specs, the generated canonical page, and `docs/notebooks/node_classification-reddit-gnn-pyg.md`.
 - [x] **External evidence schema:** report schema 6 uses the exact ten distribution metadata names
   including `pytorch-lightning`, separate NNx metadata, positive exact import-warning debt evidence
-  with no disposable absolute path, and exact QAT debt JSON tied to the frozen feature SHA and a
+  with no disposable absolute path; the import-warning hash is independently re-resolved against
+  the sole selected-Torch-owned `torch/jit/_script.py` RECORD entry and a wrong-hash mutation fails.
+  The report also embeds exact QAT debt JSON tied to the frozen feature SHA and a
   dedicated one-test zero-failure/error/skip JUnit hash. The QAT schema fixes the four-part tuple,
   count 1, identity-`UserWarning`, complete message, RECORD path/hash, global `error`, and local
   `always`; missing, wrong-key, zero-count, and global-bypass mutations fail. The report also records
@@ -6959,7 +6990,20 @@ graph edits, or stage anything until the focused clean gate is green.
   permits only a fully requalified r5; a zero group triggers removal of the debt machinery, never
   acceptance from a cached import. A zero QAT warning or tuple drift likewise triggers removal of
   the QAT debt helper before qualification. Task 3 then finishes smoke tools and its exact commit.
-- [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; release ownership on shared `develop -> main` requires the exact Issue-62 title identity plus bounded one-paragraph body/reference constraints, and ambiguous/broader candidates fail for manual review rather than close. Feature/release reuse still requires exact title/body/SHA, label, and successful Tier B. A needed `main -> develop` sync inventories first, reuses only exact current copy/SHA with successful required checks, closes only stale dedicated sync candidates, fails on ambiguity/collision, and never blindly creates. Dispatch and Pages runs remain new after snapshotted UTC/ID boundaries and complete within bounded polls; a separate 720-by-10-second exact-SHA poll requires successful final-develop `CI`, mechanically exceeds the 90-minute Tier A timeout by 30 minutes of queue headroom, and the final noncompleted-run audit includes final-develop plus optional sync identities with a queued-run blocking mutation.
+- [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples;
+  the detached final worktree pushes only the explicit remote feature ref and never requests a local
+  upstream. Release ownership on shared `develop -> main` requires the exact Issue-62 title identity
+  plus bounded one-paragraph body/reference constraints, and ambiguous/broader candidates fail for
+  manual review rather than close. Feature/release reuse still requires exact title/body/SHA, label,
+  and successful Tier B. Issues #65/#66 are proved open before the first push, snapshotted without
+  volatile `updatedAt`/timeline data, and compared after publication for exact substantive equality.
+  A needed `main -> develop` sync inventories first, reuses only exact current copy/SHA with successful
+  required checks, closes only stale dedicated sync candidates, fails on ambiguity/collision, and
+  never blindly creates. Dispatch and Pages runs remain new after snapshotted UTC/ID boundaries and
+  complete within bounded polls; a separate 720-by-10-second exact-SHA poll requires successful
+  final-develop `CI`, mechanically exceeds the 90-minute Tier A timeout by 30 minutes of queue
+  headroom, and the final noncompleted-run audit includes final-develop plus optional sync identities
+  with a queued-run blocking mutation.
 - [x] **Completion ordering:** Pages/report evidence is persisted in the primary ignored root, successful final-develop runs are proved, then validated cleanup, zero scoped PRs/runs, main/develop synchronization, clean status, and deleted temporary evidence roots are proved before any completion comment or project mutation. Only afterward does the plan publish the report, prove Issue #53 open before/after its completion comment, set and re-query Issue #62 as project Done, and run `gh issue close 62` as the final command.
 - [x] **Staging safety:** historical Task 1/2 ownership excludes the original five preserved paths;
   at Task 2.1 entry, pre-stage, post-commit, clean qualification, and Task 3 handoff the portable

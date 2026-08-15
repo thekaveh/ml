@@ -971,7 +971,7 @@ def _assert_consumer_gates_fail_closed(graph_source: str, quantization_source: s
                     and isinstance(node.func.value.value, ast.Name)
                     and node.func.value.value.id == "pytest"
                     and node.func.value.attr == "mark"
-                    and node.func.attr in {"skipif", "xfail"}
+                    and node.func.attr in {"skip", "skipif", "xfail"}
                 )
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 assert node.func.id not in {"_has_pyg_sampler", "_import_torchao_or_skip"}
@@ -1061,6 +1061,38 @@ def _runtime_consumer_sources() -> tuple[str, str]:
         / "test_quantization_mnist_ffnn_pytorch.py"
     ).read_text(encoding="utf-8")
     return graph_source, quantization_source
+
+
+@pytest.mark.parametrize(
+    ("consumer", "test_name"),
+    (
+        ("graph", "test_canonical_sampler_backends_and_batch_are_executable"),
+        ("quantization", "test_quantize_int8_predicts_with_same_output_shape"),
+        ("quantization", "test_qat_prepare_train_convert_and_inference"),
+    ),
+    ids=("sampler", "quantization", "qat"),
+)
+def test_mandatory_consumers_reject_unconditional_skip_markers(
+    consumer: str,
+    test_name: str,
+) -> None:
+    graph_source, quantization_source = _runtime_consumer_sources()
+    source = graph_source if consumer == "graph" else quantization_source
+    marker = f"def {test_name}("
+    mutated = source.replace(
+        marker,
+        f"@pytest.mark.skip(reason='missing backend')\n{marker}",
+        1,
+    )
+    assert mutated != source
+    ast.parse(mutated)
+    if consumer == "graph":
+        graph_source = mutated
+    else:
+        quantization_source = mutated
+
+    with pytest.raises(AssertionError):
+        _assert_consumer_gates_fail_closed(graph_source, quantization_source)
 
 
 @pytest.mark.parametrize(
@@ -1757,6 +1789,20 @@ def _assert_verifier_simplefilters_are_exact(source: str) -> None:
         assert len(local_captures) == 1
 
 
+def _assert_cli_warning_actions_are_error(source: str) -> None:
+    warning_option = re.compile(
+        r"(?<!\S)(?:"
+        r"-W(?P<short_joined>\S+)"
+        r"|-W\s+(?P<short_split>\S+)"
+        r"|--pythonwarnings=(?P<long_joined>\S+)"
+        r"|--pythonwarnings\s+(?P<long_split>\S+)"
+        r")"
+    )
+    for match in warning_option.finditer(source):
+        action = next(value for value in match.groupdict().values() if value is not None)
+        assert action == "error"
+
+
 def _assert_no_warning_policy_bypass(sources: dict[str, str]) -> None:
     assert set(sources) == {
         "verifier",
@@ -1769,7 +1815,7 @@ def _assert_no_warning_policy_bypass(sources: dict[str, str]) -> None:
     for source in sources.values():
         assert "PYTHONWARNINGS" not in source
         assert "--disable-warnings" not in source
-        assert re.search(r"(?:^|\s)-W\s+ignore(?:\s|$)", source) is None
+        _assert_cli_warning_actions_are_error(source)
     _assert_verifier_simplefilters_are_exact(sources["verifier"])
     _assert_no_other_consumer_warning_capture(
         sources["graph"],
@@ -1894,6 +1940,36 @@ def test_warning_policy_rejects_each_bypass_mutation(
     sources[consumer] += mutation
     with pytest.raises(AssertionError):
         _assert_no_warning_policy_bypass(sources)
+
+
+@pytest.mark.parametrize(
+    "option",
+    tuple(
+        option.format(action=action)
+        for action in ("ignore", "default", "once", "module", "always")
+        for option in (
+            "-W {action}",
+            "-W{action}",
+            "--pythonwarnings {action}",
+            "--pythonwarnings={action}",
+        )
+    ),
+)
+def test_warning_policy_rejects_non_error_cli_actions(option: str) -> None:
+    sources = _warning_policy_sources()
+    sources["ci"] += f"\n      run: pytest {option}\n"
+    with pytest.raises(AssertionError):
+        _assert_no_warning_policy_bypass(sources)
+
+
+@pytest.mark.parametrize(
+    "option",
+    ("-W error", "-Werror", "--pythonwarnings error", "--pythonwarnings=error"),
+)
+def test_warning_policy_accepts_exact_error_cli_actions(option: str) -> None:
+    sources = _warning_policy_sources()
+    sources["ci"] += f"\n      run: pytest {option}\n"
+    _assert_no_warning_policy_bypass(sources)
 
 
 @pytest.mark.parametrize("action", ("default", "once", "module", "always"))

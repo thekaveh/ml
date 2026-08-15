@@ -2575,9 +2575,10 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
 
   Preserve warning-as-error as an exact CI contract. Parse every separated or joined `-W` option and
   both long `--pythonwarnings` forms in the NNx-surface pytest argv; preserve leading shell
-  assignments/wrappers; and combine inline plus workflow/job/step warning environments. The sole
+  assignments/wrappers; combine inline plus workflow/job/step warning environments; and reject
+  disabling pytest's warnings plugin through either accepted `-p no:warnings` spelling. The sole
   effective warning action must be `error`, expressed by the unchanged adjacent `-W error` tokens
-  exactly once; retaining those tokens does not excuse any appended action:
+  exactly once; retaining those tokens does not excuse any appended action or plugin bypass:
 
   ```python
   _WARNING_ACTIONS = ("default", "error", "ignore", "always", "module", "once")
@@ -2619,8 +2620,24 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
       assert isinstance(value, str) and value, value
       return tuple(_warning_action(part) for part in value.split(","))
 
+  def _pytest_plugin_options(argv: Sequence[str]) -> tuple[str, ...]:
+      plugins: list[str] = []
+      index = 0
+      while index < len(argv):
+          token = argv[index]
+          if token == "-p":
+              assert index + 1 < len(argv), argv
+              plugins.append(argv[index + 1])
+              index += 2
+              continue
+          if token.startswith("-p"):
+              plugins.append(token[2:])
+          index += 1
+      return tuple(plugins)
+
   def _assert_no_warning_bypass(argv: Sequence[str]) -> None:
       assert _FORBIDDEN_WARNING_ARGV.isdisjoint(argv)
+      assert "no:warnings" not in _pytest_plugin_options(argv)
       assert not any("filterwarnings=" in token for token in argv)
 
   def _environment_warning_actions(env: object) -> tuple[str, ...]:
@@ -2699,6 +2716,8 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
           "--pythonwarnings ignore",
           "--pythonwarnings=default",
           "--pythonwarnings=ignore::DeprecationWarning",
+          "-p no:warnings",
+          "-pno:warnings",
           "--disable-warnings",
       ),
   )
@@ -2735,6 +2754,8 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
           ("PYTEST_ADDOPTS", "-Wmodule"),
           ("PYTEST_ADDOPTS", "-Walways"),
           ("PYTEST_ADDOPTS", "-Werror"),
+          ("PYTEST_ADDOPTS", "-p no:warnings"),
+          ("PYTEST_ADDOPTS", "-pno:warnings"),
           ("PYTEST_ADDOPTS", "--disable-warnings"),
       ),
   )
@@ -2759,9 +2780,12 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
       (
           "PYTHONWARNINGS=ignore",
           "PYTEST_ADDOPTS='-W ignore'",
+          "PYTEST_ADDOPTS='-p no:warnings'",
           "env PYTHONWARNINGS=ignore::DeprecationWarning",
           "env PYTEST_ADDOPTS='-Wdefault'",
+          "env PYTEST_ADDOPTS=-pno:warnings",
           "sudo env PYTEST_ADDOPTS='-Wignore::DeprecationWarning'",
+          "sudo env PYTEST_ADDOPTS='-p no:warnings'",
       ),
   )
   def test_nnx_ci_rejects_inline_warning_environment(prefix):
@@ -2788,6 +2812,9 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
       assert _warning_actions(("pytest", "-W", "error")) == ("error",)
       assert _warning_actions(("pytest", "--pythonwarnings", "ignore")) == ("ignore",)
       assert _warning_actions(("pytest", "--pythonwarnings=default")) == ("default",)
+      assert _pytest_plugin_options(("pytest", "-p", "no:warnings")) == ("no:warnings",)
+      assert _pytest_plugin_options(("pytest", "-pno:warnings")) == ("no:warnings",)
+      _assert_no_warning_bypass(("pytest", "-p", "no:cacheprovider", "-W", "error"))
       _assert_warning_error_command(("pytest", "-W", "error"))
       for argv in (
           ("pytest", "-Werror"),
@@ -2796,6 +2823,8 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
           ("pytest", "-W", "error", "-Wignore::DeprecationWarning"),
           ("pytest", "-W", "error", "--pythonwarnings", "ignore"),
           ("pytest", "-W", "error", "--pythonwarnings=default"),
+          ("pytest", "-W", "error", "-p", "no:warnings"),
+          ("pytest", "-W", "error", "-pno:warnings"),
       ):
           with pytest.raises(AssertionError):
               _assert_warning_error_command(argv)
@@ -2805,9 +2834,11 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   `--pythonwarnings VALUE` and `--pythonwarnings=VALUE`; preserve leading assignments and `sudo`/`env`
   wrappers as `ShellCommand.environment`/`.wrappers`; and combine inline plus workflow-, job-, and
   step-level environment with CLI actions. It rejects every `PYTHONWARNINGS` filter or warning-bearing
-  `PYTEST_ADDOPTS` while the original CLI `-W error` remains, and fails on duplicate `error` actions
-  too. Positive CI, Docker, Codespaces, Make, and verifier tests require no warning-related
-  environment variable, alternate action, filterwarnings override, or warning-disable flag.
+  `PYTEST_ADDOPTS` while the original CLI `-W error` remains, rejects separated `-p no:warnings` and
+  joined `-pno:warnings` in actual argv or any inline/workflow/job/step `PYTEST_ADDOPTS`, and fails on
+  duplicate `error` actions too. Positive CI, Docker, Codespaces, Make, and verifier tests require no
+  warning-related environment variable, alternate action, filterwarnings override, warnings-plugin
+  disablement, or warning-disable flag.
 
 - [ ] **Step 2: Write Docker and Codespaces RED contracts**
 
@@ -4043,8 +4074,9 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   Expected: tests, docs, verifier, Ruff, and diff checks pass; only the ten listed tracked paths enter the evidence commit; generated projections remain ignored.
 
   Review every branch commit and the complete diff for spec coverage, exact final manifests,
-  mutation resistance (including appended separated/joined `-W` actions plus job/step
-  `PYTHONWARNINGS` and `PYTEST_ADDOPTS`), safe diagnostics, platform claims, advisory parity,
+  mutation resistance (including appended separated/joined `-W` actions, both `-p no:warnings`
+  spellings, plus inline/workflow/job/step `PYTHONWARNINGS` and `PYTEST_ADDOPTS`), safe diagnostics,
+  platform claims, advisory parity,
   Docker/CI ordering, notebook cleanliness, immutable history, Atlas non-diff, and rollback atomicity.
   Resolve each finding with a separate RED-GREEN commit and repeat review until zero findings remain.
 
@@ -5874,7 +5906,8 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   `--pythonwarnings VALUE`/`--pythonwarnings=VALUE` forms, preserved leading shell assignments and
   `sudo`/`env` wrappers, and inline/workflow/job/step `PYTHONWARNINGS`/`PYTEST_ADDOPTS`. It requires
   the unchanged adjacent `-W error` exactly once as the sole effective action and rejects appended
-  ignore/default/once/module/always/category-qualified actions and warning-disable flags while the
+  ignore/default/once/module/always/category-qualified actions, both accepted `-p no:warnings`
+  spellings in actual argv or any `PYTEST_ADDOPTS` surface, and warning-disable flags while the
   original `-W error` remains. No global, pytest, environment, conftest, canary, sampler, NNx, or
   consumer filter is authorized.
 - [x] **D10 executability:** every referenced parser/comparator is defined in the plan or already exists in `scripts/verify_repo.py`; current/historical slicing, complete CommonMark type-1/type-6 raw-HTML masking including `hgroup`, Result/summary/advisory validation, policy coupling, and ten-input hashes map failures to named `Finding` IDs.

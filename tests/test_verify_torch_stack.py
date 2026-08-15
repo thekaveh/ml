@@ -964,14 +964,14 @@ def _assert_consumer_gates_fail_closed(graph_source: str, quantization_source: s
                 assert not (
                     isinstance(node.func.value, ast.Name)
                     and node.func.value.id == "pytest"
-                    and node.func.attr in {"skip", "importorskip"}
+                    and node.func.attr in {"skip", "importorskip", "xfail"}
                 )
                 assert not (
                     isinstance(node.func.value, ast.Attribute)
                     and isinstance(node.func.value.value, ast.Name)
                     and node.func.value.value.id == "pytest"
                     and node.func.value.attr == "mark"
-                    and node.func.attr == "skipif"
+                    and node.func.attr in {"skipif", "xfail"}
                 )
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 assert node.func.id not in {"_has_pyg_sampler", "_import_torchao_or_skip"}
@@ -1002,6 +1002,10 @@ def test_graph_and_quantization_consumers_have_no_optional_backend_bypass() -> N
     ).read_text(encoding="utf-8")
 
     _assert_consumer_gates_fail_closed(graph_source, quantization_source)
+    _assert_mandatory_consumer_actions_are_unconditional(
+        graph_source,
+        quantization_source,
+    )
     _assert_no_other_consumer_warning_capture(graph_source, quantization_source)
 
 
@@ -1010,8 +1014,13 @@ def test_graph_and_quantization_consumers_have_no_optional_backend_bypass() -> N
     (
         ("graph", "\ndef restored_skip():\n    pytest.skip('missing backend')\n"),
         ("graph", "\ndef restored_importorskip():\n    pytest.importorskip('pyg_lib')\n"),
+        ("graph", "\ndef restored_xfail():\n    pytest.xfail('missing backend')\n"),
         ("graph", "\n_HAS_PYG_SAMPLER = True\n"),
         ("graph", "\n@pytest.mark.skipif(True, reason='missing backend')\ndef restored_skipif():\n    pass\n"),
+        (
+            "graph",
+            "\n@pytest.mark.xfail(reason='missing backend')\ndef restored_xfail_mark():\n    pass\n",
+        ),
         ("graph", "\ndef restored_probe():\n    return _has_pyg_sampler()\n"),
         ("quantization", "\ndef restored_quantization_probe():\n    return _import_torchao_or_skip()\n"),
         ("quantization", "\ndef restored_int1_guard():\n    return hasattr(torch, 'int1')\n"),
@@ -1019,8 +1028,10 @@ def test_graph_and_quantization_consumers_have_no_optional_backend_bypass() -> N
     ids=(
         "pytest-skip",
         "pytest-importorskip",
+        "pytest-xfail",
         "sampler-flag",
         "skipif-decorator",
+        "xfail-decorator",
         "sampler-probe",
         "torchao-probe",
         "torch-int1-guard",
@@ -1034,6 +1045,216 @@ def test_consumer_gate_source_mutations_are_rejected(consumer: str, mutation: st
 
     with pytest.raises(AssertionError):
         _assert_consumer_gates_fail_closed(graph_source, quantization_source)
+
+
+def _runtime_consumer_sources() -> tuple[str, str]:
+    graph_source = (
+        REPO_ROOT
+        / "tests"
+        / "nnx_surface"
+        / "test_node_classification_reddit_gnn_pyg.py"
+    ).read_text(encoding="utf-8")
+    quantization_source = (
+        REPO_ROOT
+        / "tests"
+        / "nnx_surface"
+        / "test_quantization_mnist_ffnn_pytorch.py"
+    ).read_text(encoding="utf-8")
+    return graph_source, quantization_source
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "conditional-early-return",
+        "conditional-backend-import",
+        "conditional-sampling",
+        "conditional-graph-training",
+        "conditional-torchao-import",
+        "conditional-qat-training",
+    ),
+)
+def test_mandatory_consumer_actions_reject_conditional_bypass_mutations(
+    mutation: str,
+) -> None:
+    graph_source, quantization_source = _runtime_consumer_sources()
+    if mutation == "conditional-early-return":
+        graph_source = graph_source.replace(
+            "def test_canonical_sampler_backends_and_batch_are_executable(tiny_graph_data):\n",
+            "def test_canonical_sampler_backends_and_batch_are_executable(tiny_graph_data):\n"
+            "    if not BACKEND_READY:\n"
+            "        return\n",
+            1,
+        )
+    elif mutation == "conditional-backend-import":
+        graph_source = graph_source.replace(
+            "    import pyg_lib\n",
+            "    if BACKEND_READY:\n        import pyg_lib\n",
+            1,
+        )
+    elif mutation == "conditional-sampling":
+        graph_source = graph_source.replace(
+            "    _assert_sampled_batch_is_executable(train_loader)\n",
+            "    if BACKEND_READY:\n"
+            "        _assert_sampled_batch_is_executable(train_loader)\n",
+            1,
+        )
+    elif mutation == "conditional-graph-training":
+        graph_source = graph_source.replace(
+            "    run = model.train(params=train_params)\n",
+            "    if BACKEND_READY:\n"
+            "        run = model.train(params=train_params)\n",
+            1,
+        )
+    elif mutation == "conditional-torchao-import":
+        quantization_source = quantization_source.replace(
+            "def test_quantize_int8_predicts_with_same_output_shape(tiny_image_batch):\n"
+            "    import torchao\n",
+            "def test_quantize_int8_predicts_with_same_output_shape(tiny_image_batch):\n"
+            "    if TORCHAO_READY:\n"
+            "        import torchao\n",
+            1,
+        )
+    else:
+        start = quantization_source.index(
+            "    with warnings.catch_warnings(record=True) as caught:\n"
+        )
+        end = quantization_source.index("    qat_warning_evidence =", start)
+        capture = quantization_source[start:end]
+        conditional_capture = "    if TORCHAO_READY:\n" + "".join(
+            "    " + line for line in capture.splitlines(keepends=True)
+        )
+        quantization_source = (
+            quantization_source[:start]
+            + conditional_capture
+            + quantization_source[end:]
+        )
+    ast.parse(graph_source)
+    ast.parse(quantization_source)
+    with pytest.raises(AssertionError):
+        _assert_mandatory_consumer_actions_are_unconditional(
+            graph_source,
+            quantization_source,
+        )
+
+
+def _top_level_function(tree: ast.Module, name: str) -> ast.FunctionDef:
+    functions = tuple(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == name
+    )
+    assert len(functions) == 1
+    return functions[0]
+
+
+def _has_direct_import(function: ast.FunctionDef, module: str) -> bool:
+    return any(
+        isinstance(statement, ast.Import)
+        and any(alias.name == module and alias.asname is None for alias in statement.names)
+        for statement in function.body
+    )
+
+
+def _direct_model_train_assignments(function: ast.FunctionDef) -> tuple[ast.Assign, ...]:
+    return tuple(
+        statement
+        for statement in function.body
+        if isinstance(statement, ast.Assign)
+        and len(statement.targets) == 1
+        and isinstance(statement.targets[0], ast.Name)
+        and statement.targets[0].id == "run"
+        and isinstance(statement.value, ast.Call)
+        and isinstance(statement.value.func, ast.Attribute)
+        and isinstance(statement.value.func.value, ast.Name)
+        and statement.value.func.value.id == "model"
+        and statement.value.func.attr == "train"
+    )
+
+
+def _assert_mandatory_consumer_actions_are_unconditional(
+    graph_source: str,
+    quantization_source: str,
+) -> None:
+    graph_tree = ast.parse(graph_source)
+    quantization_tree = ast.parse(quantization_source)
+    canonical = _top_level_function(
+        graph_tree,
+        "test_canonical_sampler_backends_and_batch_are_executable",
+    )
+    graph_train_functions = tuple(
+        _top_level_function(graph_tree, name)
+        for name in (
+            "test_gnn_train_one_batch_sage_or_conv",
+            "test_gat_consolidates_n_heads_into_nnparams",
+        )
+    )
+    ptq = _top_level_function(
+        quantization_tree,
+        "test_quantize_int8_predicts_with_same_output_shape",
+    )
+    qat = _top_level_function(
+        quantization_tree,
+        "test_qat_prepare_train_convert_and_inference",
+    )
+    runtime_functions = (canonical, *graph_train_functions, ptq, qat)
+    for function in runtime_functions:
+        for conditional in (
+            node for node in ast.walk(function) if isinstance(node, ast.If)
+        ):
+            assert not any(
+                isinstance(node, ast.Return) for node in ast.walk(conditional)
+            )
+
+    assert _has_direct_import(canonical, "pyg_lib")
+    assert _has_direct_import(canonical, "torch_sparse")
+    neighbor_imports = tuple(
+        statement
+        for statement in canonical.body
+        if isinstance(statement, ast.ImportFrom)
+        and statement.module == "torch_geometric.loader"
+        and statement.level == 0
+        and any(
+            alias.name == "NeighborLoader" and alias.asname is None
+            for alias in statement.names
+        )
+    )
+    assert len(neighbor_imports) == 1
+    batch_assignments = tuple(
+        statement
+        for statement in canonical.body
+        if isinstance(statement, ast.Assign)
+        and len(statement.targets) == 1
+        and isinstance(statement.targets[0], ast.Name)
+        and statement.targets[0].id == "batch"
+        and any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "NeighborLoader"
+            for node in ast.walk(statement.value)
+        )
+    )
+    assert len(batch_assignments) == 1
+
+    for function in graph_train_functions:
+        sampled_batch_checks = tuple(
+            statement
+            for statement in function.body
+            if isinstance(statement, ast.Expr)
+            and isinstance(statement.value, ast.Call)
+            and isinstance(statement.value.func, ast.Name)
+            and statement.value.func.id == "_assert_sampled_batch_is_executable"
+            and len(statement.value.args) == 1
+            and isinstance(statement.value.args[0], ast.Name)
+            and statement.value.args[0].id == "train_loader"
+            and not statement.value.keywords
+        )
+        assert len(sampled_batch_checks) == 1
+        assert len(_direct_model_train_assignments(function)) == 1
+
+    assert _has_direct_import(ptq, "torchao")
+    assert _has_direct_import(qat, "torchao")
+    _assert_qat_warning_capture_is_exact(quantization_source)
 
 
 def _warnings_call(node: ast.AST, attribute: str) -> bool:
@@ -1089,6 +1310,20 @@ def _assert_qat_warning_capture_is_exact(source: str) -> None:
     assert isinstance(train_statement.value.func.value, ast.Name)
     assert train_statement.value.func.value.id == "model"
     assert train_statement.value.func.attr == "train"
+    for descendant in ast.walk(train_statement.value):
+        if descendant is train_statement.value or not isinstance(descendant, ast.Call):
+            continue
+        assert not (
+            isinstance(descendant.func, ast.Attribute)
+            and isinstance(descendant.func.value, ast.Name)
+            and descendant.func.value.id == "nnx"
+            and descendant.func.attr
+            in {"QATLifecycleCallback", "qat_train_step_factory"}
+        )
+        assert not (
+            isinstance(descendant.func, ast.Attribute)
+            and descendant.func.attr == "predict"
+        )
     capture_index = function.body.index(capture)
     validation = function.body[capture_index + 1]
     assert isinstance(validation, ast.Assign)
@@ -1223,6 +1458,50 @@ def test_qat_warning_capture_contract_rejects_syntactic_broadening(line: str) ->
         capture_anchor + "        " + line.lstrip(),
         1,
     )
+    assert mutated != CLEAN_QAT_CAPTURE_SOURCE
+    ast.parse(mutated)
+    with pytest.raises(AssertionError):
+        _assert_qat_warning_capture_is_exact(mutated)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("callback-descendant", "train-step-descendant", "predict-descendant"),
+)
+def test_qat_warning_capture_contract_rejects_model_train_descendant_broadening(
+    mutation: str,
+) -> None:
+    mutated = CLEAN_QAT_CAPTURE_SOURCE
+    if mutation == "callback-descendant":
+        mutated = mutated.replace(
+            "    callback = nnx.QATLifecycleCallback(qat_config=qat_config)\n",
+            "",
+            1,
+        ).replace(
+            "callbacks=[callback]",
+            "callbacks=[nnx.QATLifecycleCallback(qat_config=qat_config)]",
+            1,
+        )
+    elif mutation == "train-step-descendant":
+        mutated = mutated.replace(
+            "    train_step = nnx.qat_train_step_factory(qat_config=qat_config)\n",
+            "",
+            1,
+        ).replace(
+            "train_step_fn=train_step",
+            "train_step_fn=nnx.qat_train_step_factory(qat_config=qat_config)",
+            1,
+        )
+    else:
+        mutated = mutated.replace(
+            "    logits, classes = model.predict(X=X)\n",
+            "",
+            1,
+        ).replace(
+            "callbacks=[callback]",
+            "callbacks=[callback, model.predict(X=X)]",
+            1,
+        )
     assert mutated != CLEAN_QAT_CAPTURE_SOURCE
     ast.parse(mutated)
     with pytest.raises(AssertionError):
@@ -1422,6 +1701,62 @@ def _pytest_filterwarnings_call(node: ast.AST) -> bool:
     )
 
 
+def _catch_warnings_records(item: ast.withitem) -> bool:
+    context = item.context_expr
+    return (
+        _warnings_call(context, "catch_warnings")
+        and not context.args
+        and len(context.keywords) == 1
+        and context.keywords[0].arg == "record"
+        and isinstance(context.keywords[0].value, ast.Constant)
+        and context.keywords[0].value.value is True
+        and isinstance(item.optional_vars, ast.Name)
+    )
+
+
+def _assert_verifier_simplefilters_are_exact(source: str) -> None:
+    tree = ast.parse(source)
+    all_filters = tuple(
+        node for node in ast.walk(tree) if _warnings_call(node, "simplefilter")
+    )
+    filters_by_function = tuple(
+        (function.name, node)
+        for function in tree.body
+        if isinstance(function, ast.FunctionDef)
+        for node in ast.walk(function)
+        if _warnings_call(node, "simplefilter")
+    )
+    assert len(all_filters) == 3
+    assert len(filters_by_function) == len(all_filters)
+    assert {name for name, _ in filters_by_function} == {
+        "_capture_selected_import",
+        "_run_warning_free",
+        "main",
+    }
+    for function_name, filter_call in filters_by_function:
+        assert len(filter_call.args) == 1
+        assert isinstance(filter_call.args[0], ast.Constant)
+        assert filter_call.args[0].value == "always"
+        assert not filter_call.keywords
+        function = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == function_name
+        )
+        local_captures = tuple(
+            node
+            for node in ast.walk(function)
+            if isinstance(node, ast.With)
+            and any(_catch_warnings_records(item) for item in node.items)
+            and any(
+                descendant is filter_call
+                for statement in node.body
+                for descendant in ast.walk(statement)
+            )
+        )
+        assert len(local_captures) == 1
+
+
 def _assert_no_warning_policy_bypass(sources: dict[str, str]) -> None:
     assert set(sources) == {
         "verifier",
@@ -1435,20 +1770,23 @@ def _assert_no_warning_policy_bypass(sources: dict[str, str]) -> None:
         assert "PYTHONWARNINGS" not in source
         assert "--disable-warnings" not in source
         assert re.search(r"(?:^|\s)-W\s+ignore(?:\s|$)", source) is None
+    _assert_verifier_simplefilters_are_exact(sources["verifier"])
+    _assert_no_other_consumer_warning_capture(
+        sources["graph"],
+        sources["quantization"],
+    )
+    conftest_tree = ast.parse(sources["conftest"])
+    assert not tuple(
+        node
+        for node in ast.walk(conftest_tree)
+        if _warnings_call(node, "simplefilter")
+    )
     for name in ("verifier", "conftest", "graph", "quantization"):
         tree = ast.parse(sources[name])
         for node in ast.walk(tree):
             assert not _warnings_call(node, "filterwarnings")
             assert not _pytest_filterwarnings_call(node)
             assert not _mutates_sys_modules(node)
-            if _warnings_call(node, "simplefilter"):
-                assert node.args
-                action = node.args[0]
-                assert not (
-                    isinstance(action, ast.Constant)
-                    and isinstance(action.value, str)
-                    and action.value == "ignore"
-                )
 
 
 def _warning_policy_sources() -> dict[str, str]:
@@ -1554,5 +1892,34 @@ def test_warning_policy_rejects_each_bypass_mutation(
 ) -> None:
     sources = _warning_policy_sources()
     sources[consumer] += mutation
+    with pytest.raises(AssertionError):
+        _assert_no_warning_policy_bypass(sources)
+
+
+@pytest.mark.parametrize("action", ("default", "once", "module", "always"))
+def test_warning_policy_rejects_simplefilter_outside_authorized_boundaries(
+    action: str,
+) -> None:
+    sources = _warning_policy_sources()
+    sources["graph"] += f"\nwarnings.simplefilter({action!r})\n"
+    with pytest.raises(AssertionError):
+        _assert_no_warning_policy_bypass(sources)
+
+
+@pytest.mark.parametrize("action", ("default", "once", "module"))
+def test_warning_policy_rejects_non_always_verifier_local_actions(action: str) -> None:
+    sources = _warning_policy_sources()
+    sources["verifier"] = sources["verifier"].replace(
+        'warnings.simplefilter("always")',
+        f'warnings.simplefilter("{action}")',
+        1,
+    )
+    with pytest.raises(AssertionError):
+        _assert_no_warning_policy_bypass(sources)
+
+
+def test_warning_policy_rejects_verifier_always_outside_local_capture() -> None:
+    sources = _warning_policy_sources()
+    sources["verifier"] += '\nwarnings.simplefilter("always")\n'
     with pytest.raises(AssertionError):
         _assert_no_warning_policy_bypass(sources)

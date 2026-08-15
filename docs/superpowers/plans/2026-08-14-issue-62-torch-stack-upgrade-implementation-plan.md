@@ -4685,7 +4685,10 @@ graph edits, or stage anything until the focused clean gate is green.
 - Write after freeze only: ignored primary-checkout
   `/Users/kaveh/repos/ml-eng-lab/.superpowers/sdd/issue62-qualification-report.md` and external
   GitHub issue/PR evidence.
-- Never modify: notebook source/output, Atlas files/gitlink, generated documentation, or protected-branch rules.
+- Never modify: notebook source/output, Atlas files/gitlink, or generated documentation. Never
+  loosen or replace protected-branch rules; after the live `dependency-audit` context exists, Step 8
+  may leave the exact-three required-check list unchanged or update only that nested list to the
+  exact three contexts while preserving every other ruleset field.
 
 **Interfaces:**
 - Consumes: reviewed Tasks 1-6, including Task 2.1's immutable import-warning debt keys and
@@ -6865,11 +6868,15 @@ graph edits, or stage anything until the focused clean gate is green.
   if docker image inspect ml-eng-lab:issue62-final-arm64 >/dev/null 2>&1; then exit 1; fi
   git switch develop
   git merge --ff-only origin/develop
-  git branch -d codex/issue-62-torch-stack-upgrade
+  test "$FEATURE_REF" = codex/issue-62-torch-stack-upgrade
+  git branch -d "$FEATURE_REF"
   git switch main
   git merge --ff-only origin/main
   git switch develop
-  test -z "$(git ls-remote origin refs/heads/codex/issue-62-torch-stack-upgrade)"
+  test -z "$(git ls-remote origin "refs/heads/$FEATURE_REF")"
+  git update-ref -d "refs/remotes/origin/$FEATURE_REF"
+  if git show-ref --verify --quiet "refs/heads/$FEATURE_REF"; then exit 1; fi
+  if git show-ref --verify --quiet "refs/remotes/origin/$FEATURE_REF"; then exit 1; fi
   git for-each-ref --format='%(refname)' refs/issue62/ \
     > /private/tmp/issue62-owned-refs.txt
   while IFS= read -r OWNED_REF; do
@@ -7061,7 +7068,8 @@ graph edits, or stage anything until the focused clean gate is green.
   Expected: Pages and wiki return HTTP 200 and publish the matrix, three-wheel boundary,
   manual-only Issue #66, exact TorchScript warning debt/origin and retirement trigger, and immutable
   evidence without a global ignore filter; the two explicit worktrees/environments/images
-  and feature refs are gone before any completion comment or project mutation; no scoped PR or
+  and the exact local, remote, and local remote-tracking feature refs are gone before any completion
+  comment or project mutation; no scoped PR or
   workflow run remains, including queued/in-progress runs for the final `origin/develop` identity;
   `main`/`develop` trees match; tracked status is clean; only then does the
   plan comment with the primary ignored report, prove #53 open before/after its completion comment,
@@ -7194,7 +7202,8 @@ graph edits, or stage anything until the focused clean gate is green.
   headroom, and the final noncompleted-run audit includes final-develop plus optional sync identities
   with a queued-run blocking mutation. Cleanup enumerates the complete `refs/issue62/` namespace
   once, rejects any ref outside the exact numeric PR/reuse patterns, deletes only validated refs,
-  and proves the namespace empty.
+  and proves the namespace empty. After remote branch absence is proved, cleanup deletes and proves
+  absence of the exact validated local remote-tracking feature ref as well as the local feature ref.
 - [x] **Completion ordering:** Pages/report evidence is persisted in the primary ignored root, successful final-develop runs are proved, then validated cleanup, zero scoped PRs/runs, main/develop synchronization, clean status, and deleted temporary evidence roots are proved before any completion comment or project mutation. Only afterward does the plan publish the report, prove Issue #53 open before/after its completion comment, set and re-query Issue #62 as project Done, and run `gh issue close 62` as the final command.
 - [x] **Staging safety:** historical Task 1/2 ownership excludes the original five preserved paths;
   at Task 2.1 entry, pre-stage, post-commit, clean qualification, and Task 3 handoff the portable

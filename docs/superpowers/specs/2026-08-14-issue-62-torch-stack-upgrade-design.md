@@ -336,8 +336,12 @@ accepted while the upstream supply-chain advisory remains open.
 
 ## 12.21.10 CI and Docker contract
 
-No new protected-branch context is required. The existing required jobs remain the integration
-gate, and the focused jobs remain diagnostic evidence. Workflow contract tests enforce:
+No new CI job or protected-branch context name is created. After the existing `dependency-audit`
+job publishes a successful live context, Task 7 may add that established context to the protected
+rules' required-status-check list, yielding the exact three contexts `pytest-repository`,
+`atlas-consumer-policy`, and `dependency-audit`. That reconciliation preserves every other ruleset
+field and never loosens or replaces a protected-branch rule. The focused jobs remain diagnostic
+evidence. Workflow contract tests enforce:
 
 - the exact platform-aware install target and complete cache manifest set;
 - `pip check` and stack verification after the final install;

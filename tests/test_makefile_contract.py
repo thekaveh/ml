@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -64,6 +65,54 @@ def _assert_tier_inventory_contract(makefile: Path, cwd: Path) -> None:
         assert len(set(inventory)) == count
         assert all(item.startswith("notebooks/") and item.endswith(".ipynb") for item in inventory)
         assert result.stderr == ""
+
+
+def _assert_smoke_output_environment_override_contract(makefile: Path, cwd: Path) -> None:
+    fake_papermill = cwd / "papermill"
+    fake_papermill.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'input="${@: -2:1}"\n'
+        'output="${@: -1}"\n'
+        'mkdir -p "$(dirname "$output")"\n'
+        'printf "rendered:%s\\n" "$input" > "$output"\n',
+        encoding="utf-8",
+    )
+    fake_papermill.chmod(0o755)
+
+    for tier in ("b", "c"):
+        notebook = cwd / "notebooks" / f"tier-{tier}" / "notebook.ipynb"
+        notebook.parent.mkdir(parents=True)
+        notebook.write_text(f"tier-{tier} source\n", encoding="utf-8")
+        output_root = cwd / "isolated" / f"tier-{tier}"
+        env = {
+            **os.environ,
+            "JUPYTER_PATH": str(cwd / "isolated" / "jupyter"),
+            "SMOKE_OUT": str(output_root),
+        }
+        result = subprocess.run(
+            [
+                "make",
+                "-f",
+                str(makefile),
+                f"smoke-tier-{tier}",
+                f"TIER_{tier.upper()}={notebook.relative_to(cwd)}",
+                f"PAPERMILL={fake_papermill}",
+            ],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=TEST_SUBPROCESS_TIMEOUT,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert notebook.read_text(encoding="utf-8") == f"tier-{tier} source\n"
+        output = output_root / notebook.name
+        assert output.is_file()
+        assert output.read_text(encoding="utf-8") == (
+            f"rendered:{notebook.name}\n"
+        )
 
 
 def _assert_docker_and_codespaces_contract(
@@ -668,6 +717,25 @@ def test_smoke_tier_a_writes_to_temporary_outputs_without_mutating_sources(
 
 def test_makefile_exposes_exact_tier_inventory_targets() -> None:
     _assert_tier_inventory_contract(REPO_ROOT / "Makefile", REPO_ROOT)
+
+
+def test_task7_smoke_tiers_honor_environment_output_roots(tmp_path: Path) -> None:
+    _assert_smoke_output_environment_override_contract(REPO_ROOT / "Makefile", tmp_path)
+
+
+def test_smoke_output_contract_rejects_hard_assignment_mutation(tmp_path: Path) -> None:
+    source = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    mutated = source.replace(
+        "SMOKE_OUT ?= /tmp/ml-smoke",
+        "SMOKE_OUT := ignored-smoke-output",
+        1,
+    )
+    assert mutated != source
+    makefile = tmp_path / "Makefile"
+    makefile.write_text(mutated, encoding="utf-8")
+
+    with pytest.raises(AssertionError):
+        _assert_smoke_output_environment_override_contract(makefile, tmp_path)
 
 
 @pytest.mark.parametrize(

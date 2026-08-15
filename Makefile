@@ -69,7 +69,7 @@ ATLAS_CONSUMER_TESTS := tests/test_atlas_consumer_contract.py \
 	tests/test_atlas_runtime_probe.py \
 	tests/test_atlas_makefile_contract.py
 
-SMOKE_OUT := /tmp/ml-smoke
+SMOKE_OUT ?= /tmp/ml-smoke
 TIER_A_OUT ?= /tmp/ml-tier-a
 TIER_A_OUT_ABS := $(abspath $(TIER_A_OUT))
 

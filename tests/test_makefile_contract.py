@@ -19,9 +19,13 @@ _DOCKER_INSTALL_BLOCK = """RUN make install-torch-stack \\
 
 def _target_recipe(makefile: str, target: str) -> tuple[str, ...]:
     lines = makefile.splitlines()
-    start = next(
-        index for index, line in enumerate(lines) if line.startswith(f"{target}:")
+    definitions = tuple(
+        index
+        for index, line in enumerate(lines)
+        if ":" in line and line.partition(":")[0].strip() == target
     )
+    assert len(definitions) == 1
+    start = definitions[0]
     recipes: list[str] = []
     for line in lines[start + 1 :]:
         if line.startswith("\t"):
@@ -41,6 +45,12 @@ def _assert_docker_and_codespaces_contract(
 
     assert docker.count("RUN ") == 1
     assert docker[docker.index("RUN ") :].strip() == _DOCKER_INSTALL_BLOCK
+    codespace_definitions = tuple(
+        line
+        for line in makefile.splitlines()
+        if ":" in line and line.partition(":")[0].strip() == "codespace-setup"
+    )
+    assert codespace_definitions == ("codespace-setup: install-torch-stack",)
     assert _target_recipe(makefile, "codespace-setup") == (
         "$(MAKE) nlp-assets",
         "$(PYTHON) -m pip check",
@@ -307,6 +317,56 @@ def test_codespace_contract_rejects_late_install_or_service_mutations(mutation):
     anchor = "\t$(MAKE) verify-nnx-install\n"
     mutated = makefile.replace(anchor, anchor + mutation, 1)
     assert mutated != makefile
+    with pytest.raises(AssertionError):
+        _assert_docker_and_codespaces_contract(
+            (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"),
+            mutated,
+            (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text(
+                encoding="utf-8"
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    "prerequisites",
+    (
+        "",
+        "nlp-assets",
+        "install-torch-stack atlas-setup",
+        "install-torch-stack ollama",
+        "install-torch-stack install-extra",
+        "install-torch-stack install-torch-stack",
+    ),
+)
+def test_codespace_contract_rejects_noncanonical_prerequisites(prerequisites):
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    original = "codespace-setup: install-torch-stack"
+    mutated_header = f"codespace-setup: {prerequisites}".rstrip()
+    mutated = makefile.replace(original, mutated_header, 1)
+    assert mutated != makefile
+
+    with pytest.raises(AssertionError):
+        _assert_docker_and_codespaces_contract(
+            (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"),
+            mutated,
+            (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text(
+                encoding="utf-8"
+            ),
+        )
+
+
+def test_codespace_contract_rejects_duplicate_target_definition():
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    duplicate = (
+        "\ncodespace-setup: install-torch-stack\n"
+        "\t$(MAKE) nlp-assets\n"
+        "\t$(PYTHON) -m pip check\n"
+        "\t$(MAKE) verify-torch-stack\n"
+        "\t$(MAKE) verify-nnx-install\n"
+    )
+    mutated = makefile + duplicate
+    assert mutated != makefile
+
     with pytest.raises(AssertionError):
         _assert_docker_and_codespaces_contract(
             (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"),

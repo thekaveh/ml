@@ -3752,10 +3752,31 @@ def _job_run_commands(workflow: dict, job_name: str) -> tuple[str, ...]:
     )
 
 
+def _assert_no_failure_masking(step: Mapping[str, object]) -> None:
+    assert "continue-on-error" not in step
+    assert "shell" not in step
+    source = step.get("run")
+    if source is None:
+        return
+    assert isinstance(source, str)
+    logical = source.replace("\\\n", " ").replace("\n", ";")
+    lexer = shlex.shlex(logical, posix=True, punctuation_chars=";&|")
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    assert "||" not in tuple(lexer)
+    for argv in _shell_argvs(source):
+        assert argv[:2] != ("set", "+e")
+        assert argv[:3] != ("set", "+o", "errexit")
+
+
 def _assert_runtime_job_install_contract(workflow: dict, job_name: str) -> None:
     job = workflow["jobs"][job_name]
     assert "services" not in job
     assert "container" not in job
+    assert "continue-on-error" not in job
+    assert "defaults" not in job
+    for step in job["steps"]:
+        _assert_no_failure_masking(step)
     setup = next(
         step
         for step in job["steps"]
@@ -3906,6 +3927,71 @@ def test_ci_runtime_jobs_use_final_install_order_and_complete_cache_manifest(job
 
 
 @pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))
+def test_ci_runtime_job_contract_rejects_job_continue_on_error(job_name):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    workflow["jobs"][job_name]["continue-on-error"] = "true"
+
+    with pytest.raises(AssertionError):
+        _assert_runtime_job_install_contract(workflow, job_name)
+
+
+@pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))
+def test_ci_runtime_job_contract_rejects_continue_on_error_on_every_step(job_name):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    steps = workflow["jobs"][job_name]["steps"]
+    assert steps
+
+    for step_index in range(len(steps)):
+        mutated = copy.deepcopy(workflow)
+        step = mutated["jobs"][job_name]["steps"][step_index]
+        original = copy.deepcopy(step)
+        step["continue-on-error"] = "true"
+        assert step != original
+        with pytest.raises(AssertionError):
+            _assert_runtime_job_install_contract(mutated, job_name)
+
+
+@pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))
+@pytest.mark.parametrize(
+    ("mutation", "value"),
+    (
+        ("continue-on-error", "true"),
+        ("shell", "bash {0} || true"),
+        ("run-suffix", " || true"),
+        ("run-suffix", " || :"),
+        ("run-prefix", "set +e\n"),
+        ("run-prefix", "set +o errexit\n"),
+    ),
+)
+def test_ci_runtime_job_contract_rejects_failure_masking_on_every_run_step(
+    job_name,
+    mutation,
+    value,
+):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    run_indexes = tuple(
+        index
+        for index, step in enumerate(workflow["jobs"][job_name]["steps"])
+        if "run" in step
+    )
+    assert run_indexes
+
+    for step_index in run_indexes:
+        mutated = copy.deepcopy(workflow)
+        step = mutated["jobs"][job_name]["steps"][step_index]
+        original = copy.deepcopy(step)
+        if mutation == "run-suffix":
+            step["run"] = f"{step['run']}{value}"
+        elif mutation == "run-prefix":
+            step["run"] = f"{value}{step['run']}"
+        else:
+            step[mutation] = value
+        assert step != original
+        with pytest.raises(AssertionError):
+            _assert_runtime_job_install_contract(mutated, job_name)
+
+
+@pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))
 @pytest.mark.parametrize("manifest", _STACK_CACHE_MANIFESTS)
 def test_ci_runtime_cache_manifest_rejects_each_omission(job_name, manifest):
     workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
@@ -3914,9 +4000,10 @@ def test_ci_runtime_cache_manifest_rejects_each_omission(job_name, manifest):
         for step in workflow["jobs"][job_name]["steps"]
         if str(step.get("uses", "")).startswith("actions/setup-python@")
     )
-    setup["with"]["cache-dependency-path"] = setup["with"][
-        "cache-dependency-path"
-    ].replace(f"{manifest}\n", "")
+    original = setup["with"]["cache-dependency-path"]
+    mutated = original.replace(f"{manifest}\n", "")
+    assert mutated != original
+    setup["with"]["cache-dependency-path"] = mutated
     with pytest.raises(AssertionError):
         _assert_runtime_job_install_contract(workflow, job_name)
 
@@ -4332,9 +4419,10 @@ def test_ci_dependency_audit_job_contract_rejects_checkout_submodules():
 def test_ci_dependency_audit_job_contract_rejects_missing_cache_manifest(manifest):
     workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
     setup = workflow["jobs"]["dependency-audit"]["steps"][1]
-    setup["with"]["cache-dependency-path"] = setup["with"][
-        "cache-dependency-path"
-    ].replace(f"{manifest}\n", "")
+    original = setup["with"]["cache-dependency-path"]
+    mutated = original.replace(f"{manifest}\n", "")
+    assert mutated != original
+    setup["with"]["cache-dependency-path"] = mutated
 
     with pytest.raises(AssertionError):
         _assert_dependency_audit_job_contract(workflow)

@@ -11,6 +11,12 @@ torch-geometric 2.8.0.post1 / torch-sparse 0.6.18 debt keys. It accepts only a n
 every record has exact `DeprecationWarning` identity, exact TorchScript message, and exact selected
 Torch-owned `torch/jit/_script.py` origin; all outer warning-as-error gates remain strict.
 
+The NNx surface has one separate test-local QAT compatibility-debt assertion for the immutable
+Torch 2.11.0 + torchao 0.18.0 + thekaveh-nnx 0.2.0 + `qat_config="8da4w"` key. It captures only the
+NNx `model.train` call, requires exactly one identity-`UserWarning` with the complete
+`TorchAODType.INT4` deprecation message and exact torchao RECORD-owned origin, and leaves pytest,
+JUnit, CI, prequalification, and final warning-as-error gates unchanged.
+
 **Tech Stack:** Python 3.11, pip, GNU Make, PyTorch 2.11.0, TorchVision 0.26.0, TorchAudio 2.11.0, PyTorch Lightning 2.6.1, TorchMetrics 1.9.0, torchao 0.18.0, torch-geometric 2.8.0.post1, pyg-lib 0.8.0, torch-scatter 2.1.2, torch-sparse 0.6.18, thekaveh-nnx 0.2.0, pytest, Ruff, Docker, GitHub Actions, papermill, pip-audit, and MkDocs.
 
 **Spec:** `docs/superpowers/specs/2026-08-14-issue-62-torch-stack-upgrade-design.md`
@@ -28,13 +34,21 @@ Torch-owned `torch/jit/_script.py` origin; all outer warning-as-error gates rema
 - Do not initialize or start Atlas, JupyterHub, Docker Compose, Ollama, ComfyUI, or any repository service. Containerized Ollama is prohibited. Docker use is limited to the root image build and non-service probes in Task 7.
 - Keep historical Issue #59/#60/#61 records, released changelog entries, maintenance logs, Atlas evidence, and committed notebook results immutable. Add current Issue #62 truth without rewriting history.
 - Generate site/wiki derivatives from canonical sources; never edit or commit `generated/`, `site/`, or root `mkdocs.yml`.
-- Preserve `-W error` in focused, CI, prequalification, and final gates. The only warning capture
-  exception is local to the selected torch-geometric/torch-sparse import calls and the matching
-  fresh-interpreter debt probe. Do not add a global, pytest, environment, conftest, canary, sampler,
-  NNx, consumer, CI, Docker, or Codespaces warning filter.
+- Preserve `-W error` in focused, CI, prequalification, and final gates. Warning capture is limited
+  to the selected torch-geometric/torch-sparse import calls and matching fresh-interpreter debt
+  probe, plus the Task 3 test-local QAT assertion around only the NNx 0.2.0 8da4w `model.train`
+  call. Neither boundary is a filter. Do not add a global, CLI, pytest, environment, conftest,
+  canary, sampler, NNx, consumer, CI, Docker, or Codespaces warning filter.
 - Every Torch or PyG version change invalidates both immutable warning-debt keys. A fresh-interpreter
   zero-warning result requires removing the exception and debt-specific tests/evidence before
   continuing; cached zero-warning imports are never retirement evidence.
+- Any drift in Torch 2.11.0, torchao 0.18.0, thekaveh-nnx 0.2.0, or `qat_config="8da4w"`, or a
+  zero-warning QAT `model.train` capture, is a mandatory retirement stop. Remove the QAT capture and
+  debt helper, rerun the direct call under `-W error`, and update the design before continuing.
+- Rejected QAT alternatives remain prohibited: no global/message warning filter, installed-wheel
+  monkeypatch, repository fork of torchao/NNx, or direct `QATConfig`/`quantize_` bypass of the NNx
+  facade. Issue #66 or an earlier coordinated NNx/Atlas upgrade owns the permanent `torch.int4`
+  migration.
 - Any resolver, wheel, ABI, sampler, quantization, advisory, Docker, notebook, documentation, or protected-branch failure is a stop condition. Correct it through a reviewed RED-GREEN commit and rerun the affected clean matrix.
 
 ---
@@ -62,7 +76,8 @@ Torch-owned `torch/jit/_script.py` origin; all outer warning-as-error gates rema
 - `tests/test_verify_torch_stack.py`: existing Task 3 work-in-progress file; Task 3 reconciles it with the final ten-component verifier, adds consumer/AST enforcement for the Task 2.1 boundary, and owns its commit.
 - `tests/nnx_surface/conftest.py`: one stack-verifier call before NNx verification/import.
 - `tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py`: mandatory pyg-lib/sparse NeighborLoader and SAGE/GraphConv/GAT execution.
-- `tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py`: mandatory tiny PTQ/QAT execution.
+- `tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py`: mandatory tiny PTQ/QAT execution and
+  the sole exact test-local NNx 0.2.0 8da4w warning-debt assertion.
 - `scripts/verify_smoke_outputs.py` and `tests/test_verify_smoke_outputs.py`: exact Tier A/B/C output oracle.
 - `scripts/verify_junit.py` and `tests/test_verify_junit.py`: reusable positive-test, zero-failure/error/skip JUnit gate used by focused, CI, and final NNx acceptance.
 
@@ -124,6 +139,32 @@ class ImportWarningEvidence:
     count: int
     message: str
     origin: Path
+```
+
+The Task 3 QAT debt is test-only and has no production API. Its exact local interfaces are:
+
+```python
+QAT_WARNING_DEBT_KEY = ("2.11.0", "0.18.0", "0.2.0", "8da4w")
+QAT_WARNING_MESSAGE = (
+    "Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead "
+    "(e.g. TorchAODType.INT4 -> torch.int4)"
+)
+QAT_WARNING_RECORD_PATH = "torchao/quantization/quant_primitives.py"
+
+DistributionProvider = Callable[[str], importlib.metadata.Distribution]
+
+def _torchao_qat_warning_origin(
+    distribution: importlib.metadata.Distribution,
+) -> Path:
+    raise NotImplementedError
+
+def _assert_qat_warning_debt(
+    caught: Sequence[warnings.WarningMessage],
+    *,
+    qat_config: str,
+    distribution: DistributionProvider = importlib.metadata.distribution,
+) -> None:
+    raise NotImplementedError
 ```
 
 The final smoke-output interfaces are:
@@ -1783,8 +1824,11 @@ change, clean path, extra scoped status, or hash drift stops Task 2.1.
   execute; focused graph, quantization, verifier, platform, and Make tests run under `-W error`; JUnit
   reports a positive test count and zero failures/errors/skips; current HEAD remains the reviewed Task
   2.1 SHA; and exact five-modified/two-untracked porcelain, seven worktree hashes, five HEAD hashes,
-  two HEAD absences, and the complete empty index still match. Then keep `FOCUS_ROOT`, `TASK21_SHA`, and this exact selected r4/r5
-  shell for Task 3 Step 6.
+  two HEAD absences, and the complete empty index still match. Then keep `FOCUS_ROOT`, `TASK21_SHA`,
+  and this exact selected r4/r5 shell for Task 3 Step 6. The subsequently approved design/plan debt
+  amendments may advance HEAD only through commits `docs: define Issue 62 QAT warning debt` and
+  `docs: plan Issue 62 QAT warning debt`; they do not alter the selected environment or runtime
+  implementation. Task 3 Step 6 proves that exact two-document descendant before reuse.
 
 ---
 
@@ -1811,15 +1855,17 @@ change, clean path, extra scoped status, or hash drift stops Task 2.1.
   work-in-progress files; `scripts/verify_torch_stack.py` and
   `tests/test_verify_torch_stack_platform.py` remain owned by the reviewed Task 2.1 commit.
 
-**Resume brief after Task 2.1:** First complete Step 1's consumer/AST additions below without
-changing the already proved production/platform boundary. Then preserve and reuse exactly the
-Task 2.1-selected `FOCUS_ROOT` (r4 or r5) and reviewed `TASK21_SHA`; Step 6 reasserts interpreter
-prefix, platform, current HEAD, complete stack provenance, and a separate fresh positive probe before
-its focused command and JUnit parser. Never recreate/reinstall r4 from Task 2 HEAD. If the handoff is
-invalid, return to Task 2.1 Step 11; only a new r5 after the full provenance-plus-probe sequence may
-replace it. Then proceed directly through Steps 7-10: smoke-output RED, implementation,
+**Resume brief after Task 2.1:** First complete Step 1's consumer/AST additions and Steps 4.1-4.2's
+QAT debt RED/GREEN cycle without changing the already proved production/platform boundary. Preserve
+and reuse exactly the Task 2.1-selected `FOCUS_ROOT` (r4 or r5) and reviewed `TASK21_SHA`. Record
+`TASK3_BASE_SHA` only after the two approved debt-document commits; Step 6 proves that the exact diff
+from `TASK21_SHA` contains only the design and plan and then reasserts interpreter prefix, platform,
+current HEAD, complete stack provenance, separate fresh positive import probe, exact QAT warning
+debt, focused command, and JUnit parser. Never recreate/reinstall r4 from Task 2 HEAD. If the handoff
+is invalid, return to Task 2.1 Step 11; only a new r5 after the full provenance-plus-probe sequence
+may replace it. Then proceed directly through Steps 7-10: smoke-output RED, implementation,
 smoke/JUnit/mutation GREEN, and the exact Task 3 commit. Do not recreate JUnit files, repeat completed
-graph/quantization edits, or stage anything until the focused clean gate is green.
+graph edits, or stage anything until the focused clean gate is green.
 
 - [ ] **Step 1: Reconcile the preserved verifier tests with Task 2's final boundary**
 
@@ -1832,6 +1878,136 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   `PYTHONWARNINGS`, `-W ignore`, `--disable-warnings`, and any `sys.modules` deletion/replacement in
   verifier, NNx conftest, graph, quantization, Make, and CI consumer sources. Mutate the exact branch
   to `if True`, add each forbidden filter form independently, and require the AST helper to fail.
+
+  The sole allowed consumer `warnings.simplefilter` is the exact QAT capture introduced in Step 4.2.
+  Add this structural guard in `tests/test_verify_torch_stack.py` and call it from
+  `test_graph_and_quantization_consumers_have_no_optional_backend_bypass`:
+
+  ```python
+  def _warnings_call(node: ast.AST, attribute: str) -> bool:
+      return (
+          isinstance(node, ast.Call)
+          and isinstance(node.func, ast.Attribute)
+          and isinstance(node.func.value, ast.Name)
+          and node.func.value.id == "warnings"
+          and node.func.attr == attribute
+      )
+
+  def _assert_qat_warning_capture_is_exact(source: str) -> None:
+      tree = ast.parse(source)
+      functions = tuple(
+          node for node in tree.body
+          if isinstance(node, ast.FunctionDef)
+          and node.name == "test_qat_prepare_train_convert_and_inference"
+      )
+      assert len(functions) == 1
+      function = functions[0]
+      captures = tuple(
+          node for node in function.body
+          if isinstance(node, ast.With)
+          and len(node.items) == 1
+          and _warnings_call(node.items[0].context_expr, "catch_warnings")
+      )
+      assert len(captures) == 1
+      capture = captures[0]
+      context = capture.items[0]
+      assert isinstance(context.optional_vars, ast.Name)
+      assert context.optional_vars.id == "caught"
+      assert len(context.context_expr.keywords) == 1
+      keyword = context.context_expr.keywords[0]
+      assert keyword.arg == "record"
+      assert isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+      assert len(capture.body) == 2
+      filter_statement, train_statement = capture.body
+      assert isinstance(filter_statement, ast.Expr)
+      assert _warnings_call(filter_statement.value, "simplefilter")
+      assert len(filter_statement.value.args) == 1
+      assert isinstance(filter_statement.value.args[0], ast.Constant)
+      assert filter_statement.value.args[0].value == "always"
+      assert not filter_statement.value.keywords
+      assert isinstance(train_statement, ast.Assign)
+      assert len(train_statement.targets) == 1
+      assert isinstance(train_statement.targets[0], ast.Name)
+      assert train_statement.targets[0].id == "run"
+      assert isinstance(train_statement.value, ast.Call)
+      assert isinstance(train_statement.value.func, ast.Attribute)
+      assert isinstance(train_statement.value.func.value, ast.Name)
+      assert train_statement.value.func.value.id == "model"
+      assert train_statement.value.func.attr == "train"
+      capture_index = function.body.index(capture)
+      validation = function.body[capture_index + 1]
+      assert isinstance(validation, ast.Expr)
+      assert isinstance(validation.value, ast.Call)
+      assert isinstance(validation.value.func, ast.Name)
+      assert validation.value.func.id == "_assert_qat_warning_debt"
+      assert len(validation.value.args) == 1
+      assert isinstance(validation.value.args[0], ast.Name)
+      assert validation.value.args[0].id == "caught"
+      assert len(validation.value.keywords) == 1
+      assert validation.value.keywords[0].arg == "qat_config"
+      assert isinstance(validation.value.keywords[0].value, ast.Name)
+      assert validation.value.keywords[0].value.id == "qat_config"
+      config_assignments = tuple(
+          node for node in function.body[:capture_index]
+          if isinstance(node, ast.Assign)
+          and any(isinstance(target, ast.Name) and target.id == "qat_config" for target in node.targets)
+      )
+      assert len(config_assignments) == 1
+      assert isinstance(config_assignments[0].value, ast.Constant)
+      assert config_assignments[0].value.value == "8da4w"
+      for facade_name in ("QATLifecycleCallback", "qat_train_step_factory"):
+          calls = tuple(
+              node for node in ast.walk(function)
+              if isinstance(node, ast.Call)
+              and isinstance(node.func, ast.Attribute)
+              and isinstance(node.func.value, ast.Name)
+              and node.func.value.id == "nnx"
+              and node.func.attr == facade_name
+          )
+          assert len(calls) == 1
+          config_keywords = tuple(keyword for keyword in calls[0].keywords if keyword.arg == "qat_config")
+          assert len(config_keywords) == 1
+          assert isinstance(config_keywords[0].value, ast.Name)
+          assert config_keywords[0].value.id == "qat_config"
+
+
+  def _assert_no_other_consumer_warning_capture(
+      graph_source: str,
+      quantization_source: str,
+  ) -> None:
+      graph_tree = ast.parse(graph_source)
+      quantization_tree = ast.parse(quantization_source)
+      graph_captures = tuple(
+          node for node in ast.walk(graph_tree)
+          if _warnings_call(node, "catch_warnings")
+      )
+      quantization_captures = tuple(
+          node for node in ast.walk(quantization_tree)
+          if _warnings_call(node, "catch_warnings")
+      )
+      graph_filters = tuple(
+          node for node in ast.walk(graph_tree)
+          if _warnings_call(node, "simplefilter")
+      )
+      quantization_filters = tuple(
+          node for node in ast.walk(quantization_tree)
+          if _warnings_call(node, "simplefilter")
+      )
+      assert not graph_captures
+      assert not graph_filters
+      assert len(quantization_captures) == 1
+      assert len(quantization_filters) == 1
+      _assert_qat_warning_capture_is_exact(quantization_source)
+  ```
+
+  Add a clean minimal function containing the exact config, both NNx facade calls, local capture,
+  validator call, and prediction. Mutate `record=True` to false, `always` to `ignore`, `8da4w` to a
+  different config, delete the validator call, move callback construction into the capture, and move
+  prediction into the capture. Each mutation must fail `_assert_qat_warning_capture_is_exact`.
+  Independently add a second `catch_warnings` and an `always` filter outside the exact QAT function;
+  `_assert_no_other_consumer_warning_capture` must reject both. Call that helper from the existing
+  real-source consumer test after `_assert_consumer_gates_fail_closed`. This exception does not authorize any Task 4 or
+  Task 7 CLI/environment action, pytest mark, warning-plugin bypass, or broader capture.
 
   Run:
 
@@ -1974,6 +2150,332 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   ```
 
   PTQ must import torchao normally, quantize through the NNx public facade, and predict. Do not execute or edit the complete quantization notebook.
+
+- [ ] **Step 4.1: Capture the exact QAT warning-debt RED and write validator RED tests**
+
+  Before changing the quantization test, reproduce the real selected-wheel failure in the retained
+  r4 environment. Do not filter, suppress, monkeypatch, reinstall, or bypass NNx:
+
+  ```bash
+  FOCUS_ROOT=/private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6
+  export PATH="$FOCUS_ROOT/venv/bin:$PATH"
+  test "$(command -v python)" = "$FOCUS_ROOT/venv/bin/python"
+  pytest -p no:cacheprovider -W error -vv --tb=long \
+    tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py::test_qat_prepare_train_convert_and_inference
+  ```
+
+  Expected RED: exactly that node fails at
+  `torchao/quantization/quant_primitives.py:96` with category `UserWarning` and complete message
+  `Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead (e.g. TorchAODType.INT4 -> torch.int4)`;
+  the stack enters through `model.train` -> NNx `QATLifecycleCallback.on_train_begin` -> legacy
+  `Int8DynActInt4WeightQATQuantizer.prepare` -> `dtype=TorchAODType.INT4`. Rerun once with
+  `-W default`; expected control is one passing test and exactly one copy of that warning.
+
+  In `tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py`, import `warnings`,
+  `importlib.metadata`, `PackagePath`, `Path`, and `pytest`. First add the exact three constants,
+  then add `_FakeDistribution` and `_warning_record` test fixtures before defining the
+  production-test helper:
+
+  ```python
+  QAT_WARNING_DEBT_KEY = ("2.11.0", "0.18.0", "0.2.0", "8da4w")
+  QAT_WARNING_MESSAGE = (
+      "Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead "
+      "(e.g. TorchAODType.INT4 -> torch.int4)"
+  )
+  QAT_WARNING_RECORD_PATH = "torchao/quantization/quant_primitives.py"
+  DistributionProvider = Callable[[str], importlib.metadata.Distribution]
+
+
+  class _FakeDistribution:
+      def __init__(self, root: Path, version: str, *, owns_warning: bool = False) -> None:
+          self.root = root
+          self.version = version
+          self.files: list[PackagePath] = []
+          if owns_warning:
+              warning_file = root / QAT_WARNING_RECORD_PATH
+              warning_file.parent.mkdir(parents=True, exist_ok=True)
+              warning_file.touch()
+              entry = PackagePath(QAT_WARNING_RECORD_PATH)
+              entry.dist = self
+              self.files.append(entry)
+
+      def locate_file(self, path: PackagePath) -> Path:
+          return self.root / path
+
+
+  def _qat_distributions(tmp_path: Path) -> dict[str, _FakeDistribution]:
+      return {
+          "torch": _FakeDistribution(tmp_path / "torch", "2.11.0"),
+          "torchao": _FakeDistribution(tmp_path / "torchao", "0.18.0", owns_warning=True),
+          "thekaveh-nnx": _FakeDistribution(tmp_path / "nnx", "0.2.0"),
+      }
+
+
+  def _warning_record(
+      origin: Path,
+      *,
+      category: type[Warning] = UserWarning,
+      message: str = QAT_WARNING_MESSAGE,
+  ) -> warnings.WarningMessage:
+      return warnings.WarningMessage(category(message), category, str(origin), 96)
+
+
+  class _UserWarningSubclass(UserWarning):
+      pass
+
+
+  def _exact_qat_warning(tmp_path: Path):
+      distributions = _qat_distributions(tmp_path)
+      torchao_distribution = distributions["torchao"]
+      origin = torchao_distribution.locate_file(torchao_distribution.files[0])
+      return distributions, _warning_record(origin)
+
+
+  def test_qat_warning_debt_validator_accepts_exact_record(tmp_path):
+      distributions, record = _exact_qat_warning(tmp_path)
+      _assert_qat_warning_debt(
+          (record,),
+          qat_config="8da4w",
+          distribution=distributions.__getitem__,
+      )
+
+
+  @pytest.mark.parametrize(
+      "mutation",
+      (
+          "zero", "two", "mixed", "runtime", "subclass", "prefix",
+          "punctuation", "dtype", "same-basename", "matching-suffix",
+      ),
+  )
+  def test_qat_warning_debt_validator_rejects_record_mutations(tmp_path, mutation):
+      distributions, exact = _exact_qat_warning(tmp_path)
+      records = (exact,)
+      if mutation == "zero":
+          records = ()
+      elif mutation == "two":
+          records = (exact, exact)
+      elif mutation == "mixed":
+          records = (exact, _warning_record(Path(exact.filename), message="extra"))
+      elif mutation == "runtime":
+          records = (_warning_record(Path(exact.filename), category=RuntimeWarning),)
+      elif mutation == "subclass":
+          records = (_warning_record(Path(exact.filename), category=_UserWarningSubclass),)
+      elif mutation == "prefix":
+          records = (_warning_record(Path(exact.filename), message=QAT_WARNING_MESSAGE[:-1]),)
+      elif mutation == "punctuation":
+          records = (_warning_record(Path(exact.filename), message=QAT_WARNING_MESSAGE + "."),)
+      elif mutation == "dtype":
+          records = (_warning_record(
+              Path(exact.filename),
+              message=QAT_WARNING_MESSAGE.replace("INT4", "INT8"),
+          ),)
+      else:
+          outsider = (
+              tmp_path / "outsider" / "quant_primitives.py"
+              if mutation == "same-basename"
+              else tmp_path / "outsider" / QAT_WARNING_RECORD_PATH
+          )
+          outsider.parent.mkdir(parents=True, exist_ok=True)
+          outsider.touch()
+          records = (_warning_record(outsider),)
+      error = (
+          "qat warning debt retirement required"
+          if mutation == "zero"
+          else "qat warning debt validation failed"
+      )
+      with pytest.raises(AssertionError, match=error):
+          _assert_qat_warning_debt(
+              records,
+              qat_config="8da4w",
+              distribution=distributions.__getitem__,
+          )
+
+
+  @pytest.mark.parametrize(
+      ("distribution_name", "version", "qat_config"),
+      (
+          ("torch", "2.11.1", "8da4w"),
+          ("torchao", "0.18.1", "8da4w"),
+          ("thekaveh-nnx", "0.2.1", "8da4w"),
+          (None, None, "8da4w-next"),
+      ),
+  )
+  def test_qat_warning_debt_validator_requires_immutable_key(
+      tmp_path, distribution_name, version, qat_config,
+  ):
+      distributions, record = _exact_qat_warning(tmp_path)
+      if distribution_name is not None:
+          distributions[distribution_name].version = version
+      with pytest.raises(AssertionError, match="qat warning debt retirement required"):
+          _assert_qat_warning_debt(
+              (record,),
+              qat_config=qat_config,
+              distribution=distributions.__getitem__,
+          )
+
+
+  @pytest.mark.parametrize(
+      "mutation",
+      ("none", "missing", "duplicate", "foreign-owner", "missing-file", "locate-error"),
+  )
+  def test_qat_warning_debt_validator_requires_exact_record_ownership(tmp_path, mutation):
+      distributions, record = _exact_qat_warning(tmp_path)
+      torchao_distribution = distributions["torchao"]
+      entry = torchao_distribution.files[0]
+      if mutation == "none":
+          torchao_distribution.files = None
+      elif mutation == "missing":
+          torchao_distribution.files = []
+      elif mutation == "duplicate":
+          duplicate = PackagePath(QAT_WARNING_RECORD_PATH)
+          duplicate.dist = torchao_distribution
+          torchao_distribution.files.append(duplicate)
+      elif mutation == "foreign-owner":
+          entry.dist = _FakeDistribution(tmp_path / "foreign", "0.18.0")
+      elif mutation == "missing-file":
+          Path(record.filename).unlink()
+      else:
+          def fail_locate(path):
+              raise OSError("unlocatable")
+          torchao_distribution.locate_file = fail_locate
+      with pytest.raises(AssertionError, match="qat warning debt validation failed"):
+          _assert_qat_warning_debt(
+              (record,),
+              qat_config="8da4w",
+              distribution=distributions.__getitem__,
+          )
+  ```
+
+  Write these tests first. They independently mutate:
+
+  - the group to zero records, two exact records, or one exact plus one wrong record;
+  - category to `RuntimeWarning` or a `UserWarning` subclass;
+  - message to a prefix, punctuation change, or `TorchAODType.INT8` substitution;
+  - record origin to a same-basename outsider and a matching-suffix outsider;
+  - Torch to 2.11.1, torchao to 0.18.1, thekaveh-nnx to 0.2.1, or config to `8da4w-next`;
+  - torchao inventory to `None`, zero exact entries, two exact entries, an entry whose `.dist` is a
+    different distribution, a missing concrete file, or a `locate_file` exception.
+
+  Zero records and every version/config mutation must match `qat warning debt retirement required`.
+  Every count/category/message/origin/inventory mutation must match
+  `qat warning debt validation failed`. Run only the new validator tests:
+
+  ```bash
+  pytest -p no:cacheprovider -W error \
+    tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py \
+    -q -k 'qat_warning_debt_validator'
+  ```
+
+  Expected RED: the new tests fail because `_assert_qat_warning_debt` and
+  `_torchao_qat_warning_origin` do not exist. Record this RED separately from the real QAT RED.
+
+- [ ] **Step 4.2: Implement the exact local debt assertion and prove QAT GREEN**
+
+  Add the helper exactly below the RED tests in
+  `tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py`; use the constants already introduced
+  in Step 4.1:
+
+  ```python
+  def _torchao_qat_warning_origin(
+      distribution: importlib.metadata.Distribution,
+  ) -> Path:
+      files = distribution.files
+      if files is None:
+          raise AssertionError("qat warning debt validation failed")
+      matches = tuple(
+          path for path in files
+          if path.as_posix() == QAT_WARNING_RECORD_PATH
+      )
+      if len(matches) != 1 or getattr(matches[0], "dist", None) is not distribution:
+          raise AssertionError("qat warning debt validation failed")
+      try:
+          origin = distribution.locate_file(matches[0]).resolve(strict=True)
+          owned_origin = matches[0].locate().resolve(strict=True)
+      except (OSError, RuntimeError, TypeError, ValueError):
+          raise AssertionError("qat warning debt validation failed") from None
+      if origin != owned_origin or not origin.is_file():
+          raise AssertionError("qat warning debt validation failed")
+      return origin
+
+
+  def _assert_qat_warning_debt(
+      caught: Sequence[warnings.WarningMessage],
+      *,
+      qat_config: str,
+      distribution: DistributionProvider = importlib.metadata.distribution,
+  ) -> None:
+      selected = {
+          name: distribution(name)
+          for name in ("torch", "torchao", "thekaveh-nnx")
+      }
+      key = (
+          selected["torch"].version,
+          selected["torchao"].version,
+          selected["thekaveh-nnx"].version,
+          qat_config,
+      )
+      if key != QAT_WARNING_DEBT_KEY or not caught:
+          raise AssertionError("qat warning debt retirement required")
+      if len(caught) != 1:
+          raise AssertionError("qat warning debt validation failed")
+      record = caught[0]
+      expected_origin = _torchao_qat_warning_origin(selected["torchao"])
+      try:
+          actual_origin = Path(record.filename).resolve(strict=True)
+      except (OSError, RuntimeError):
+          raise AssertionError("qat warning debt validation failed") from None
+      if (
+          record.category is not UserWarning
+          or str(record.message) != QAT_WARNING_MESSAGE
+          or actual_origin != expected_origin
+      ):
+          raise AssertionError("qat warning debt validation failed")
+  ```
+
+  Import `Callable` and `Sequence` from `collections.abc`. Do not read `record.lineno`, accept category subclasses,
+  compare message prefixes, compare path suffixes/basenames, or catch `AssertionError` around this
+  helper. Then change only the execution seam in the existing QAT test:
+
+  ```python
+  qat_config = "8da4w"
+  callback = nnx.QATLifecycleCallback(qat_config=qat_config)
+  train_step = nnx.qat_train_step_factory(qat_config=qat_config)
+  with warnings.catch_warnings(record=True) as caught:
+      warnings.simplefilter("always")
+      run = model.train(
+          params=(
+              NNTrainParams(n_epochs=1)
+              .with_train_loader(value=tiny_image_batch.train_loader)
+              .with_val_loader(value=tiny_image_batch.val_loader)
+          ),
+          callbacks=[callback],
+          train_step_fn=train_step,
+      )
+  _assert_qat_warning_debt(caught, qat_config=qat_config)
+  logits, classes = model.predict(X=tiny_image_batch.X)
+  ```
+
+  The capture body contains only the local `always` action and `model.train`; imports, facade
+  construction, prediction, assertions, PTQ, graph tests, and all other calls remain exposed to the
+  outer `-W error`. Prove unit GREEN and the exact real selected-wheel QAT/JUnit GREEN:
+
+  ```bash
+  FOCUS_ROOT=/private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6
+  export PATH="$FOCUS_ROOT/venv/bin:$PATH"
+  pytest -p no:cacheprovider -W error \
+    tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py \
+    -q -k 'qat_warning_debt_validator'
+  pytest -p no:cacheprovider -W error \
+    --junitxml="$FOCUS_ROOT/qat-warning-debt.xml" \
+    tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py::test_qat_prepare_train_convert_and_inference \
+    -q
+  python -m scripts.verify_junit "$FOCUS_ROOT/qat-warning-debt.xml"
+  ```
+
+  Expected: validator cases pass; the real NNx facade prepares, trains, converts, predicts, and
+  captures exactly one approved warning; pytest exits 0 under `-W error`; JUnit reports exactly one
+  test with failures=0, errors=0, skipped=0. Zero warnings or any tuple drift stops Task 3 for debt
+  retirement; no test or command may reinterpret it as success.
 
 - [x] **Step 5: Write and implement the fail-closed JUnit gate before its first use**
 
@@ -2148,25 +2650,45 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
 - [ ] **Step 6: Reuse the Task 2.1-qualified environment and prove focused GREEN**
 
   Continue in the exact shell and selected r4-or-r5 environment that passed Task 2.1 Step 11. Do not
-  recreate r4, reinstall from Task 2 HEAD, or select a different interpreter. `FOCUS_ROOT` and
-  `TASK21_SHA` are handoff state, not values to recompute here:
+  recreate r4, reinstall from Task 2 HEAD, or select a different interpreter. First reuse the exact
+  real r4 path; r5 is permitted only through the already specified full Task 2.1 fallback. Keep the
+  reviewed `TASK21_SHA` handoff and capture current `TASK3_BASE_SHA` before any Task 3 commit:
 
   ```bash
-  test -n "${FOCUS_ROOT:-}"
-  test -n "${TASK21_SHA:-}"
-  case "$FOCUS_ROOT" in
-    /private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6|/private/tmp/ml-eng-lab-issue62-focus-r5.*) ;;
-    *) exit 1 ;;
-  esac
-  test "$(git rev-parse HEAD)" = "$TASK21_SHA"
+  export FOCUS_ROOT=/private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6
+  export TASK21_SHA=9d8504b35fb25e9f26b244d841919209b3eba5e4
+  export TASK3_BASE_SHA=$(git rev-parse HEAD)
+  python - "$TASK21_SHA" "$TASK3_BASE_SHA" <<'PY'
+  import subprocess
+  import sys
+
+  task21_sha, task3_base_sha = sys.argv[1:]
+  subjects = subprocess.check_output(
+      ["git", "log", "--format=%s", f"{task21_sha}..{task3_base_sha}"],
+      text=True,
+  ).splitlines()
+  assert subjects == [
+      "docs: plan Issue 62 QAT warning debt",
+      "docs: define Issue 62 QAT warning debt",
+  ], subjects
+  paths = set(subprocess.check_output(
+      ["git", "diff", "--name-only", task21_sha, task3_base_sha],
+      text=True,
+  ).splitlines())
+  assert paths == {
+      "docs/superpowers/plans/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md",
+      "docs/superpowers/specs/2026-08-14-issue-62-torch-stack-upgrade-design.md",
+  }, paths
+  PY
   test -x "$FOCUS_ROOT/venv/bin/python"
+  export PATH="$FOCUS_ROOT/venv/bin:$PATH"
   test "$(command -v python)" = "$FOCUS_ROOT/venv/bin/python"
   test "$(python -c 'import sys; print(sys.prefix)')" = "$FOCUS_ROOT/venv"
   test "$(python -c 'import platform; print(platform.system(), platform.machine())')" = "Darwin arm64"
   test "$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = 3.11
   python -m pip check
   make verify-torch-stack
-  test "$(git rev-parse HEAD)" = "$TASK21_SHA"
+  test "$(git rev-parse HEAD)" = "$TASK3_BASE_SHA"
   ```
 
   The full verifier is a separate process and must pass again before this fresh positive probe. The
@@ -2217,7 +2739,7 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   make verify-nnx-install
   pytest -p no:cacheprovider -W error --junitxml="$FOCUS_ROOT/focused.xml" tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py tests/test_verify_torch_stack.py tests/test_verify_torch_stack_platform.py tests/test_makefile_contract.py -q
   python -m scripts.verify_junit "$FOCUS_ROOT/focused.xml"
-  test "$(git rev-parse HEAD)" = "$TASK21_SHA"
+  test "$(git rev-parse HEAD)" = "$TASK3_BASE_SHA"
   git diff-index --cached --quiet HEAD --
   ```
 
@@ -2227,9 +2749,11 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   before Task 3 may resume. Expected here: the reused full verifier reports the exact supported
   stack; the fresh probe reports nonempty exact debt; the direct canary body executes actual PyG 2.8
   through preferred pyg-lib and forced torch-sparse; pytest treats warnings as errors; `verify_junit`
-  reports a positive count with failures=0, errors=0, skipped=0; current HEAD remains `TASK21_SHA`;
-  and the complete index remains empty while Task 3's consumer/AST work stays uncommitted. A zero
-  warning, skip, warning leakage, import failure, ABI failure, or staged Task 3 byte stops Task 3.
+  reports a positive count with failures=0, errors=0, skipped=0; the QAT node accepts exactly one
+  warning only under the immutable four-part debt key; current HEAD remains `TASK3_BASE_SHA`; and the
+  complete index remains empty while Task 3's consumer/AST work stays uncommitted. A zero or
+  non-exact QAT warning, zero PyG import-debt group, skip, other warning leakage, import failure, ABI
+  failure, or staged Task 3 byte stops Task 3.
 
 - [ ] **Step 7: Write smoke-output oracle RED tests**
 
@@ -2373,8 +2897,13 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
 
 **Interfaces:**
 - Consumes: Task 1 installer, Task 2 verifier, Task 2.1 exact import-warning boundary, Task 3 smoke
-  oracle, and all five canonical stack manifests.
+  oracle, exact test-local QAT debt assertion, and all five canonical stack manifests.
 - Produces: final-install ordering for repository, NNx-surface, Tier A/B/C, audit, Docker, and Codespaces paths; no late package changes; no services.
+- Preserved warning boundary: Task 3's in-test `always` capture creates no CLI or environment
+  allowance. The NNx-surface command still has exactly one adjacent `-W error` action; every
+  appended `always`/`ignore`/`default` action, `filterwarnings` option or mark, `PYTHONWARNINGS`,
+  warning-bearing `PYTEST_ADDOPTS`, `-p no:warnings` spelling, and warning-disable flag remains a
+  mandatory no-bypass failure in this task and Task 7.
 
 - [ ] **Step 1: Write CI/cache/order RED contracts**
 
@@ -3586,9 +4115,9 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
 - Modify: `tests/test_check_docs.py`
 
 **Interfaces:**
-- Consumes: implemented matrix, Task 2.1's temporary exact import-warning debt, verifier,
-  CI/Docker/Codespaces order, current advisory ledger, immutable history, unchanged Atlas ownership,
-  and unchanged tier map.
+- Consumes: implemented matrix, Task 2.1's temporary exact import-warning debt, Task 3's temporary
+  exact NNx 0.2.0 8da4w QAT warning debt, verifier, CI/Docker/Codespaces order, current advisory
+  ledger, immutable history, unchanged Atlas ownership, and unchanged tier map.
 - Produces: one self-contained operational story in repository Markdown, generated MkDocs input, and generated wiki; durable Unreleased history; rollback runbook; no premature final-acceptance claim.
 
 - [ ] **Step 1: Write current-surface RED tests**
@@ -3600,7 +4129,9 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   three wheel names, no source build, manual-only Issue #66, Atlas Issue #65, NNx 0.2.0, no
   containerized Ollama, residual advisory language, fresh-environment/image rollback, both immutable
   warning-debt keys, exact `torch.jit.script` deprecation message, exact
-  `torch/jit/_script.py` origin, no global warning filter, and the fresh-interpreter retirement trigger.
+  `torch/jit/_script.py` origin, the exact four-part QAT debt key, exactly one identity-`UserWarning`,
+  the complete `TorchAODType.INT4` message, exact torchao RECORD path
+  `torchao/quantization/quant_primitives.py`, no global warning filter, and both retirement triggers.
 
   Reject current text containing Torch 2.4.1, `torchao>=`, separate cluster/spline requirements, wheel bootstrap, source-build flags, five canaries, twelve components, unavailable Darwin graph backends, tier-covered quantization, upgraded Atlas, or completed final acceptance before Task 7.
 
@@ -3617,6 +4148,8 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
           "Issue #66",
           "thekaveh-nnx[lm]==0.2.0",
           "torch/jit/_script.py",
+          "torchao/quantization/quant_primitives.py",
+          "TorchAODType.INT4 -> torch.int4",
           "fresh-interpreter",
       ):
           assert required in current
@@ -3735,6 +4268,15 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   and line number are not pinned; preserve `-W error`; prohibit global/pytest/environment/conftest
   filters; and require removal when a fresh interpreter becomes warning-free.
 
+  Document the separate QAT debt as the literal tuple Torch 2.11.0 + torchao 0.18.0 +
+  thekaveh-nnx 0.2.0 + `qat_config="8da4w"`. State that only the NNx `model.train` call is captured;
+  exactly one record must have category identity `UserWarning`, the complete
+  `Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead (e.g. TorchAODType.INT4 -> torch.int4)`
+  message, and exact torchao RECORD-owned path `torchao/quantization/quant_primitives.py`. State that
+  zero warnings or tuple drift stops qualification for debt retirement, all other warnings remain
+  fatal, and Issue #66 or an earlier NNx/Atlas upgrade owns migration to torchao's current
+  `torch.int4` QAT API.
+
   Update the PyTorch badge label/value to 2.11 without changing unrelated badge geometry. Add one Unreleased changelog entry. Before Task 7, use exactly: `The dependency and focused runtime contracts are implemented; complete Tier A/B/C and container acceptance evidence is pending.`
 
   Use these exact anchors and replacement strings; tests select these same bounded sections rather
@@ -3744,7 +4286,7 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   | --- | --- |
   | `README.md`, replace the complete fenced shell block under `### 3.3. Local venv` | `python3.11 -m venv .venv && source .venv/bin/activate`<br>`make install-torch-stack`<br>`make nlp-assets`<br>`python -m pip check`<br>`make verify-torch-stack`<br>`make verify-nnx-install`<br>`jupyter lab`; then add: `The supported CPU matrix is torch==2.11.0, torchvision==0.26.0, torch_geometric==2.8.0.post1, pyg-lib==0.8.0+pt211, torch-scatter==2.1.2+pt211, torch-sparse==0.6.18+pt211, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0; Linux wheels use the +pt211cpu local tag.` |
   | `README.md`, replace the complete line beginning `- The quantization-mnist-ffnn-pytorch notebook remains manual-only:` under `Scenarios this does NOT support` | `- The quantization-mnist-ffnn-pytorch notebook remains manual-only under Issue #66. Issue #62 qualifies only its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; the full notebook remains outside Tier A/B/C and is not Atlas evidence.` |
-  | `CONTRIBUTING.md`, append to `## 6. Verification` | `After the last package or data install, run \`python -m pip check\`, \`make verify-torch-stack\`, and \`make verify-nnx-install\`; never mutate the environment between those gates and the workload. Keep pytest at -W error: the only temporary exception is the verifier-local exact TorchScript import group for the immutable Torch/PyG debt keys, and a warning-free fresh-interpreter probe removes that exception. Roll back manifests, installer, verifier, CI/Docker, advisory policy/ledger, and documentation atomically in a fresh environment or rebuilt image.` |
+  | `CONTRIBUTING.md`, append to `## 6. Verification` | `After the last package or data install, run \`python -m pip check\`, \`make verify-torch-stack\`, and \`make verify-nnx-install\`; never mutate the environment between those gates and the workload. Keep pytest at -W error. Temporary debt assertions are limited to the verifier-local exact TorchScript import group and the quantization test's exact NNx 0.2.0 8da4w model.train warning; neither permits a global, CLI, environment, pytest, or conftest filter. A warning-free fresh probe or QAT call stops qualification for debt retirement. Roll back manifests, installer, verifier, CI/Docker, advisory policy/ledger, and documentation atomically in a fresh environment or rebuilt image.` |
   | `SECURITY.md`, replace `## 13.6 Dependency advisories` current opening | `Issue #62 audits four logical surfaces through six physical commands. Resolver audits cover core plus ecosystem plus PyG; supplement audits cover only torch-scatter and torch-sparse. pyg-lib is external-index provenance verified by the stack verifier, not a PyPI supplement result. Feed disappearance is reconciliation evidence, never proof of remediation.` |
   | `CHANGELOG.md`, add first bullet under `[Unreleased]` → `### Changed` | `- Coordinated the supported CPU Torch stack at Torch 2.11/PyG 2.8.0.post1/torchao 0.18 with binary-only pyg-lib, torch-scatter, and torch-sparse wheels, NNx 0.2.0 verification, and manual-only Issue #66 quantization ownership.` |
   | `docs/env-setup.md`, replace the fenced shell block and both paragraphs in `## 4.1.3 Local Python venv`, stopping before `## 4.1.4` | `python3.11 -m venv .venv && source .venv/bin/activate`<br>`make install-torch-stack`<br>`make nlp-assets`<br>`python -m pip check`<br>`make verify-torch-stack`<br>`make verify-nnx-install`<br>`jupyter lab`<br><br>`Use Python 3.11 and make install-torch-stack; the installer ends with binary-only thekaveh-nnx[lm]==0.2.0. After the last asset install, package state is frozen through pip-check, Torch verification, NNx verification, and the workload. Linux is CPU-only; Darwin and native Linux arm64 Docker are locally qualified, and Linux x86_64 is qualified by the PR gates.` |
@@ -3754,13 +4296,13 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   | `docs/architecture.md`, replace the two-line boundary bullet beginning ``- The quantization notebook is active`` in `## 2.1.4 Boundary decisions` | `- The quantization notebook is active but manual-only under Issue #66. Issue #62 qualifies only the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; the full notebook remains outside Tier A/B/C.` |
   | `docs/FINDINGS-ATLAS.md`, append to `## 9.2.2 Atlas Jupyter runtime is distinct from local CI` | `Issue #62 does not upgrade Atlas: Atlas runtime ownership remains Issue #65. The host-native Ollama boundary is unchanged, and no containerized Ollama service is added.` |
   | `docs/FINDINGS-ATLAS.md`, replace the three-sentence paragraph beginning `Atlas JupyterHub supplies a newer CPU Torch surface` in `## 9.2.2` | `Atlas JupyterHub is a distinct runtime and is not Issue #62 acceptance evidence. Issue #62 qualifies the repository Torch 2.11 CPU stack; Atlas runtime ownership remains Issue #65, and the full quantization notebook remains manual-only under Issue #66.` |
-  | `docs/dependency-contracts.md`, replace every byte after `## 6.1.2 Torch Stack Pin` through the byte before `## 6.1.3 Manual-Only Quantization Notebook` | `The supported Python 3.11 CPU matrix is torch==2.11.0, torchvision==0.26.0, torchaudio==2.11.0, pytorch-lightning==2.6.1, torchmetrics==1.9.0, torchao==0.18.0, torch-geometric==2.8.0.post1, pyg-lib==0.8.0, torch-scatter==2.1.2, and torch-sparse==0.6.18; thekaveh-nnx[lm]==0.2.0 remains the separately verified consumer pin.`<br><br>`torch-core-requirements.txt contains the Torch trio. torch-ecosystem-requirements.txt contains Lightning, TorchMetrics, and torchao. torch-requirements.txt contains the ecosystem include, the Torch 2.11 CPU PyG selector, pyg-lib, scatter, sparse, and PyG. torch-audit-requirements.txt contains core plus ecosystem plus PyG. pyg-extension-audit-requirements.txt contains only scatter and sparse; pyg-lib is an external-index artifact verified by WHEEL/RECORD, platform, ownership, import, and sampler gates.`<br><br>`Torch 2.11.0 with outer torch-geometric 2.8.0.post1 or torch-sparse 0.6.18 has one temporary verifier-local import debt: every captured record must be category identity DeprecationWarning with message \`torch.jit.script\` is deprecated. Please switch to \`torch.compile\` or \`torch.export\`. and exact selected-Torch RECORD origin torch/jit/_script.py. Count and line number are not pinned. Pytest remains -W error, no global filter is allowed, and a warning-free fresh-interpreter probe retires the exception.`<br><br>`make install-torch-stack has four stages: stage 0 upgrades pip only; stage 1 installs the Torch trio from the Linux CPU index or Darwin's native index; stage 2 installs torch-requirements.txt with --only-binary=pyg-lib,torch-scatter,torch-sparse; stage 3 installs remaining root requirements and binary-only thekaveh-nnx[lm]==0.2.0 last. Acceptance requires pip-check, the ten-component stack verifier, the NNx verifier, four-surface advisory reconciliation from six commands, full repository tests, zero-skip focused graph/quantization tests, Tier A/B/C 18/6/4, Darwin arm64, native Linux arm64 Docker, Linux x86_64 PR gates, and three-surface documentation parity. Any failure rejects the matrix and rollback restores the complete prior contract in a fresh environment or rebuilt image.` |
+  | `docs/dependency-contracts.md`, replace every byte after `## 6.1.2 Torch Stack Pin` through the byte before `## 6.1.3 Manual-Only Quantization Notebook` | `The supported Python 3.11 CPU matrix is torch==2.11.0, torchvision==0.26.0, torchaudio==2.11.0, pytorch-lightning==2.6.1, torchmetrics==1.9.0, torchao==0.18.0, torch-geometric==2.8.0.post1, pyg-lib==0.8.0, torch-scatter==2.1.2, and torch-sparse==0.6.18; thekaveh-nnx[lm]==0.2.0 remains the separately verified consumer pin.`<br><br>`torch-core-requirements.txt contains the Torch trio. torch-ecosystem-requirements.txt contains Lightning, TorchMetrics, and torchao. torch-requirements.txt contains the ecosystem include, the Torch 2.11 CPU PyG selector, pyg-lib, scatter, sparse, and PyG. torch-audit-requirements.txt contains core plus ecosystem plus PyG. pyg-extension-audit-requirements.txt contains only scatter and sparse; pyg-lib is an external-index artifact verified by WHEEL/RECORD, platform, ownership, import, and sampler gates.`<br><br>`Torch 2.11.0 with outer torch-geometric 2.8.0.post1 or torch-sparse 0.6.18 has one temporary verifier-local import debt: every captured record must be category identity DeprecationWarning with message \`torch.jit.script\` is deprecated. Please switch to \`torch.compile\` or \`torch.export\`. and exact selected-Torch RECORD origin torch/jit/_script.py. Count and line number are not pinned. Pytest remains -W error, no global filter is allowed, and a warning-free fresh-interpreter probe retires the exception.`<br><br>`Separately, the immutable Torch 2.11.0 + torchao 0.18.0 + thekaveh-nnx 0.2.0 + qat_config="8da4w" QAT debt is asserted only around NNx model.train: exactly one identity-UserWarning must equal the complete TorchAODType.INT4 deprecation and originate from the selected torchao RECORD path torchao/quantization/quant_primitives.py. Pytest remains -W error; zero warnings or tuple drift stops qualification for debt retirement; Issue #66 or an earlier NNx/Atlas upgrade owns migration to the current torch.int4 API.`<br><br>`make install-torch-stack has four stages: stage 0 upgrades pip only; stage 1 installs the Torch trio from the Linux CPU index or Darwin's native index; stage 2 installs torch-requirements.txt with --only-binary=pyg-lib,torch-scatter,torch-sparse; stage 3 installs remaining root requirements and binary-only thekaveh-nnx[lm]==0.2.0 last. Acceptance requires pip-check, the ten-component stack verifier, the NNx verifier, four-surface advisory reconciliation from six commands, full repository tests, zero-skip focused graph/quantization tests, Tier A/B/C 18/6/4, Darwin arm64, native Linux arm64 Docker, Linux x86_64 PR gates, and three-surface documentation parity. Any failure rejects the matrix and rollback restores the complete prior contract in a fresh environment or rebuilt image.` |
   | `docs/dependency-contracts.md`, replace all content in `## 6.1.3 Manual-Only Quantization Notebook` before `## 6.1.4` | `notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb remains manual-only under Issue #66. Issue #62 qualifies only the tiny PTQ/QAT dependency surface on torch==2.11.0, torchvision==0.26.0, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0. Do not add the complete notebook to Tier A/B/C without Issue #66 acceptance; Atlas remains Issue #65 and is not a substitute.` |
   | `docs/dependency-contracts.md`, replace all current boundary prose in `## 6.1.9 Atlas Versus Local/CI Dependency Boundaries` before `## 6.1.10` | `Atlas is Atlas-owned infrastructure and remains Issue #65. The checked-in Torch 2.11 CPU manifests are authoritative for make test, papermill CI, Dockerfile, and Codespaces; no Atlas package observation changes that contract. The complete quantization notebook remains manual-only under Issue #66 even though Issue #62 qualifies its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface.` |
   | `docs/dependency-contracts.md`, replace the complete section beginning `## 6.1.11 Bootstrap Tooling Gap` through the byte before `## 6.1.12 Deferred Reproducibility Hardening` | `## 6.1.11 Canonical Bootstrap Tooling`<br><br>`The canonical installer upgrades pip alone in stage 0 and installs every selected graph extension as a compatible binary wheel in stage 2. Docker, Codespaces, CI, and local setup delegate to make install-torch-stack; none carries a second bootstrap or dependency algorithm. Exact pip/setuptools locks, full Python lockfiles, and base-image digest pinning remain Issue #63 and do not change the Issue #62 four-stage install contract.` |
   | `docs/notebooks/node_classification-reddit-gnn-pyg.md`, replace the complete three-line pitfall beginning `- **Run both graph tiers during release review.** Issue #61 completed` | `- **Run both graph tiers during release review.** Issue #62 requires mandatory zero-skip graph tests plus Tier B and Tier C execution on the supported Torch 2.11 CPU stack. Sampling must prove preferred pyg-lib selection and forced torch-sparse fallback; install with make install-torch-stack and prove with make verify-torch-stack.` |
   | `docs/notebooks/pruning-mnist-ffnn-pytorch.md`, replace the four-line pitfall bullet beginning `- **Manual-only quantization cousin (§8.8) cannot run in CI.**` | `- **Quantization cousin (§8.8) remains manual-only under Issue #66.** This pruning notebook is Tier A and covered by the 18-output oracle. Issue #62 qualifies §8.8's tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface, but the complete quantization notebook remains outside Tier A/B/C.` |
-  | `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, replace the opening manual-only paragraph from `The notebook is **manual-only**` through `remain historical evidence.` | `The notebook is **manual-only** under Issue #66 and is not in the Tier A/B/C papermill targets. Issue #62 qualifies only the tiny PTQ/QAT dependency surface on torch==2.11.0, torchvision==0.26.0, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0. Atlas remains Issue #65 and is not acceptance evidence. The older committed Torch 2.8.0 outputs remain historical evidence and are not rewritten.` |
+  | `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, replace the opening manual-only paragraph from `The notebook is **manual-only**` through `remain historical evidence.` | `The notebook is **manual-only** under Issue #66 and is not in the Tier A/B/C papermill targets. Issue #62 qualifies only the tiny PTQ/QAT dependency surface on torch==2.11.0, torchvision==0.26.0, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0. The retained NNx 0.2.0 8da4w model.train call has one exact test-local UserWarning debt at torchao/quantization/quant_primitives.py; zero warnings or tuple drift retires the assertion, and all other warnings remain fatal under -W error. Atlas remains Issue #65 and is not acceptance evidence. The older committed Torch 2.8.0 outputs remain historical evidence and are not rewritten.` |
   | `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, replace the table cell beginning ``| Manual-only (CI-excluded) |`` | `| Manual-only (CI-excluded) | Issue #62 qualifies the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; Issue #66 owns full-notebook execution outside Tier A/B/C. |` |
   | `docs/notebooks/quantization-mnist-ffnn-pytorch.md`, replace the pitfall bullet beginning `- **Manual-only — does not run in CI.**` and ending `Issue #61 side-environment evidence.` | `- **Manual-only — full execution belongs to Issue #66.** Issue #62 qualifies only the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface. The complete notebook remains outside Tier A/B/C, Atlas remains Issue #65, and the committed Torch 2.8.0 outputs remain immutable historical evidence.` |
   | `notebooks/node_classification-reddit-gnn-pyg/README.md`, replace the complete paragraph beginning `Also verified via` | `Also verified via tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py: fast NNx-surface contract tests cover parametrized SAGE/CONV smoke-forward, GraphAttNN(n_heads=...) consolidation, and NNParams.state() round-trip. The focused suite is mandatory with zero skips, and both pyg-lib preferred sampling and torch-sparse fallback are required.` |
@@ -3876,18 +4418,26 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
 - Never modify: notebook source/output, Atlas files/gitlink, generated documentation, or protected-branch rules.
 
 **Interfaces:**
-- Consumes: reviewed Tasks 1-6, including Task 2.1's immutable warning-debt keys and exact-origin
-  probe, and a clean candidate branch.
+- Consumes: reviewed Tasks 1-6, including Task 2.1's immutable import-warning debt keys and
+  exact-origin probe, Task 3's immutable four-part QAT debt key and exact one-record assertion, and
+  a clean candidate branch.
 - Produces: clean Darwin arm64, native Linux arm64 Docker, Linux x86_64 PR, advisory, full tests, Tier A/B/C, documentation, immutable-SHA, GitFlow, publication, and cleanup evidence.
 - Warning evidence: prequalification and final qualification each start a fresh interpreter with
   neither PyG module preloaded, require one or more exact records at the torch-geometric boundary,
-  and run under global `-W error` with only the verifier-local `simplefilter("always")` capture.
+  and run those import probes under global `-W error` with only the verifier-local
+  `simplefilter("always")` capture.
   Each probe follows a successful full `make verify-torch-stack` in a separate process, so exact
   local versions, WHEEL ABI/platform, RECORD/import ownership, and CPU/NVIDIA truth—not matching
   public versions alone—qualify the environment before debt or retirement is evaluated.
   Reports record public debt-key versions, outer component, positive observed count, exact category
   name/message, POSIX inventory path, and owned-file SHA-256 without publishing a temporary absolute
   path. Zero records trigger debt retirement; no ignore/default filter is accepted as evidence.
+- QAT warning evidence: the focused NNx command remains unchanged at global `-W error`. Only its
+  exact test-local `model.train` capture may observe one identity-`UserWarning` with the complete
+  `TorchAODType.INT4` message and selected torchao RECORD origin. The command and environment still
+  reject every appended warning action, pytest warning-plugin bypass, filter mark, or warning
+  environment. Zero QAT records or any Torch/torchao/NNx/config drift stops qualification for debt
+  retirement.
 
 - [ ] **Step 1: Create and verify a clean prequalification worktree**
 
@@ -4000,12 +4550,14 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   Expected: the parser proves the kernelspec resource directory is below the isolated prefix and
   its complete `argv` is exactly `[venv-python, -m, ipykernel_launcher, -f, {connection_file}]`; every command exits
   0; the focused NNx suite treats warnings as errors and its JUnit totals have failures, errors,
-  and skipped all equal to zero; a separate-process full stack verifier precedes the fresh probe,
+  and skipped all equal to zero; the QAT test asserts exactly one approved record under the exact
+  four-part debt key; a separate-process full stack verifier precedes the fresh probe,
   which observes a positive fully exact group without an ignore filter; exact versions,
   WHEEL/RECORD/local-version/platform/CPU/NVIDIA/import ownership,
   test counts, durations, and hashes are recorded. The audit-tool manifest is installed before the
   final pip-check/stack/NNx boundary. A zero-warning fresh probe stops qualification and triggers
-  removal of the debt exception before any later step.
+  removal of the import-debt exception before any later step. A zero QAT record or QAT tuple drift
+  likewise stops for removal of the test-local debt assertion before any later step.
 
 - [ ] **Step 3: Qualify native Linux arm64 Docker without services**
 
@@ -4051,10 +4603,13 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
 - [ ] **Step 5: Record tracked prequalification, complete review, and commit before freeze**
 
   Replace Task 6's pending sentence with exact candidate SHA/platform/test/tier/Docker results plus
-  the observed positive torch-geometric warning count and the two approved immutable debt keys. State
+  the observed positive torch-geometric warning count, the two approved immutable import-debt keys,
+  and the exact one-record QAT debt key. State
   that every observed record had category identity `builtins.DeprecationWarning`, the exact complete
   TorchScript message, and RECORD path `torch/jit/_script.py`; do not record the disposable absolute
-  path and do not add any warning filter. Append: `Merge acceptance additionally requires an
+  path. State separately that QAT observed exactly one identity-`builtins.UserWarning` with the
+  complete `TorchAODType.INT4` message and RECORD path
+  `torchao/quantization/quant_primitives.py`; do not add any warning filter. Append: `Merge acceptance additionally requires an
   immutable final-SHA rerun attached to Issue #62; this tracked candidate record is not a substitute
   for that external evidence.` Regenerate site/wiki; run focused docs tests, `make docs-check`,
   `make docs-wiki`, `make verify`, Ruff, and diff checks; then commit only the listed current-evidence
@@ -4075,7 +4630,8 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
 
   Review every branch commit and the complete diff for spec coverage, exact final manifests,
   mutation resistance (including appended separated/joined `-W` actions, both `-p no:warnings`
-  spellings, plus inline/workflow/job/step `PYTHONWARNINGS` and `PYTEST_ADDOPTS`), safe diagnostics,
+  spellings, filter marks, warning-disable flags, plus inline/workflow/job/step `PYTHONWARNINGS` and
+  `PYTEST_ADDOPTS`), the exact-only QAT capture shape and retirement mutations, safe diagnostics,
   platform claims, advisory parity,
   Docker/CI ordering, notebook cleanliness, immutable history, Atlas non-diff, and rollback atomicity.
   Resolve each finding with a separate RED-GREEN commit and repeat review until zero findings remain.
@@ -5872,7 +6428,8 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
 - [x] **Spec coverage map:** 12.21.2-12.21.4 map to Task 1; 12.21.5 maps to Task 2 and
   Task 7; 12.21.6 maps to Task 2, the independently reviewed Task 2.1, Task 3 consumer/AST
   enforcement, Task 4 CI mutation enforcement, Task 6 operational documentation, and Task 7 fresh
-  evidence; 12.21.7-12.21.8 map to Task 3; 12.21.9 maps to Task 5; 12.21.10 maps to Task 4 and
+  evidence; 12.21.7 maps to Task 3; 12.21.8 maps to Task 3's exact QAT debt helper/capture,
+  Task 6 documentation, and Task 7 evidence; 12.21.9 maps to Task 5; 12.21.10 maps to Task 4 and
   Task 7; 12.21.11 maps to Tasks 3 and 7; 12.21.12 maps to Task 6; 12.21.13 maps to Global
   Constraints and Tasks 4/6/7; 12.21.14 is preserved as design rationale; 12.21.15 maps to Global
   Constraints and Tasks 6/7; 12.21.16 maps to Task 7.
@@ -5880,18 +6437,24 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
 - [x] **Type consistency:** `InstallStage`, `InstallCommand`, `StackPin`, `StackContract`,
   `StackEvidence`, `DistributionView`, `CanaryHooks`, `VerificationHooks`,
   `ImportWarningSpec`, `ImportWarningEvidence`, `ShellCommand`, `Tier`, `InventoryLoader`, and
-  `NotebookArtifact` have one spelling and one signature throughout. `ShellCommand` retains argv,
+  `NotebookArtifact` have one spelling and one signature throughout. `QAT_WARNING_DEBT_KEY`,
+  `QAT_WARNING_MESSAGE`, `QAT_WARNING_RECORD_PATH`, `_torchao_qat_warning_origin`, and
+  `_assert_qat_warning_debt` are test-local with one spelling and signature. `ShellCommand` retains argv,
   inline environment, and wrappers before warning analysis; `ImportWarningSpec.lineno` drives
   `warn_explicit`; fixtures vary it across 1, 73, and 10000 while the production predicate is
   source-guarded from reading it.
 - [x] **Dependency order:** Task 1 produces manifests/installer; Task 2 consumes manifests and
   produces the ten-component verifier; Task 2.1 reopens only verifier production/platform tests for
   the approved import boundary; Task 3 adds consumer/AST enforcement, consumes the reviewed boundary,
-  and commits seven preserved WIP paths; Task 4 consumes installer/verifier/oracle and kills CI
+  asserts the exact QAT debt, and commits seven preserved WIP paths; Task 4 consumes
+  installer/verifier/oracle and kills CI
   warning-ignore mutations; Task 5 consumes the clean final solve; Task 6 consumes
   implementation/audit/warning-debt truth; Task 7 consumes every tracked task.
 - [x] **Final-SHA order:** all tracked evidence and review corrections precede `FINAL_SHA`; final qualification writes only ignored/external evidence; any later tracked commit invalidates and restarts the full final run.
-- [x] **Boundary consistency:** current scope is pyg-lib/scatter/sparse, ten verifier components, three canaries, two supplement pins, four installer stages, stage-0 pip only, binary-only NNx last, Issue #65 Atlas ownership, Issue #66 quantization-notebook ownership, and no containerized Ollama.
+- [x] **Boundary consistency:** current scope is pyg-lib/scatter/sparse, ten verifier components,
+  three canaries, two supplement pins, four installer stages, stage-0 pip only, binary-only NNx
+  0.2.0 last, its bounded 8da4w QAT debt, Issue #65 Atlas ownership, Issue #66 permanent QAT
+  migration/quantization-notebook ownership, and no containerized Ollama.
 - [x] **Warning-boundary exactness:** immutable literal debt keys are Torch 2.11.0 with
   torch-geometric 2.8.0.post1 or torch-sparse 0.6.18, independent of manifest expectations. Zero
   captured warnings is normal production success; any nonempty group requires every record's exact
@@ -5899,7 +6462,12 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   to the sole selected-Torch-owned `torch/jit/_script.py` `PackagePath`. Wrong component/version,
   subclass/category, prefix/punctuation, basename/suffix outsider, mixed/extra group, broad wrapper,
   origin omission, inventory failure, foreign local/public versions, and CLI leakage mutations all
-  have named tests. Count and line number remain unpinned.
+  have named tests. Count and line number remain unpinned. Separately, the QAT key is exactly Torch
+  2.11.0 + torchao 0.18.0 + thekaveh-nnx 0.2.0 + `8da4w`; only `model.train` is captured, and
+  exactly one identity-`UserWarning` must match the complete message and sole selected-torchao-owned
+  `torchao/quantization/quant_primitives.py` entry. Zero/multiple/mixed, tuple, category/subclass,
+  message/punctuation, basename/suffix, inventory/ownership, and capture-broadening mutations have
+  named tests.
 - [x] **Warning-gate preservation:** no production module-cache eviction exists; selected zero-warning
   imports are cache/order safe; scatter, sparse, sampler, NNx, consumer, CLI outer capture, focused
   JUnit, and CI remain strict. Task 4 parses every separated/joined `-W` option, both
@@ -5909,13 +6477,15 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   ignore/default/once/module/always/category-qualified actions, both accepted `-p no:warnings`
   spellings in actual argv or any `PYTEST_ADDOPTS` surface, and warning-disable flags while the
   original `-W error` remains. No global, pytest, environment, conftest, canary, sampler, NNx, or
-  consumer filter is authorized.
+  consumer filter is authorized. The QAT test's local `always` capture is an assertion boundary,
+  not a Task 4/Task 7 command or environment allowance.
 - [x] **D10 executability:** every referenced parser/comparator is defined in the plan or already exists in `scripts/verify_repo.py`; current/historical slicing, complete CommonMark type-1/type-6 raw-HTML masking including `hgroup`, Result/summary/advisory validation, policy coupling, and ten-input hashes map failures to named `Finding` IDs.
 - [x] **Audit cardinality:** `AUDIT_SURFACES` generates six physical commands and merges them into four logical observations; only both supplements and documentation use `--disable-pip`, only supplements use `--no-deps`, and all six require exit 0/1 plus valid nonempty JSON.
 - [x] **Zero-skip and output gates:** focused, CI, prequalification, and final NNx runs use
-  warnings-as-errors plus parsed JUnit totals; the only local `always` capture is the exact selected
-  import wrapper and its fresh-interpreter probe; Tier A/B/C use recursive exact output sets with 18
-  nested, 6 basename, and 4 basename artifacts and no zero-code notebook.
+  warnings-as-errors plus parsed JUnit totals; local `always` captures are exactly the selected
+  import wrapper/fresh-interpreter probe and the QAT test's `model.train` assertion; Tier A/B/C use
+  recursive exact output sets with 18 nested, 6 basename, and 4 basename artifacts and no zero-code
+  notebook.
 - [x] **Immutable identities:** feature HEAD, feature PR synthetic merge, develop merge, release PR synthetic merge, release merge, final post-sync develop SHA, and optional sync PR synthetic/actual merge SHAs are recorded separately; dispatch evidence is tied to the feature SHA, PR evidence to synthetic merge SHAs, final push evidence to the exact final develop SHA, and tree equality prevents content drift.
 - [x] **Current-doc bounds:** Task 6 uses the real `4.1.6` heading, replaces complete same-level dependency sections 6.1.2 and 6.1.11 plus the stale manifest-owned graph release paragraph, places generated-row tokens directly in both source specs, regenerates once, and stages/tests/parity-checks both specs, the generated canonical page, and `docs/notebooks/node_classification-reddit-gnn-pyg.md`.
 - [x] **External evidence schema:** report schema 5 uses the exact ten distribution metadata names
@@ -5931,11 +6501,13 @@ graph/quantization edits, or stage anything until the focused clean gate is gree
   exact local versions, WHEEL ABI/platform, RECORD/import ownership, and CPU/NVIDIA truth before a
   fresh interpreter with neither PyG module preloaded may observe a positive exact torch-geometric
   group. Thus a matching public version with a foreign local build cannot falsely qualify or retire
-  debt. Task 3 reuses exactly that `FOCUS_ROOT` and `TASK21_SHA`, reasserts provenance, repeats the
-  separate full verifier and fresh positive probe, and only then runs both real sampler paths,
-  focused `-W error` JUnit, graph, and quantization gates. A broken handoff returns to Task 2.1 and
+  debt. Task 3 reuses exactly that `FOCUS_ROOT` and `TASK21_SHA`, proves `TASK3_BASE_SHA` differs only
+  by the two approved debt-document commits, reasserts provenance, repeats the separate full verifier
+  and fresh positive probe, and only then runs both real sampler paths, the exact one-record QAT
+  assertion, focused `-W error` JUnit, graph, and quantization gates. A broken handoff returns to Task 2.1 and
   permits only a fully requalified r5; a zero group triggers removal of the debt machinery, never
-  acceptance from a cached import. Task 3 then finishes smoke tools and its exact commit.
+  acceptance from a cached import. A zero QAT warning or tuple drift likewise triggers removal of
+  the QAT debt helper before qualification. Task 3 then finishes smoke tools and its exact commit.
 - [x] **Remote-state freshness:** all open PRs are inventoried without touching unrelated tuples; release ownership on shared `develop -> main` requires the exact Issue-62 title identity plus bounded one-paragraph body/reference constraints, and ambiguous/broader candidates fail for manual review rather than close. Feature/release reuse still requires exact title/body/SHA, label, and successful Tier B. A needed `main -> develop` sync inventories first, reuses only exact current copy/SHA with successful required checks, closes only stale dedicated sync candidates, fails on ambiguity/collision, and never blindly creates. Dispatch and Pages runs remain new after snapshotted UTC/ID boundaries and complete within bounded polls; a separate 720-by-10-second exact-SHA poll requires successful final-develop `CI`, mechanically exceeds the 90-minute Tier A timeout by 30 minutes of queue headroom, and the final noncompleted-run audit includes final-develop plus optional sync identities with a queued-run blocking mutation.
 - [x] **Completion ordering:** Pages/report evidence is persisted in the primary ignored root, successful final-develop runs are proved, then validated cleanup, zero scoped PRs/runs, main/develop synchronization, clean status, and deleted temporary evidence roots are proved before any completion comment or project mutation. Only afterward does the plan publish the report, prove Issue #53 open before/after its completion comment, set and re-query Issue #62 as project Done, and run `gh issue close 62` as the final command.
 - [x] **Staging safety:** historical Task 1/2 ownership excludes the original five preserved paths;

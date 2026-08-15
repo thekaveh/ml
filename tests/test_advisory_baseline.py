@@ -639,7 +639,10 @@ def _audit_runner(
             output = Path(command[command.index("--output") + 1])
             audit_payload = _payload() if payload is None else payload
             if "pyg-extension-audit-requirements.txt" in command:
-                audit_payload = _payload()
+                audit_payload = _payload(
+                    _dependency("torch-scatter", "2.1.2"),
+                    _dependency("torch-sparse", "0.6.18"),
+                )
             output.write_text(
                 raw_output if raw_output is not None else json.dumps(audit_payload),
                 encoding="utf-8",
@@ -903,10 +906,80 @@ def test_audit_merges_nonempty_pyg_extension_supplements_into_logical_surfaces(t
     )
 
 
+@pytest.mark.parametrize(
+    ("target_output", "surface"),
+    (
+        ("combined-runtime-pyg-extensions.json", "combined-runtime"),
+        ("torch-pyg-extensions.json", "torch"),
+    ),
+)
+@pytest.mark.parametrize(
+    ("case", "dependencies"),
+    (
+        ("empty", ()),
+        ("missing-scatter", (("torch-sparse", "0.6.18"),)),
+        ("missing-sparse", (("torch-scatter", "2.1.2"),)),
+        (
+            "extra-package",
+            (
+                ("rogue-package", "1.0.0"),
+                ("torch-scatter", "2.1.2"),
+                ("torch-sparse", "0.6.18"),
+            ),
+        ),
+        (
+            "scatter-version-drift",
+            (("torch-scatter", "2.1.3"), ("torch-sparse", "0.6.18")),
+        ),
+        (
+            "sparse-version-drift",
+            (("torch-scatter", "2.1.2"), ("torch-sparse", "0.6.19")),
+        ),
+    ),
+)
+def test_audit_rejects_noncanonical_pyg_extension_supplement_identity(
+    tmp_path: Path,
+    target_output: str,
+    surface: str,
+    case: str,
+    dependencies: tuple[tuple[str, str], ...],
+) -> None:
+    del case
+    expected = (("torch-scatter", "2.1.2"), ("torch-sparse", "0.6.18"))
+    assert dependencies != expected
+    target_calls = 0
+
+    def runner(command: list[str], **kwargs: object) -> SimpleNamespace:
+        nonlocal target_calls
+        output = Path(command[command.index("--output") + 1])
+        selected = dependencies if output.name == target_output else expected
+        payload = (
+            _payload(*(_dependency(package, version) for package, version in selected))
+            if "pyg-extension-audit-requirements.txt" in command
+            else _payload()
+        )
+        output.write_text(json.dumps(payload), encoding="utf-8")
+        if output.name == target_output:
+            target_calls += 1
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    with pytest.raises(AuditSurfaceError, match=rf"{surface}: invalid-schema"):
+        run_audit_surfaces(tmp_path, runner=runner)
+
+    assert target_calls == 1
+
+
 def test_audit_rejects_overlapping_resolver_and_supplement_packages(tmp_path: Path) -> None:
     def runner(command: list[str], **kwargs: object) -> SimpleNamespace:
         output = Path(command[command.index("--output") + 1])
-        payload = _payload(_dependency("torch-scatter", "2.1.2", "CVE-2099-0001"))
+        payload = (
+            _payload(
+                _dependency("torch-scatter", "2.1.2"),
+                _dependency("torch-sparse", "0.6.18"),
+            )
+            if "pyg-extension-audit-requirements.txt" in command
+            else _payload(_dependency("torch-scatter", "2.1.2", "CVE-2099-0001"))
+        )
         output.write_text(json.dumps(payload), encoding="utf-8")
         return SimpleNamespace(returncode=1, stdout="", stderr="")
 
@@ -987,7 +1060,20 @@ def test_audit_exit_zero_and_one_are_completed_observations(tmp_path: Path, retu
     observations = run_audit_surfaces(tmp_path, runner=runner)
 
     assert len(observations) == 4
-    assert all(observation.resolved_versions == (("torch", "2.4.1"),) for observation in observations)
+    assert observations[0].resolved_versions == (
+        ("torch", "2.4.1"),
+        ("torch-scatter", "2.1.2"),
+        ("torch-sparse", "0.6.18"),
+    )
+    assert observations[1].resolved_versions == (
+        ("torch", "2.4.1"),
+        ("torch-scatter", "2.1.2"),
+        ("torch-sparse", "0.6.18"),
+    )
+    assert all(
+        observation.resolved_versions == (("torch", "2.4.1"),)
+        for observation in observations[2:]
+    )
 
 
 @pytest.mark.parametrize(
@@ -1072,7 +1158,15 @@ def test_cli_reports_every_audit_failure_with_only_fixed_safe_output(
         elif index == failure_index and failure == "invalid-schema":
             output.write_text("[]", encoding="utf-8")
         else:
-            output.write_text(json.dumps(_payload()), encoding="utf-8")
+            payload = (
+                _payload(
+                    _dependency("torch-scatter", "2.1.2"),
+                    _dependency("torch-sparse", "0.6.18"),
+                )
+                if "pyg-extension-audit-requirements.txt" in command
+                else _payload()
+            )
+            output.write_text(json.dumps(payload), encoding="utf-8")
         return SimpleNamespace(
             returncode=2 if index == failure_index and failure == "unexpected-exit" else 1,
             stdout=unsafe,

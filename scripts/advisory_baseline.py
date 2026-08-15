@@ -35,6 +35,10 @@ PYG_EXTENSION_AUDIT_LINES = (
     "torch-scatter==2.1.2",
     "torch-sparse==0.6.18",
 )
+PYG_EXTENSION_AUDIT_VERSIONS = (
+    ("torch-scatter", "2.1.2"),
+    ("torch-sparse", "0.6.18"),
+)
 SURFACE_ORDER = (
     "combined-runtime",
     "torch",
@@ -474,6 +478,11 @@ def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tupl
                 observation = normalize_pip_audit(surface.name, payload)
             except AdvisoryBaselineError as error:
                 raise AuditSurfaceError(surface.name, "invalid-schema") from error
+            if (
+                surface.requirements == (PYG_EXTENSION_AUDIT_REQUIREMENTS,)
+                and observation.resolved_versions != PYG_EXTENSION_AUDIT_VERSIONS
+            ):
+                raise AuditSurfaceError(surface.name, "invalid-schema")
             prior = observations.get(surface.name)
             if prior is None:
                 observations[surface.name] = observation

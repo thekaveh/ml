@@ -1809,6 +1809,29 @@ def test_docs_d10_dependency_advisory_baseline_flags_unknown_current_surface(tmp
     assert _d10_advisory_baseline_findings(repo)
 
 
+def test_docs_d10_dependency_advisory_baseline_flags_noncanonical_surface_order(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    section = _issue62_section(ledger.read_text(encoding="utf-8"))
+    canonical_count = section.count("Combined runtime; Torch")
+    assert canonical_count > 0
+
+    _replace_issue62_section(
+        repo,
+        lambda current: current.replace(
+            "Combined runtime; Torch",
+            "Torch; Combined runtime",
+        ),
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert "malformed" in hits[0].message
+    assert _issue62_section(ledger.read_text(encoding="utf-8")).count(
+        "Torch; Combined runtime"
+    ) == canonical_count
+
+
 @pytest.mark.parametrize("surface", ["Combined runtime; Combined runtime", "Combined runtime; "])
 def test_docs_d10_dependency_advisory_baseline_flags_duplicate_or_empty_current_surface(tmp_path, surface):
     repo = _advisory_baseline_repo(tmp_path)

@@ -1182,7 +1182,10 @@ def _markdown_advisory_surfaces(value: str, *, canonical_order: tuple[str, ...])
         raise ValueError(f"unknown advisory surface label: {error.args[0]}") from error
     if len(set(surfaces)) != len(surfaces):
         raise ValueError("advisory surface labels must be unique")
-    return tuple(surface for surface in canonical_order if surface in surfaces)
+    ordered_surfaces = tuple(surface for surface in canonical_order if surface in surfaces)
+    if surfaces != ordered_surfaces:
+        raise ValueError("advisory surface labels must use canonical order")
+    return surfaces
 
 
 def _format_advisory_identity(

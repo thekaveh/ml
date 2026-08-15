@@ -4,6 +4,7 @@ import ast
 import dataclasses
 import importlib.util
 import re
+import shlex
 import sys
 import traceback
 import warnings
@@ -1800,7 +1801,11 @@ def _assert_cli_warning_actions_are_error(source: str) -> None:
     )
     for match in warning_option.finditer(source):
         action = next(value for value in match.groupdict().values() if value is not None)
-        assert action == "error"
+        try:
+            shell_words = shlex.split(action)
+        except ValueError as error:
+            raise AssertionError("malformed CLI warning action") from error
+        assert shell_words == ["error"]
 
 
 def _assert_no_warning_policy_bypass(sources: dict[str, str]) -> None:
@@ -1964,12 +1969,43 @@ def test_warning_policy_rejects_non_error_cli_actions(option: str) -> None:
 
 @pytest.mark.parametrize(
     "option",
-    ("-W error", "-Werror", "--pythonwarnings error", "--pythonwarnings=error"),
+    (
+        "-W error",
+        "-Werror",
+        "--pythonwarnings error",
+        "--pythonwarnings=error",
+        '-W "error"',
+        "-W 'error'",
+        '-W"error"',
+        "-W'error'",
+        '--pythonwarnings "error"',
+        "--pythonwarnings 'error'",
+        '--pythonwarnings="error"',
+        "--pythonwarnings='error'",
+    ),
 )
 def test_warning_policy_accepts_exact_error_cli_actions(option: str) -> None:
     sources = _warning_policy_sources()
     sources["ci"] += f"\n      run: pytest {option}\n"
     _assert_no_warning_policy_bypass(sources)
+
+
+@pytest.mark.parametrize(
+    "option",
+    (
+        '-W "default"',
+        "-W'once'",
+        '--pythonwarnings "module"',
+        "--pythonwarnings='always'",
+        '-W "error::DeprecationWarning"',
+        "--pythonwarnings='error:::torchao'",
+    ),
+)
+def test_warning_policy_rejects_quoted_non_exact_cli_actions(option: str) -> None:
+    sources = _warning_policy_sources()
+    sources["ci"] += f"\n      run: pytest {option}\n"
+    with pytest.raises(AssertionError):
+        _assert_no_warning_policy_bypass(sources)
 
 
 @pytest.mark.parametrize("action", ("default", "once", "module", "always"))

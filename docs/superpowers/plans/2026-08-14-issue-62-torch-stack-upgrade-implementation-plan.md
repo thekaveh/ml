@@ -1829,7 +1829,8 @@ change, clean path, extra scoped status, or hash drift stops Task 2.1.
   amendments may advance HEAD only through commits `docs: define Issue 62 QAT warning debt` and
   `docs: plan Issue 62 QAT warning debt`; they do not alter the selected environment or runtime
   implementation. The review correction `docs: close Issue 62 QAT plan gaps` may then change only
-  the plan. Task 3 Step 6 proves that exact three-commit/two-document descendant before reuse.
+  the plan, followed by `docs: make Issue 62 QAT plan resumable`, also plan-only. Task 3 Step 6
+  proves that exact four-commit/two-document descendant before reuse.
 
 ---
 
@@ -1859,7 +1860,7 @@ change, clean path, extra scoped status, or hash drift stops Task 2.1.
 **Resume brief after Task 2.1:** First complete Step 1's consumer/AST additions and Steps 4.1-4.2's
 QAT debt RED/GREEN cycle without changing the already proved production/platform boundary. Preserve
 and reuse exactly the Task 2.1-selected `FOCUS_ROOT` (r4 or r5) and reviewed `TASK21_SHA`. Record
-`TASK3_BASE_SHA` only after the three approved debt-document commits; Step 6 proves that the exact diff
+`TASK3_BASE_SHA` only after the four approved debt-document commits; Step 6 proves that the exact diff
 from `TASK21_SHA` contains only the design and plan and then reasserts interpreter prefix, platform,
 current HEAD, complete stack provenance, separate fresh positive import probe, exact QAT warning
 debt, focused command, and JUnit parser. Never recreate/reinstall r4 from Task 2 HEAD. If the handoff
@@ -1916,20 +1917,36 @@ graph edits, or stage anything until the focused clean gate is green.
               "    qat_warning_evidence = _assert_qat_warning_debt(caught, qat_config=qat_config)\n",
               "",
           ),
-          (
-              "    callback = nnx.QATLifecycleCallback(qat_config=qat_config)\n",
-              "        callback = nnx.QATLifecycleCallback(qat_config=qat_config)\n",
-          ),
-          (
-              "    logits, classes = model.predict(X=X)\n",
-              "        logits, classes = model.predict(X=X)\n",
-          ),
       ),
   )
   def test_qat_warning_capture_contract_rejects_shape_mutations(old, new):
       mutated = CLEAN_QAT_CAPTURE_SOURCE.replace(old, new, 1)
       assert mutated != CLEAN_QAT_CAPTURE_SOURCE
-      with pytest.raises((AssertionError, IndentationError)):
+      with pytest.raises(AssertionError):
+          _assert_qat_warning_capture_is_exact(mutated)
+
+
+  @pytest.mark.parametrize(
+      "line",
+      (
+          "    callback = nnx.QATLifecycleCallback(qat_config=qat_config)\n",
+          "    logits, classes = model.predict(X=X)\n",
+      ),
+      ids=("callback-inside-capture", "predict-inside-capture"),
+  )
+  def test_qat_warning_capture_contract_rejects_syntactic_broadening(line):
+      capture_anchor = '        warnings.simplefilter("always")\n'
+      assert CLEAN_QAT_CAPTURE_SOURCE.count(line) == 1
+      assert CLEAN_QAT_CAPTURE_SOURCE.count(capture_anchor) == 1
+      without_original = CLEAN_QAT_CAPTURE_SOURCE.replace(line, "", 1)
+      mutated = without_original.replace(
+          capture_anchor,
+          capture_anchor + "        " + line.lstrip(),
+          1,
+      )
+      assert mutated != CLEAN_QAT_CAPTURE_SOURCE
+      ast.parse(mutated)
+      with pytest.raises(AssertionError):
           _assert_qat_warning_capture_is_exact(mutated)
 
 
@@ -2233,14 +2250,39 @@ graph edits, or stage anything until the focused clean gate is green.
 
 - [ ] **Step 4.1: Capture the exact QAT warning-debt RED and write validator RED tests**
 
-  Before changing the quantization test, reproduce the real selected-wheel failure in the retained
-  r4 environment. Do not filter, suppress, monkeypatch, reinstall, or bypass NNx:
+  The exact r4 failure at `/private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6` is retained only as the
+  historical diagnosis from Task 2.1; do not assign a separate RED root or assume that historical
+  path is the live handoff. Before changing the quantization test, consume the unchanged Task 2.1
+  handoff, accept only that exact r4 or a fully requalified r5, and revalidate its SHA, interpreter
+  prefix, platform, dependency consistency, and complete verifier provenance. Do not overwrite
+  `FOCUS_ROOT` or `TASK21_SHA`, filter, suppress, monkeypatch, reinstall, or bypass NNx:
 
   ```bash
-  RED_R4_ROOT=/private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6
-  test -x "$RED_R4_ROOT/venv/bin/python"
-  env PATH="$RED_R4_ROOT/venv/bin:$PATH" \
-    "$RED_R4_ROOT/venv/bin/pytest" -p no:cacheprovider -W error -vv --tb=long \
+  : "${FOCUS_ROOT:?Task 2.1 must export FOCUS_ROOT}"
+  : "${TASK21_SHA:?Task 2.1 must export TASK21_SHA}"
+  test "$TASK21_SHA" = 9d8504b35fb25e9f26b244d841919209b3eba5e4
+  python - "$FOCUS_ROOT" <<'PY'
+  import re
+  import sys
+  from pathlib import Path
+
+  focus_root = Path(sys.argv[1])
+  assert focus_root.parent == Path("/private/tmp"), focus_root
+  assert (
+      focus_root.name == "ml-eng-lab-issue62-focus-r4.9gEHp6"
+      or re.fullmatch(r"ml-eng-lab-issue62-focus-r5\.[A-Za-z0-9]+", focus_root.name)
+  ), focus_root
+  PY
+  test -x "$FOCUS_ROOT/venv/bin/python"
+  export PATH="$FOCUS_ROOT/venv/bin:$PATH"
+  test "$(command -v python)" = "$FOCUS_ROOT/venv/bin/python"
+  test "$(python -c 'import sys; print(sys.prefix)')" = "$FOCUS_ROOT/venv"
+  test "$(python -c 'import platform; print(platform.system(), platform.machine())')" = "Darwin arm64"
+  test "$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = 3.11
+  python -m pip check
+  make verify-torch-stack
+  test "$TASK21_SHA" = 9d8504b35fb25e9f26b244d841919209b3eba5e4
+  pytest -p no:cacheprovider -W error -vv --tb=long \
     tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py::test_qat_prepare_train_convert_and_inference
   ```
 
@@ -2875,6 +2917,7 @@ graph edits, or stage anything until the focused clean gate is green.
       text=True,
   ).splitlines()
   assert subjects == [
+      "docs: make Issue 62 QAT plan resumable",
       "docs: close Issue 62 QAT plan gaps",
       "docs: plan Issue 62 QAT warning debt",
       "docs: define Issue 62 QAT warning debt",
@@ -6883,7 +6926,7 @@ graph edits, or stage anything until the focused clean gate is green.
   r4 basename or a fully requalified r5 basename under `/private/tmp`, requires the exact Task 2.1
   SHA and interpreter/prefix/platform/provenance gates, and rejects every other case. Task 3 proves
   `TASK3_BASE_SHA` differs only
-  by the three approved debt-document commits across the same two files, reasserts provenance, repeats the separate full verifier
+  by the four approved debt-document commits across the same two files, reasserts provenance, repeats the separate full verifier
   and fresh positive probe, and only then runs both real sampler paths, the exact one-record QAT
   assertion, focused `-W error` JUnit, graph, and quantization gates. A broken handoff returns to Task 2.1 and
   permits only a fully requalified r5; a zero group triggers removal of the debt machinery, never

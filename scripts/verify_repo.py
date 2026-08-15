@@ -495,6 +495,9 @@ def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
                 raw_html_block = None
             stripped.append(" " * len(line))
             continue
+        if line.startswith("    "):
+            stripped.append(" " * len(line))
+            continue
         line, in_comment, inline_marker = mask_html_comments(
             line, in_comment, inline_marker
         )
@@ -1038,10 +1041,54 @@ _ATLAS_INFRA_GITLINK_SHA_RE = re.compile(
     re.MULTILINE,
 )
 _DEPENDENCY_CURRENT_SNAPSHOT_RE = re.compile(
-    r"^###[ \t]+6[.]1[.]1[.]2[ \t]+Current[ \t]+accepted[ \t]+"
-    r"advisories[ \t]*\r?$"
-    r"(?P<body>.*?)(?=^#{2,3}[ \t]|\Z)",
+    r"^###[ \t]+6[.]1[.]1[.]2[ \t]+Current[ \t]+Issue[ \t]+#62[ \t]+"
+    r"four-surface[ \t]+audit[ \t]*\r?$"
+    r"(?P<body>.*?)(?=^#{1,3}[ \t]|\Z)",
     re.MULTILINE | re.DOTALL,
+)
+_DEPENDENCY_HASH_HEADER = "| Input | SHA-256 |"
+_DEPENDENCY_HASH_SEPARATOR = "| --- | --- |"
+_DEPENDENCY_HASH_ROW_RE = re.compile(
+    r"\| `(?P<path>[^`]+)` \| `(?P<sha256>[0-9a-f]{64})` \|"
+)
+_DEPENDENCY_HASH_INPUTS = (
+    "vulnerability-audit-requirements.txt",
+    "requirements.txt",
+    "torch-core-requirements.txt",
+    "torch-ecosystem-requirements.txt",
+    "torch-requirements.txt",
+    "torch-audit-requirements.txt",
+    "pyg-extension-audit-requirements.txt",
+    "docs-requirements.txt",
+    "atlas-contract-requirements.txt",
+    "security/accepted-advisories.json",
+)
+_DEPENDENCY_HTML_TYPE1_TAGS = ("pre", "script", "style", "textarea")
+_DEPENDENCY_HTML_TYPE6_TAGS = (
+    "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption",
+    "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt",
+    "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2",
+    "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html", "iframe", "legend", "li",
+    "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p",
+    "param", "search", "section", "source", "summary", "table", "tbody", "td", "tfoot", "th", "thead",
+    "title", "tr", "track", "ul",
+)
+_DEPENDENCY_HTML_TYPE1_OPEN_RE = re.compile(
+    rf"^ {{0,3}}<(?P<tag>{'|'.join(_DEPENDENCY_HTML_TYPE1_TAGS)})(?:[ \t]|>|$)",
+    re.IGNORECASE,
+)
+_DEPENDENCY_HTML_TYPE6_OPEN_RE = re.compile(
+    rf"^ {{0,3}}</?(?P<tag>{'|'.join(_DEPENDENCY_HTML_TYPE6_TAGS)})(?:[ \t]|/?>|$)",
+    re.IGNORECASE,
+)
+_DEPENDENCY_PYG_SUPPLEMENT_CONTRACT = (
+    "The pre-resolved `pyg-extension-audit-requirements.txt` supplement contains exactly "
+    "`torch-scatter==2.1.2` and `torch-sparse==0.6.18`; it contains neither "
+    "`torch-cluster` nor `torch-spline-conv`."
+)
+_DEPENDENCY_PYG_LIB_LIMITATION = (
+    "pyg-lib is an exact external-index wheel outside ordinary PyPI audit coverage; "
+    "its version and provenance are verified by `verify_torch_stack`."
 )
 _DEPENDENCY_SUMMARY_HEADER = (
     "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | "
@@ -1076,6 +1123,35 @@ _MARKDOWN_ADVISORY_SURFACES = {
     "Documentation": "documentation",
     "Atlas contract": "atlas-contract",
 }
+
+
+def _masked_markdown_line(line: str) -> str:
+    return "".join("\r" if char == "\r" else "\n" if char == "\n" else " " for char in line)
+
+
+def _mask_dependency_raw_html(text: str) -> str:
+    masked: list[str] = []
+    type1_tag: str | None = None
+    in_type6 = False
+    for line in text.splitlines(keepends=True):
+        if type1_tag is None and not in_type6:
+            type1 = _DEPENDENCY_HTML_TYPE1_OPEN_RE.match(line)
+            type6 = _DEPENDENCY_HTML_TYPE6_OPEN_RE.match(line)
+            if type1 is not None:
+                type1_tag = type1["tag"].lower()
+            elif type6 is not None:
+                in_type6 = True
+            else:
+                masked.append(line)
+                continue
+        masked.append(_masked_markdown_line(line))
+        if type1_tag is not None and re.search(
+            rf"</{re.escape(type1_tag)}[ \t]*>", line, re.IGNORECASE,
+        ):
+            type1_tag = None
+        elif in_type6 and not line.strip():
+            in_type6 = False
+    return "".join(masked)
 
 
 def _dependency_table_rows(
@@ -1215,6 +1291,74 @@ def _dependency_advisory_baseline_findings(
     return findings
 
 
+def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
+    location = "docs/dependency-contracts.md"
+    lines = _dependency_table_rows(
+        body,
+        header=_DEPENDENCY_HASH_HEADER,
+        separator=_DEPENDENCY_HASH_SEPARATOR,
+    )
+    if lines is None:
+        return [Finding(
+            id="D10.dependency_input_hash",
+            check="docs",
+            severity="error",
+            location=location,
+            message="current Issue #62 input-hash table is missing or malformed",
+        )]
+    rows = [_DEPENDENCY_HASH_ROW_RE.fullmatch(line) for line in lines]
+    if not all(rows):
+        return [Finding(
+            id="D10.dependency_input_hash",
+            check="docs",
+            severity="error",
+            location=location,
+            message="current Issue #62 input-hash row is malformed",
+        )]
+    parsed = [(row["path"], row["sha256"]) for row in rows if row is not None]
+    names = [name for name, _ in parsed]
+    if len(names) != len(set(names)):
+        return [Finding(
+            id="D10.dependency_input_hash",
+            check="docs",
+            severity="error",
+            location=location,
+            message="current Issue #62 input-hash table has duplicate paths",
+        )]
+    if tuple(names) != _DEPENDENCY_HASH_INPUTS:
+        return [Finding(
+            id="D10.dependency_input_hash",
+            check="docs",
+            severity="error",
+            location=location,
+            message="current Issue #62 input-hash paths or order drifted",
+            detail={"expected": list(_DEPENDENCY_HASH_INPUTS), "actual": names},
+        )]
+    findings: list[Finding] = []
+    for relative_path, recorded in parsed:
+        source = repo / relative_path
+        if not source.is_file():
+            findings.append(Finding(
+                id="D10.dependency_input_hash",
+                check="docs",
+                severity="error",
+                location=relative_path,
+                message="current Issue #62 hashed input is missing",
+            ))
+            continue
+        actual = hashlib.sha256(source.read_bytes()).hexdigest()
+        if actual != recorded:
+            findings.append(Finding(
+                id="D10.dependency_input_hash",
+                check="docs",
+                severity="error",
+                location=relative_path,
+                message="current Issue #62 recorded input hash is stale",
+                detail={"expected": recorded, "actual": actual},
+            ))
+    return findings
+
+
 def _dependency_ledger_findings(repo: Path) -> list[Finding]:
     path = repo / "docs" / "dependency-contracts.md"
     infra_exists = (repo / "infra").exists()
@@ -1240,7 +1384,9 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
         )]
     text = _read_text(path)
     findings: list[Finding] = []
-    published_text = _strip_markdown_code(text, strip_inline=False)
+    published_text = _mask_dependency_raw_html(
+        _strip_markdown_code(text, strip_inline=False)
+    )
     snapshot_matches = list(_DEPENDENCY_CURRENT_SNAPSHOT_RE.finditer(published_text))
     if not snapshot_matches:
         findings.append(Finding(
@@ -1283,6 +1429,32 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
             separator=_DEPENDENCY_ADVISORY_SEPARATOR,
         )
         findings.extend(_dependency_advisory_baseline_findings(repo, advisory_lines))
+        findings.extend(_dependency_input_hash_findings(repo, body))
+        normalized_body = " ".join(body.split())
+        if "zero vulnerabilities" in body:
+            findings.append(Finding(
+                id="D10.dependency_ledger_contract",
+                check="docs",
+                severity="error",
+                location="docs/dependency-contracts.md",
+                message="current Issue #62 audit must not claim zero vulnerabilities",
+            ))
+        if _DEPENDENCY_PYG_SUPPLEMENT_CONTRACT not in normalized_body:
+            findings.append(Finding(
+                id="D10.dependency_ledger_contract",
+                check="docs",
+                severity="error",
+                location="docs/dependency-contracts.md",
+                message="current Issue #62 PyG supplement contract is missing or stale",
+            ))
+        if _DEPENDENCY_PYG_LIB_LIMITATION not in normalized_body:
+            findings.append(Finding(
+                id="D10.dependency_pyg_lib_limitation",
+                check="docs",
+                severity="error",
+                location="docs/dependency-contracts.md",
+                message="current Issue #62 pyg-lib external-index audit limitation is missing",
+            ))
         package_rows = (
             [_DEPENDENCY_SUMMARY_ROW_RE.fullmatch(line) for line in summary_lines]
             if summary_lines

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import builtins
 import copy
 import os
@@ -1315,6 +1316,284 @@ def _write_canonical_baseline(repo: Path, document: dict) -> None:
     )
 
 
+_ISSUE62_LEDGER_MARKER = "### 6.1.1.2 Current Issue #62 four-surface audit"
+
+
+def _issue62_ledger_repo(tmp_path: Path) -> Path:
+    repo = _advisory_baseline_repo(tmp_path)
+    module = _load_verify_module()
+    for relative in module._DEPENDENCY_HASH_INPUTS:
+        source = REPO / relative
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+    return repo
+
+
+def _d10_ids(repo: Path) -> set[str]:
+    return {
+        finding.id
+        for finding in _load_verify_module()._dependency_ledger_findings(repo)
+        if finding.id.startswith("D10.dependency_")
+    }
+
+
+def _issue62_section(text: str) -> str:
+    start = text.index(_ISSUE62_LEDGER_MARKER)
+    following = re.search(r"^#{1,3}[ \t]", text[start + len(_ISSUE62_LEDGER_MARKER):], re.MULTILINE)
+    end = (
+        start + len(_ISSUE62_LEDGER_MARKER) + following.start()
+        if following is not None
+        else len(text)
+    )
+    return text[start:end]
+
+
+def _replace_issue62_section(repo: Path, mutate) -> None:
+    ledger = repo / "docs/dependency-contracts.md"
+    original = ledger.read_text(encoding="utf-8")
+    section = _issue62_section(original)
+    replacement = mutate(section)
+    assert replacement != section
+    ledger.write_text(original.replace(section, replacement, 1), encoding="utf-8")
+
+
+def test_dependency_ledger_rejects_missing_or_duplicate_current_issue62_section(tmp_path):
+    repo = _issue62_ledger_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    original = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        original.replace(_ISSUE62_LEDGER_MARKER, "### 6.1.1.2 Archived audit", 1),
+        encoding="utf-8",
+    )
+    assert "D10.dependency_ledger_count" in _d10_ids(repo)
+    ledger.write_text(original + "\n" + _issue62_section(original), encoding="utf-8")
+    assert "D10.dependency_ledger_count" in _d10_ids(repo)
+
+
+@pytest.mark.parametrize(
+    ("needle", "replacement"),
+    (
+        (
+            "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n",
+            "",
+        ),
+        (
+            "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |",
+            "| Broken summary header |",
+        ),
+        ("| --- | --- | ---: | ---: | --- |", "| --- |"),
+        ("Result: ", "Result malformed: "),
+    ),
+)
+def test_dependency_ledger_rejects_malformed_result_summary_and_advisory_tables(
+    tmp_path, needle, replacement,
+):
+    repo = _issue62_ledger_repo(tmp_path)
+    _replace_issue62_section(repo, lambda section: section.replace(needle, replacement, 1))
+    assert "D10.dependency_ledger_count" in _d10_ids(repo)
+
+
+def test_dependency_ledger_ignores_complete_historical_audit_tables(tmp_path):
+    repo = _issue62_ledger_repo(tmp_path)
+    assert _d10_ids(repo) == set()
+    ledger = repo / "docs/dependency-contracts.md"
+    original = ledger.read_text(encoding="utf-8")
+    historical = _issue62_section(original).replace(
+        _ISSUE62_LEDGER_MARKER,
+        "### 6.1.13.1 Archived Issue #61 audit",
+        1,
+    )
+    ledger.write_text(original + "\n## 6.1.13 Archive\n\n" + historical, encoding="utf-8")
+    assert _d10_ids(repo) == set()
+
+
+def test_dependency_ledger_rejects_missing_duplicate_reordered_and_stale_input_hashes(tmp_path):
+    repo = _issue62_ledger_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    original = ledger.read_text(encoding="utf-8")
+    section = _issue62_section(original)
+    digest = hashlib.sha256((repo / "requirements.txt").read_bytes()).hexdigest()
+    row = f"| `requirements.txt` | `{digest}` |"
+    assert row in section
+    next_row = next(
+        line for line in section.splitlines()
+        if line.startswith("| `torch-core-requirements.txt`")
+    )
+    mutations = (
+        section.replace(row + "\n", "", 1),
+        section.replace(row, row + "\n" + row, 1),
+        section.replace(row + "\n" + next_row, next_row + "\n" + row, 1),
+        section.replace(row, f"| `requirements.txt` | `{'0' * 64}` |", 1),
+    )
+    for mutated in mutations:
+        ledger.write_text(original.replace(section, mutated, 1), encoding="utf-8")
+        assert "D10.dependency_input_hash" in _d10_ids(repo)
+
+
+@pytest.mark.parametrize("target", ("markdown", "json"))
+@pytest.mark.parametrize("field", ("package", "advisory_id", "accepted_version", "surfaces"))
+def test_dependency_ledger_couples_advisory_identity_version_and_surfaces_to_policy(
+    tmp_path, target, field,
+):
+    repo = _issue62_ledger_repo(tmp_path)
+    policy = repo / "security/accepted-advisories.json"
+    document = json.loads(policy.read_text(encoding="utf-8"))
+    item = document["accepted_advisories"][0]
+    replacements = {
+        "package": "different-package",
+        "advisory_id": "CVE-2099-0000",
+        "accepted_version": "0.0.0",
+        "surfaces": ["documentation"],
+    }
+    if target == "json":
+        item[field] = replacements[field]
+        _write_canonical_baseline(repo, document)
+    else:
+        def mutate_advisory_row(section: str) -> str:
+            row = next(
+                line for line in section.splitlines()
+                if line.startswith(f"| `{item['package']}` | `{item['advisory_id']}` |")
+            )
+            replacements_by_field = {
+                "package": row.replace(
+                    f"| `{item['package']}` |",
+                    f"| `{replacements['package']}` |",
+                    1,
+                ),
+                "advisory_id": row.replace(
+                    f"| `{item['advisory_id']}` |",
+                    f"| `{replacements['advisory_id']}` |",
+                    1,
+                ),
+                "accepted_version": row.replace(
+                    f"| `{item['accepted_version']}` |",
+                    f"| `{replacements['accepted_version']}` |",
+                    1,
+                ),
+                "surfaces": row.replace(
+                    "| Combined runtime; Torch |",
+                    "| Documentation |",
+                    1,
+                ),
+            }
+            return section.replace(row, replacements_by_field[field], 1)
+
+        _replace_issue62_section(repo, mutate_advisory_row)
+    assert "D10.dependency_advisory_baseline" in _d10_ids(repo)
+
+
+def test_dependency_ledger_rejects_advisory_only_package_and_count_drift(tmp_path):
+    repo = _issue62_ledger_repo(tmp_path)
+    extra = (
+        "| `advisory-only` | `CVE-2099-0001` | 1 | None listed | `1.0.0` | "
+        "None listed | Combined runtime |"
+    )
+    def add_advisory_only_row(section: str) -> str:
+        final_row = next(
+            line for line in section.splitlines()
+            if line.startswith("| `torch` | `PYSEC-2025-194` |")
+        )
+        return section.replace(final_row, f"{final_row}\n{extra}", 1)
+
+    _replace_issue62_section(repo, add_advisory_only_row)
+    assert "D10.dependency_ledger_count" in _d10_ids(repo)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda section: section.replace("known vulnerabilities", "known zero vulnerabilities", 1),
+        lambda section: section.replace("torch-scatter", "torch-cluster", 1),
+        lambda section: section.replace("torch-sparse", "torch-spline-conv", 1),
+    ),
+)
+def test_dependency_ledger_rejects_zero_vulnerability_and_legacy_extension_claims(
+    tmp_path, mutation,
+):
+    repo = _issue62_ledger_repo(tmp_path)
+    _replace_issue62_section(repo, mutation)
+    assert "D10.dependency_ledger_contract" in _d10_ids(repo)
+
+
+def test_dependency_ledger_requires_pyg_lib_external_index_limitation(tmp_path):
+    repo = _issue62_ledger_repo(tmp_path)
+    _replace_issue62_section(
+        repo,
+        lambda section: section.replace(
+            "pyg-lib is an exact external-index wheel outside ordinary PyPI audit coverage; "
+            "its version and provenance are verified by `verify_torch_stack`.",
+            "pyg-lib is fully covered by pip-audit.",
+            1,
+        ),
+    )
+    assert "D10.dependency_pyg_lib_limitation" in _d10_ids(repo)
+
+
+@pytest.mark.parametrize("tag", ("script", "pre", "style", "textarea"))
+@pytest.mark.parametrize("indent", ("", " ", "  ", "   "))
+def test_dependency_raw_html_type1_requires_matching_close(tag, indent):
+    module = _load_verify_module()
+    hidden = _ISSUE62_LEDGER_MARKER
+    visible = "### 6.1.1.3 Visible current audit"
+    source = f"{indent}<{tag}>\n{hidden}\n\n{hidden}\n</{tag}>\n{visible}\n"
+    masked = module._mask_dependency_raw_html(source)
+    assert hidden not in masked
+    assert masked.count(visible) == 1
+    assert masked.count("\n") == source.count("\n")
+
+
+_COMMONMARK_TYPE6_TAGS = (
+    "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption",
+    "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt",
+    "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2",
+    "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html", "iframe", "legend", "li",
+    "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p",
+    "param", "search", "section", "source", "summary", "table", "tbody", "td", "tfoot", "th", "thead",
+    "title", "tr", "track", "ul",
+)
+
+
+@pytest.mark.parametrize("tag", _COMMONMARK_TYPE6_TAGS)
+@pytest.mark.parametrize("indent", ("", "   "))
+def test_dependency_raw_html_type6_uses_blank_termination_without_swallowing_visible(tag, indent):
+    module = _load_verify_module()
+    hidden = _ISSUE62_LEDGER_MARKER
+    visible = "### 6.1.1.3 Visible current audit"
+    source = f"{indent}<{tag}>\n</{tag}>\n{hidden}\n\n{visible}\n"
+    masked = module._mask_dependency_raw_html(source)
+    assert hidden not in masked
+    assert visible in masked
+    assert masked.count("\n") == source.count("\n")
+
+
+@pytest.mark.parametrize("indent", ("", " ", "  ", "   "))
+def test_dependency_raw_html_hgroup_hides_decoy_but_visible_current_section_is_enforced(
+    tmp_path, indent,
+):
+    repo = _issue62_ledger_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    original = ledger.read_text(encoding="utf-8")
+    hidden_decoy = f"{indent}<hgroup>\n{_ISSUE62_LEDGER_MARKER}\n</hgroup>\n\n"
+    ledger.write_text(hidden_decoy + original, encoding="utf-8")
+    assert _d10_ids(repo) == set()
+    ledger.write_text(
+        hidden_decoy + original.replace(_ISSUE62_LEDGER_MARKER, "### 6.1.1.2 Removed visible audit", 1),
+        encoding="utf-8",
+    )
+    assert "D10.dependency_ledger_count" in _d10_ids(repo)
+
+
+def test_dependency_raw_html_four_spaces_remains_markdown_code_not_html():
+    module = _load_verify_module()
+    hidden = _ISSUE62_LEDGER_MARKER
+    source = f"    <div>\n    {hidden}\n\n{hidden}\n"
+    published = module._mask_dependency_raw_html(
+        module._strip_markdown_code(source, strip_inline=False)
+    )
+    assert published.count(hidden) == 1
+
+
 def test_docs_d10_dependency_advisory_baseline_matches_current_doc():
     r = run_verify("--check", "docs", "--fast")
     data = json.loads(r.stdout) if r.stdout else {"findings": []}
@@ -1431,7 +1710,7 @@ def test_docs_d10_dependency_advisory_baseline_flags_invalid_current_heading(
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     text = ledger.read_text(encoding="utf-8")
-    marker = "### 6.1.1.2 Current accepted advisories"
+    marker = _ISSUE62_LEDGER_MARKER
     if heading == "missing":
         text = text.replace(marker, "### 6.1.1.2 Historical advisories", 1)
     else:
@@ -1451,9 +1730,9 @@ def test_docs_d10_flags_baseline_advisory_id_drift_dependency_advisory_baseline(
 
     assert [finding.message for finding in _d10_advisory_baseline_findings(repo)] == [
         "accepted advisory baseline identity is missing from the current Markdown ledger: "
-        "pytorch-lightning 2.4.0 PYSEC-2099-1 on [combined-runtime, torch]",
+        "setuptools 81.0.0 PYSEC-2099-1 on [combined-runtime, torch]",
         "current Markdown ledger identity is missing from accepted advisory baseline JSON: "
-        "pytorch-lightning 2.4.0 PYSEC-2026-3043 on [combined-runtime, torch]",
+        "setuptools 81.0.0 PYSEC-2026-3447 on [combined-runtime, torch]",
     ]
 
 
@@ -1465,7 +1744,7 @@ def test_docs_d10_flags_baseline_package_drift_dependency_advisory_baseline(tmp_
 
     assert any(
         "accepted advisory baseline identity is missing from the current Markdown ledger: "
-        "lightning 2.4.0 PYSEC-2026-3043" in finding.message
+        "lightning 81.0.0 PYSEC-2026-3447" in finding.message
         for finding in _d10_advisory_baseline_findings(repo)
     )
 
@@ -1478,7 +1757,7 @@ def test_docs_d10_flags_baseline_accepted_version_drift_dependency_advisory_base
 
     assert any(
         "accepted advisory baseline identity is missing from the current Markdown ledger: "
-        "pytorch-lightning 9.9.9 PYSEC-2026-3043" in finding.message
+        "setuptools 9.9.9 PYSEC-2026-3447" in finding.message
         for finding in _d10_advisory_baseline_findings(repo)
     )
 
@@ -1491,7 +1770,7 @@ def test_docs_d10_flags_baseline_surface_drift_dependency_advisory_baseline(tmp_
 
     assert any(
         "accepted advisory baseline identity is missing from the current Markdown ledger: "
-        "pytorch-lightning 2.4.0 PYSEC-2026-3043 on [torch]" == finding.message
+        "setuptools 81.0.0 PYSEC-2026-3447 on [torch]" == finding.message
         for finding in _d10_advisory_baseline_findings(repo)
     )
 
@@ -1518,14 +1797,13 @@ def test_docs_d10_excludes_historical_rows_from_dependency_advisory_baseline_par
 
 def test_docs_d10_dependency_advisory_baseline_flags_unknown_current_surface(tmp_path):
     repo = _advisory_baseline_repo(tmp_path)
-    ledger = repo / "docs/dependency-contracts.md"
-    ledger.write_text(
-        ledger.read_text(encoding="utf-8").replace(
+    _replace_issue62_section(
+        repo,
+        lambda section: section.replace(
             "Combined runtime; Torch |",
             "Combined runtime; Unknown |",
             1,
         ),
-        encoding="utf-8",
     )
 
     assert _d10_advisory_baseline_findings(repo)
@@ -1534,10 +1812,9 @@ def test_docs_d10_dependency_advisory_baseline_flags_unknown_current_surface(tmp
 @pytest.mark.parametrize("surface", ["Combined runtime; Combined runtime", "Combined runtime; "])
 def test_docs_d10_dependency_advisory_baseline_flags_duplicate_or_empty_current_surface(tmp_path, surface):
     repo = _advisory_baseline_repo(tmp_path)
-    ledger = repo / "docs/dependency-contracts.md"
-    ledger.write_text(
-        ledger.read_text(encoding="utf-8").replace("Combined runtime; Torch", surface, 1),
-        encoding="utf-8",
+    _replace_issue62_section(
+        repo,
+        lambda section: section.replace("Combined runtime; Torch", surface, 1),
     )
 
     hits = _d10_advisory_baseline_findings(repo)
@@ -1549,12 +1826,12 @@ def test_docs_d10_dependency_advisory_baseline_reports_markdown_only_identity(tm
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     line = (
-        "| `torch` | `PYSEC-2099-1` | 1 | None listed | `2.4.1` | None listed | "
+        "| `torch` | `PYSEC-2099-1` | 1 | None listed | `2.11.0` | None listed | "
         "Combined runtime; Torch |\n"
     )
     final_row = (
-        "| `pytorch-lightning` | `PYSEC-2026-3043` | 1 | None listed | `2.4.0` | "
-        "`GHSA-75m9-98v2-hjpm`, `CVE-2026-31221` | Combined runtime; Torch |"
+        "| `torch` | `PYSEC-2025-194` | 1 | `2.13.0` | `2.11.0` | "
+        "`BIT-pytorch-2025-3000`, `CVE-2025-3000`, `GHSA-rrmf-rvhw-rf47` | Combined runtime; Torch |"
     )
     ledger.write_text(
         ledger.read_text(encoding="utf-8").replace(final_row, f"{final_row}\n{line}"),
@@ -1564,7 +1841,7 @@ def test_docs_d10_dependency_advisory_baseline_reports_markdown_only_identity(tm
     messages = [finding.message for finding in _d10_advisory_baseline_findings(repo)]
     assert messages == [
         "current Markdown ledger identity is missing from accepted advisory baseline JSON: "
-        "torch 2.4.1 PYSEC-2099-1 on [combined-runtime, torch]"
+        "torch 2.11.0 PYSEC-2099-1 on [combined-runtime, torch]"
     ]
 
 
@@ -1572,15 +1849,15 @@ def test_docs_d10_dependency_advisory_baseline_reports_policy_only_identity(tmp_
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     final_row = (
-        "| `pytorch-lightning` | `PYSEC-2026-3043` | 1 | None listed | `2.4.0` | "
-        "`GHSA-75m9-98v2-hjpm`, `CVE-2026-31221` | Combined runtime; Torch |\n"
+        "| `torch` | `PYSEC-2025-194` | 1 | `2.13.0` | `2.11.0` | "
+        "`BIT-pytorch-2025-3000`, `CVE-2025-3000`, `GHSA-rrmf-rvhw-rf47` | Combined runtime; Torch |\n"
     )
     ledger.write_text(ledger.read_text(encoding="utf-8").replace(final_row, ""), encoding="utf-8")
 
     messages = [finding.message for finding in _d10_advisory_baseline_findings(repo)]
     assert messages == [
         "accepted advisory baseline identity is missing from the current Markdown ledger: "
-        "pytorch-lightning 2.4.0 PYSEC-2026-3043 on [combined-runtime, torch]"
+        "torch 2.11.0 PYSEC-2025-194 on [combined-runtime, torch]"
     ]
 
 
@@ -1686,7 +1963,7 @@ def test_docs_d10_unclosed_or_mismatched_fence_hides_advisory_snapshot(tmp_path,
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     text = ledger.read_text(encoding="utf-8")
-    marker = "### 6.1.1.2 Current accepted advisories"
+    marker = _ISSUE62_LEDGER_MARKER
     snapshot = marker + text.split(marker, 1)[1]
     ledger.write_text(fence.format(snapshot=snapshot), encoding="utf-8")
 
@@ -1696,7 +1973,7 @@ def test_docs_d10_unclosed_or_mismatched_fence_hides_advisory_snapshot(tmp_path,
 
 
 def _current_advisory_snapshot(text: str) -> str:
-    marker = "### 6.1.1.2 Current accepted advisories"
+    marker = _ISSUE62_LEDGER_MARKER
     return marker + text.split(marker, 1)[1]
 
 
@@ -1892,7 +2169,7 @@ def _dependency_snapshot(*, summary_count=2, advisory_rows=None):
     return (
         "# 6.1 Dependency Contracts\n\n"
         "## 6.1.1 Audit Snapshot\n\n"
-        "### 6.1.1.2 Current accepted advisories\n\n"
+        "### 6.1.1.2 Current Issue #62 four-surface audit\n\n"
         f"Result: {summary_count} known vulnerabilities across 1 resolved package.\n\n"
         "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
         "| --- | --- | ---: | ---: | --- |\n"
@@ -1932,7 +2209,7 @@ def test_docs_d10_ignores_parser_compatible_historical_rows(tmp_path):
 
 def test_docs_d10_flags_missing_current_advisory_section(tmp_path):
     text = _dependency_snapshot().replace(
-        "### 6.1.1.2 Current accepted advisories",
+        "### 6.1.1.2 Current Issue #62 four-surface audit",
         "### 6.1.1.2 Historical advisories",
     )
     findings = _d10_count_findings(tmp_path, text)
@@ -2022,7 +2299,7 @@ def test_docs_d10_flags_advisory_package_absent_from_summary(tmp_path):
 def test_docs_d10_flags_duplicate_exact_current_heading(tmp_path):
     text = (
         _dependency_snapshot()
-        + "\n### 6.1.1.2 Current accepted advisories\n\n"
+        + "\n### 6.1.1.2 Current Issue #62 four-surface audit\n\n"
         + "Duplicate current section.\n"
     )
     findings = _d10_count_findings(tmp_path, text)
@@ -2032,8 +2309,8 @@ def test_docs_d10_flags_duplicate_exact_current_heading(tmp_path):
 @pytest.mark.parametrize(
     "duplicate_heading",
     [
-        "### 6.1.1.2 Current accepted advisories  \t",
-        "###\t6.1.1.2  Current\taccepted   advisories",
+        "### 6.1.1.2 Current Issue #62 four-surface audit  \t",
+        "###\t6.1.1.2  Current\tIssue  #62\tfour-surface   audit",
     ],
 )
 def test_docs_d10_flags_semantically_duplicate_current_heading(
@@ -2045,7 +2322,7 @@ def test_docs_d10_flags_semantically_duplicate_current_heading(
 
 
 def test_docs_d10_rejects_current_structures_inside_fenced_code(tmp_path):
-    heading = "### 6.1.1.2 Current accepted advisories"
+    heading = _ISSUE62_LEDGER_MARKER
     prefix, body = _dependency_snapshot().split(f"{heading}\n\n", maxsplit=1)
     text = f"{prefix}{heading}\n\n```markdown\n{body}```\n"
     findings = _d10_count_findings(tmp_path, text)
@@ -2058,7 +2335,7 @@ def test_docs_d10_ignores_current_heading_example_inside_fenced_code(tmp_path):
     text = (
         _dependency_snapshot()
         + "\n```markdown\n"
-        + "### 6.1.1.2 Current accepted advisories\n"
+        + "### 6.1.1.2 Current Issue #62 four-surface audit\n"
         + "```\n"
     )
     assert _d10_count_findings(tmp_path, text) == []
@@ -2126,7 +2403,7 @@ def test_docs_d10_flags_dependency_ledger_count_drift(tmp_path):
     (docs / "dependency-contracts.md").write_text(
         "# Dependency Contracts\n\n"
         "## 1. Audit Snapshot\n\n"
-        "### 6.1.1.2 Current accepted advisories\n\n"
+        "### 6.1.1.2 Current Issue #62 four-surface audit\n\n"
         "Result: 2 known vulnerabilities across one resolved package:\n\n"
         "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
         "| --- | --- | ---: | ---: | --- |\n"

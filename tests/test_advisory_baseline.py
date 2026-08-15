@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from scripts.advisory_baseline import (
+    AUDIT_SURFACES,
     AcceptedAdvisory,
     AdvisoryBaselineError,
     AuditSurfaceError,
@@ -237,31 +238,12 @@ def test_load_baseline_rejects_unsorted_items_and_noncanonical_serialization(tmp
         load_baseline(path)
 
 
-def test_real_baseline_contains_21_unique_reviewed_identities() -> None:
+def test_real_baseline_contains_current_issue62_reviewed_identities() -> None:
     baseline = load_baseline(REPO_ROOT / "security/accepted-advisories.json")
 
     assert {(item.package, item.advisory_id, item.accepted_version) for item in baseline.accepted_advisories} == {
-        ("pytorch-lightning", "PYSEC-2026-3043", "2.4.0"),
-        ("torch", "CVE-2025-2148", "2.4.1"),
-        ("torch", "CVE-2025-2149", "2.4.1"),
-        ("torch", "CVE-2025-2998", "2.4.1"),
-        ("torch", "CVE-2025-2999", "2.4.1"),
-        ("torch", "CVE-2025-3001", "2.4.1"),
-        ("torch", "PYSEC-2024-259", "2.4.1"),
-        ("torch", "PYSEC-2025-191", "2.4.1"),
-        ("torch", "PYSEC-2025-194", "2.4.1"),
-        ("torch", "PYSEC-2025-198", "2.4.1"),
-        ("torch", "PYSEC-2025-203", "2.4.1"),
-        ("torch", "PYSEC-2025-204", "2.4.1"),
-        ("torch", "PYSEC-2025-205", "2.4.1"),
-        ("torch", "PYSEC-2025-206", "2.4.1"),
-        ("torch", "PYSEC-2025-207", "2.4.1"),
-        ("torch", "PYSEC-2025-208", "2.4.1"),
-        ("torch", "PYSEC-2025-209", "2.4.1"),
-        ("torch", "PYSEC-2025-41", "2.4.1"),
-        ("torch", "PYSEC-2026-139", "2.4.1"),
-        ("torch", "PYSEC-2026-1970", "2.4.1"),
-        ("torch", "PYSEC-2026-2286", "2.4.1"),
+        ("setuptools", "PYSEC-2026-3447", "81.0.0"),
+        ("torch", "PYSEC-2025-194", "2.11.0"),
     }
 
 
@@ -272,27 +254,8 @@ def test_real_baseline_contains_exact_reviewed_policy_quadruples() -> None:
         (item.package, item.advisory_id, item.accepted_version, item.surfaces)
         for item in baseline.accepted_advisories
     } == {
-        ("pytorch-lightning", "PYSEC-2026-3043", "2.4.0", ("combined-runtime", "torch")),
-        ("torch", "CVE-2025-2148", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "CVE-2025-2149", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "CVE-2025-2998", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "CVE-2025-2999", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "CVE-2025-3001", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2024-259", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2025-191", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2025-194", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2025-198", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2025-203", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2025-204", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2025-205", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2025-206", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2025-207", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2025-208", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2025-209", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2025-41", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2026-139", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2026-1970", "2.4.1", ("combined-runtime", "torch")),
-        ("torch", "PYSEC-2026-2286", "2.4.1", ("combined-runtime", "torch")),
+        ("setuptools", "PYSEC-2026-3447", "81.0.0", ("combined-runtime", "torch")),
+        ("torch", "PYSEC-2025-194", "2.11.0", ("combined-runtime", "torch")),
     }
 
 
@@ -728,6 +691,50 @@ def test_audit_commands_match_the_complete_four_surface_contract(tmp_path: Path)
     _assert_exact_audit_commands(commands, tmp_path)
 
 
+def test_audit_surfaces_define_six_physical_commands_for_four_logical_observations() -> None:
+    assert [
+        (
+            surface.name,
+            surface.requirements,
+            surface.disable_pip,
+            surface.no_deps,
+            surface.output_name,
+        )
+        for surface in AUDIT_SURFACES
+    ] == [
+        (
+            "combined-runtime",
+            ("requirements.txt", "torch-audit-requirements.txt"),
+            False,
+            False,
+            "combined-runtime-resolver",
+        ),
+        (
+            "combined-runtime",
+            ("pyg-extension-audit-requirements.txt",),
+            True,
+            True,
+            "combined-runtime-pyg-extensions",
+        ),
+        (
+            "torch",
+            ("torch-audit-requirements.txt",),
+            False,
+            False,
+            "torch-resolver",
+        ),
+        (
+            "torch",
+            ("pyg-extension-audit-requirements.txt",),
+            True,
+            True,
+            "torch-pyg-extensions",
+        ),
+        ("documentation", ("docs-requirements.txt",), True, False, None),
+        ("atlas-contract", ("atlas-contract-requirements.txt",), False, False, None),
+    ]
+
+
 def test_real_torch_audit_projection_is_the_selector_free_runtime_mirror() -> None:
     text = (REPO_ROOT / "torch-audit-requirements.txt").read_text(encoding="utf-8")
 
@@ -860,7 +867,14 @@ def test_audit_merges_nonempty_pyg_extension_supplements_into_logical_surfaces(t
         nonlocal calls
         output = Path(command[command.index("--output") + 1])
         extension = "pyg-extension-audit-requirements.txt" in command
-        payload = _payload(_dependency("torch-scatter", "2.1.2", "CVE-2099-0001")) if extension else _payload()
+        payload = (
+            _payload(
+                _dependency("torch-scatter", "2.1.2", "CVE-2099-0001"),
+                _dependency("torch-sparse", "0.6.18"),
+            )
+            if extension
+            else _payload()
+        )
         output.write_text(json.dumps(payload), encoding="utf-8")
         calls += 1
         return SimpleNamespace(returncode=1 if extension else 0, stdout="", stderr="")
@@ -869,9 +883,24 @@ def test_audit_merges_nonempty_pyg_extension_supplements_into_logical_surfaces(t
 
     assert calls == 6
     assert [(item.surface, item.resolved_versions, item.advisories) for item in observations[:2]] == [
-        ("combined-runtime", (("torch-scatter", "2.1.2"),), (("torch-scatter", "2.1.2", "CVE-2099-0001"),)),
-        ("torch", (("torch-scatter", "2.1.2"),), (("torch-scatter", "2.1.2", "CVE-2099-0001"),)),
+        (
+            "combined-runtime",
+            (("torch-scatter", "2.1.2"), ("torch-sparse", "0.6.18")),
+            (("torch-scatter", "2.1.2", "CVE-2099-0001"),),
+        ),
+        (
+            "torch",
+            (("torch-scatter", "2.1.2"), ("torch-sparse", "0.6.18")),
+            (("torch-scatter", "2.1.2", "CVE-2099-0001"),),
+        ),
     ]
+    assert observations[2].resolved_versions == ()
+    assert observations[3].resolved_versions == ()
+    assert all(
+        package != "pyg-lib"
+        for observation in observations
+        for package, _ in observation.resolved_versions
+    )
 
 
 def test_audit_rejects_overlapping_resolver_and_supplement_packages(tmp_path: Path) -> None:

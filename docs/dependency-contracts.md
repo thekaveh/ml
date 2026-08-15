@@ -70,7 +70,11 @@ emitted metadata. Counts across surfaces are observations, not additive vulnerab
 Several runtime requirements remain open ranges, so the resolver can select newer versions without
 a committed manifest change. This is dated snapshot evidence, not a reproducible lock.
 
-### 6.1.1.2 Current accepted advisories
+#### 6.1.1.1.1 Archived Issue #59/#61 accepted advisories
+
+This subsection is immutable historical Issue #59/#61 audit evidence. Feed disappearance in a
+later audit is reconciliation evidence only; it is not proof of remediation, non-reachability, or
+an upstream fix.
 
 Result: 23 known vulnerabilities across 194 resolved packages.
 
@@ -114,6 +118,87 @@ when a manifest changes, the advisory feed changes, a fix becomes available, inp
 reachability expands, or Issue #62 qualifies a coordinated replacement stack. Any upgrade must
 validate Torch, PyG, torchao, notebook execution, and CI together rather than updating one pin.
 
+### 6.1.1.2 Current Issue #62 four-surface audit
+
+Last reviewed: 2026-08-14. The capture used repository commit
+`c9c17ae21b3343c67b9046cbd69819d2c08d0286`, Python 3.11.0 on Darwin arm64, and
+`pip-audit==2.10.0`. Six physical commands produced four logical observations in canonical order.
+The combined-runtime resolver returned 191 packages and its two-package supplement produced 193
+merged packages; the Torch resolver returned 37 and its supplement produced 39 merged packages.
+Documentation resolved 42 packages and Atlas contract resolved 5. The two supplement commands and
+the documentation and Atlas commands were clean. Both resolver commands returned advisory
+observations.
+
+The redacted command templates were:
+
+```text
+python -m pip_audit -r requirements.txt -r torch-audit-requirements.txt --strict --vulnerability-service pypi --format json --aliases on --desc off --progress-spinner off --output <combined-runtime-resolver.json>
+python -m pip_audit --disable-pip --no-deps -r pyg-extension-audit-requirements.txt --strict --vulnerability-service pypi --format json --aliases on --desc off --progress-spinner off --output <combined-runtime-pyg-extensions.json>
+python -m pip_audit -r torch-audit-requirements.txt --strict --vulnerability-service pypi --format json --aliases on --desc off --progress-spinner off --output <torch-resolver.json>
+python -m pip_audit --disable-pip --no-deps -r pyg-extension-audit-requirements.txt --strict --vulnerability-service pypi --format json --aliases on --desc off --progress-spinner off --output <torch-pyg-extensions.json>
+python -m pip_audit --disable-pip -r docs-requirements.txt --strict --vulnerability-service pypi --format json --aliases on --desc off --progress-spinner off --output <documentation.json>
+python -m pip_audit -r atlas-contract-requirements.txt --strict --vulnerability-service pypi --format json --aliases on --desc off --progress-spinner off --output <atlas-contract.json>
+```
+
+Result: 3 known vulnerabilities across 193 resolved packages.
+
+| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |
+| --- | --- | ---: | ---: | --- |
+| `setuptools` | `resolver-selected transitive dependency` | `81.0.0` | 2 | Temporarily accepted for the qualified resolver observation. The feed lists `83.0.0` as the fix. Revisit when the resolver selects that floor or the dependency contract can be advanced without breaking the qualified stack. |
+| `torch` | `torch==2.11.0` | `2.11.0` | 1 | Temporarily accepted for the qualified Torch 2.11 matrix. The feed lists `2.13.0` as the fix, but Torch 2.13 lacks the complete approved PyG compiled-extension wheel surface. Never load untrusted pickle-backed checkpoints. |
+
+Each row below is one raw feed record. The duplicate setuptools primary ID is preserved because
+the resolver feed emitted it twice; policy comparison remains alias-aware and identity-based.
+
+| Package | Advisory ID | Feed Records | Fix Versions | Audited Version | Aliases | Surface |
+| --- | --- | ---: | --- | ---: | --- | --- |
+| `setuptools` | `PYSEC-2026-3447` | 1 | `83.0.0` | `81.0.0` | `BIT-setuptools-2026-59890`, `CVE-2026-59890`, `GHSA-h35f-9h28-mq5c` | Combined runtime; Torch |
+| `setuptools` | `PYSEC-2026-3447` | 1 | `83.0.0` | `81.0.0` | `BIT-setuptools-2026-59890`, `CVE-2026-59890`, `GHSA-h35f-9h28-mq5c` | Combined runtime; Torch |
+| `torch` | `PYSEC-2025-194` | 1 | `2.13.0` | `2.11.0` | `BIT-pytorch-2025-3000`, `CVE-2025-3000`, `GHSA-rrmf-rvhw-rf47` | Combined runtime; Torch |
+
+The input hashes enforced by D10 are:
+
+| Input | SHA-256 |
+| --- | --- |
+| `vulnerability-audit-requirements.txt` | `889b9ef59073551e13c18fcb421ae6f35491db95081941eb7e05ae44af7a5918` |
+| `requirements.txt` | `6e86caa5a287e9566e15bdffbb6628249397307783dee3b6e98e728ef06275b9` |
+| `torch-core-requirements.txt` | `28b09abee07d1c3551b47f28938a546bf1dd712f18e34bea9b40e3d49410810b` |
+| `torch-ecosystem-requirements.txt` | `9e0083918fd410e30aea337ba281fbfe05f89846eff067cf4997d296e1ce1dff` |
+| `torch-requirements.txt` | `5ed88d08e84d39e345bffcda9c6adbe7f26886a6af52d04ac02bd90e44419527` |
+| `torch-audit-requirements.txt` | `6d544b226c6e96f296c5105a20ea00704c3e1db4bf91946392df8f3ec5236d2a` |
+| `pyg-extension-audit-requirements.txt` | `3bdf07aaf4dc3a02524d7f7e11f6127c68203403201dc32d36b356670bfff498` |
+| `docs-requirements.txt` | `9af475ff61cafc56f0edd75e28d9ca41463f87f0790523d5e077a1d71323b9cc` |
+| `atlas-contract-requirements.txt` | `e786c8e7d940a97ae41ce880d5f5bbc62dc4f90ff03fd8c7718849e1c11412b0` |
+| `security/accepted-advisories.json` | `53752e041f6b55a9da041d8bfe752d1753afc74ae83dba99c4c9c3a296c17cfd` |
+
+Ignored output hashes are
+`793bfcf1ad33efba84ab2a61bc6b0b1c18413a4686288c50b8e457dd9453d6c6` for the
+combined-runtime resolver,
+`5e72e385b44bec267ec2bae003e3602caca4b48ae29bb6ff54d0eefe032b5586` for the
+Torch resolver, `5e6a9788ed081bd9cbee01b8cb4b44e1e99a3050526bc7860652844afc2891ca`
+for each identical supplement, `c7fb014d9d45092476134bc78fe7e3fd81df93c66733b932c734d5fe27672afe`
+for documentation, and `025906bb0be0ae036140e484f0dcc2845e25e11e36c18a7aa23af5e05fd55db9`
+for Atlas contract.
+
+The pre-resolved `pyg-extension-audit-requirements.txt` supplement contains exactly
+`torch-scatter==2.1.2` and `torch-sparse==0.6.18`; it contains neither `torch-cluster` nor
+`torch-spline-conv`.
+pyg-lib is an exact external-index wheel outside ordinary PyPI audit coverage; its version and provenance are verified by `verify_torch_stack`.
+
+`PYSEC-2025-194` is retained at the new Torch version and continues to alias
+`CVE-2025-3000`, `GHSA-rrmf-rvhw-rf47`, and `BIT-pytorch-2025-3000`.
+`PYSEC-2026-3447` is new for resolver-selected setuptools. The prior Lightning identity and every
+prior Torch identity other than `PYSEC-2025-194` disappeared from this capture. That disappearance
+is reconciliation evidence only, not proof of remediation, non-reachability, or an upstream fix;
+the complete prior rows remain in the archived Issue #59/#61 subsection above. No current identity
+was re-keyed. Lightning remains pinned to 2.6.1 because the upstream
+`GHSA-w37p-236h-pfx3` supply-chain advisory covers the newer `>=2.6.2` release line; absence from
+this pip-audit observation is not a zero-risk claim.
+
+Revisit both accepted identities whenever manifests, resolved versions, feed identities or aliases,
+fix availability, input trust, or path reachability changes. Torch, PyG, torchao, notebook, and CI
+compatibility remain one coordinated upgrade boundary.
+
 ### 6.1.1.3 Alias-aware historical reconciliation
 
 The following reconciliation compares the 2026-07-04 ledger identities with the current feed.
@@ -147,7 +232,7 @@ Aliases identify re-keyed records; an alias is not an additional vulnerability.
 ### 6.1.1.4 Enforcement boundary
 
 This manually reviewed ledger is the canonical record for the
-[current accepted-advisories snapshot](#6112-current-accepted-advisories). The repository's
+[current accepted-advisories snapshot](#6112-current-issue-62-four-surface-audit). The repository's
 [security policy](../SECURITY.md) describes how new advisory uncertainty is triaged.
 `security/accepted-advisories.json` is the policy artifact. `make audit-advisories` runs all four
 audit surfaces without suppression: combined runtime, Torch, documentation, and the parent-owned

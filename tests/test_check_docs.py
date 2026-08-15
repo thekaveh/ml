@@ -624,7 +624,7 @@ def test_real_user_docs_publish_current_vulnerability_snapshot():
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
     assert "### 6.1.1.1 Reproducible four-surface audit" in ledger
-    assert "### 6.1.1.2 Current accepted advisories" in ledger
+    assert "### 6.1.1.2 Current Issue #62 four-surface audit" in ledger
     assert "### 6.1.1.3 Alias-aware historical reconciliation" in ledger
     assert "2026-08-12" in ledger
     assert "--disable-pip -r docs-requirements.txt" in ledger
@@ -1348,18 +1348,18 @@ def test_nnx_retain_decision_docs_reject_mutations(path, old, new):
         _assert_nnx_retain_decision_docs(documents)
 
 
-def test_nnx_current_pin_and_pretrial_advisory_snapshot_match_restored_manifest():
+def test_nnx_current_pin_and_issue62_advisory_snapshot_match_restored_manifest():
     requirements = (REPO_ROOT / "requirements.txt").read_bytes()
     ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    audit = ledger.split("### 6.1.1.1 Reproducible four-surface audit", 1)[1].split(
-        "### 6.1.1.2 Current accepted advisories", 1
+    audit = ledger.split("### 6.1.1.2 Current Issue #62 four-surface audit", 1)[1].split(
+        "### 6.1.1.3 Alias-aware historical reconciliation", 1
     )[0]
 
     assert hashlib.sha256(requirements).hexdigest() == (
-        "3f35f04f95bd1e293c844b41a2dcf96f7978b8c61ccd436e4813a604d9e528a7"
+        "6e86caa5a287e9566e15bdffbb6628249397307783dee3b6e98e728ef06275b9"
     )
-    assert "Last reviewed: 2026-08-12" in audit
-    assert "`requirements.txt` | `3f35f04f95bd1e293c844b41a2dcf96f7978b8c61ccd436e4813a604d9e528a7`" in audit
+    assert "Last reviewed: 2026-08-14" in audit
+    assert "`requirements.txt` | `6e86caa5a287e9566e15bdffbb6628249397307783dee3b6e98e728ef06275b9`" in audit
     assert "thekaveh-nnx==0.2.2" not in audit
 
 

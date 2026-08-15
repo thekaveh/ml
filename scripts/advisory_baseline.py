@@ -438,7 +438,7 @@ def _validate_torch_audit_projection(repo: Path) -> None:
 
 
 def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tuple[Observation, ...]:
-    """Run the fixed four-surface audit contract and normalize every result."""
+    """Run six physical commands and merge them into four logical observations."""
     _validate_torch_audit_projection(repo)
     observations: dict[str, Observation] = {}
     with tempfile.TemporaryDirectory(prefix="advisory-baseline-") as temporary_directory:

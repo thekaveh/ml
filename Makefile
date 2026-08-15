@@ -73,7 +73,7 @@ SMOKE_OUT := /tmp/ml-smoke
 TIER_A_OUT ?= /tmp/ml-tier-a
 TIER_A_OUT_ABS := $(abspath $(TIER_A_OUT))
 
-.PHONY: help run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-torch-stack verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
+.PHONY: help print-tier-a print-tier-b print-tier-c run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-torch-stack verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
 
 help:
 	@echo "Targets:"
@@ -120,6 +120,15 @@ atlas-connect:
 
 atlas-contract:
 	./scripts/atlas-up.sh --validate
+
+print-tier-a:
+	@printf '%s\n' $(TIER_A)
+
+print-tier-b:
+	@printf '%s\n' $(TIER_B)
+
+print-tier-c:
+	@printf '%s\n' $(TIER_C)
 
 run-tier-a:
 	@for nb in $(TIER_A); do \

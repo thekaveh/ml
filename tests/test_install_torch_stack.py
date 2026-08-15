@@ -160,7 +160,12 @@ def test_makefile_installer_and_codespace_recipes_are_exact() -> None:
     assert install_header == "install-torch-stack:"
     assert install_recipe == ("$(PYTHON) -m scripts.install_torch_stack",)
     assert codespace_header == "codespace-setup: install-torch-stack"
-    assert codespace_recipe == ("$(MAKE) nlp-assets",)
+    assert codespace_recipe == (
+        "$(MAKE) nlp-assets",
+        "$(PYTHON) -m pip check",
+        "$(MAKE) verify-torch-stack",
+        "$(MAKE) verify-nnx-install",
+    )
 
 
 @pytest.mark.parametrize(("original", "replacement"), LEGACY_MANIFEST_MUTATIONS)

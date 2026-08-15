@@ -36,6 +36,36 @@ def _target_recipe(makefile: str, target: str) -> tuple[str, ...]:
     return tuple(recipes)
 
 
+def _assert_tier_inventory_contract(makefile: Path, cwd: Path) -> None:
+    source = makefile.read_text(encoding="utf-8")
+    lines = source.splitlines()
+    phony_members = [
+        member
+        for line in lines
+        if line.startswith(".PHONY:")
+        for member in line.removeprefix(".PHONY:").split()
+    ]
+    expected_counts = {"a": 18, "b": 6, "c": 4}
+    for tier, count in expected_counts.items():
+        target = f"print-tier-{tier}"
+        variable = f"TIER_{tier.upper()}"
+        assert phony_members.count(target) == 1
+        assert _target_recipe(source, target) == (f"@printf '%s\\n' $({variable})",)
+        result = subprocess.run(
+            ["make", "-f", str(makefile), "--no-print-directory", "-s", target],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=TEST_SUBPROCESS_TIMEOUT,
+        )
+        inventory = tuple(result.stdout.splitlines())
+        assert len(inventory) == count
+        assert len(set(inventory)) == count
+        assert all(item.startswith("notebooks/") and item.endswith(".ipynb") for item in inventory)
+        assert result.stderr == ""
+
+
 def _assert_docker_and_codespaces_contract(
     docker: str,
     makefile: str,
@@ -634,6 +664,41 @@ def test_smoke_tier_a_writes_to_temporary_outputs_without_mutating_sources(
         (output_root / "notebooks" / task / "notebook.ipynb").read_text(encoding="utf-8")
         for task in ("first", "second")
     ) == ("rendered:notebook.ipynb\n", "rendered:notebook.ipynb\n")
+
+
+def test_makefile_exposes_exact_tier_inventory_targets() -> None:
+    _assert_tier_inventory_contract(REPO_ROOT / "Makefile", REPO_ROOT)
+
+
+@pytest.mark.parametrize(
+    ("original", "mutation"),
+    (
+        (
+            "print-tier-a:\n\t@printf '%s\\n' $(TIER_A)",
+            "print-tier-a:\n\t@printf '%s\\n' $(TIER_B)",
+        ),
+        (
+            "print-tier-b:\n\t@printf '%s\\n' $(TIER_B)",
+            "print-tier-b:\n\t@printf '%s\\n' $(TIER_C)",
+        ),
+        (
+            "print-tier-c:\n\t@printf '%s\\n' $(TIER_C)",
+            "print-tier-c:\n\t@printf '%s\\n' $(TIER_A)",
+        ),
+    ),
+    ids=("tier-a-wrong-variable", "tier-b-wrong-variable", "tier-c-wrong-variable"),
+)
+def test_tier_inventory_contract_rejects_wrong_variable_mutations(
+    tmp_path: Path, original: str, mutation: str
+) -> None:
+    source = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    mutated = source.replace(original, mutation, 1)
+    assert mutated != source
+    makefile = tmp_path / "Makefile"
+    makefile.write_text(mutated, encoding="utf-8")
+
+    with pytest.raises(AssertionError):
+        _assert_tier_inventory_contract(makefile, tmp_path)
 
 
 def test_check_tier_a_artifacts_accepts_every_nonempty_mirrored_output(

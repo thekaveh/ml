@@ -3752,6 +3752,62 @@ def _job_run_commands(workflow: dict, job_name: str) -> tuple[str, ...]:
     )
 
 
+def _unquoted_pipe_operators(source: str) -> tuple[str, ...]:
+    operators: list[str] = []
+    quote: str | None = None
+    escaped = False
+    in_comment = False
+    at_word_start = True
+    index = 0
+    while index < len(source):
+        character = source[index]
+        if in_comment:
+            if character == "\n":
+                in_comment = False
+                at_word_start = True
+            index += 1
+            continue
+        if quote is not None:
+            if quote == '"' and escaped:
+                escaped = False
+            elif quote == '"' and character == "\\":
+                escaped = True
+            elif character == quote:
+                quote = None
+            index += 1
+            continue
+        if escaped:
+            escaped = False
+            at_word_start = False
+            index += 1
+            continue
+        if character == "\\":
+            escaped = True
+            index += 1
+            continue
+        if character in {"'", '"'}:
+            quote = character
+            at_word_start = False
+            index += 1
+            continue
+        if character == "#" and at_word_start:
+            in_comment = True
+            index += 1
+            continue
+        if character == "|":
+            if index + 1 < len(source) and source[index + 1] == "|":
+                operators.append("||")
+                index += 2
+            else:
+                operators.append("|")
+                index += 1
+            at_word_start = True
+            continue
+        at_word_start = character.isspace() or character in ";&()"
+        index += 1
+    return tuple(operators)
+
+
 def _assert_no_failure_masking(step: Mapping[str, object]) -> None:
     assert "continue-on-error" not in step
     assert "shell" not in step
@@ -3759,11 +3815,9 @@ def _assert_no_failure_masking(step: Mapping[str, object]) -> None:
     if source is None:
         return
     assert isinstance(source, str)
-    logical = source.replace("\\\n", " ").replace("\n", ";")
-    lexer = shlex.shlex(logical, posix=True, punctuation_chars=";&|")
-    lexer.whitespace_split = True
-    lexer.commenters = "#"
-    assert "||" not in tuple(lexer)
+    operators = _unquoted_pipe_operators(source)
+    assert "||" not in operators
+    assert "|" not in operators
     for argv in _shell_argvs(source):
         assert argv[:2] != ("set", "+e")
         assert argv[:3] != ("set", "+o", "errexit")
@@ -3989,6 +4043,60 @@ def test_ci_runtime_job_contract_rejects_failure_masking_on_every_run_step(
         assert step != original
         with pytest.raises(AssertionError):
             _assert_runtime_job_install_contract(mutated, job_name)
+
+
+@pytest.mark.parametrize(
+    ("job_name", "step_name", "command"),
+    (
+        ("verify-repo", "Run repo verifier", "make verify"),
+        (
+            "tier-a-papermill",
+            "Verify Tier-A notebook output contract",
+            "python -m scripts.verify_smoke_outputs --tier a --root /tmp/ml-tier-a",
+        ),
+        ("pytest-repository", "Install dependencies", "make install-torch-stack"),
+        (
+            "pytest-nnx-surface",
+            "Check and verify canonical Torch and NNx stack",
+            "make verify-torch-stack",
+        ),
+        ("smoke-tier-b", "Smoke-run Tier-B notebooks", "make smoke-tier-b"),
+    ),
+)
+def test_ci_runtime_job_contract_rejects_unquoted_pipeline_masking(
+    job_name,
+    step_name,
+    command,
+):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    step = next(
+        item
+        for item in workflow["jobs"][job_name]["steps"]
+        if item.get("name") == step_name
+    )
+    original = step["run"]
+    assert original.count(command) == 1
+    step["run"] = original.replace(command, f"{command} | cat", 1)
+    assert step["run"] != original
+
+    with pytest.raises(AssertionError):
+        _assert_runtime_job_install_contract(workflow, job_name)
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "make verify",
+        "python -m pip check\nmake verify-torch-stack\nmake verify-nnx-install",
+        "printf '%s\\n' 'verification | complete'",
+        "printf '%s\\n' 'fallback || complete'",
+        "printf '%s\\n' '|'",
+        "printf '%s\\n' '||'",
+        'python -c "print(\'workload | complete\')"',
+    ),
+)
+def test_ci_failure_masking_contract_accepts_ordinary_commands(source):
+    _assert_no_failure_masking({"run": source})
 
 
 @pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))

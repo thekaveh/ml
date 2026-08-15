@@ -45,15 +45,29 @@ def _validate_notebook(tier: Tier, source: str, output: Path) -> NotebookArtifac
             raise ValueError
     except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         raise SmokeOutputError(tier, "invalid") from None
+    if any(not isinstance(cell, Mapping) for cell in cells):
+        raise SmokeOutputError(tier, "invalid")
     code_cells = tuple(cell for cell in cells if cell.get("cell_type") == "code")
     if not code_cells:
         raise SmokeOutputError(tier, "invalid")
-    if any(cell.get("execution_count") is None for cell in code_cells):
+    if any(not isinstance(cell.get("outputs"), list) for cell in code_cells):
+        raise SmokeOutputError(tier, "invalid")
+    if any(
+        not isinstance(output_item, Mapping)
+        for cell in code_cells
+        for output_item in cell["outputs"]
+    ):
+        raise SmokeOutputError(tier, "invalid")
+    if any(
+        not isinstance(cell.get("execution_count"), int)
+        or isinstance(cell.get("execution_count"), bool)
+        for cell in code_cells
+    ):
         raise SmokeOutputError(tier, "unexecuted")
     if any(
         output_item.get("output_type") == "error"
         for cell in code_cells
-        for output_item in cell.get("outputs", ())
+        for output_item in cell["outputs"]
     ):
         raise SmokeOutputError(tier, "error")
     return NotebookArtifact(source, output, len(code_cells))

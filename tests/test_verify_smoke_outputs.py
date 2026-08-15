@@ -205,6 +205,57 @@ def test_notebook_validation_is_fail_closed(
     assert "secret" not in str(caught.value)
 
 
+@pytest.mark.parametrize(
+    ("case", "malformed"),
+    (
+        ("non-mapping-cell", "cell"),
+        ("non-list-outputs", "outputs"),
+        ("non-mapping-output-string", "output-string"),
+        ("non-mapping-output-null", "output-null"),
+    ),
+)
+def test_notebook_validation_rejects_malformed_cell_and_output_shapes(
+    tmp_path: Path, case: str, malformed: str
+) -> None:
+    module = _module()
+    sources = _sources("c")
+    _write_valid_outputs(tmp_path, "c", sources)
+    target = _output_path(tmp_path, "c", sources[0])
+    document = json.loads(target.read_text(encoding="utf-8"))
+    if malformed == "cell":
+        document["cells"][0] = "not-a-cell"
+    elif malformed == "outputs":
+        document["cells"][0]["outputs"] = {"output_type": "stream"}
+    elif malformed == "output-string":
+        document["cells"][0]["outputs"] = ["not-an-output"]
+    else:
+        document["cells"][0]["outputs"] = [None]
+    target.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(module.SmokeOutputError) as caught:
+        module.verify_smoke_outputs("c", tmp_path, lambda selected: sources)
+
+    _assert_category(caught.value, "c", "invalid")
+
+
+@pytest.mark.parametrize("execution_count", (True, "1", 1.5))
+def test_notebook_validation_rejects_non_integer_execution_counts(
+    tmp_path: Path, execution_count: object
+) -> None:
+    module = _module()
+    sources = _sources("a")
+    _write_valid_outputs(tmp_path, "a", sources)
+    target = _output_path(tmp_path, "a", sources[0])
+    document = json.loads(target.read_text(encoding="utf-8"))
+    document["cells"][0]["execution_count"] = execution_count
+    target.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(module.SmokeOutputError) as caught:
+        module.verify_smoke_outputs("a", tmp_path, lambda selected: sources)
+
+    _assert_category(caught.value, "a", "unexecuted")
+
+
 def test_missing_error_redacts_the_output_path(tmp_path: Path) -> None:
     module = _module()
     sources = list(_sources("b"))
@@ -329,6 +380,32 @@ def _assert_zero_code_cells_rejected(module: Any, root: Path) -> None:
         raise AssertionError("notebook with zero code cells was accepted")
 
 
+def _assert_malformed_shape_rejected(module: Any, root: Path, case: str) -> None:
+    sources = _sources("b")
+    _write_valid_outputs(root, "b", sources)
+    target = _output_path(root, "b", sources[0])
+    document = json.loads(target.read_text(encoding="utf-8"))
+    expected = "invalid"
+    if case == "cell":
+        document["cells"][0] = "not-a-cell"
+    elif case == "outputs-list":
+        document["cells"][0]["outputs"] = None
+    elif case == "output-mapping":
+        document["cells"][0]["outputs"] = ["not-an-output"]
+    else:
+        document["cells"][0]["execution_count"] = True
+        expected = "unexecuted"
+    target.write_text(json.dumps(document), encoding="utf-8")
+    try:
+        module.verify_smoke_outputs("b", root, lambda selected: sources)
+    except module.SmokeOutputError as error:
+        assert str(error).endswith(f": {expected}")
+    except BaseException as error:
+        raise AssertionError("malformed notebook leaked an unstable exception") from error
+    else:
+        raise AssertionError("malformed notebook was accepted")
+
+
 def test_recursive_output_set_gate_kills_its_removal_mutation(tmp_path: Path) -> None:
     source = SCRIPT_PATH.read_text(encoding="utf-8")
     original = (
@@ -355,3 +432,48 @@ def test_nonempty_code_cell_gate_kills_its_removal_mutation(tmp_path: Path) -> N
 
     with pytest.raises(AssertionError):
         _assert_zero_code_cells_rejected(module, tmp_path / "outputs")
+
+
+@pytest.mark.parametrize(
+    ("case", "original"),
+    (
+        (
+            "cell",
+            "    if any(not isinstance(cell, Mapping) for cell in cells):\n"
+            "        raise SmokeOutputError(tier, \"invalid\")\n",
+        ),
+        (
+            "outputs-list",
+            "    if any(not isinstance(cell.get(\"outputs\"), list) for cell in code_cells):\n"
+            "        raise SmokeOutputError(tier, \"invalid\")\n",
+        ),
+        (
+            "output-mapping",
+            "    if any(\n"
+            "        not isinstance(output_item, Mapping)\n"
+            "        for cell in code_cells\n"
+            "        for output_item in cell[\"outputs\"]\n"
+            "    ):\n"
+            "        raise SmokeOutputError(tier, \"invalid\")\n",
+        ),
+        (
+            "execution-count",
+            "    if any(\n"
+            "        not isinstance(cell.get(\"execution_count\"), int)\n"
+            "        or isinstance(cell.get(\"execution_count\"), bool)\n"
+            "        for cell in code_cells\n"
+            "    ):\n"
+            "        raise SmokeOutputError(tier, \"unexecuted\")\n",
+        ),
+    ),
+)
+def test_notebook_shape_gates_kill_their_removal_mutations(
+    tmp_path: Path, case: str, original: str
+) -> None:
+    source = SCRIPT_PATH.read_text(encoding="utf-8")
+    mutated = source.replace(original, "", 1)
+    assert mutated != source
+    module = _load_mutated_module(tmp_path, mutated, f"mutated_{case.replace('-', '_')}")
+
+    with pytest.raises(AssertionError):
+        _assert_malformed_shape_rejected(module, tmp_path / "outputs", case)

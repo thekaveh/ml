@@ -29,9 +29,12 @@ This notebook is the in-repo demo of both, side by side on the same baseline arc
 
 ## 4. How to run
 
-**Manual-only** (was Tier-B from 2026-06-02 to 2026-06-16, then removed from `Makefile` TIER_B after the weekly cron failed). The local/CI contract pins `torch==2.4.1`, which cannot import the required torchao surface. Issue #61 proved the supported side-environment contract with Torch 2.11.0, torchvision 0.26.0, and torchao 0.18.0; torchao 0.18 requires Torch >=2.11. The root stack remains unchanged, and Atlas JupyterHub has not received a complete targeted quantization smoke, so this task stays manual-only. See [issue #10](https://github.com/thekaveh/ml-eng-lab/issues/10) for the original tiering context.
+**Manual-only under Issue #66.** Issue #62 qualifies only the tiny PTQ/QAT dependency surface on
+Torch 2.11.0, torchvision 0.26.0, torchao 0.18.0, and thekaveh-nnx[lm]==0.2.0. The complete
+notebook remains outside Tier A/B/C; Atlas remains Issue #65 and is not acceptance evidence.
 
-To run locally, use the reviewed side pair Torch 2.11.0, torchvision 0.26.0, and torchao 0.18.0, then execute the notebook manually:
+Execute the notebook manually in a fresh canonical environment installed by `make install-torch-stack`;
+the notebook remains outside Tier A/B/C under Issue #66:
 
 ```bash
 cd notebooks/quantization-mnist-ffnn-pytorch
@@ -44,10 +47,11 @@ The notebook accepts `SMOKE_TEST=1` (default 0 = full run) via the papermill `pa
 
 - `torch`, `torchvision` — MNIST + tensors.
 - `nnx` (PyPI: `thekaveh-nnx`) — `FeedFwdNN`, `NNModel`, `NNDataset`, `quantize_int8`, `qat_train_step_factory`, `QATLifecycleCallback`.
-- `torchao>=0.17` — PTQ + QAT backend. Opt-in via `nnx[quantize]`; the surface notebook degrades gracefully (skipped tests) when it isn't installed.
+- torchao==0.18.0 on torch==2.11.0 — mandatory for the tiny PTQ/QAT surface.
 - `prettytable` — comparison table rendering.
 
-All in the root `requirements.txt` + `torch-requirements.txt`.
+Install through make install-torch-stack. The complete notebook is manual-only under Issue #66 and
+excluded from Tier A/B/C.
 
 ## 6. Known issues
 

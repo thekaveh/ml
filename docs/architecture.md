@@ -82,14 +82,20 @@ and Ruff job, documentation checks, and notebook execution tiers retain their se
 structure, documentation, library surfaces, and executable notebook behavior before changes are
 merged.
 
+Every local, CI, Docker, and Codespaces runtime enters through the four-stage canonical installer,
+performs its last asset install, then freezes package state across pip-check, Torch verification,
+NNx verification, and workload. No repository container starts Jupyter, Atlas, Ollama, or ComfyUI
+as part of Issue #62.
+
 ## 2.1.4 Boundary decisions
 
 - `notebooks/archive/` is preserved as read-only historical material and excluded from active
   notebook validation.
 - `thekaveh-nnx[lm]==0.2.0` is consumed from PyPI; shared library changes land upstream in
   `thekaveh/NNx` before this repo bumps the pin.
-- The quantization notebook is active but manual-only until the pinned Torch stack can satisfy
-  `torchao>=0.17`.
+- The quantization notebook is active but manual-only under Issue #66. Issue #62 qualifies only the
+  tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; the full notebook remains outside
+  Tier A/B/C.
 - `infra/` is a reviewed Atlas gitlink. Consumer configuration remains outside the submodule, and
   host-native Ollama is mandatory; a containerized Ollama service is not an approved runtime.
 - Atlas CI preserves the ownership boundary: unconditional `atlas-consumer-policy` enforces the

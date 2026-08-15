@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -10,6 +11,188 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_SUBPROCESS_TIMEOUT = 30
+_DOCKER_INSTALL_BLOCK = """RUN make install-torch-stack \\
+  && make nlp-assets \\
+  && python -m pip check \\
+  && python -m scripts.verify_torch_stack \\
+  && python -m scripts.verify_nnx_install"""
+
+
+def _target_recipe(makefile: str, target: str) -> tuple[str, ...]:
+    lines = makefile.splitlines()
+    definitions = tuple(
+        index
+        for index, line in enumerate(lines)
+        if ":" in line and line.partition(":")[0].strip() == target
+    )
+    assert len(definitions) == 1
+    start = definitions[0]
+    recipes: list[str] = []
+    for line in lines[start + 1 :]:
+        if line.startswith("\t"):
+            recipes.append(line.removeprefix("\t"))
+            continue
+        if line and not line.startswith((" ", "#")):
+            break
+    return tuple(recipes)
+
+
+def _assert_tier_inventory_contract(makefile: Path, cwd: Path) -> None:
+    source = makefile.read_text(encoding="utf-8")
+    lines = source.splitlines()
+    phony_members = [
+        member
+        for line in lines
+        if line.startswith(".PHONY:")
+        for member in line.removeprefix(".PHONY:").split()
+    ]
+    expected_counts = {"a": 18, "b": 6, "c": 4}
+    for tier, count in expected_counts.items():
+        target = f"print-tier-{tier}"
+        variable = f"TIER_{tier.upper()}"
+        assert phony_members.count(target) == 1
+        assert _target_recipe(source, target) == (f"@printf '%s\\n' $({variable})",)
+        result = subprocess.run(
+            ["make", "-f", str(makefile), "--no-print-directory", "-s", target],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=TEST_SUBPROCESS_TIMEOUT,
+        )
+        inventory = tuple(result.stdout.splitlines())
+        assert len(inventory) == count
+        assert len(set(inventory)) == count
+        assert all(item.startswith("notebooks/") and item.endswith(".ipynb") for item in inventory)
+        assert result.stderr == ""
+
+
+def _assert_smoke_output_environment_override_contract(makefile: Path, cwd: Path) -> None:
+    fake_papermill = cwd / "papermill"
+    fake_papermill.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'input="${@: -2:1}"\n'
+        'output="${@: -1}"\n'
+        'mkdir -p "$(dirname "$output")"\n'
+        'printf "rendered:%s\\n" "$input" > "$output"\n',
+        encoding="utf-8",
+    )
+    fake_papermill.chmod(0o755)
+
+    for tier in ("b", "c"):
+        notebook = cwd / "notebooks" / f"tier-{tier}" / "notebook.ipynb"
+        notebook.parent.mkdir(parents=True)
+        notebook.write_text(f"tier-{tier} source\n", encoding="utf-8")
+        output_root = cwd / "isolated" / f"tier-{tier}"
+        env = {
+            **os.environ,
+            "JUPYTER_PATH": str(cwd / "isolated" / "jupyter"),
+            "SMOKE_OUT": str(output_root),
+        }
+        result = subprocess.run(
+            [
+                "make",
+                "-f",
+                str(makefile),
+                f"smoke-tier-{tier}",
+                f"TIER_{tier.upper()}={notebook.relative_to(cwd)}",
+                f"PAPERMILL={fake_papermill}",
+            ],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=TEST_SUBPROCESS_TIMEOUT,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert notebook.read_text(encoding="utf-8") == f"tier-{tier} source\n"
+        output = output_root / notebook.name
+        assert output.is_file()
+        assert output.read_text(encoding="utf-8") == (
+            f"rendered:{notebook.name}\n"
+        )
+
+
+def _assert_docker_and_codespaces_contract(
+    docker: str,
+    makefile: str,
+    devcontainer: str,
+) -> None:
+    import json
+
+    assert docker.count("RUN ") == 1
+    assert docker[docker.index("RUN ") :].strip() == _DOCKER_INSTALL_BLOCK
+    codespace_definitions = tuple(
+        line
+        for line in makefile.splitlines()
+        if ":" in line and line.partition(":")[0].strip() == "codespace-setup"
+    )
+    assert codespace_definitions == ("codespace-setup: install-torch-stack",)
+    assert _target_recipe(makefile, "codespace-setup") == (
+        "$(MAKE) nlp-assets",
+        "$(PYTHON) -m pip check",
+        "$(MAKE) verify-torch-stack",
+        "$(MAKE) verify-nnx-install",
+    )
+    payload = json.loads(
+        "\n".join(
+            line
+            for line in devcontainer.splitlines()
+            if not line.lstrip().startswith("//")
+        )
+    )
+    assert payload["postCreateCommand"] == "make codespace-setup"
+
+
+def _assert_torch_stack_verifier_target(makefile: Path, cwd: Path, python: str = "python") -> None:
+    source = makefile.read_text(encoding="utf-8")
+    lines = source.splitlines()
+    phony_members = [
+        member
+        for line in lines
+        if line.startswith(".PHONY:")
+        for member in line.removeprefix(".PHONY:").split()
+    ]
+    assert phony_members.count("verify-torch-stack") == 1
+    assert lines.count('\t@echo "  verify-torch-stack Verify the active canonical Torch stack."') == 1
+    assert lines.count("verify-torch-stack:") == 1
+    target_index = lines.index("verify-torch-stack:")
+    assert lines[target_index + 1] == "\t$(PYTHON) -m scripts.verify_torch_stack"
+    result = subprocess.run(
+        [
+            "make",
+            "-f",
+            str(makefile),
+            "--no-print-directory",
+            "-n",
+            "verify-torch-stack",
+            f"PYTHON={python}",
+        ],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+    assert result.stdout == f"{python} -m scripts.verify_torch_stack\n"
+    assert result.stderr == ""
+    failure_probe = subprocess.run(
+        [
+            "make",
+            "-f",
+            str(makefile),
+            "--no-print-directory",
+            "verify-torch-stack",
+            "PYTHON=false",
+        ],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+    assert failure_probe.returncode != 0
 
 
 def _assert_audit_advisories_contract(makefile: Path, cwd: Path) -> None:
@@ -45,74 +228,68 @@ def _assert_audit_advisories_contract(makefile: Path, cwd: Path) -> None:
     assert failure_probe.returncode != 0
 
 
-def _assert_nnx_install_fixture_contract(source: str) -> None:
-    tree = ast.parse(source)
-    verifier_imports = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.ImportFrom)
-        and node.module == "scripts.verify_nnx_install"
-        and any(alias.name == "verify_nnx_install" for alias in node.names)
-    ]
-    fixtures = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_verify_nnx_installation_contract"
-    ]
-    initial_verifier_calls = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.Expr)
-        and isinstance(node.value, ast.Call)
-        and isinstance(node.value.func, ast.Name)
-        and node.value.func.id == "verify_nnx_install"
-        and not node.value.args
-        and not node.value.keywords
-    ]
-    nnx_imports = [
-        node
-        for node in tree.body
-        if (
-            isinstance(node, ast.Import)
-            and any(
-                alias.name == "nnx" or alias.name.startswith("nnx.")
-                for alias in node.names
-            )
-        )
-        or (
-            isinstance(node, ast.ImportFrom)
-            and node.module is not None
-            and (node.module == "nnx" or node.module.startswith("nnx."))
-        )
-    ]
+def _is_nnx_import(node: ast.stmt) -> bool:
+    if isinstance(node, ast.Import):
+        return any(alias.name == "nnx" or alias.name.startswith("nnx.") for alias in node.names)
+    return (
+        isinstance(node, ast.ImportFrom)
+        and node.module is not None
+        and (node.module == "nnx" or node.module.startswith("nnx."))
+    )
 
-    assert len(verifier_imports) == 1
-    assert len(initial_verifier_calls) == 1
-    assert len(nnx_imports) == 1
-    assert tree.body.index(verifier_imports[0]) < tree.body.index(initial_verifier_calls[0])
-    assert tree.body.index(initial_verifier_calls[0]) < tree.body.index(nnx_imports[0])
-    assert len(fixtures) == 1
-    fixture = fixtures[0]
-    assert len(fixture.decorator_list) == 1
-    decorator = fixture.decorator_list[0]
-    assert isinstance(decorator, ast.Call)
-    assert isinstance(decorator.func, ast.Attribute)
-    assert isinstance(decorator.func.value, ast.Name)
-    assert (decorator.func.value.id, decorator.func.attr) == ("pytest", "fixture")
-    assert not decorator.args
-    assert {keyword.arg: ast.literal_eval(keyword.value) for keyword in decorator.keywords} == {
-        "scope": "session",
-        "autouse": True,
+
+def _assert_nnx_collection_verifier_contract(source: str) -> None:
+    tree = ast.parse(source)
+    expected_imports = {
+        "scripts.verify_torch_stack": "verify_torch_stack",
+        "scripts.verify_nnx_install": "verify_nnx_install",
     }
-    assert not fixture.args.args
-    assert len(fixture.body) == 1
-    invocation = fixture.body[0]
-    assert isinstance(invocation, ast.Expr)
-    assert isinstance(invocation.value, ast.Call)
-    assert isinstance(invocation.value.func, ast.Name)
-    assert invocation.value.func.id == "verify_nnx_install"
-    assert not invocation.value.args
-    assert not invocation.value.keywords
+    for module_name, binding in expected_imports.items():
+        imports = tuple(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom)
+            and node.module == module_name
+            and node.level == 0
+        )
+        assert len(imports) == 1
+        assert not any(
+            isinstance(node, ast.Import)
+            and any(alias.name == module_name for alias in node.names)
+            for node in tree.body
+        )
+        assert len(imports[0].names) == 1
+        assert imports[0].names[0].name == binding
+        assert imports[0].names[0].asname is None
+    assert not [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_verify_nnx_installation_contract"
+    ]
+    calls = {
+        name: tuple(
+            node
+            for node in tree.body
+            if isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == name
+        )
+        for name in ("verify_torch_stack", "verify_nnx_install")
+    }
+    assert len(calls["verify_torch_stack"]) == 1
+    assert len(calls["verify_nnx_install"]) == 1
+    assert not calls["verify_torch_stack"][0].value.args
+    assert not calls["verify_torch_stack"][0].value.keywords
+    assert not calls["verify_nnx_install"][0].value.args
+    assert not calls["verify_nnx_install"][0].value.keywords
+    nnx_imports = tuple(node for node in tree.body if _is_nnx_import(node))
+    assert nnx_imports
+    assert tree.body.index(calls["verify_torch_stack"][0]) < tree.body.index(
+        calls["verify_nnx_install"][0]
+    )
+    assert tree.body.index(calls["verify_nnx_install"][0]) < tree.body.index(nnx_imports[0])
 
 
 def test_mkdocs_commands_suppress_only_the_upstream_material_banner():
@@ -130,7 +307,7 @@ def test_mkdocs_commands_suppress_only_the_upstream_material_banner():
     assert all(line.startswith("NO_MKDOCS_2_WARNING=1 mkdocs ") for line in mkdocs_lines)
 
 
-def test_setup_targets_use_selected_python_interpreter():
+def test_torch_installer_target_is_one_exact_command_and_codespace_has_no_late_pip_install():
     custom_python = "/opt/custom/bin/python"
     result = subprocess.run(
         [
@@ -150,13 +327,133 @@ def test_setup_targets_use_selected_python_interpreter():
     )
     lines = result.stdout.splitlines()
 
-    assert f"{custom_python} -m pip install --upgrade pip" in lines
-    assert f"{custom_python} -m pip install -r torch-core-requirements.txt" in lines
-    assert f"{custom_python} -m pip install --no-build-isolation -r torch-requirements.txt" in lines
-    assert f"{custom_python} -m pip install -r requirements.txt" in lines
+    assert lines.count(f"{custom_python} -m scripts.install_torch_stack") == 1
     assert f"{custom_python} -m spacy download en_core_web_sm" in lines
     assert any(line.startswith(f"{custom_python} -c ") for line in lines)
-    assert not any(line.startswith("pip install") or line.startswith("python ") for line in lines)
+    assert not any(" -m pip install" in line for line in lines)
+
+
+def test_docker_and_codespaces_verify_after_the_last_package_change():
+    docker = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    devcontainer = (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text(
+        encoding="utf-8"
+    )
+
+    _assert_docker_and_codespaces_contract(docker, makefile, devcontainer)
+
+
+def test_devcontainer_uses_only_the_one_shot_codespace_target():
+    devcontainer = (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text(
+        encoding="utf-8"
+    )
+    _assert_docker_and_codespaces_contract(
+        (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"),
+        (REPO_ROOT / "Makefile").read_text(encoding="utf-8"),
+        devcontainer,
+    )
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    (
+        "RUN python -m pip install -r requirements.txt",
+        _DOCKER_INSTALL_BLOCK + " \\\n  && python -m pip install package",
+        "RUN make install-torch-stack \\\n  && docker compose up -d",
+        "RUN make install-torch-stack \\\n  && jupyter lab",
+        "RUN make install-torch-stack \\\n  && ollama serve",
+        "RUN make install-torch-stack \\\n  && comfyui --listen",
+        "RUN make install-torch-stack \\\n  && make atlas-setup",
+    ),
+)
+def test_docker_contract_rejects_direct_late_install_or_service_mutations(replacement):
+    docker = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    mutated = docker.replace(_DOCKER_INSTALL_BLOCK, replacement, 1)
+    assert mutated != docker
+    with pytest.raises(AssertionError):
+        _assert_docker_and_codespaces_contract(
+            mutated,
+            (REPO_ROOT / "Makefile").read_text(encoding="utf-8"),
+            (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text(
+                encoding="utf-8"
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "\t$(PYTHON) -m pip install package\n",
+        "\tdocker compose up -d\n",
+        "\tjupyter lab\n",
+        "\tollama serve\n",
+        "\tcomfyui --listen\n",
+        "\t$(MAKE) atlas-setup\n",
+    ),
+)
+def test_codespace_contract_rejects_late_install_or_service_mutations(mutation):
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    anchor = "\t$(MAKE) verify-nnx-install\n"
+    mutated = makefile.replace(anchor, anchor + mutation, 1)
+    assert mutated != makefile
+    with pytest.raises(AssertionError):
+        _assert_docker_and_codespaces_contract(
+            (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"),
+            mutated,
+            (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text(
+                encoding="utf-8"
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    "prerequisites",
+    (
+        "",
+        "nlp-assets",
+        "install-torch-stack atlas-setup",
+        "install-torch-stack ollama",
+        "install-torch-stack install-extra",
+        "install-torch-stack install-torch-stack",
+    ),
+)
+def test_codespace_contract_rejects_noncanonical_prerequisites(prerequisites):
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    original = "codespace-setup: install-torch-stack"
+    mutated_header = f"codespace-setup: {prerequisites}".rstrip()
+    mutated = makefile.replace(original, mutated_header, 1)
+    assert mutated != makefile
+
+    with pytest.raises(AssertionError):
+        _assert_docker_and_codespaces_contract(
+            (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"),
+            mutated,
+            (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text(
+                encoding="utf-8"
+            ),
+        )
+
+
+def test_codespace_contract_rejects_duplicate_target_definition():
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    duplicate = (
+        "\ncodespace-setup: install-torch-stack\n"
+        "\t$(MAKE) nlp-assets\n"
+        "\t$(PYTHON) -m pip check\n"
+        "\t$(MAKE) verify-torch-stack\n"
+        "\t$(MAKE) verify-nnx-install\n"
+    )
+    mutated = makefile + duplicate
+    assert mutated != makefile
+
+    with pytest.raises(AssertionError):
+        _assert_docker_and_codespaces_contract(
+            (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"),
+            mutated,
+            (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text(
+                encoding="utf-8"
+            ),
+        )
 
 
 def test_verify_nnx_install_target_is_public_and_uses_selected_python():
@@ -185,6 +482,37 @@ def test_verify_nnx_install_target_is_public_and_uses_selected_python():
 
     assert result.stdout == "python -m scripts.verify_nnx_install\n"
     assert result.stderr == ""
+
+
+def test_verify_torch_stack_target_is_one_public_fail_closed_command() -> None:
+    _assert_torch_stack_verifier_target(
+        REPO_ROOT / "Makefile",
+        REPO_ROOT,
+        python="/opt/qualified/bin/python",
+    )
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    (
+        ("\t$(PYTHON) -m scripts.verify_torch_stack", "\t-$(PYTHON) -m scripts.verify_torch_stack"),
+        ("\t$(PYTHON) -m scripts.verify_torch_stack", "\t$(PYTHON) -m scripts.verify_torch_stack || true"),
+        ("verify-torch-stack:\n", "verify-torch-stack: verify-nnx-install\n"),
+        ("\t$(PYTHON) -m scripts.verify_torch_stack", "\t$(PYTHON) -m scripts.verify_torch_stack\n\t@echo extra"),
+    ),
+    ids=("ignored-failure", "shell-mask", "prerequisite", "extra-command"),
+)
+def test_verify_torch_stack_target_rejects_fail_open_mutations(
+    tmp_path: Path, original: str, replacement: str
+) -> None:
+    source = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    mutated = source.replace(original, replacement, 1)
+    assert mutated != source
+    makefile = tmp_path / "Makefile"
+    makefile.write_text(mutated, encoding="utf-8")
+
+    with pytest.raises(AssertionError):
+        _assert_torch_stack_verifier_target(makefile, tmp_path)
 
 
 def test_audit_advisories_target_is_one_unsuppressed_command() -> None:
@@ -237,57 +565,104 @@ def test_audit_advisories_contract_rejects_makefile_mutations(
         _assert_audit_advisories_contract(makefile, tmp_path)
 
 
-def test_nnx_surface_has_a_session_autouse_installation_verifier():
+def test_nnx_surface_verifies_stack_then_nnx_once_before_collection_imports():
     source = (REPO_ROOT / "tests" / "nnx_surface" / "conftest.py").read_text(encoding="utf-8")
 
-    _assert_nnx_install_fixture_contract(source)
+    _assert_nnx_collection_verifier_contract(source)
 
 
 @pytest.mark.parametrize(
     ("original", "mutation"),
     (
-        ('scope="session"', 'scope="function"'),
-        ("autouse=True", "autouse=False"),
         (
+            "from scripts.verify_torch_stack import verify_torch_stack",
+            "from scripts.verify_torch_stack import verify_torch_stack as stack_verify",
+        ),
+        (
+            "from scripts.verify_nnx_install import verify_nnx_install",
+            "from scripts.verify_nnx_install import *",
+        ),
+        (
+            "from scripts.verify_torch_stack import verify_torch_stack",
+            "from scripts.verify_other import verify_torch_stack",
+        ),
+        (
+            "from scripts.verify_nnx_install import verify_nnx_install",
+            "def import_verifier():\n    from scripts.verify_nnx_install import verify_nnx_install",
+        ),
+        (
+            "from scripts.verify_torch_stack import verify_torch_stack",
+            "from scripts.verify_torch_stack import verify_torch_stack\n"
+            "from scripts.verify_torch_stack import verify_torch_stack",
+        ),
+        (
+            "from scripts.verify_nnx_install import verify_nnx_install",
+            "import scripts.verify_nnx_install",
+        ),
+        ("verify_torch_stack()\n", ""),
+        ("verify_nnx_install()\n", ""),
+        (
+            "verify_torch_stack()\nverify_nnx_install()",
+            "verify_nnx_install()\nverify_torch_stack()",
+        ),
+        (
+            "verify_torch_stack()\nverify_nnx_install()",
+            "verify_torch_stack()\nverify_torch_stack()\nverify_nnx_install()",
+        ),
+        (
+            "verify_torch_stack()\nverify_nnx_install()",
+            "verify_torch_stack()\nverify_nnx_install()\nverify_nnx_install()",
+        ),
+        (
+            "verify_torch_stack()\nverify_nnx_install()\n\nimport nnx",
+            "import nnx\n\nverify_torch_stack()\nverify_nnx_install()",
+        ),
+        (
+            "verify_torch_stack()\n",
+            "def verify_during_collection():\n    verify_torch_stack()\n",
+        ),
+        (
+            "verify_nnx_install()\n",
+            "try:\n    verify_nnx_install()\nexcept Exception:\n    pass\n",
+        ),
+        (
+            "verify_torch_stack()\n",
+            "if ENABLE_VERIFY:\n    verify_torch_stack()\n",
+        ),
+        (
+            "import nnx  # noqa: E402  # both provenance gates precede collection imports",
+            "import nnx  # noqa: E402  # both provenance gates precede collection imports\n\n"
+            "@pytest.fixture(scope=\"session\", autouse=True)\n"
+            "def _verify_nnx_installation_contract():\n"
             "    verify_nnx_install()",
-            "    try:\n        verify_nnx_install()\n    except VerificationError:\n        pass",
-        ),
-        (
-            "    verify_nnx_install()",
-            '    os.environ["NNX_ALLOW_EDITABLE"] = "1"\n    verify_nnx_install()',
-        ),
-        (
-            "verify_nnx_install()\n\nimport nnx",
-            "import nnx\n\nverify_nnx_install()",
-        ),
-        ("verify_nnx_install()\n\nimport nnx", "import nnx"),
-        (
-            "verify_nnx_install()\n\nimport nnx",
-            "from nnx.utils import seed\n\nverify_nnx_install()\n\nimport nnx",
-        ),
-        (
-            "verify_nnx_install()\n\nimport nnx",
-            "import nnx.utils\n\nverify_nnx_install()\n\nimport nnx",
         ),
     ),
     ids=(
-        "function-scope",
-        "autouse-disabled",
-        "error-swallowed",
-        "environment-mutated",
-        "initial-verifier-reordered",
-        "initial-verifier-removed",
-        "submodule-from-import-before-verifier",
-        "submodule-import-before-verifier",
+        "torch-import-alias",
+        "nnx-star-import",
+        "torch-wrong-module",
+        "nnx-import-inside-function",
+        "torch-import-duplicated",
+        "nnx-module-import",
+        "torch-call-deleted",
+        "nnx-call-deleted",
+        "calls-reversed",
+        "torch-call-duplicated",
+        "nnx-call-duplicated",
+        "calls-after-nnx",
+        "torch-call-inside-function",
+        "nnx-call-inside-try",
+        "torch-call-conditional",
+        "autouse-fixture-restored",
     ),
 )
-def test_nnx_surface_installation_fixture_contract_rejects_mutations(original: str, mutation: str):
+def test_nnx_collection_verifier_contract_rejects_mutations(original: str, mutation: str):
     source = (REPO_ROOT / "tests" / "nnx_surface" / "conftest.py").read_text(encoding="utf-8")
     mutated = source.replace(original, mutation, 1)
 
     assert mutated != source
     with pytest.raises(AssertionError):
-        _assert_nnx_install_fixture_contract(mutated)
+        _assert_nnx_collection_verifier_contract(mutated)
 
 
 def test_smoke_tier_a_writes_to_temporary_outputs_without_mutating_sources(
@@ -338,6 +713,60 @@ def test_smoke_tier_a_writes_to_temporary_outputs_without_mutating_sources(
         (output_root / "notebooks" / task / "notebook.ipynb").read_text(encoding="utf-8")
         for task in ("first", "second")
     ) == ("rendered:notebook.ipynb\n", "rendered:notebook.ipynb\n")
+
+
+def test_makefile_exposes_exact_tier_inventory_targets() -> None:
+    _assert_tier_inventory_contract(REPO_ROOT / "Makefile", REPO_ROOT)
+
+
+def test_task7_smoke_tiers_honor_environment_output_roots(tmp_path: Path) -> None:
+    _assert_smoke_output_environment_override_contract(REPO_ROOT / "Makefile", tmp_path)
+
+
+def test_smoke_output_contract_rejects_hard_assignment_mutation(tmp_path: Path) -> None:
+    source = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    mutated = source.replace(
+        "SMOKE_OUT ?= /tmp/ml-smoke",
+        "SMOKE_OUT := ignored-smoke-output",
+        1,
+    )
+    assert mutated != source
+    makefile = tmp_path / "Makefile"
+    makefile.write_text(mutated, encoding="utf-8")
+
+    with pytest.raises(AssertionError):
+        _assert_smoke_output_environment_override_contract(makefile, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("original", "mutation"),
+    (
+        (
+            "print-tier-a:\n\t@printf '%s\\n' $(TIER_A)",
+            "print-tier-a:\n\t@printf '%s\\n' $(TIER_B)",
+        ),
+        (
+            "print-tier-b:\n\t@printf '%s\\n' $(TIER_B)",
+            "print-tier-b:\n\t@printf '%s\\n' $(TIER_C)",
+        ),
+        (
+            "print-tier-c:\n\t@printf '%s\\n' $(TIER_C)",
+            "print-tier-c:\n\t@printf '%s\\n' $(TIER_A)",
+        ),
+    ),
+    ids=("tier-a-wrong-variable", "tier-b-wrong-variable", "tier-c-wrong-variable"),
+)
+def test_tier_inventory_contract_rejects_wrong_variable_mutations(
+    tmp_path: Path, original: str, mutation: str
+) -> None:
+    source = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    mutated = source.replace(original, mutation, 1)
+    assert mutated != source
+    makefile = tmp_path / "Makefile"
+    makefile.write_text(mutated, encoding="utf-8")
+
+    with pytest.raises(AssertionError):
+        _assert_tier_inventory_contract(makefile, tmp_path)
 
 
 def test_check_tier_a_artifacts_accepts_every_nonempty_mirrored_output(

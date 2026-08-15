@@ -2304,9 +2304,9 @@ graph edits, or stage anything until the focused clean gate is green.
   action; the next real execution occurs after Step 4.2 adds the exact local capture.
 
   In `tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py`, import `warnings`, `re`,
-  `importlib.metadata`, `PackagePath`, `Path`, and `pytest`. First add the exact three constants,
-  then add `_FakeDistribution` and `_warning_record` test fixtures before defining the
-  production-test helper:
+  `importlib.metadata`, `PackagePath`, `Path`, `pytest`, and `InvalidVersion`/`Version` from
+  `packaging.version`. First add the exact three constants, then add `_FakeDistribution` and
+  `_warning_record` test fixtures before defining the production-test helper:
 
   ```python
   QAT_WARNING_DEBT_KEY = ("2.11.0", "0.18.0", "0.2.0", "8da4w")
@@ -2502,12 +2502,16 @@ graph edits, or stage anything until the focused clean gate is green.
   - message to a prefix, punctuation change, or `TorchAODType.INT8` substitution;
   - record origin to a same-basename outsider and a matching-suffix outsider;
   - Torch to 2.11.1, torchao to 0.18.1, thekaveh-nnx to 0.2.1, or config to `8da4w-next`;
+  - each distribution independently to a valid PEP 440 local-tag build, proving that
+    `2.11.0+cpu`, `0.18.0+linux`, and `0.2.0+linux` preserve the exact public-version key; and
+  - each distribution independently to a malformed version, proving normalization fails closed;
   - torchao inventory to `None`, zero exact entries, two exact entries, an entry whose `.dist` is a
     different distribution, a missing concrete file, a directory at the exact PackagePath, or a
     `locate_file` exception.
 
-  Zero records and every version/config mutation must match `qat warning debt retirement required`.
-  Every count/category/message/origin/inventory mutation must match
+  Zero records and every wrong-public-version/config mutation must match
+  `qat warning debt retirement required`. Every malformed-version and
+  count/category/message/origin/inventory mutation must match
   `qat warning debt validation failed`. Run only the new validator tests:
 
   ```bash
@@ -2548,6 +2552,15 @@ graph edits, or stage anything until the focused clean gate is green.
       return origin
 
 
+  def _public_distribution_version(
+      distribution: importlib.metadata.Distribution,
+  ) -> str:
+      try:
+          return Version(distribution.version).public
+      except (InvalidVersion, TypeError):
+          raise AssertionError("qat warning debt validation failed") from None
+
+
   def _assert_qat_warning_debt(
       caught: Sequence[warnings.WarningMessage],
       *,
@@ -2559,9 +2572,9 @@ graph edits, or stage anything until the focused clean gate is green.
           for name in ("torch", "torchao", "thekaveh-nnx")
       }
       key = (
-          selected["torch"].version,
-          selected["torchao"].version,
-          selected["thekaveh-nnx"].version,
+          _public_distribution_version(selected["torch"]),
+          _public_distribution_version(selected["torchao"]),
+          _public_distribution_version(selected["thekaveh-nnx"]),
           qat_config,
       )
       if key != QAT_WARNING_DEBT_KEY or not caught:
@@ -7134,7 +7147,9 @@ graph edits, or stage anything until the focused clean gate is green.
   subclass/category, prefix/punctuation, basename/suffix outsider, mixed/extra group, broad wrapper,
   origin omission, inventory failure, foreign local/public versions, and CLI leakage mutations all
   have named tests. Count and line number remain unpinned. Separately, the QAT key is exactly Torch
-  2.11.0 + torchao 0.18.0 + thekaveh-nnx 0.2.0 + `8da4w`; only `model.train` is captured, and
+  2.11.0 + torchao 0.18.0 + thekaveh-nnx 0.2.0 + `8da4w`; all three distribution values are
+  parsed fail-closed and compared by `Version(...).public`, preserving platform local-tag builds
+  while rejecting malformed or wrong public versions. Only `model.train` is captured, and
   exactly one identity-`UserWarning` must match the complete message and sole selected-torchao-owned
   `torchao/quantization/quant_primitives.py` entry. Zero/multiple/mixed, tuple, category/subclass,
   message/punctuation, basename/suffix, inventory/ownership, and capture-broadening mutations have
@@ -7151,6 +7166,9 @@ graph edits, or stage anything until the focused clean gate is green.
   original `-W error` remains. No global, pytest, environment, conftest, canary, sampler, NNx, or
   consumer filter is authorized. The QAT test's local `always` capture is an assertion boundary,
   not a Task 4/Task 7 command or environment allowance.
+- [x] **Verifier checkout ownership:** only the `verify-repo` job initializes submodules
+  recursively, its exact workflow contract and mutation tests reject omission or any non-recursive
+  value, and every other runtime checkout remains submodule-free.
 - [x] **D10 executability:** every referenced parser/comparator is defined in the plan or already exists in `scripts/verify_repo.py`; current/historical slicing, complete CommonMark type-1/type-6 raw-HTML masking including `hgroup`, Result/summary/advisory validation, policy coupling, and ten-input hashes map failures to named `Finding` IDs.
 - [x] **Audit cardinality:** `AUDIT_SURFACES` generates six physical commands and merges them into four logical observations; only both supplements and documentation use `--disable-pip`, only supplements use `--no-deps`, and all six require exit 0/1 plus valid nonempty JSON.
 - [x] **Zero-skip and output gates:** focused, CI, prequalification, and final NNx runs use

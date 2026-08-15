@@ -284,7 +284,9 @@ NNx 0.2.0 8da4w `model.train(...)` call. The test must then prove all of the fol
 accepts that captured group:
 
 - the immutable debt key is exactly Torch 2.11.0, torchao 0.18.0, `thekaveh-nnx` 0.2.0, and
-  `qat_config="8da4w"`;
+  `qat_config="8da4w"`; its three distribution versions are parsed fail-closed and compared by
+  their PEP 440 public versions, so a compatible platform local tag such as Torch `2.11.0+cpu`
+  retains the `2.11.0` key while a malformed version fails validation;
 - the group contains exactly one warning record;
 - `record.category is UserWarning`, so subclasses do not match;
 - `str(record.message)` equals the complete warning above, including punctuation; and
@@ -356,7 +358,9 @@ evidence. Workflow contract tests enforce:
 - only the verifier-local exact import-warning exception and Section 12.21.8's exact test-local QAT
   debt assertion, with no workflow, pytest, CLI, environment, or conftest warning filter;
 - no Atlas initialization or service, container, Ollama, or ComfyUI startup; and
-- unchanged binary-only NNx selection and canonical verification.
+- unchanged binary-only NNx selection and canonical verification; and
+- recursive submodule initialization on the `verify-repo` checkout only, because that job's
+  repository verifier checks the pinned `infra` gitlink while no other runtime job consumes it.
 
 The Docker image uses the same four-stage manifest order, then runs `pip check` and the stack
 verifier, whose scatter, sparse, and real-sampler canaries provide the tiny PyG runtime probe. CI

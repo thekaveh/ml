@@ -4177,7 +4177,14 @@ def _assert_runtime_job_install_contract(workflow: dict, job_name: str) -> None:
         for command in all_commands
     )
     checkout = next(step for step in job["steps"] if step.get("name") == "Checkout")
-    assert "submodules" not in checkout.get("with", {})
+    if job_name == "verify-repo":
+        assert checkout.get("with") == {
+            "persist-credentials": "false",
+            "fetch-depth": "0",
+            "submodules": "recursive",
+        }
+    else:
+        assert "submodules" not in checkout.get("with", {})
 
 
 def _assert_nnx_junit_contract(workflow: dict) -> None:
@@ -4278,6 +4285,63 @@ def test_shell_parser_handles_line_continuations_newlines_and_assignments():
 def test_ci_runtime_jobs_use_final_install_order_and_complete_cache_manifest(job_name):
     workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
     _assert_runtime_job_install_contract(workflow, job_name)
+
+
+def test_ci_verify_repo_submodule_contract_initializes_recursive_checkout():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    checkout = next(
+        step
+        for step in workflow["jobs"]["verify-repo"]["steps"]
+        if step.get("name") == "Checkout"
+    )
+
+    assert checkout["with"] == {
+        "persist-credentials": "false",
+        "fetch-depth": "0",
+        "submodules": "recursive",
+    }
+    _assert_runtime_job_install_contract(workflow, "verify-repo")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (None, False, True, "false", "true", "recursive "),
+    ids=("omitted", "false-bool", "true-bool", "false-string", "true-string", "spaced"),
+)
+def test_ci_verify_repo_submodule_contract_rejects_nonrecursive_mutations(mutation):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    checkout = next(
+        step
+        for step in workflow["jobs"]["verify-repo"]["steps"]
+        if step.get("name") == "Checkout"
+    )
+    checkout["with"]["submodules"] = "recursive"
+    _assert_runtime_job_install_contract(workflow, "verify-repo")
+
+    if mutation is None:
+        checkout["with"].pop("submodules")
+    else:
+        checkout["with"]["submodules"] = mutation
+    with pytest.raises(AssertionError):
+        _assert_runtime_job_install_contract(workflow, "verify-repo")
+
+
+@pytest.mark.parametrize(
+    "job_name",
+    tuple(name for name in _RUNTIME_JOB_WORKLOADS if name != "verify-repo"),
+)
+def test_ci_verify_repo_submodule_contract_preserves_other_runtime_checkouts(job_name):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    checkout = next(
+        step
+        for step in workflow["jobs"][job_name]["steps"]
+        if step.get("name") == "Checkout"
+    )
+    assert "submodules" not in checkout.get("with", {})
+    checkout["with"]["submodules"] = "recursive"
+
+    with pytest.raises(AssertionError):
+        _assert_runtime_job_install_contract(workflow, job_name)
 
 
 @pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))
@@ -5357,6 +5421,7 @@ def test_ci_runs_repository_workflow_contract_tests():
         "documentation_workflows_install_cairo_and_gate_pages_inputs or "
         "documentation_direct_dependencies_are_exactly_pinned or "
         "docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or "
+        "ci_verify_repo_submodule_contract or "
         "ci_runs_repository_workflow_contract_tests or "
         "ci_runs_complete_repository_test_contract or "
         "ci_repository_test_contract_enforces_canonical_nnx_wheel or "

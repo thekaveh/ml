@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from packaging.version import InvalidVersion, Version
 
 import nnx
 from nnx import (
@@ -107,6 +108,52 @@ def test_qat_warning_debt_validator_accepts_exact_record(tmp_path: Path) -> None
     assert re.fullmatch(r"[0-9a-f]{64}", evidence["origin_sha256"])
     assert evidence["global_warning_action"] == "error"
     assert evidence["local_capture_action"] == "always"
+
+
+@pytest.mark.parametrize(
+    ("distribution_name", "version"),
+    (
+        ("torch", "2.11.0+cpu"),
+        ("torchao", "0.18.0+linux"),
+        ("thekaveh-nnx", "0.2.0+linux"),
+    ),
+)
+def test_qat_warning_debt_key_normalizes_pep440_local_versions(
+    tmp_path: Path,
+    distribution_name: str,
+    version: str,
+) -> None:
+    distributions, record = _exact_qat_warning(tmp_path)
+    distributions[distribution_name].version = version
+
+    evidence = _assert_qat_warning_debt(
+        (record,),
+        qat_config="8da4w",
+        distribution=distributions.__getitem__,
+    )
+
+    assert evidence["debt_key"] == {
+        "torch": "2.11.0",
+        "torchao": "0.18.0",
+        "thekaveh-nnx": "0.2.0",
+        "qat_config": "8da4w",
+    }
+
+
+@pytest.mark.parametrize("distribution_name", ("torch", "torchao", "thekaveh-nnx"))
+def test_qat_warning_debt_key_rejects_malformed_distribution_versions(
+    tmp_path: Path,
+    distribution_name: str,
+) -> None:
+    distributions, record = _exact_qat_warning(tmp_path)
+    distributions[distribution_name].version = "not a version"
+
+    with pytest.raises(AssertionError, match="qat warning debt validation failed"):
+        _assert_qat_warning_debt(
+            (record,),
+            qat_config="8da4w",
+            distribution=distributions.__getitem__,
+        )
 
 
 @pytest.mark.parametrize(
@@ -267,6 +314,15 @@ def _torchao_qat_warning_origin(
     return origin
 
 
+def _public_distribution_version(
+    distribution: importlib.metadata.Distribution,
+) -> str:
+    try:
+        return Version(distribution.version).public
+    except (InvalidVersion, TypeError):
+        raise AssertionError("qat warning debt validation failed") from None
+
+
 def _assert_qat_warning_debt(
     caught: Sequence[warnings.WarningMessage],
     *,
@@ -277,9 +333,9 @@ def _assert_qat_warning_debt(
         name: distribution(name) for name in ("torch", "torchao", "thekaveh-nnx")
     }
     key = (
-        selected["torch"].version,
-        selected["torchao"].version,
-        selected["thekaveh-nnx"].version,
+        _public_distribution_version(selected["torch"]),
+        _public_distribution_version(selected["torchao"]),
+        _public_distribution_version(selected["thekaveh-nnx"]),
         qat_config,
     )
     if key != QAT_WARNING_DEBT_KEY or not caught:

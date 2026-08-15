@@ -162,6 +162,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+          submodules: recursive
 
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -188,7 +189,7 @@ jobs:
       - name: Test repository workflow contracts
         run: |
           pytest tests/test_verify_repo.py::test_ci_repository_test_contract_enforces_canonical_nnx_wheel tests/test_verify_repo.py::test_ci_nnx_surface_job_enforces_canonical_wheel_contract tests/test_verify_repo.py::test_ci_dependency_audit_job_contract -q
-          pytest tests/test_verify_repo.py -q -k 'atlas_consumer_policy_contract or atlas_contract_workflow or dependency_audit or atlas_docs_preserve_mounted_workspace_and_track_ownership or ci_covers_gitflow_pr_targets or ci_tier_a_uses_temporary_outputs_and_preserves_sources or documentation_workflows_install_cairo_and_gate_pages_inputs or documentation_direct_dependencies_are_exactly_pinned or docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or ci_runs_repository_workflow_contract_tests or ci_runs_complete_repository_test_contract or ci_repository_test_contract_enforces_canonical_nnx_wheel or ci_nnx_surface_job_enforces_canonical_wheel_contract or repository_test_collection_boundary_is_explicit'
+          pytest tests/test_verify_repo.py -q -k 'atlas_consumer_policy_contract or atlas_contract_workflow or dependency_audit or atlas_docs_preserve_mounted_workspace_and_track_ownership or ci_covers_gitflow_pr_targets or ci_tier_a_uses_temporary_outputs_and_preserves_sources or documentation_workflows_install_cairo_and_gate_pages_inputs or documentation_direct_dependencies_are_exactly_pinned or docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or ci_verify_repo_submodule_contract or ci_runs_repository_workflow_contract_tests or ci_runs_complete_repository_test_contract or ci_repository_test_contract_enforces_canonical_nnx_wheel or ci_nnx_surface_job_enforces_canonical_wheel_contract or repository_test_collection_boundary_is_explicit'
 
       - name: Run repo verifier
         run: make verify

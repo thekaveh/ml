@@ -4,17 +4,11 @@ WORKDIR /usr/src/app
 
 COPY . .
 
-RUN pip install --no-cache-dir --upgrade pip \
-  && pip install --no-cache-dir --upgrade setuptools \
-  && pip install --no-cache-dir -r torch-core-requirements.txt \
-  && pip install --no-cache-dir --no-build-isolation -r torch-requirements.txt \
-  && pip install --no-cache-dir -r requirements.txt
-
-# Two Tier-A NLP tasks (text_classification-agnews-spacy-mlp,
-# sentiment_classification-vader-mlp) need a spaCy model + an NLTK
-# lexicon that pip install doesn't pull. Mirror what
-# .github/workflows/ci.yml's tier-a-papermill job does so the local
-# `docker build` + `docker run` path can execute every Tier-A notebook
-# without a "model not found" surprise.
-RUN python -m spacy download en_core_web_sm \
-  && python -c "import nltk; nltk.download('vader_lexicon', quiet=True)"
+# The canonical Torch 2.11 runtime uses three PyG wheels and importable
+# torchao 0.18. The complete quantization notebook stays manual-only under
+# Issue #66; this build installs no service runtime.
+RUN make install-torch-stack \
+  && make nlp-assets \
+  && python -m pip check \
+  && python -m scripts.verify_torch_stack \
+  && python -m scripts.verify_nnx_install

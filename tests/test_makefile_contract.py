@@ -10,6 +10,51 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_SUBPROCESS_TIMEOUT = 30
+_DOCKER_INSTALL_BLOCK = """RUN make install-torch-stack \\
+  && make nlp-assets \\
+  && python -m pip check \\
+  && python -m scripts.verify_torch_stack \\
+  && python -m scripts.verify_nnx_install"""
+
+
+def _target_recipe(makefile: str, target: str) -> tuple[str, ...]:
+    lines = makefile.splitlines()
+    start = next(
+        index for index, line in enumerate(lines) if line.startswith(f"{target}:")
+    )
+    recipes: list[str] = []
+    for line in lines[start + 1 :]:
+        if line.startswith("\t"):
+            recipes.append(line.removeprefix("\t"))
+            continue
+        if line and not line.startswith((" ", "#")):
+            break
+    return tuple(recipes)
+
+
+def _assert_docker_and_codespaces_contract(
+    docker: str,
+    makefile: str,
+    devcontainer: str,
+) -> None:
+    import json
+
+    assert docker.count("RUN ") == 1
+    assert docker[docker.index("RUN ") :].strip() == _DOCKER_INSTALL_BLOCK
+    assert _target_recipe(makefile, "codespace-setup") == (
+        "$(MAKE) nlp-assets",
+        "$(PYTHON) -m pip check",
+        "$(MAKE) verify-torch-stack",
+        "$(MAKE) verify-nnx-install",
+    )
+    payload = json.loads(
+        "\n".join(
+            line
+            for line in devcontainer.splitlines()
+            if not line.lstrip().startswith("//")
+        )
+    )
+    assert payload["postCreateCommand"] == "make codespace-setup"
 
 
 def _assert_torch_stack_verifier_target(makefile: Path, cwd: Path, python: str = "python") -> None:
@@ -197,6 +242,79 @@ def test_torch_installer_target_is_one_exact_command_and_codespace_has_no_late_p
     assert f"{custom_python} -m spacy download en_core_web_sm" in lines
     assert any(line.startswith(f"{custom_python} -c ") for line in lines)
     assert not any(" -m pip install" in line for line in lines)
+
+
+def test_docker_and_codespaces_verify_after_the_last_package_change():
+    docker = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    devcontainer = (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text(
+        encoding="utf-8"
+    )
+
+    _assert_docker_and_codespaces_contract(docker, makefile, devcontainer)
+
+
+def test_devcontainer_uses_only_the_one_shot_codespace_target():
+    devcontainer = (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text(
+        encoding="utf-8"
+    )
+    _assert_docker_and_codespaces_contract(
+        (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"),
+        (REPO_ROOT / "Makefile").read_text(encoding="utf-8"),
+        devcontainer,
+    )
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    (
+        "RUN python -m pip install -r requirements.txt",
+        _DOCKER_INSTALL_BLOCK + " \\\n  && python -m pip install package",
+        "RUN make install-torch-stack \\\n  && docker compose up -d",
+        "RUN make install-torch-stack \\\n  && jupyter lab",
+        "RUN make install-torch-stack \\\n  && ollama serve",
+        "RUN make install-torch-stack \\\n  && comfyui --listen",
+        "RUN make install-torch-stack \\\n  && make atlas-setup",
+    ),
+)
+def test_docker_contract_rejects_direct_late_install_or_service_mutations(replacement):
+    docker = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    mutated = docker.replace(_DOCKER_INSTALL_BLOCK, replacement, 1)
+    assert mutated != docker
+    with pytest.raises(AssertionError):
+        _assert_docker_and_codespaces_contract(
+            mutated,
+            (REPO_ROOT / "Makefile").read_text(encoding="utf-8"),
+            (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text(
+                encoding="utf-8"
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "\t$(PYTHON) -m pip install package\n",
+        "\tdocker compose up -d\n",
+        "\tjupyter lab\n",
+        "\tollama serve\n",
+        "\tcomfyui --listen\n",
+        "\t$(MAKE) atlas-setup\n",
+    ),
+)
+def test_codespace_contract_rejects_late_install_or_service_mutations(mutation):
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    anchor = "\t$(MAKE) verify-nnx-install\n"
+    mutated = makefile.replace(anchor, anchor + mutation, 1)
+    assert mutated != makefile
+    with pytest.raises(AssertionError):
+        _assert_docker_and_codespaces_contract(
+            (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"),
+            mutated,
+            (REPO_ROOT / ".devcontainer" / "devcontainer.json").read_text(
+                encoding="utf-8"
+            ),
+        )
 
 
 def test_verify_nnx_install_target_is_public_and_uses_selected_python():

@@ -59,6 +59,7 @@ jobs:
             vulnerability-audit-requirements.txt
             requirements.txt
             torch-core-requirements.txt
+            torch-ecosystem-requirements.txt
             torch-requirements.txt
             torch-audit-requirements.txt
             pyg-extension-audit-requirements.txt
@@ -92,17 +93,22 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             torch-core-requirements.txt
+            torch-ecosystem-requirements.txt
             torch-requirements.txt
+            torch-audit-requirements.txt
+            pyg-extension-audit-requirements.txt
             docs-requirements.txt
 
       - name: Install dependencies
         run: |
           make install-torch-stack
-          python -m pip install --only-binary=thekaveh-nnx -r requirements.txt
           python -m pip install -r docs-requirements.txt
 
-      - name: Verify canonical NNx installation
-        run: make verify-nnx-install
+      - name: Check and verify canonical Torch and NNx stack
+        run: |
+          python -m pip check
+          make verify-torch-stack
+          make verify-nnx-install
 
       - name: Run complete repository tests
         run: make test
@@ -124,21 +130,27 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             torch-core-requirements.txt
+            torch-ecosystem-requirements.txt
             torch-requirements.txt
+            torch-audit-requirements.txt
+            pyg-extension-audit-requirements.txt
 
       - name: Install dependencies
-        run: |
-          make install-torch-stack
-          python -m pip install --only-binary=thekaveh-nnx -r requirements.txt
+        run: make install-torch-stack
 
       - name: Lint (ruff check)
         run: make lint
 
-      - name: Verify canonical NNx installation
-        run: make verify-nnx-install
+      - name: Check and verify canonical Torch and NNx stack
+        run: |
+          python -m pip check
+          make verify-torch-stack
+          make verify-nnx-install
 
       - name: Run NNx-surface tests
-        run: make test-nnx-surface
+        run: |
+          pytest -p no:cacheprovider -W error --junitxml=/tmp/nnx-surface.xml tests/nnx_surface -v
+          python -m scripts.verify_junit /tmp/nnx-surface.xml
 
   verify-repo:
     runs-on: ubuntu-24.04
@@ -149,7 +161,6 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-          submodules: recursive
 
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -159,12 +170,19 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             torch-core-requirements.txt
+            torch-ecosystem-requirements.txt
             torch-requirements.txt
+            torch-audit-requirements.txt
+            pyg-extension-audit-requirements.txt
 
       - name: Install dependencies
+        run: make install-torch-stack
+
+      - name: Check and verify canonical Torch and NNx stack
         run: |
-          make install-torch-stack
-          pip install -r requirements.txt
+          python -m pip check
+          make verify-torch-stack
+          make verify-nnx-install
 
       - name: Test repository workflow contracts
         run: |
@@ -218,8 +236,9 @@ jobs:
     # phase1 moved to Tier-B after the 2026-07-04 CI run showed its fresh
     # Google Drive Reddit2 download is too fragile for every-PR gating;
     # quantization-mnist-pytorch originally moved to Tier-B per issue #10, then
-    # removed from TIER_B on 2026-06-16 after the weekly cron confirmed it cannot
-    # run in CI's pinned env — manual-only now). Cumulative ~7 min on a macOS M-series CPU but Linux
+    # removed from TIER_B on 2026-06-16. Its dependency surface is now qualified,
+    # while full-notebook acceptance remains manual-only under Issue #66). Cumulative
+    # ~7 min on a macOS M-series CPU but Linux
     # GH Actions runners are ~3-4× slower for hand-coded numpy training
     # (image_classification-mnist-ffnn-numpy is the worst offender — observed
     # ~30 min on its own at PR-#5 HEAD edcab84). 90 min cap leaves headroom
@@ -239,29 +258,27 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             torch-core-requirements.txt
+            torch-ecosystem-requirements.txt
             torch-requirements.txt
+            torch-audit-requirements.txt
+            pyg-extension-audit-requirements.txt
 
       - name: Install dependencies
         run: |
           make install-torch-stack
-          python -m pip install --only-binary=thekaveh-nnx -r requirements.txt
+          make nlp-assets
 
-      - name: Download spaCy en_core_web_sm model
-        # Needed by text_classification-agnews-spacy-mlp-pytorch and
-        # sentiment_classification-vader-mlp-pytorch. `pip install spacy` does NOT pull
-        # the language model — it's a separate download.
-        run: python -m spacy download en_core_web_sm
-
-      - name: Download NLTK vader_lexicon
-        # Needed by sentiment_classification-vader-mlp-pytorch. The notebook also has a
-        # lazy fallback download, but doing it here once is faster + offline-safe in CI.
-        run: python -c "import nltk; nltk.download('vader_lexicon', quiet=True)"
-
-      - name: Verify canonical NNx installation
-        run: make verify-nnx-install
+      - name: Check and verify canonical Torch and NNx stack
+        run: |
+          python -m pip check
+          make verify-torch-stack
+          make verify-nnx-install
 
       - name: Run Tier-A notebooks (papermill)
         run: make smoke-tier-a
+
+      - name: Verify Tier-A notebook output contract
+        run: python -m scripts.verify_smoke_outputs --tier a --root /tmp/ml-tier-a
 
       - name: Check Tier-A temporary notebook outputs
         run: make check-tier-a-artifacts
@@ -276,13 +293,10 @@ jobs:
           name: tier-a-notebooks
           # All 18 Tier-A notebooks — keep in sync with Makefile TIER_A.
           # (mnist-pytorch moved to Tier-B per issue #7; quantization-mnist-pytorch
-          # originally moved to Tier-B per issue #10 — torchao>=0.17 (the
-          # requirements.txt pin) imports `torch.int1` at module load, which
-          # was added in torch 2.5; the local/CI contract pins torch==2.4.1.
-          # The Tier-B move turned out insufficient — the notebook
-          # still cannot run in CI's pinned env — so it was removed from
-          # Makefile TIER_B on 2026-06-16 and is now a manual-only task. See
-          # Makefile TIER_B section for full rationale.)
+          # originally moved to Tier-B per issue #10. The current Torch 2.11,
+          # three PyG wheels, and importable torchao 0.18 stack is qualified,
+          # while the complete quantization notebook remains manual-only under
+          # Issue #66. See Makefile TIER_B for the durable ownership boundary.)
           path: |
             /tmp/ml-tier-a/notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb
             /tmp/ml-tier-a/notebooks/tabular_classification-iris-mlp-pytorch/notebook.ipynb
@@ -326,18 +340,25 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             torch-core-requirements.txt
+            torch-ecosystem-requirements.txt
             torch-requirements.txt
+            torch-audit-requirements.txt
+            pyg-extension-audit-requirements.txt
 
       - name: Install dependencies
-        run: |
-          make install-torch-stack
-          python -m pip install --only-binary=thekaveh-nnx -r requirements.txt
+        run: make install-torch-stack
 
-      - name: Verify canonical NNx installation
-        run: make verify-nnx-install
+      - name: Check and verify canonical Torch and NNx stack
+        run: |
+          python -m pip check
+          make verify-torch-stack
+          make verify-nnx-install
 
       - name: Smoke-run Tier-B notebooks
         run: make smoke-tier-b
+
+      - name: Verify Tier-B notebook output contract
+        run: python -m scripts.verify_smoke_outputs --tier b --root /tmp/ml-smoke
 
   smoke-tier-c:
     runs-on: ubuntu-24.04
@@ -357,15 +378,22 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             torch-core-requirements.txt
+            torch-ecosystem-requirements.txt
             torch-requirements.txt
+            torch-audit-requirements.txt
+            pyg-extension-audit-requirements.txt
 
       - name: Install dependencies
-        run: |
-          make install-torch-stack
-          python -m pip install --only-binary=thekaveh-nnx -r requirements.txt
+        run: make install-torch-stack
 
-      - name: Verify canonical NNx installation
-        run: make verify-nnx-install
+      - name: Check and verify canonical Torch and NNx stack
+        run: |
+          python -m pip check
+          make verify-torch-stack
+          make verify-nnx-install
 
       - name: Smoke-run Tier-C notebooks
         run: make smoke-tier-c
+
+      - name: Verify Tier-C notebook output contract
+        run: python -m scripts.verify_smoke_outputs --tier c --root /tmp/ml-smoke

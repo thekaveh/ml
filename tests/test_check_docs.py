@@ -600,6 +600,24 @@ def test_real_user_docs_publish_advisory_baseline_contract():
     assert "Automated vulnerability-baseline enforcement remains deferred to Issue\n  #60." not in docs["CHANGELOG.md"]
 
 
+def test_current_runtime_surface_comments_describe_the_selected_torch_contract():
+    surfaces = {
+        path: (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in (
+            ".github/workflows/ci.yml",
+            "Dockerfile",
+            ".devcontainer/devcontainer.json",
+        )
+    }
+
+    for path, source in surfaces.items():
+        assert "Torch 2.11" in source, path
+        assert "three PyG wheels" in source, path
+        assert "torchao 0.18" in source, path
+        assert "Issue #66" in source and "manual-only" in source, path
+        assert "Ollama" not in source, path
+
+
 def test_real_user_docs_publish_current_vulnerability_snapshot():
     ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
     security = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")

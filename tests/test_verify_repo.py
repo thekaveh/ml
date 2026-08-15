@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import builtins
+import copy
 import os
 import re
 import ast
@@ -12,7 +13,9 @@ import subprocess
 import sys
 import tomllib
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping, Sequence
 
 import pytest
 import yaml
@@ -2631,8 +2634,8 @@ def _mutate_ci_run_command(repo: Path, command: str) -> None:
 def _mutate_docker_run_instruction(repo: Path, command: str) -> None:
     target = repo / "Dockerfile"
     source = target.read_text(encoding="utf-8")
-    anchor = "RUN pip install --no-cache-dir --upgrade pip \\\n"
-    mutated = source.replace(anchor, f"RUN {command} \\\n", 1)
+    anchor = "RUN make install-torch-stack \\\n"
+    mutated = source.replace(anchor, f"RUN {command} \\\n  && make install-torch-stack \\\n", 1)
     assert mutated != source
     target.write_text(mutated, encoding="utf-8")
 
@@ -3457,6 +3460,691 @@ def _load_workflow(path: Path) -> dict:
     return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
+_SHELL_SEPARATORS = frozenset((";", "&&", "||", "|"))
+_MAKE_MUTATION_TARGETS = frozenset(
+    ("install-torch-stack", "codespace-setup", "nlp-assets")
+)
+_SHELL_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.DOTALL)
+_STACK_CACHE_MANIFESTS = (
+    "requirements.txt",
+    "torch-core-requirements.txt",
+    "torch-ecosystem-requirements.txt",
+    "torch-requirements.txt",
+    "torch-audit-requirements.txt",
+    "pyg-extension-audit-requirements.txt",
+)
+
+
+@dataclass(frozen=True)
+class ShellCommand:
+    argv: tuple[str, ...]
+    environment: Mapping[str, str]
+    wrappers: tuple[str, ...]
+
+
+def _parse_shell_command(argv: Sequence[str]) -> ShellCommand:
+    tokens = list(argv)
+    environment: dict[str, str] = {}
+    wrappers: list[str] = []
+    while tokens:
+        if tokens[0] in {"sudo", "env"}:
+            wrappers.append(tokens.pop(0))
+            continue
+        if _SHELL_ASSIGNMENT_RE.fullmatch(tokens[0]):
+            name, value = tokens.pop(0).split("=", 1)
+            environment[name] = value
+            continue
+        break
+    return ShellCommand(tuple(tokens), environment, tuple(wrappers))
+
+
+def _shell_commands(source: str) -> tuple[ShellCommand, ...]:
+    logical = source.replace("\\\n", " ").replace("\n", ";")
+    lexer = shlex.shlex(logical, posix=True, punctuation_chars=";&|")
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    commands: list[ShellCommand] = []
+    current: list[str] = []
+    for token in lexer:
+        if token in _SHELL_SEPARATORS:
+            if current:
+                command = _parse_shell_command(current)
+                if command.argv:
+                    commands.append(command)
+                current = []
+        else:
+            current.append(token)
+    if current:
+        command = _parse_shell_command(current)
+        if command.argv:
+            commands.append(command)
+    return tuple(commands)
+
+
+def _shell_argvs(source: str) -> tuple[tuple[str, ...], ...]:
+    return tuple(command.argv for command in _shell_commands(source))
+
+
+def _attribute_chain(node: ast.AST) -> tuple[str, ...]:
+    names: list[str] = []
+    while isinstance(node, ast.Attribute):
+        names.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        names.append(node.id)
+    return tuple(reversed(names))
+
+
+def _python_c_downloads_data(program: str) -> bool:
+    try:
+        tree = ast.parse(program)
+    except SyntaxError:
+        return True
+    return any(
+        isinstance(node, ast.Call)
+        and _attribute_chain(node.func) in (("nltk", "download"), ("spacy", "download"))
+        for node in ast.walk(tree)
+    )
+
+
+def _is_package_or_data_change(argv: tuple[str, ...]) -> bool:
+    if not argv:
+        return False
+    executable = Path(argv[0].replace("$(PYTHON)", "python")).name
+    if executable in {"pip", "pip3"}:
+        return len(argv) > 1 and argv[1] == "install"
+    if executable == "uv":
+        return len(argv) > 2 and argv[1:3] == ("pip", "install")
+    if executable in {"apt", "apt-get", "conda"}:
+        return "install" in argv[1:]
+    if executable in {"make", "$(MAKE)"}:
+        return any(
+            token in _MAKE_MUTATION_TARGETS or token.startswith("install")
+            for token in argv[1:]
+        )
+    if executable == "spacy":
+        return len(argv) > 1 and argv[1] == "download"
+    if executable == "nltk":
+        return len(argv) > 1 and argv[1] in {"download", "downloader"}
+    if executable.startswith("python"):
+        if len(argv) > 3 and argv[1:3] == ("-m", "pip"):
+            return argv[3] == "install"
+        if len(argv) > 3 and argv[1:3] == ("-m", "spacy"):
+            return argv[3] == "download"
+        if len(argv) > 2 and argv[1:3] in {
+            ("-m", "nltk"),
+            ("-m", "nltk.downloader"),
+        }:
+            return True
+        if len(argv) > 2 and argv[1] == "-c":
+            return _python_c_downloads_data(argv[2])
+    return False
+
+
+def _assert_final_install_order(commands: tuple[str, ...], workload: str) -> None:
+    argvs = tuple(argv for source in commands for argv in _shell_argvs(source))
+    installers = [
+        index
+        for index, argv in enumerate(argvs)
+        if argv == ("make", "install-torch-stack")
+    ]
+    assert len(installers) == 1
+    changes = [index for index, argv in enumerate(argvs) if _is_package_or_data_change(argv)]
+    assert installers[0] in changes
+    pip_check = argvs.index(("python", "-m", "pip", "check"))
+    stack = argvs.index(("make", "verify-torch-stack"))
+    nnx = argvs.index(("make", "verify-nnx-install"))
+    workload_argv = next(argv for argv in argvs if shlex.join(argv) == workload)
+    work = argvs.index(workload_argv)
+    assert installers[0] <= max(changes) < pip_check < stack < nnx < work
+    assert not any(_is_package_or_data_change(argv) for argv in argvs[pip_check:work])
+
+
+_WARNING_ACTIONS = ("default", "error", "ignore", "always", "module", "once")
+_FORBIDDEN_WARNING_ARGV = frozenset(
+    (
+        "--disable-warnings",
+        "--disable-pytest-warnings",
+    )
+)
+
+
+def _warning_action(specification: str) -> str:
+    action = specification.split(":", 1)[0].strip().lower()
+    if not action:
+        return "default"
+    if action == "all":
+        return "always"
+    matches = tuple(candidate for candidate in _WARNING_ACTIONS if candidate.startswith(action))
+    assert len(matches) == 1, specification
+    return matches[0]
+
+
+def _warning_actions(argv: Sequence[str]) -> tuple[str, ...]:
+    actions: list[str] = []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token in {"-W", "--pythonwarnings"}:
+            assert index + 1 < len(argv), argv
+            actions.append(_warning_action(argv[index + 1]))
+            index += 2
+            continue
+        if token.startswith("--pythonwarnings="):
+            actions.append(_warning_action(token.split("=", 1)[1]))
+            index += 1
+            continue
+        if token.startswith("-W"):
+            actions.append(_warning_action(token[2:]))
+        index += 1
+    return tuple(actions)
+
+
+def _pythonwarnings_actions(value: object) -> tuple[str, ...]:
+    assert isinstance(value, str) and value, value
+    return tuple(_warning_action(part) for part in value.split(","))
+
+
+def _pytest_plugin_options(argv: Sequence[str]) -> tuple[str, ...]:
+    plugins: list[str] = []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token == "-p":
+            assert index + 1 < len(argv), argv
+            plugins.append(argv[index + 1])
+            index += 2
+            continue
+        if token.startswith("-p"):
+            plugins.append(token[2:])
+        index += 1
+    return tuple(plugins)
+
+
+def _assert_no_warning_bypass(argv: Sequence[str]) -> None:
+    assert _FORBIDDEN_WARNING_ARGV.isdisjoint(argv)
+    assert "no:warnings" not in _pytest_plugin_options(argv)
+    assert not any("filterwarnings=" in token for token in argv)
+
+
+def _environment_warning_actions(env: object) -> tuple[str, ...]:
+    if env is None:
+        return ()
+    assert isinstance(env, dict), env
+    actions: list[str] = []
+    if "PYTHONWARNINGS" in env:
+        actions.extend(_pythonwarnings_actions(env["PYTHONWARNINGS"]))
+    if "PYTEST_ADDOPTS" in env:
+        assert isinstance(env["PYTEST_ADDOPTS"], str), env["PYTEST_ADDOPTS"]
+        addopts = tuple(shlex.split(env["PYTEST_ADDOPTS"]))
+        _assert_no_warning_bypass(addopts)
+        actions.extend(_warning_actions(addopts))
+    return tuple(actions)
+
+
+def _assert_warning_error_command(
+    argv: tuple[str, ...],
+    *environments: object,
+) -> None:
+    _assert_no_warning_bypass(argv)
+    command_actions = _warning_actions(argv)
+    environment_actions = tuple(
+        action
+        for env in environments
+        for action in _environment_warning_actions(env)
+    )
+    assert (
+        sum(
+            argv[index : index + 2] == ("-W", "error")
+            for index in range(len(argv) - 1)
+        )
+        == 1
+    ), argv
+    assert command_actions == ("error",), command_actions
+    assert command_actions + environment_actions == ("error",), (
+        command_actions,
+        environment_actions,
+    )
+
+
+def _assert_nnx_warning_contract(workflow: dict[str, object]) -> None:
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, dict)
+    job = jobs["pytest-nnx-surface"]
+    assert isinstance(job, dict)
+    steps = job["steps"]
+    assert isinstance(steps, list)
+    step = next(item for item in steps if item.get("name") == "Run NNx-surface tests")
+    pytest_commands = tuple(
+        command
+        for command in _shell_commands(step["run"])
+        if command.argv and Path(command.argv[0]).name == "pytest"
+    )
+    assert len(pytest_commands) == 1, pytest_commands
+    command = pytest_commands[0]
+    _assert_warning_error_command(
+        command.argv,
+        command.environment,
+        workflow.get("env"),
+        job.get("env"),
+        step.get("env"),
+    )
+
+
+_RUNTIME_JOB_WORKLOADS = {
+    "pytest-repository": "make test",
+    "pytest-nnx-surface": (
+        "pytest -p no:cacheprovider -W error --junitxml=/tmp/nnx-surface.xml "
+        "tests/nnx_surface -v"
+    ),
+    "verify-repo": "make verify",
+    "tier-a-papermill": "make smoke-tier-a",
+    "smoke-tier-b": "make smoke-tier-b",
+    "smoke-tier-c": "make smoke-tier-c",
+}
+
+
+def _job_run_commands(workflow: dict, job_name: str) -> tuple[str, ...]:
+    return tuple(
+        step["run"]
+        for step in workflow["jobs"][job_name]["steps"]
+        if "run" in step
+    )
+
+
+def _assert_runtime_job_install_contract(workflow: dict, job_name: str) -> None:
+    job = workflow["jobs"][job_name]
+    assert "services" not in job
+    assert "container" not in job
+    setup = next(
+        step
+        for step in job["steps"]
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+    )
+    cache_paths = tuple(setup["with"]["cache-dependency-path"].splitlines())
+    assert len(cache_paths) == len(set(cache_paths))
+    assert set(_STACK_CACHE_MANIFESTS) <= set(cache_paths)
+    allowed_extras = {"docs-requirements.txt"} if job_name == "pytest-repository" else set()
+    assert set(cache_paths) - set(_STACK_CACHE_MANIFESTS) == allowed_extras
+    commands = _job_run_commands(workflow, job_name)
+    _assert_final_install_order(commands, _RUNTIME_JOB_WORKLOADS[job_name])
+    all_commands = tuple(
+        command for source in commands for command in _shell_commands(source)
+    )
+    warning_environments = (
+        workflow.get("env"),
+        job.get("env"),
+        *(step.get("env") for step in job["steps"]),
+    )
+    assert all(
+        not _environment_warning_actions(environment)
+        for environment in warning_environments
+    )
+    assert all(
+        not ({"PYTHONWARNINGS", "PYTEST_ADDOPTS"} & set(command.environment))
+        for command in all_commands
+    )
+    for command in all_commands:
+        if job_name == "pytest-nnx-surface" and Path(command.argv[0]).name == "pytest":
+            _assert_warning_error_command(command.argv, command.environment)
+        else:
+            _assert_no_warning_bypass(command.argv)
+            assert not _warning_actions(command.argv)
+    forbidden_executables = {"jupyter", "jupyterhub", "ollama", "comfyui"}
+    assert all(
+        Path(command.argv[0]).name not in forbidden_executables
+        and command.argv[:2] not in {
+            ("docker", "compose"),
+            ("docker-compose", "up"),
+            ("make", "atlas-setup"),
+            ("make", "atlas-up"),
+        }
+        for command in all_commands
+    )
+    checkout = next(step for step in job["steps"] if step.get("name") == "Checkout")
+    assert "submodules" not in checkout.get("with", {})
+
+
+def _assert_nnx_junit_contract(workflow: dict) -> None:
+    step = next(
+        item
+        for item in workflow["jobs"]["pytest-nnx-surface"]["steps"]
+        if item.get("name") == "Run NNx-surface tests"
+    )
+    assert _shell_argvs(step["run"]) == (
+        (
+            "pytest",
+            "-p",
+            "no:cacheprovider",
+            "-W",
+            "error",
+            "--junitxml=/tmp/nnx-surface.xml",
+            "tests/nnx_surface",
+            "-v",
+        ),
+        (
+            "python",
+            "-m",
+            "scripts.verify_junit",
+            "/tmp/nnx-surface.xml",
+        ),
+    )
+
+
+_TIER_OUTPUT_CONTRACTS = {
+    "tier-a-papermill": ("a", "/tmp/ml-tier-a"),
+    "smoke-tier-b": ("b", "/tmp/ml-smoke"),
+    "smoke-tier-c": ("c", "/tmp/ml-smoke"),
+}
+
+
+def _assert_tier_output_contract(workflow: dict, job_name: str) -> None:
+    argvs = tuple(
+        argv
+        for source in _job_run_commands(workflow, job_name)
+        for argv in _shell_argvs(source)
+    )
+    workload = tuple(shlex.split(_RUNTIME_JOB_WORKLOADS[job_name]))
+    tier, root = _TIER_OUTPUT_CONTRACTS[job_name]
+    oracle = (
+        "python",
+        "-m",
+        "scripts.verify_smoke_outputs",
+        "--tier",
+        tier,
+        "--root",
+        root,
+    )
+    assert argvs.count(workload) == 1
+    assert argvs.count(oracle) == 1
+    assert argvs.index(oracle) == argvs.index(workload) + 1
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        "sudo apt install libcairo2",
+        "sudo apt-get install -y libcairo2",
+        "env PIP_NO_INDEX=1 python -m pip install package",
+        "sudo env PIP_NO_INDEX=1 python -m pip install package",
+    ),
+)
+def test_package_change_classifier_normalizes_wrappers(command):
+    (argv,) = _shell_argvs(command)
+    assert _is_package_or_data_change(argv)
+
+
+def test_shell_parser_preserves_inline_warning_environment_and_wrappers():
+    (command,) = _shell_commands(
+        "sudo env PYTHONWARNINGS=ignore "
+        "PYTEST_ADDOPTS='--pythonwarnings default' pytest -W error tests/nnx_surface"
+    )
+    assert command.argv == ("pytest", "-W", "error", "tests/nnx_surface")
+    assert command.environment == {
+        "PYTHONWARNINGS": "ignore",
+        "PYTEST_ADDOPTS": "--pythonwarnings default",
+    }
+    assert command.wrappers == ("sudo", "env")
+
+
+def test_shell_parser_handles_line_continuations_newlines_and_assignments():
+    assert _shell_argvs("python -m pip check \\\n&& make verify-torch-stack\nmake verify-nnx-install") == (
+        ("python", "-m", "pip", "check"),
+        ("make", "verify-torch-stack"),
+        ("make", "verify-nnx-install"),
+    )
+    (command,) = _shell_commands("env MODE=test sudo make verify-torch-stack")
+    assert command.argv == ("make", "verify-torch-stack")
+    assert command.environment == {"MODE": "test"}
+    assert command.wrappers == ("env", "sudo")
+
+
+@pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))
+def test_ci_runtime_jobs_use_final_install_order_and_complete_cache_manifest(job_name):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    _assert_runtime_job_install_contract(workflow, job_name)
+
+
+@pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))
+@pytest.mark.parametrize("manifest", _STACK_CACHE_MANIFESTS)
+def test_ci_runtime_cache_manifest_rejects_each_omission(job_name, manifest):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    setup = next(
+        step
+        for step in workflow["jobs"][job_name]["steps"]
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+    )
+    setup["with"]["cache-dependency-path"] = setup["with"][
+        "cache-dependency-path"
+    ].replace(f"{manifest}\n", "")
+    with pytest.raises(AssertionError):
+        _assert_runtime_job_install_contract(workflow, job_name)
+
+
+def _ordered_install_fixture() -> tuple[str, ...]:
+    return (
+        "sudo apt-get install -y libcairo2",
+        "make install-torch-stack",
+        "python -m pip install -r docs-requirements.txt",
+        "make nlp-assets",
+        "python -m pip check",
+        "make verify-torch-stack",
+        "make verify-nnx-install",
+        "make test",
+    )
+
+
+def test_final_install_order_accepts_allowed_setup_before_final_verification():
+    _assert_final_install_order(_ordered_install_fixture(), "make test")
+
+
+@pytest.mark.parametrize(
+    "late_change",
+    (
+        "pip install package",
+        "pip3 install package",
+        "python -m pip install package",
+        "uv pip install package",
+        "apt install package",
+        "apt-get install package",
+        "conda install package",
+        "python -m spacy download model",
+        "spacy download model",
+        "nltk download vader_lexicon",
+        "python -m nltk.downloader vader_lexicon",
+        "sudo apt install package",
+        "sudo apt-get install package",
+        "env PIP_NO_INDEX=1 python -m pip install package",
+        'python -c "import nltk; nltk.download(\'vader_lexicon\')"',
+        "make install-extra",
+        "make nlp-assets",
+        "make codespace-setup",
+    ),
+)
+def test_final_install_order_rejects_every_late_package_or_data_change(late_change):
+    commands = list(_ordered_install_fixture())
+    commands.insert(-1, late_change)
+    with pytest.raises(AssertionError):
+        _assert_final_install_order(tuple(commands), "make test")
+
+
+@pytest.mark.parametrize("position", (5, 6, 7))
+def test_final_install_order_rejects_duplicate_installer_at_each_verification_boundary(position):
+    commands = list(_ordered_install_fixture())
+    commands.insert(position, "make install-torch-stack")
+    with pytest.raises(AssertionError):
+        _assert_final_install_order(tuple(commands), "make test")
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    (
+        "-W ignore",
+        "-Wignore",
+        "-Wignore::UserWarning",
+        "-Wdefault",
+        "-Wignore::DeprecationWarning",
+        "-W once",
+        "-Wonce",
+        "-W module",
+        "-Wmodule",
+        "-W always",
+        "-Walways",
+        "-Werror",
+        "--pythonwarnings ignore",
+        "--pythonwarnings=default",
+        "--pythonwarnings=ignore::DeprecationWarning",
+        "-p no:warnings",
+        "-pno:warnings",
+        "--disable-warnings",
+    ),
+)
+def test_nnx_ci_rejects_appended_warning_cli_actions(suffix):
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    mutated = copy.deepcopy(workflow)
+    step = next(
+        item
+        for item in mutated["jobs"]["pytest-nnx-surface"]["steps"]
+        if item.get("name") == "Run NNx-surface tests"
+    )
+    original = step["run"]
+    step["run"] = original.replace("-W error", f"-W error {suffix}", 1)
+    assert step["run"] != original and "-W error" in step["run"]
+    with pytest.raises(AssertionError):
+        _assert_nnx_warning_contract(mutated)
+
+
+@pytest.mark.parametrize("level", ("workflow", "job", "step"))
+@pytest.mark.parametrize(
+    ("name", "value"),
+    (
+        ("PYTHONWARNINGS", "ignore"),
+        ("PYTHONWARNINGS", "default"),
+        ("PYTHONWARNINGS", "ignore::DeprecationWarning"),
+        ("PYTHONWARNINGS", "once"),
+        ("PYTHONWARNINGS", "module"),
+        ("PYTHONWARNINGS", "always"),
+        ("PYTHONWARNINGS", "error"),
+        ("PYTEST_ADDOPTS", "-W ignore"),
+        ("PYTEST_ADDOPTS", "-Wdefault"),
+        ("PYTEST_ADDOPTS", "-Wignore::DeprecationWarning"),
+        ("PYTEST_ADDOPTS", "-W once"),
+        ("PYTEST_ADDOPTS", "-Wmodule"),
+        ("PYTEST_ADDOPTS", "-Walways"),
+        ("PYTEST_ADDOPTS", "-Werror"),
+        ("PYTEST_ADDOPTS", "-p no:warnings"),
+        ("PYTEST_ADDOPTS", "-pno:warnings"),
+        ("PYTEST_ADDOPTS", "--disable-warnings"),
+    ),
+)
+def test_nnx_ci_rejects_appended_warning_environment(level, name, value):
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    mutated = copy.deepcopy(workflow)
+    job = mutated["jobs"]["pytest-nnx-surface"]
+    step = next(item for item in job["steps"] if item.get("name") == "Run NNx-surface tests")
+    owner = {"workflow": mutated, "job": job, "step": step}[level]
+    owner.setdefault("env", {})[name] = value
+    assert "-W error" in step["run"]
+    with pytest.raises(AssertionError):
+        _assert_nnx_warning_contract(mutated)
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    (
+        "PYTHONWARNINGS=ignore",
+        "PYTEST_ADDOPTS='-W ignore'",
+        "PYTEST_ADDOPTS='-p no:warnings'",
+        "env PYTHONWARNINGS=ignore::DeprecationWarning",
+        "env PYTEST_ADDOPTS='-Wdefault'",
+        "env PYTEST_ADDOPTS=-pno:warnings",
+        "sudo env PYTEST_ADDOPTS='-Wignore::DeprecationWarning'",
+        "sudo env PYTEST_ADDOPTS='-p no:warnings'",
+    ),
+)
+def test_nnx_ci_rejects_inline_warning_environment(prefix):
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    mutated = copy.deepcopy(workflow)
+    step = next(
+        item
+        for item in mutated["jobs"]["pytest-nnx-surface"]["steps"]
+        if item.get("name") == "Run NNx-surface tests"
+    )
+    original = step["run"]
+    step["run"] = original.replace("pytest -p", f"{prefix} pytest -p", 1)
+    assert step["run"] != original and "-W error" in step["run"]
+    with pytest.raises(AssertionError):
+        _assert_nnx_warning_contract(mutated)
+
+
+def test_nnx_ci_warning_error_contract_accepts_only_original_error_action():
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    _assert_nnx_warning_contract(workflow)
+    _assert_nnx_junit_contract(workflow)
+    assert _warning_actions(("pytest", "-Werror")) == ("error",)
+    assert _warning_actions(("pytest", "-W", "error")) == ("error",)
+    assert _warning_actions(("pytest", "--pythonwarnings", "ignore")) == ("ignore",)
+    assert _warning_actions(("pytest", "--pythonwarnings=default")) == ("default",)
+    assert _pytest_plugin_options(("pytest", "-p", "no:warnings")) == ("no:warnings",)
+    assert _pytest_plugin_options(("pytest", "-pno:warnings")) == ("no:warnings",)
+    _assert_no_warning_bypass(("pytest", "-p", "no:cacheprovider", "-W", "error"))
+    _assert_warning_error_command(("pytest", "-W", "error"))
+    for argv in (
+        ("pytest", "-Werror"),
+        ("pytest", "-W", "error", "-W", "ignore"),
+        ("pytest", "-Werror", "-Wdefault"),
+        ("pytest", "-W", "error", "-Wignore::DeprecationWarning"),
+        ("pytest", "-W", "error", "--pythonwarnings", "ignore"),
+        ("pytest", "-W", "error", "--pythonwarnings=default"),
+        ("pytest", "-W", "error", "-p", "no:warnings"),
+        ("pytest", "-W", "error", "-pno:warnings"),
+    ):
+        with pytest.raises(AssertionError):
+            _assert_warning_error_command(argv)
+
+
+@pytest.mark.parametrize("job_name", tuple(_TIER_OUTPUT_CONTRACTS))
+def test_ci_tier_output_oracle_follows_matching_workload(job_name):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    _assert_tier_output_contract(workflow, job_name)
+
+
+@pytest.mark.parametrize("job_name", tuple(_TIER_OUTPUT_CONTRACTS))
+@pytest.mark.parametrize("mutation", ("missing", "wrong-root", "duplicate-workload", "late-install"))
+def test_ci_tier_output_oracle_rejects_order_mutations(job_name, mutation):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    steps = workflow["jobs"][job_name]["steps"]
+    workload_name = {
+        "tier-a-papermill": "Run Tier-A notebooks (papermill)",
+        "smoke-tier-b": "Smoke-run Tier-B notebooks",
+        "smoke-tier-c": "Smoke-run Tier-C notebooks",
+    }[job_name]
+    workload_index = next(
+        index for index, step in enumerate(steps) if step.get("name") == workload_name
+    )
+    oracle_index = workload_index + 1
+    if mutation == "missing":
+        steps.pop(oracle_index)
+    elif mutation == "wrong-root":
+        steps[oracle_index]["run"] = steps[oracle_index]["run"].replace(
+            _TIER_OUTPUT_CONTRACTS[job_name][1], "/tmp/wrong"
+        )
+    elif mutation == "duplicate-workload":
+        steps.insert(oracle_index, copy.deepcopy(steps[workload_index]))
+    else:
+        steps.insert(oracle_index, {"name": "Late install", "run": "pip install package"})
+    with pytest.raises(AssertionError):
+        _assert_tier_output_contract(workflow, job_name)
+
+
 _DEPENDENCY_AUDIT_JOB = {
     "name": "dependency-audit",
     "runs-on": "ubuntu-24.04",
@@ -3477,6 +4165,7 @@ _DEPENDENCY_AUDIT_JOB = {
                     "vulnerability-audit-requirements.txt\n"
                     "requirements.txt\n"
                     "torch-core-requirements.txt\n"
+                    "torch-ecosystem-requirements.txt\n"
                     "torch-requirements.txt\n"
                     "torch-audit-requirements.txt\n"
                     "pyg-extension-audit-requirements.txt\n"
@@ -3632,6 +4321,7 @@ def test_ci_dependency_audit_job_contract_rejects_checkout_submodules():
         "vulnerability-audit-requirements.txt",
         "requirements.txt",
         "torch-core-requirements.txt",
+        "torch-ecosystem-requirements.txt",
         "torch-requirements.txt",
         "torch-audit-requirements.txt",
         "pyg-extension-audit-requirements.txt",
@@ -4322,22 +5012,25 @@ def _assert_complete_repository_test_contract(workflow: dict) -> None:
                 "cache-dependency-path": (
                     "requirements.txt\n"
                     "torch-core-requirements.txt\n"
+                    "torch-ecosystem-requirements.txt\n"
                     "torch-requirements.txt\n"
+                    "torch-audit-requirements.txt\n"
+                    "pyg-extension-audit-requirements.txt\n"
                     "docs-requirements.txt\n"
                 ),
             },
         },
         {
             "name": "Install dependencies",
-            "run": (
-                "make install-torch-stack\n"
-                "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
-                "python -m pip install -r docs-requirements.txt\n"
-            ),
+            "run": "make install-torch-stack\npython -m pip install -r docs-requirements.txt\n",
         },
         {
-            "name": "Verify canonical NNx installation",
-            "run": "make verify-nnx-install",
+            "name": "Check and verify canonical Torch and NNx stack",
+            "run": (
+                "python -m pip check\n"
+                "make verify-torch-stack\n"
+                "make verify-nnx-install\n"
+            ),
         },
         {
             "name": "Run complete repository tests",
@@ -4491,23 +5184,31 @@ def _assert_nnx_surface_job_contract(workflow: dict) -> None:
                 "cache-dependency-path": (
                     "requirements.txt\n"
                     "torch-core-requirements.txt\n"
+                    "torch-ecosystem-requirements.txt\n"
                     "torch-requirements.txt\n"
+                    "torch-audit-requirements.txt\n"
+                    "pyg-extension-audit-requirements.txt\n"
                 ),
             },
         },
-        {
-            "name": "Install dependencies",
-            "run": (
-                "make install-torch-stack\n"
-                "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
-            ),
-        },
+        {"name": "Install dependencies", "run": "make install-torch-stack"},
         {"name": "Lint (ruff check)", "run": "make lint"},
         {
-            "name": "Verify canonical NNx installation",
-            "run": "make verify-nnx-install",
+            "name": "Check and verify canonical Torch and NNx stack",
+            "run": (
+                "python -m pip check\n"
+                "make verify-torch-stack\n"
+                "make verify-nnx-install\n"
+            ),
         },
-        {"name": "Run NNx-surface tests", "run": "make test-nnx-surface"},
+        {
+            "name": "Run NNx-surface tests",
+            "run": (
+                "pytest -p no:cacheprovider -W error "
+                "--junitxml=/tmp/nnx-surface.xml tests/nnx_surface -v\n"
+                "python -m scripts.verify_junit /tmp/nnx-surface.xml\n"
+            ),
+        },
     ]
 
 
@@ -4518,48 +5219,7 @@ def test_ci_nnx_surface_job_enforces_canonical_wheel_contract():
 
 
 def _valid_nnx_contract_workflow() -> dict:
-    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
-    repository_steps = workflow["jobs"]["pytest-repository"]["steps"]
-    repository_install = next(
-        step for step in repository_steps if step.get("name") == "Install dependencies"
-    )
-    repository_install["run"] = (
-        "make install-torch-stack\n"
-        "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
-        "python -m pip install -r docs-requirements.txt\n"
-    )
-    if not any(
-        step.get("name") == "Verify canonical NNx installation"
-        for step in repository_steps
-    ):
-        repository_steps[-1:-1] = [
-            {
-                "name": "Verify canonical NNx installation",
-                "run": "make verify-nnx-install",
-            }
-        ]
-
-    surface_steps = workflow["jobs"]["pytest-nnx-surface"]["steps"]
-    surface_install = next(
-        step for step in surface_steps if step.get("name") == "Install dependencies"
-    )
-    surface_install["run"] = (
-        "make install-torch-stack\n"
-        "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
-    )
-    surface_verifier = next(
-        step
-        for step in surface_steps
-        if step.get("name") in {"Verify nnx import", "Verify canonical NNx installation"}
-    )
-    surface_verifier.clear()
-    surface_verifier.update(
-        {
-            "name": "Verify canonical NNx installation",
-            "run": "make verify-nnx-install",
-        }
-    )
-    return workflow
+    return _load_workflow(REPO / ".github/workflows/ci.yml")
 
 
 @pytest.mark.parametrize("variable", ["NNX_ALLOW_EDITABLE", "PYTHONPATH"])
@@ -4664,9 +5324,7 @@ def test_ci_nnx_jobs_reject_noncanonical_install_commands(
         for step in workflow["jobs"][job_name]["steps"]
         if step.get("name") == "Install dependencies"
     )
-    lines = install["run"].splitlines()
-    lines[1] = install_command
-    install["run"] = "\n".join(lines) + "\n"
+    install["run"] = f"{install['run']}\n{install_command}"
 
     with pytest.raises(AssertionError):
         assert_contract(workflow)
@@ -4706,7 +5364,7 @@ def test_ci_nnx_jobs_reject_provenance_environment_overrides(
         verifier = next(
             step
             for step in job["steps"]
-            if step.get("name") == "Verify canonical NNx installation"
+            if step.get("name") == "Check and verify canonical Torch and NNx stack"
         )
         verifier["env"] = {variable: "1"}
 
@@ -4727,7 +5385,7 @@ def test_ci_nnx_jobs_reject_removed_or_reordered_verifier(job_name, assert_contr
     verifier_index = next(
         index
         for index, step in enumerate(steps)
-        if step.get("name") == "Verify canonical NNx installation"
+        if step.get("name") == "Check and verify canonical Torch and NNx stack"
     )
     verifier = steps.pop(verifier_index)
 
@@ -4783,7 +5441,9 @@ def test_ci_nnx_jobs_reject_controls_and_weakened_workloads(
         job[field] = value
     else:
         step_name = (
-            "Verify canonical NNx installation" if target == "verifier" else test_step_name
+            "Check and verify canonical Torch and NNx stack"
+            if target == "verifier"
+            else test_step_name
         )
         step = next(step for step in job["steps"] if step.get("name") == step_name)
         step[field] = value
@@ -5012,18 +5672,15 @@ def test_ci_tier_a_uses_temporary_outputs_and_preserves_sources():
 _TIER_NNX_CONTRACTS = {
     "tier-a-papermill": {
         "workload": {"name": "Run Tier-A notebooks (papermill)", "run": "make smoke-tier-a"},
-        "bridge": (
-            {"name": "Download spaCy en_core_web_sm model", "run": "python -m spacy download en_core_web_sm"},
-            {"name": "Download NLTK vader_lexicon", "run": 'python -c "import nltk; nltk.download(\'vader_lexicon\', quiet=True)"'},
-        ),
+        "install": "make install-torch-stack\nmake nlp-assets\n",
     },
     "smoke-tier-b": {
         "workload": {"name": "Smoke-run Tier-B notebooks", "run": "make smoke-tier-b"},
-        "bridge": (),
+        "install": "make install-torch-stack",
     },
     "smoke-tier-c": {
         "workload": {"name": "Smoke-run Tier-C notebooks", "run": "make smoke-tier-c"},
-        "bridge": (),
+        "install": "make install-torch-stack",
     },
 }
 _LIVE_SERVICE_COMMANDS = (
@@ -5039,8 +5696,28 @@ _LIVE_SERVICE_COMMANDS = (
 
 def _assert_tier_nnx_provenance_contract(workflow: dict, job_name: str) -> None:
     _assert_no_nnx_environment_overrides(workflow)
+    _assert_runtime_job_install_contract(workflow, job_name)
+    _assert_tier_output_contract(workflow, job_name)
     job = workflow["jobs"][job_name]
     contract = _TIER_NNX_CONTRACTS[job_name]
+
+    expected_conditions = {
+        "tier-a-papermill": None,
+        "smoke-tier-b": (
+            "github.event_name == 'workflow_dispatch'\n"
+            "|| github.event_name == 'schedule'\n"
+            "|| contains(github.event.pull_request.labels.*.name, 'tier-b-smoke')\n"
+        ),
+        "smoke-tier-c": (
+            "github.event_name == 'workflow_dispatch' || "
+            "github.event_name == 'schedule'"
+        ),
+    }
+    expected_condition = expected_conditions[job_name]
+    if expected_condition is None:
+        assert "if" not in job
+    else:
+        assert job["if"] == expected_condition
 
     assert "container" not in job
     assert "services" not in job
@@ -5057,26 +5734,37 @@ def _assert_tier_nnx_provenance_contract(workflow: dict, job_name: str) -> None:
     )
     assert job["steps"][install_index] == {
         "name": "Install dependencies",
-        "run": (
-            "make install-torch-stack\n"
-            "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
-        ),
+        "run": contract["install"],
     }
     verifier_index = next(
         index
         for index, step in enumerate(job["steps"])
-        if step.get("name") == "Verify canonical NNx installation"
+        if step.get("name") == "Check and verify canonical Torch and NNx stack"
     )
     assert job["steps"][verifier_index] == {
-        "name": "Verify canonical NNx installation",
-        "run": "make verify-nnx-install",
+        "name": "Check and verify canonical Torch and NNx stack",
+        "run": (
+            "python -m pip check\n"
+            "make verify-torch-stack\n"
+            "make verify-nnx-install\n"
+        ),
     }
-    assert tuple(job["steps"][install_index + 1 : verifier_index]) == contract["bridge"]
     assert job["steps"][verifier_index + 1] == contract["workload"]
     assert all(
         "pip install" not in step.get("run", "").lower()
         for step in job["steps"][verifier_index + 1 :]
     )
+    uploads = [
+        step
+        for step in job["steps"]
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    ]
+    if job_name == "tier-a-papermill":
+        assert len(uploads) == 1
+        assert uploads[0]["if"] == "always()"
+        assert uploads[0]["with"]["if-no-files-found"] == "error"
+    else:
+        assert not uploads
 
 
 @pytest.mark.parametrize("job_name", tuple(_TIER_NNX_CONTRACTS))
@@ -5110,7 +5798,7 @@ def test_ci_tier_nnx_provenance_contract_rejects_mutations(job_name, mutation):
     verifier_index = next(
         index
         for index, step in enumerate(steps)
-        if step.get("name") == "Verify canonical NNx installation"
+        if step.get("name") == "Check and verify canonical Torch and NNx stack"
     )
     if mutation == "removed_verifier":
         steps.pop(verifier_index)
@@ -5133,7 +5821,7 @@ def test_ci_tier_nnx_provenance_contract_rejects_mutations(job_name, mutation):
     else:
         raise AssertionError(f"unhandled mutation: {mutation}")
 
-    with pytest.raises((AssertionError, StopIteration)):
+    with pytest.raises((AssertionError, StopIteration, ValueError)):
         _assert_tier_nnx_provenance_contract(workflow, job_name)
 
 

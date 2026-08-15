@@ -227,3 +227,6 @@ install-torch-stack:
 # one place across the §3.2 (Docker), §3.3 (venv), and §3.4 (Codespaces) paths.
 codespace-setup: install-torch-stack
 	$(MAKE) nlp-assets
+	$(PYTHON) -m pip check
+	$(MAKE) verify-torch-stack
+	$(MAKE) verify-nnx-install

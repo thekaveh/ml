@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from importlib import metadata
 from importlib.metadata import PackagePath
 from io import StringIO
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import ModuleType
 from typing import Protocol
 
@@ -109,6 +109,8 @@ class DistributionView(Protocol):
     version: str
     files: Sequence[PackagePath] | None
 
+    def locate_file(self, path: PackagePath) -> Path: ...
+
     def read_text(self, filename: str) -> str | None: ...
 
 
@@ -140,6 +142,139 @@ class TorchStackVerificationError(RuntimeError):
         self.component = component
         self.category = category
         super().__init__(f"torch stack verification failed: {component}: {category}")
+
+
+_TORCH_SCRIPT_WARNING_MESSAGE = (
+    "`torch.jit.script` is deprecated. Please switch to "
+    "`torch.compile` or `torch.export`."
+)
+_TORCH_SCRIPT_WARNING_PATH = PurePosixPath("torch/jit/_script.py")
+_IMPORT_WARNING_OUTER_COMPONENTS = frozenset(("torch-geometric", "torch-sparse"))
+_IMPORT_WARNING_DEBT_KEYS = frozenset({
+    ("2.11.0", "torch-geometric", "2.8.0.post1"),
+    ("2.11.0", "torch-sparse", "0.6.18"),
+})
+
+
+@dataclass(frozen=True)
+class ImportWarningEvidence:
+    torch_public_version: str
+    outer_component: str
+    outer_public_version: str
+    count: int
+    message: str
+    origin: Path
+
+
+def _distribution_public_version(
+    component: str,
+    distribution: DistributionView,
+) -> str:
+    try:
+        return Version(distribution.version).public
+    except BaseException:
+        raise TorchStackVerificationError(component, "abi") from None
+
+
+def _torch_script_warning_origin(
+    torch_distribution: DistributionView,
+    *,
+    component: str,
+) -> Path:
+    try:
+        files = torch_distribution.files
+        if files is None:
+            raise TorchStackVerificationError(component, "abi")
+        matches = tuple(
+            path for path in files
+            if isinstance(path, PackagePath)
+            and path.as_posix() == _TORCH_SCRIPT_WARNING_PATH.as_posix()
+        )
+        if len(matches) != 1 or getattr(matches[0], "dist", None) is not torch_distribution:
+            raise TorchStackVerificationError(component, "abi")
+        located = Path(matches[0].locate())
+        owned = Path(torch_distribution.locate_file(matches[0]))
+        if located.is_symlink() or owned.is_symlink():
+            raise TorchStackVerificationError(component, "abi")
+        resolved = located.resolve(strict=True)
+        if resolved != owned.resolve(strict=True) or not resolved.is_file():
+            raise TorchStackVerificationError(component, "abi")
+        return resolved
+    except TorchStackVerificationError:
+        raise
+    except BaseException:
+        raise TorchStackVerificationError(component, "abi") from None
+
+
+def _capture_selected_import(
+    import_name: str,
+    hooks: VerificationHooks,
+) -> tuple[ModuleType, tuple[warnings.WarningMessage, ...]]:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        module = hooks.import_module(import_name)
+    return module, tuple(caught)
+
+
+def _validate_import_warning_group(
+    *,
+    torch_distribution: DistributionView,
+    outer_component: str,
+    outer_distribution: DistributionView,
+    caught: Sequence[warnings.WarningMessage],
+) -> ImportWarningEvidence:
+    try:
+        if not caught:
+            raise TorchStackVerificationError(outer_component, "abi")
+        torch_version = _distribution_public_version("torch", torch_distribution)
+        outer_version = _distribution_public_version(outer_component, outer_distribution)
+        if (torch_version, outer_component, outer_version) not in _IMPORT_WARNING_DEBT_KEYS:
+            raise TorchStackVerificationError(outer_component, "abi")
+        expected_origin = _torch_script_warning_origin(
+            torch_distribution,
+            component=outer_component,
+        )
+        for record in caught:
+            resolved = Path(record.filename).resolve(strict=True)
+            if (
+                record.category is not DeprecationWarning
+                or str(record.message) != _TORCH_SCRIPT_WARNING_MESSAGE
+                or resolved != expected_origin
+            ):
+                raise TorchStackVerificationError(outer_component, "abi")
+        return ImportWarningEvidence(
+            torch_version,
+            outer_component,
+            outer_version,
+            len(caught),
+            _TORCH_SCRIPT_WARNING_MESSAGE,
+            expected_origin,
+        )
+    except TorchStackVerificationError:
+        raise
+    except BaseException:
+        raise TorchStackVerificationError(outer_component, "abi") from None
+
+
+def _import_with_selected_warning_boundary(
+    pin: StackPin,
+    distribution: DistributionView,
+    torch_distribution: DistributionView,
+    hooks: VerificationHooks,
+) -> ModuleType:
+    try:
+        module, caught = _capture_selected_import(pin.import_name, hooks)
+    except BaseException:
+        raise TorchStackVerificationError(pin.distribution, "abi") from None
+    if not caught:
+        return module
+    _validate_import_warning_group(
+        torch_distribution=torch_distribution,
+        outer_component=pin.distribution,
+        outer_distribution=distribution,
+        caught=caught,
+    )
+    return module
 
 
 @dataclass(frozen=True)
@@ -532,6 +667,7 @@ def verify_torch_stack(
         raise TorchStackVerificationError("platform", "platform") from None
     contract = load_stack_contract(repo, system, machine)
     modules: dict[str, ModuleType] = {}
+    selected_distributions: dict[str, DistributionView] = {}
     try:
         installed = tuple(normalize_name(name) for name in hooks.installed_names())
     except BaseException:
@@ -543,10 +679,27 @@ def verify_torch_stack(
         except BaseException:
             raise TorchStackVerificationError(pin.distribution, "metadata") from None
         _verify_distribution(pin, distribution, contract)
-        try:
-            module = hooks.import_module(pin.import_name)
-        except BaseException:
-            raise TorchStackVerificationError(pin.distribution, "abi") from None
+        selected_distributions[pin.distribution] = distribution
+        if pin.distribution in _IMPORT_WARNING_OUTER_COMPONENTS:
+            try:
+                torch_distribution = selected_distributions.get("torch")
+                if torch_distribution is None:
+                    raise TorchStackVerificationError(pin.distribution, "abi")
+                module = _import_with_selected_warning_boundary(
+                    pin,
+                    distribution,
+                    torch_distribution,
+                    hooks,
+                )
+            except TorchStackVerificationError:
+                raise
+            except BaseException:
+                raise TorchStackVerificationError(pin.distribution, "abi") from None
+        else:
+            try:
+                module = hooks.import_module(pin.import_name)
+            except BaseException:
+                raise TorchStackVerificationError(pin.distribution, "abi") from None
         _verify_record_ownership(pin, distribution, module)
         modules[pin.distribution] = module
     _verify_cpu_runtime(contract, modules["torch"])

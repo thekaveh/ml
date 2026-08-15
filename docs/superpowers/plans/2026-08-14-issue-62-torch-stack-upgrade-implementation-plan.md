@@ -2517,7 +2517,7 @@ graph edits, or stage anything until the focused clean gate is green.
   ```bash
   pytest -p no:cacheprovider -W error \
     tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py \
-    -q -k 'qat_warning_debt_validator'
+    -q -k 'qat_warning_debt'
   ```
 
   Expected RED: the new tests fail because `_assert_qat_warning_debt` and
@@ -2724,7 +2724,7 @@ graph edits, or stage anything until the focused clean gate is green.
   export PATH="$FOCUS_ROOT/venv/bin:$PATH"
   pytest -p no:cacheprovider -W error \
     tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py \
-    -q -k 'qat_warning_debt_validator'
+    -q -k 'qat_warning_debt'
   pytest -p no:cacheprovider -W error \
     --junitxml="$FOCUS_ROOT/qat-warning-debt.xml" \
     tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py::test_qat_prepare_train_convert_and_inference \

@@ -28,6 +28,62 @@ REPO_ROOT = REPO
 SCRIPT = REPO / "scripts" / "verify_repo.py"
 ACTIVE_FIXTURE_DIR = "notebooks/image_classification-mnist-ffnn-numpy"
 TEST_SUBPROCESS_TIMEOUT = 30
+ISSUE62_PLAN = (
+    REPO
+    / "docs"
+    / "superpowers"
+    / "plans"
+    / "2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md"
+)
+
+
+def _assert_issue62_qat_debt_plan_selectors(plan_source: str) -> None:
+    selectors = tuple(
+        re.findall(
+            r"tests/nnx_surface/test_quantization_mnist_ffnn_pytorch\.py \\\n"
+            r"    -q -k '([^']+)'",
+            plan_source,
+        )
+    )
+    assert selectors == ("qat_warning_debt", "qat_warning_debt")
+    test_tree = ast.parse(
+        (
+            REPO
+            / "tests"
+            / "nnx_surface"
+            / "test_quantization_mnist_ffnn_pytorch.py"
+        ).read_text(encoding="utf-8")
+    )
+    debt_tests = tuple(
+        node.name
+        for node in test_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test_qat_warning_debt_")
+    )
+    assert debt_tests
+    assert all(selectors[0] in name for name in debt_tests)
+
+
+def test_issue62_qat_debt_plan_selectors_cover_every_debt_test_family():
+    _assert_issue62_qat_debt_plan_selectors(ISSUE62_PLAN.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (None, "qat_warning_debt_validator", "qat_warning_debt_key", "qat_warning_debt "),
+    ids=("omitted", "validator-only", "key-only", "trailing-space"),
+)
+def test_issue62_qat_debt_plan_selectors_reject_narrowing_mutations(mutation):
+    control = ISSUE62_PLAN.read_text(encoding="utf-8").replace(
+        "-q -k 'qat_warning_debt_validator'",
+        "-q -k 'qat_warning_debt'",
+    )
+    _assert_issue62_qat_debt_plan_selectors(control)
+    replacement = "-q" if mutation is None else f"-q -k '{mutation}'"
+    mutated = control.replace("-q -k 'qat_warning_debt'", replacement, 1)
+
+    with pytest.raises(AssertionError):
+        _assert_issue62_qat_debt_plan_selectors(mutated)
 
 
 def _parse_exact_direct_pins(path: Path) -> dict[str, str]:

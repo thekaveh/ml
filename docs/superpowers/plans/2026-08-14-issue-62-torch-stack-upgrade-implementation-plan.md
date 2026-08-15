@@ -163,7 +163,7 @@ def _assert_qat_warning_debt(
     *,
     qat_config: str,
     distribution: DistributionProvider = importlib.metadata.distribution,
-) -> None:
+) -> dict[str, object]:
     raise NotImplementedError
 ```
 
@@ -1828,7 +1828,8 @@ change, clean path, extra scoped status, or hash drift stops Task 2.1.
   and this exact selected r4/r5 shell for Task 3 Step 6. The subsequently approved design/plan debt
   amendments may advance HEAD only through commits `docs: define Issue 62 QAT warning debt` and
   `docs: plan Issue 62 QAT warning debt`; they do not alter the selected environment or runtime
-  implementation. Task 3 Step 6 proves that exact two-document descendant before reuse.
+  implementation. The review correction `docs: close Issue 62 QAT plan gaps` may then change only
+  the plan. Task 3 Step 6 proves that exact three-commit/two-document descendant before reuse.
 
 ---
 
@@ -1858,7 +1859,7 @@ change, clean path, extra scoped status, or hash drift stops Task 2.1.
 **Resume brief after Task 2.1:** First complete Step 1's consumer/AST additions and Steps 4.1-4.2's
 QAT debt RED/GREEN cycle without changing the already proved production/platform boundary. Preserve
 and reuse exactly the Task 2.1-selected `FOCUS_ROOT` (r4 or r5) and reviewed `TASK21_SHA`. Record
-`TASK3_BASE_SHA` only after the two approved debt-document commits; Step 6 proves that the exact diff
+`TASK3_BASE_SHA` only after the three approved debt-document commits; Step 6 proves that the exact diff
 from `TASK21_SHA` contains only the design and plan and then reasserts interpreter prefix, platform,
 current HEAD, complete stack provenance, separate fresh positive import probe, exact QAT warning
 debt, focused command, and JUnit parser. Never recreate/reinstall r4 from Task 2 HEAD. If the handoff
@@ -1879,9 +1880,87 @@ graph edits, or stage anything until the focused clean gate is green.
   verifier, NNx conftest, graph, quantization, Make, and CI consumer sources. Mutate the exact branch
   to `if True`, add each forbidden filter form independently, and require the AST helper to fail.
 
-  The sole allowed consumer `warnings.simplefilter` is the exact QAT capture introduced in Step 4.2.
-  Add this structural guard in `tests/test_verify_torch_stack.py` and call it from
-  `test_graph_and_quantization_consumers_have_no_optional_backend_bypass`:
+  The sole allowed consumer `warnings.simplefilter` will be the exact QAT capture introduced in
+  Step 4.2. Before adding either AST helper, add this synthetic fixture and its positive/mutation
+  tests to `tests/test_verify_torch_stack.py`:
+
+  ```python
+  CLEAN_QAT_CAPTURE_SOURCE = '''
+  def test_qat_prepare_train_convert_and_inference():
+      qat_config = "8da4w"
+      callback = nnx.QATLifecycleCallback(qat_config=qat_config)
+      train_step = nnx.qat_train_step_factory(qat_config=qat_config)
+      with warnings.catch_warnings(record=True) as caught:
+          warnings.simplefilter("always")
+          run = model.train(callbacks=[callback], train_step_fn=train_step)
+      qat_warning_evidence = _assert_qat_warning_debt(caught, qat_config=qat_config)
+      logits, classes = model.predict(X=X)
+  '''
+
+
+  def test_qat_warning_capture_contract_accepts_only_exact_synthetic_fixture():
+      _assert_qat_warning_capture_is_exact(CLEAN_QAT_CAPTURE_SOURCE)
+      _assert_no_other_consumer_warning_capture(
+          "def test_graph():\n    pass\n",
+          CLEAN_QAT_CAPTURE_SOURCE,
+      )
+
+
+  @pytest.mark.parametrize(
+      ("old", "new"),
+      (
+          ("record=True", "record=False"),
+          ('simplefilter("always")', 'simplefilter("ignore")'),
+          ('qat_config = "8da4w"', 'qat_config = "8da4w-next"'),
+          (
+              "    qat_warning_evidence = _assert_qat_warning_debt(caught, qat_config=qat_config)\n",
+              "",
+          ),
+          (
+              "    callback = nnx.QATLifecycleCallback(qat_config=qat_config)\n",
+              "        callback = nnx.QATLifecycleCallback(qat_config=qat_config)\n",
+          ),
+          (
+              "    logits, classes = model.predict(X=X)\n",
+              "        logits, classes = model.predict(X=X)\n",
+          ),
+      ),
+  )
+  def test_qat_warning_capture_contract_rejects_shape_mutations(old, new):
+      mutated = CLEAN_QAT_CAPTURE_SOURCE.replace(old, new, 1)
+      assert mutated != CLEAN_QAT_CAPTURE_SOURCE
+      with pytest.raises((AssertionError, IndentationError)):
+          _assert_qat_warning_capture_is_exact(mutated)
+
+
+  @pytest.mark.parametrize(
+      "extra",
+      (
+          "\ndef other():\n    with warnings.catch_warnings(record=True):\n        pass\n",
+          "\ndef other():\n    warnings.simplefilter('always')\n",
+      ),
+  )
+  def test_qat_warning_capture_contract_rejects_other_consumer_capture(extra):
+      with pytest.raises(AssertionError):
+          _assert_no_other_consumer_warning_capture(
+              "def test_graph():\n    pass\n",
+              CLEAN_QAT_CAPTURE_SOURCE + extra,
+          )
+  ```
+
+  Run the synthetic contract tests before implementing the helpers:
+
+  ```bash
+  pytest -p no:cacheprovider tests/test_verify_torch_stack.py -q \
+    -k 'qat_warning_capture_contract'
+  ```
+
+  Expected RED: the tests fail because `_assert_qat_warning_capture_is_exact` and
+  `_assert_no_other_consumer_warning_capture` do not exist. Do not call either helper from the
+  real-source consumer test yet; the real quantization source intentionally has no capture until
+  Step 4.2.
+
+  Now add these structural helpers in `tests/test_verify_torch_stack.py`:
 
   ```python
   def _warnings_call(node: ast.AST, attribute: str) -> bool:
@@ -1936,7 +2015,10 @@ graph edits, or stage anything until the focused clean gate is green.
       assert train_statement.value.func.attr == "train"
       capture_index = function.body.index(capture)
       validation = function.body[capture_index + 1]
-      assert isinstance(validation, ast.Expr)
+      assert isinstance(validation, ast.Assign)
+      assert len(validation.targets) == 1
+      assert isinstance(validation.targets[0], ast.Name)
+      assert validation.targets[0].id == "qat_warning_evidence"
       assert isinstance(validation.value, ast.Call)
       assert isinstance(validation.value.func, ast.Name)
       assert validation.value.func.id == "_assert_qat_warning_debt"
@@ -2000,14 +2082,12 @@ graph edits, or stage anything until the focused clean gate is green.
       _assert_qat_warning_capture_is_exact(quantization_source)
   ```
 
-  Add a clean minimal function containing the exact config, both NNx facade calls, local capture,
-  validator call, and prediction. Mutate `record=True` to false, `always` to `ignore`, `8da4w` to a
-  different config, delete the validator call, move callback construction into the capture, and move
-  prediction into the capture. Each mutation must fail `_assert_qat_warning_capture_is_exact`.
-  Independently add a second `catch_warnings` and an `always` filter outside the exact QAT function;
-  `_assert_no_other_consumer_warning_capture` must reject both. Call that helper from the existing
-  real-source consumer test after `_assert_consumer_gates_fail_closed`. This exception does not authorize any Task 4 or
-  Task 7 CLI/environment action, pytest mark, warning-plugin bypass, or broader capture.
+  Run the synthetic contract tests again. Expected GREEN: the exact fixture passes and every shape,
+  second-capture, and outside-filter mutation fails its named test. Keep
+  `test_graph_and_quantization_consumers_have_no_optional_backend_bypass` limited to its existing
+  `_assert_consumer_gates_fail_closed` call until Step 4.2 wires the real-source positive assertion.
+  This exception does not authorize any Task 4 or Task 7 CLI/environment action, pytest mark,
+  warning-plugin bypass, or broader capture.
 
   Run:
 
@@ -2157,10 +2237,10 @@ graph edits, or stage anything until the focused clean gate is green.
   r4 environment. Do not filter, suppress, monkeypatch, reinstall, or bypass NNx:
 
   ```bash
-  FOCUS_ROOT=/private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6
-  export PATH="$FOCUS_ROOT/venv/bin:$PATH"
-  test "$(command -v python)" = "$FOCUS_ROOT/venv/bin/python"
-  pytest -p no:cacheprovider -W error -vv --tb=long \
+  RED_R4_ROOT=/private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6
+  test -x "$RED_R4_ROOT/venv/bin/python"
+  env PATH="$RED_R4_ROOT/venv/bin:$PATH" \
+    "$RED_R4_ROOT/venv/bin/pytest" -p no:cacheprovider -W error -vv --tb=long \
     tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py::test_qat_prepare_train_convert_and_inference
   ```
 
@@ -2168,10 +2248,11 @@ graph edits, or stage anything until the focused clean gate is green.
   `torchao/quantization/quant_primitives.py:96` with category `UserWarning` and complete message
   `Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead (e.g. TorchAODType.INT4 -> torch.int4)`;
   the stack enters through `model.train` -> NNx `QATLifecycleCallback.on_train_begin` -> legacy
-  `Int8DynActInt4WeightQATQuantizer.prepare` -> `dtype=TorchAODType.INT4`. Rerun once with
-  `-W default`; expected control is one passing test and exactly one copy of that warning.
+  `Int8DynActInt4WeightQATQuantizer.prepare` -> `dtype=TorchAODType.INT4`. This initial `-W error`
+  failure is the only pre-capture runtime evidence. Do not rerun with a relaxed global warning
+  action; the next real execution occurs after Step 4.2 adds the exact local capture.
 
-  In `tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py`, import `warnings`,
+  In `tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py`, import `warnings`, `re`,
   `importlib.metadata`, `PackagePath`, `Path`, and `pytest`. First add the exact three constants,
   then add `_FakeDistribution` and `_warning_record` test fixtures before defining the
   production-test helper:
@@ -2233,11 +2314,22 @@ graph edits, or stage anything until the focused clean gate is green.
 
   def test_qat_warning_debt_validator_accepts_exact_record(tmp_path):
       distributions, record = _exact_qat_warning(tmp_path)
-      _assert_qat_warning_debt(
+      evidence = _assert_qat_warning_debt(
           (record,),
           qat_config="8da4w",
           distribution=distributions.__getitem__,
       )
+      assert evidence["debt_key"] == {
+          "torch": "2.11.0", "torchao": "0.18.0",
+          "thekaveh-nnx": "0.2.0", "qat_config": "8da4w",
+      }
+      assert evidence["count"] == 1
+      assert evidence["category"] == "builtins.UserWarning"
+      assert evidence["message"] == QAT_WARNING_MESSAGE
+      assert evidence["origin_inventory_path"] == QAT_WARNING_RECORD_PATH
+      assert re.fullmatch(r"[0-9a-f]{64}", evidence["origin_sha256"])
+      assert evidence["global_warning_action"] == "error"
+      assert evidence["local_capture_action"] == "always"
 
 
   @pytest.mark.parametrize(
@@ -2316,7 +2408,10 @@ graph edits, or stage anything until the focused clean gate is green.
 
   @pytest.mark.parametrize(
       "mutation",
-      ("none", "missing", "duplicate", "foreign-owner", "missing-file", "locate-error"),
+      (
+          "none", "missing", "duplicate", "foreign-owner", "missing-file",
+          "directory-at-exact-path", "locate-error",
+      ),
   )
   def test_qat_warning_debt_validator_requires_exact_record_ownership(tmp_path, mutation):
       distributions, record = _exact_qat_warning(tmp_path)
@@ -2334,6 +2429,9 @@ graph edits, or stage anything until the focused clean gate is green.
           entry.dist = _FakeDistribution(tmp_path / "foreign", "0.18.0")
       elif mutation == "missing-file":
           Path(record.filename).unlink()
+      elif mutation == "directory-at-exact-path":
+          Path(record.filename).unlink()
+          Path(record.filename).mkdir()
       else:
           def fail_locate(path):
               raise OSError("unlocatable")
@@ -2354,7 +2452,8 @@ graph edits, or stage anything until the focused clean gate is green.
   - record origin to a same-basename outsider and a matching-suffix outsider;
   - Torch to 2.11.1, torchao to 0.18.1, thekaveh-nnx to 0.2.1, or config to `8da4w-next`;
   - torchao inventory to `None`, zero exact entries, two exact entries, an entry whose `.dist` is a
-    different distribution, a missing concrete file, or a `locate_file` exception.
+    different distribution, a missing concrete file, a directory at the exact PackagePath, or a
+    `locate_file` exception.
 
   Zero records and every version/config mutation must match `qat warning debt retirement required`.
   Every count/category/message/origin/inventory mutation must match
@@ -2403,7 +2502,7 @@ graph edits, or stage anything until the focused clean gate is green.
       *,
       qat_config: str,
       distribution: DistributionProvider = importlib.metadata.distribution,
-  ) -> None:
+  ) -> dict[str, object]:
       selected = {
           name: distribution(name)
           for name in ("torch", "torchao", "thekaveh-nnx")
@@ -2430,11 +2529,59 @@ graph edits, or stage anything until the focused clean gate is green.
           or actual_origin != expected_origin
       ):
           raise AssertionError("qat warning debt validation failed")
+      return {
+          "debt_key": {
+              "torch": key[0], "torchao": key[1],
+              "thekaveh-nnx": key[2], "qat_config": key[3],
+          },
+          "count": 1,
+          "category": "builtins.UserWarning",
+          "message": QAT_WARNING_MESSAGE,
+          "origin_inventory_path": QAT_WARNING_RECORD_PATH,
+          "origin_sha256": hashlib.sha256(expected_origin.read_bytes()).hexdigest(),
+          "global_warning_action": "error",
+          "local_capture_action": "always",
+      }
   ```
 
-  Import `Callable` and `Sequence` from `collections.abc`. Do not read `record.lineno`, accept category subclasses,
+  Import `hashlib`, plus `Callable` and `Sequence` from `collections.abc`. Do not read `record.lineno`, accept category subclasses,
   compare message prefixes, compare path suffixes/basenames, or catch `AssertionError` around this
-  helper. Then change only the execution seam in the existing QAT test:
+  helper. Add this source mutation to `tests/test_verify_torch_stack.py`; it proves the exact-path
+  directory fixture kills deletion of the concrete-file guard:
+
+  ```python
+  def test_qat_warning_origin_source_mutation_cannot_delete_is_file_guard(tmp_path):
+      source_path = (
+          REPO_ROOT / "tests" / "nnx_surface"
+          / "test_quantization_mnist_ffnn_pytorch.py"
+      )
+      source = source_path.read_text(encoding="utf-8")
+      mutated = source.replace(" or not origin.is_file()", "", 1)
+      assert mutated != source
+      module_path = tmp_path / "mutated_qat_warning_debt.py"
+      module_path.write_text(mutated, encoding="utf-8")
+      module_name = "mutated_qat_warning_debt"
+      spec = importlib.util.spec_from_file_location(module_name, module_path)
+      assert spec is not None and spec.loader is not None
+      module = importlib.util.module_from_spec(spec)
+      sys.modules[module_name] = module
+      try:
+          spec.loader.exec_module(module)
+          distributions, record = module._exact_qat_warning(tmp_path / "inventory")
+          exact_path = Path(record.filename)
+          exact_path.unlink()
+          exact_path.mkdir()
+          with pytest.raises(AssertionError, match="qat warning debt validation failed"):
+              module._assert_qat_warning_debt(
+                  (module._warning_record(exact_path),),
+                  qat_config="8da4w",
+                  distribution=distributions.__getitem__,
+              )
+      finally:
+          sys.modules.pop(module_name, None)
+  ```
+
+  Then change only the execution seam in the existing QAT test:
 
   ```python
   qat_config = "8da4w"
@@ -2451,8 +2598,50 @@ graph edits, or stage anything until the focused clean gate is green.
           callbacks=[callback],
           train_step_fn=train_step,
       )
-  _assert_qat_warning_debt(caught, qat_config=qat_config)
+  qat_warning_evidence = _assert_qat_warning_debt(caught, qat_config=qat_config)
+  observation_path_text = os.environ.get("ISSUE62_QAT_DEBT_OBSERVATION")
+  if observation_path_text is not None:
+      final_root = Path(os.environ["FINAL_ROOT"]).resolve(strict=True)
+      observation_path = Path(observation_path_text).resolve()
+      assert observation_path == final_root / "qat-warning-debt-observation.json"
+      final_sha = os.environ["ISSUE62_FINAL_SHA"]
+      assert re.fullmatch(r"[0-9a-f]{40}", final_sha)
+      observation = {
+          "schema_version": 1,
+          "final_sha": final_sha,
+          "test_nodeid": (
+              "tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py::"
+              "test_qat_prepare_train_convert_and_inference"
+          ),
+          **qat_warning_evidence,
+      }
+      observation_path.write_text(
+          json.dumps(observation, indent=2, sort_keys=True) + "\n",
+          encoding="utf-8",
+      )
   logits, classes = model.predict(X=tiny_image_batch.X)
+  ```
+
+  Import `json`, `os`, and `re`. The optional evidence branch is inactive in every ordinary focused,
+  CI, and prequalification run. Task 7 alone supplies both variables and the exact ignored path;
+  the branch writes no repository byte and does not broaden the warning capture.
+
+  Only after that real capture exists, update
+  `test_graph_and_quantization_consumers_have_no_optional_backend_bypass` in
+  `tests/test_verify_torch_stack.py` to call the real-source structural positive:
+
+  ```python
+  _assert_consumer_gates_fail_closed(graph_source, quantization_source)
+  _assert_no_other_consumer_warning_capture(graph_source, quantization_source)
+  ```
+
+  The synthetic AST tests therefore went RED before their helpers, then GREEN independently; the
+  real-source assertion is wired only after the quantization source satisfies it. Run that positive
+  and all capture-shape mutations now:
+
+  ```bash
+  pytest -p no:cacheprovider tests/test_verify_torch_stack.py -q \
+    -k 'consumer_gate or qat_warning_capture_contract'
   ```
 
   The capture body contains only the local `always` action and `model.train`; imports, facade
@@ -2460,7 +2649,14 @@ graph edits, or stage anything until the focused clean gate is green.
   outer `-W error`. Prove unit GREEN and the exact real selected-wheel QAT/JUnit GREEN:
 
   ```bash
-  FOCUS_ROOT=/private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6
+  : "${FOCUS_ROOT:?Task 2.1 must export FOCUS_ROOT}"
+  : "${TASK21_SHA:?Task 2.1 must export TASK21_SHA}"
+  test "$TASK21_SHA" = 9d8504b35fb25e9f26b244d841919209b3eba5e4
+  case "$FOCUS_ROOT" in
+    /private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6|/private/tmp/ml-eng-lab-issue62-focus-r5.[A-Za-z0-9]*) ;;
+    *) exit 1 ;;
+  esac
+  test -x "$FOCUS_ROOT/venv/bin/python"
   export PATH="$FOCUS_ROOT/venv/bin:$PATH"
   pytest -p no:cacheprovider -W error \
     tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py \
@@ -2650,24 +2846,36 @@ graph edits, or stage anything until the focused clean gate is green.
 - [ ] **Step 6: Reuse the Task 2.1-qualified environment and prove focused GREEN**
 
   Continue in the exact shell and selected r4-or-r5 environment that passed Task 2.1 Step 11. Do not
-  recreate r4, reinstall from Task 2 HEAD, or select a different interpreter. First reuse the exact
-  real r4 path; r5 is permitted only through the already specified full Task 2.1 fallback. Keep the
-  reviewed `TASK21_SHA` handoff and capture current `TASK3_BASE_SHA` before any Task 3 commit:
+  recreate r4, reinstall from Task 2 HEAD, or select a different interpreter. Accept the exact real
+  r4 path or an r5 path only when Task 2.1 Step 11 exported it after full requalification. Never
+  overwrite either handoff variable. Validate both, then capture current `TASK3_BASE_SHA` before any
+  Task 3 commit:
 
   ```bash
-  export FOCUS_ROOT=/private/tmp/ml-eng-lab-issue62-focus-r4.9gEHp6
-  export TASK21_SHA=9d8504b35fb25e9f26b244d841919209b3eba5e4
+  : "${FOCUS_ROOT:?Task 2.1 must export FOCUS_ROOT}"
+  : "${TASK21_SHA:?Task 2.1 must export TASK21_SHA}"
+  test "$TASK21_SHA" = 9d8504b35fb25e9f26b244d841919209b3eba5e4
   export TASK3_BASE_SHA=$(git rev-parse HEAD)
-  python - "$TASK21_SHA" "$TASK3_BASE_SHA" <<'PY'
+  python - "$FOCUS_ROOT" "$TASK21_SHA" "$TASK3_BASE_SHA" <<'PY'
+  import re
   import subprocess
   import sys
+  from pathlib import Path
 
-  task21_sha, task3_base_sha = sys.argv[1:]
+  focus_root_text, task21_sha, task3_base_sha = sys.argv[1:]
+  focus_root = Path(focus_root_text)
+  assert focus_root.parent == Path("/private/tmp"), focus_root
+  assert (
+      focus_root.name == "ml-eng-lab-issue62-focus-r4.9gEHp6"
+      or re.fullmatch(r"ml-eng-lab-issue62-focus-r5\.[A-Za-z0-9]+", focus_root.name)
+  ), focus_root
+  assert task21_sha == "9d8504b35fb25e9f26b244d841919209b3eba5e4"
   subjects = subprocess.check_output(
       ["git", "log", "--format=%s", f"{task21_sha}..{task3_base_sha}"],
       text=True,
   ).splitlines()
   assert subjects == [
+      "docs: close Issue 62 QAT plan gaps",
       "docs: plan Issue 62 QAT warning debt",
       "docs: define Issue 62 QAT warning debt",
   ], subjects
@@ -2680,6 +2888,7 @@ graph edits, or stage anything until the focused clean gate is green.
       "docs/superpowers/specs/2026-08-14-issue-62-torch-stack-upgrade-design.md",
   }, paths
   PY
+  test -d "$FOCUS_ROOT"
   test -x "$FOCUS_ROOT/venv/bin/python"
   export PATH="$FOCUS_ROOT/venv/bin:$PATH"
   test "$(command -v python)" = "$FOCUS_ROOT/venv/bin/python"
@@ -3080,12 +3289,12 @@ graph edits, or stage anything until the focused clean gate is green.
   def test_shell_parser_preserves_inline_warning_environment_and_wrappers():
       (command,) = _shell_commands(
           "sudo env PYTHONWARNINGS=ignore "
-          "PYTEST_ADDOPTS='-W default' pytest -W error tests/nnx_surface"
+          "PYTEST_ADDOPTS='--pythonwarnings default' pytest -W error tests/nnx_surface"
       )
       assert command.argv == ("pytest", "-W", "error", "tests/nnx_surface")
       assert command.environment == {
           "PYTHONWARNINGS": "ignore",
-          "PYTEST_ADDOPTS": "-W default",
+          "PYTEST_ADDOPTS": "--pythonwarnings default",
       }
       assert command.wrappers == ("sudo", "env")
   ```
@@ -3108,6 +3317,10 @@ graph edits, or stage anything until the focused clean gate is green.
   disabling pytest's warnings plugin through either accepted `-p no:warnings` spelling. The sole
   effective warning action must be `error`, expressed by the unchanged adjacent `-W error` tokens
   exactly once; retaining those tokens does not excuse any appended action or plugin bypass:
+
+  Every ignore/default/once/module/always value below is inert negative test data passed to the
+  parser and required to fail. No Task 3, Task 4, prequalification, or final command executes with a
+  relaxed global action; executable evidence uses only `-W error` plus the two exact local captures.
 
   ```python
   _WARNING_ACTIONS = ("default", "error", "ignore", "always", "module", "once")
@@ -3232,7 +3445,7 @@ graph edits, or stage anything until the focused clean gate is green.
       (
           "-W ignore",
           "-Wignore",
-          "-W default",
+          "-Wignore::UserWarning",
           "-Wdefault",
           "-Wignore::DeprecationWarning",
           "-W once",
@@ -4438,6 +4651,10 @@ graph edits, or stage anything until the focused clean gate is green.
   reject every appended warning action, pytest warning-plugin bypass, filter mark, or warning
   environment. Zero QAT records or any Torch/torchao/NNx/config drift stops qualification for debt
   retirement.
+- Final QAT artifact: `$FINAL_ROOT/qat-warning-debt.json` schema 1 is produced only from the frozen
+  SHA's dedicated QAT node and `$FINAL_ROOT/qat-warning-debt.xml`. Report schema 6 embeds that JSON,
+  hashes both files, and rejects missing evidence, wrong tuple/config, count other than one, wrong
+  category/message/origin/hash, final-SHA or JUnit drift, and global/local warning-action bypass.
 
 - [ ] **Step 1: Create and verify a clean prequalification worktree**
 
@@ -4643,7 +4860,7 @@ graph edits, or stage anything until the focused clean gate is green.
   ```bash
   FINAL_ROOT=$(mktemp -d /private/tmp/ml-eng-lab-issue62-final.XXXXXX)
   export FINAL_ROOT
-  FINAL_SHA=$(git rev-parse HEAD)
+  export FINAL_SHA=$(git rev-parse HEAD)
   git worktree add --detach "$FINAL_ROOT/worktree" "$FINAL_SHA"
   git -C "$FINAL_ROOT/worktree" -c submodule.infra.url=/Users/kaveh/repos/ml-eng-lab/infra submodule update --init --recursive infra
   python3.11 -m venv "$FINAL_ROOT/venv"
@@ -4787,6 +5004,70 @@ graph edits, or stage anything until the focused clean gate is green.
   )
   PY
   make verify-nnx-install
+  ISSUE62_QAT_DEBT_OBSERVATION="$FINAL_ROOT/qat-warning-debt-observation.json" \
+  ISSUE62_FINAL_SHA="$FINAL_SHA" \
+    pytest -p no:cacheprovider -W error \
+      --junitxml="$FINAL_ROOT/qat-warning-debt.xml" \
+      tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py::test_qat_prepare_train_convert_and_inference \
+      -v
+  python -m scripts.verify_junit "$FINAL_ROOT/qat-warning-debt.xml"
+  python - <<'PY'
+  import hashlib
+  import json
+  import os
+  import subprocess
+  from pathlib import Path
+
+  from scripts.verify_junit import verify_junit
+
+  final_root = Path(os.environ["FINAL_ROOT"])
+  final_sha = os.environ["FINAL_SHA"]
+  assert subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() == final_sha
+  observation_path = final_root / "qat-warning-debt-observation.json"
+  junit_path = final_root / "qat-warning-debt.xml"
+  observation = json.loads(observation_path.read_text(encoding="utf-8"))
+  assert set(observation) == {
+      "schema_version", "final_sha", "test_nodeid", "debt_key", "count", "category",
+      "message", "origin_inventory_path", "origin_sha256",
+      "global_warning_action", "local_capture_action",
+  }
+  assert observation["schema_version"] == 1
+  assert observation["final_sha"] == final_sha
+  assert observation["test_nodeid"] == (
+      "tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py::"
+      "test_qat_prepare_train_convert_and_inference"
+  )
+  assert observation["debt_key"] == {
+      "torch": "2.11.0", "torchao": "0.18.0",
+      "thekaveh-nnx": "0.2.0", "qat_config": "8da4w",
+  }
+  assert observation["count"] == 1
+  assert observation["category"] == "builtins.UserWarning"
+  assert observation["message"] == (
+      "Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead "
+      "(e.g. TorchAODType.INT4 -> torch.int4)"
+  )
+  assert observation["origin_inventory_path"] == "torchao/quantization/quant_primitives.py"
+  assert len(observation["origin_sha256"]) == 64
+  assert observation["global_warning_action"] == "error"
+  assert observation["local_capture_action"] == "always"
+  totals = verify_junit(junit_path)
+  assert totals == (1, 0, 0, 0)
+  evidence = {
+      **observation,
+      "junit": {
+          "path": junit_path.name,
+          "tests": totals[0], "failures": totals[1],
+          "errors": totals[2], "skipped": totals[3],
+          "sha256": hashlib.sha256(junit_path.read_bytes()).hexdigest(),
+      },
+  }
+  (final_root / "qat-warning-debt.json").write_text(
+      json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+      encoding="utf-8",
+  )
+  observation_path.unlink()
+  PY
   pytest -p no:cacheprovider -W error --junitxml="$FINAL_ROOT/nnx-surface.xml" tests/nnx_surface -v
   python -m scripts.verify_junit "$FINAL_ROOT/nnx-surface.xml"
   PYTEST_ADDOPTS="-p no:cacheprovider -W error --junitxml=$FINAL_ROOT/repository.xml" make test
@@ -4860,11 +5141,15 @@ graph edits, or stage anything until the focused clean gate is green.
   Expected: fresh preflight is clean; kernelspec uses `$FINAL_ROOT/venv/bin/python`; all
   dependency/advisory/test/lint/verifier/docs/Docker commands pass; the fresh interpreter records a
   positive exact warning group in `import-warning-debt.json` while global warning action remains
-  `error`; Tier A/B/C report 18/6/4 with zero artifact errors; exact SHA matches; final status/diff
+  `error`; the dedicated QAT node produces schema-1 `qat-warning-debt.json` and a one-test
+  zero-failure/error/skip JUnit tied to `FINAL_SHA`, count 1, the immutable tuple, exact category,
+  message, RECORD path/content hash, global `error`, and local `always`; Tier A/B/C report 18/6/4
+  with zero artifact errors; exact SHA matches; final status/diff
   are empty; Atlas gitlink is unchanged. Zero warning records trigger debt retirement and invalidate
   the freeze. Step 9 reads every `$FINAL_ROOT` evidence file and writes the report only to the
   validated primary-checkout ignored path and GitHub. Any missing/mismatched evidence, warning
-  filter, failure, or later tracked commit invalidates the freeze and requires a new full run.
+  filter, missing/wrong/zero QAT debt, QAT JUnit/hash mismatch, failure, or later tracked commit
+  invalidates the freeze and requires a new full run.
 
 - [ ] **Step 7: Push the immutable feature SHA and qualify the feature-to-develop PR**
 
@@ -5661,7 +5946,7 @@ graph edits, or stage anything until the focused clean gate is green.
   import sys
   import xml.etree.ElementTree as ET
   from decimal import Decimal
-  from importlib.metadata import version
+  from importlib.metadata import distribution, version
   from pathlib import Path
 
   from scripts.verify_junit import verify_junit
@@ -5732,9 +6017,10 @@ graph edits, or stage anything until the focused clean gate is green.
       require(set(value) == {
           "schema_version", "identities", "platform", "selected_versions", "nnx_metadata",
           "tests", "tiers", "native_linux_arm64_docker", "advisory", "linux_x86_64",
-          "import_warning_debt", "durations_seconds", "sha256", "pull_requests", "publication",
+          "import_warning_debt", "qat_warning_debt", "durations_seconds", "sha256",
+          "pull_requests", "publication",
       }, "report top-level schema")
-      require(value["schema_version"] == 5, "report schema version")
+      require(value["schema_version"] == 6, "report schema version")
       require(set(value["identities"]) == {
           "feature_sha", "feature_pr_merge_sha", "develop_merge_sha",
           "release_pr_merge_sha", "release_merge_sha", "final_develop_sha",
@@ -5794,7 +6080,74 @@ graph edits, or stage anything until the focused clean gate is green.
       )
       require(debt["global_warning_action"] == "error", "global warning action")
       require(debt["local_capture_action"] == "always", "local warning capture")
+      qat = value["qat_warning_debt"]
+      require(set(qat) == {
+          "schema_version", "final_sha", "test_nodeid", "debt_key", "count", "category",
+          "message", "origin_inventory_path", "origin_sha256",
+          "global_warning_action", "local_capture_action", "junit",
+      }, "QAT warning debt schema")
+      require(qat["schema_version"] == 1, "QAT evidence schema version")
+      require(qat["final_sha"] == value["identities"]["feature_sha"], "QAT final SHA")
+      require(qat["test_nodeid"] == (
+          "tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py::"
+          "test_qat_prepare_train_convert_and_inference"
+      ), "QAT test nodeid")
+      require(qat["debt_key"] == {
+          "torch": "2.11.0", "torchao": "0.18.0",
+          "thekaveh-nnx": "0.2.0", "qat_config": "8da4w",
+      }, "QAT immutable key")
+      require(qat["count"] == 1, "QAT warning count")
+      require(qat["category"] == "builtins.UserWarning", "QAT warning category")
+      require(qat["message"] == (
+          "Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead "
+          "(e.g. TorchAODType.INT4 -> torch.int4)"
+      ), "QAT warning message")
+      require(
+          qat["origin_inventory_path"] == "torchao/quantization/quant_primitives.py",
+          "QAT warning origin",
+      )
+      require(
+          isinstance(qat["origin_sha256"], str)
+          and len(qat["origin_sha256"]) == 64
+          and all(character in "0123456789abcdef" for character in qat["origin_sha256"]),
+          "QAT warning origin hash",
+      )
+      torchao_distribution = distribution("torchao")
+      torchao_matches = tuple(
+          path for path in (torchao_distribution.files or ())
+          if path.as_posix() == "torchao/quantization/quant_primitives.py"
+      )
+      require(len(torchao_matches) == 1, "QAT RECORD origin cardinality")
+      require(
+          getattr(torchao_matches[0], "dist", None) is torchao_distribution,
+          "QAT RECORD origin ownership",
+      )
+      torchao_origin = torchao_distribution.locate_file(torchao_matches[0]).resolve(strict=True)
+      require(
+          torchao_origin == torchao_matches[0].locate().resolve(strict=True),
+          "QAT RECORD origin resolution",
+      )
+      require(torchao_origin.is_file(), "QAT RECORD origin concrete file")
+      require(
+          qat["origin_sha256"] == hashlib.sha256(torchao_origin.read_bytes()).hexdigest(),
+          "QAT RECORD origin content hash",
+      )
+      require(qat["global_warning_action"] == "error", "QAT global warning action")
+      require(qat["local_capture_action"] == "always", "QAT local warning capture")
+      require(qat["junit"] == {
+          "path": "qat-warning-debt.xml", "tests": 1,
+          "failures": 0, "errors": 0, "skipped": 0,
+          "sha256": value["sha256"]["evidence_files"]["qat-warning-debt.xml"],
+      }, "QAT JUnit evidence")
+      require(
+          "qat-warning-debt.json" in value["sha256"]["evidence_files"],
+          "QAT JSON evidence hash",
+      )
       require(value["tests"]["nnx"]["skipped"] == 0, "NNx skips")
+      require(value["tests"]["qat"]["tests"] == 1, "QAT dedicated test count")
+      require(value["tests"]["qat"]["failures"] == 0, "QAT dedicated failures")
+      require(value["tests"]["qat"]["errors"] == 0, "QAT dedicated errors")
+      require(value["tests"]["qat"]["skipped"] == 0, "QAT dedicated skips")
       require(value["tests"]["repository"]["tests"] > 0, "repository tests")
       require(value["tiers"]["counts"] == {"a": 18, "b": 6, "c": 4}, "tier counts")
       require(set(value["linux_x86_64"]) == {
@@ -5874,8 +6227,10 @@ graph edits, or stage anything until the focused clean gate is green.
   )
 
   verify_junit(final_root / "nnx-surface.xml")
+  verify_junit(final_root / "qat-warning-debt.xml")
   test_evidence = {
       "nnx": junit_summary(final_root / "nnx-surface.xml", zero_skips=True),
+      "qat": junit_summary(final_root / "qat-warning-debt.xml", zero_skips=True),
       "repository": junit_summary(final_root / "repository.xml", zero_skips=False),
   }
 
@@ -5905,6 +6260,7 @@ graph edits, or stage anything until the focused clean gate is green.
       "final advisory surface order",
   )
   import_warning_debt = load_json(final_root / "import-warning-debt.json")
+  qat_warning_debt = load_json(final_root / "qat-warning-debt.json")
 
   feature_pr_checks = load_json(final_root / "pr-checks.json")
   feature_pr_runs = load_json(final_root / "pr-runs.json")
@@ -6066,6 +6422,7 @@ graph edits, or stage anything until the focused clean gate is green.
   evidence_paths = [
       final_root / "advisory-evidence.json", final_root / "docker-evidence.json",
       final_root / "import-warning-debt.json",
+      final_root / "qat-warning-debt.json", final_root / "qat-warning-debt.xml",
       final_root / "nnx-surface.xml", final_root / "repository.xml",
       final_root / "pr-checks.json", final_root / "pr-runs.json",
       final_root / "release-pr-checks.json", final_root / "release-pr-runs.json",
@@ -6077,7 +6434,7 @@ graph edits, or stage anything until the focused clean gate is green.
           final_root / "sync-pr-checks.json", final_root / "sync-pr-runs.json",
       ))
   report = {
-      "schema_version": 5,
+      "schema_version": 6,
       "identities": identities,
       "platform": {
           "system": platform.system(),
@@ -6098,6 +6455,7 @@ graph edits, or stage anything until the focused clean gate is green.
       "native_linux_arm64_docker": docker_report,
       "advisory": advisory,
       "import_warning_debt": import_warning_debt,
+      "qat_warning_debt": qat_warning_debt,
       "linux_x86_64": {
           "feature_pr": feature_pr_evidence,
           "release_pr": release_pr_evidence,
@@ -6109,6 +6467,7 @@ graph edits, or stage anything until the focused clean gate is green.
           "core": int(os.environ["CORE_DURATION_SECONDS"]),
           "docker": int(os.environ["DOCKER_DURATION_SECONDS"]),
           "nnx_junit": test_evidence["nnx"]["duration_seconds"],
+          "qat_junit": test_evidence["qat"]["duration_seconds"],
           "repository_junit": test_evidence["repository"]["duration_seconds"],
           "tier_a": int(os.environ["TIER_A_DURATION_SECONDS"]),
           "tier_b": int(os.environ["TIER_B_DURATION_SECONDS"]),
@@ -6149,9 +6508,18 @@ graph edits, or stage anything until the focused clean gate is green.
   del missing_warning_debt["import_warning_debt"]
   ignored_global_warnings = copy.deepcopy(report)
   ignored_global_warnings["import_warning_debt"]["global_warning_action"] = "ignore"
+  missing_qat_debt = copy.deepcopy(report)
+  del missing_qat_debt["qat_warning_debt"]
+  wrong_qat_key = copy.deepcopy(report)
+  wrong_qat_key["qat_warning_debt"]["debt_key"]["qat_config"] = "8da4w-next"
+  zero_qat_warnings = copy.deepcopy(report)
+  zero_qat_warnings["qat_warning_debt"]["count"] = 0
+  bypassed_qat_global_warnings = copy.deepcopy(report)
+  bypassed_qat_global_warnings["qat_warning_debt"]["global_warning_action"] = "default"
   for mutation in (
       wrong_name, missing_metadata, missing_release_evidence, missing_final_develop_evidence,
-      missing_warning_debt, ignored_global_warnings,
+      missing_warning_debt, ignored_global_warnings, missing_qat_debt, wrong_qat_key,
+      zero_qat_warnings, bypassed_qat_global_warnings,
   ):
       try:
           validate_report_schema(mutation)
@@ -6450,6 +6818,11 @@ graph edits, or stage anything until the focused clean gate is green.
   installer/verifier/oracle and kills CI
   warning-ignore mutations; Task 5 consumes the clean final solve; Task 6 consumes
   implementation/audit/warning-debt truth; Task 7 consumes every tracked task.
+- [x] **Task 3 TDD order:** synthetic QAT capture fixtures and shape/broadening mutations fail before
+  either AST helper exists; those synthetic tests turn green without reading the still-uncaptured
+  real source. Validator fixtures then fail before the QAT debt helper exists. Only after the helper
+  and local `model.train` capture are implemented does the real-source structural assertion enter
+  the consumer test and run green under `-W error` with parsed JUnit.
 - [x] **Final-SHA order:** all tracked evidence and review corrections precede `FINAL_SHA`; final qualification writes only ignored/external evidence; any later tracked commit invalidates and restarts the full final run.
 - [x] **Boundary consistency:** current scope is pyg-lib/scatter/sparse, ten verifier components,
   three canaries, two supplement pins, four installer stages, stage-0 pip only, binary-only NNx
@@ -6467,7 +6840,8 @@ graph edits, or stage anything until the focused clean gate is green.
   exactly one identity-`UserWarning` must match the complete message and sole selected-torchao-owned
   `torchao/quantization/quant_primitives.py` entry. Zero/multiple/mixed, tuple, category/subclass,
   message/punctuation, basename/suffix, inventory/ownership, and capture-broadening mutations have
-  named tests.
+  named tests. Inventory mutations include a directory at the exact PackagePath, and a source
+  mutation deleting `origin.is_file()` must fail that directory test.
 - [x] **Warning-gate preservation:** no production module-cache eviction exists; selected zero-warning
   imports are cache/order safe; scatter, sparse, sampler, NNx, consumer, CLI outer capture, focused
   JUnit, and CI remain strict. Task 4 parses every separated/joined `-W` option, both
@@ -6488,21 +6862,28 @@ graph edits, or stage anything until the focused clean gate is green.
   notebook.
 - [x] **Immutable identities:** feature HEAD, feature PR synthetic merge, develop merge, release PR synthetic merge, release merge, final post-sync develop SHA, and optional sync PR synthetic/actual merge SHAs are recorded separately; dispatch evidence is tied to the feature SHA, PR evidence to synthetic merge SHAs, final push evidence to the exact final develop SHA, and tree equality prevents content drift.
 - [x] **Current-doc bounds:** Task 6 uses the real `4.1.6` heading, replaces complete same-level dependency sections 6.1.2 and 6.1.11 plus the stale manifest-owned graph release paragraph, places generated-row tokens directly in both source specs, regenerates once, and stages/tests/parity-checks both specs, the generated canonical page, and `docs/notebooks/node_classification-reddit-gnn-pyg.md`.
-- [x] **External evidence schema:** report schema 5 uses the exact ten distribution metadata names
+- [x] **External evidence schema:** report schema 6 uses the exact ten distribution metadata names
   including `pytorch-lightning`, separate NNx metadata, positive exact import-warning debt evidence
-  with no disposable absolute path, final audit identities/result, full/NNx JUnit totals, Docker
+  with no disposable absolute path, and exact QAT debt JSON tied to the frozen feature SHA and a
+  dedicated one-test zero-failure/error/skip JUnit hash. The QAT schema fixes the four-part tuple,
+  count 1, identity-`UserWarning`, complete message, RECORD path/hash, global `error`, and local
+  `always`; missing, wrong-key, zero-count, and global-bypass mutations fail. The report also records
+  final audit identities/result, full/NNx/QAT JUnit totals, Docker
   probes, Tier hashes/durations, distinct feature/release Linux PR checks/runs tied to their synthetic
   merge SHAs, the exact final-develop push runs, optional sync PR check/run URLs and hashes, and
   Pages/wiki evidence; missing debt evidence and an `ignore` global action are killed by schema
-  mutations.
+  mutations; both QAT JSON and JUnit files are included in evidence-file hashes.
 - [x] **Clean continuation and retirement:** r4 is reusable only after exact platform, Python,
   prefix, public-version inventory, and pip-check preflight at Task 2.1 HEAD; otherwise a fresh r5 is
   installed. The selected r4/r5 then passes a separate-process full `make verify-torch-stack`, proving
   exact local versions, WHEEL ABI/platform, RECORD/import ownership, and CPU/NVIDIA truth before a
   fresh interpreter with neither PyG module preloaded may observe a positive exact torch-geometric
   group. Thus a matching public version with a foreign local build cannot falsely qualify or retire
-  debt. Task 3 reuses exactly that `FOCUS_ROOT` and `TASK21_SHA`, proves `TASK3_BASE_SHA` differs only
-  by the two approved debt-document commits, reasserts provenance, repeats the separate full verifier
+  debt. Task 3 never overwrites the handed-off `FOCUS_ROOT` or `TASK21_SHA`; it accepts only the exact
+  r4 basename or a fully requalified r5 basename under `/private/tmp`, requires the exact Task 2.1
+  SHA and interpreter/prefix/platform/provenance gates, and rejects every other case. Task 3 proves
+  `TASK3_BASE_SHA` differs only
+  by the three approved debt-document commits across the same two files, reasserts provenance, repeats the separate full verifier
   and fresh positive probe, and only then runs both real sampler paths, the exact one-record QAT
   assertion, focused `-W error` JUnit, graph, and quantization gates. A broken handoff returns to Task 2.1 and
   permits only a fully requalified r5; a zero group triggers removal of the debt machinery, never

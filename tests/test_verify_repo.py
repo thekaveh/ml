@@ -145,8 +145,61 @@ def _assert_issue62_pr_dual_identity_plan(plan_source: str) -> None:
         assert task7.count(mutation_name) == 3
 
 
+def _assert_issue62_reuse_queries_select_source_heads(plan_source: str) -> None:
+    task7 = plan_source.split("## 12.22.11 Task 7:", maxsplit=1)[1]
+    for label, source_sha in (
+        ("feature", "FEATURE_SHA"),
+        ("release", "DEVELOP_MERGE_SHA"),
+    ):
+        start = f': > "$FINAL_ROOT/reusable-{label}-pr"'
+        end = f'done < "$FINAL_ROOT/current-{label}-prs"'
+        block = task7.split(start, maxsplit=1)[1].split(end, maxsplit=1)[0]
+        assert block.count(f'--commit "${source_sha}" --limit 20') == 1
+        assert block.count(
+            f'CANDIDATE_RUN=$(jq -r --arg sha "${source_sha}"'
+        ) == 1
+        assert '--commit "$CANDIDATE_MERGE_SHA"' not in block
+        assert 'CANDIDATE_RUN=$(jq -r --arg sha "$CANDIDATE_MERGE_SHA"' not in block
+
+
 def test_issue62_task7_plan_preserves_pr_source_and_synthetic_identities() -> None:
-    _assert_issue62_pr_dual_identity_plan(ISSUE62_PLAN.read_text(encoding="utf-8"))
+    plan_source = ISSUE62_PLAN.read_text(encoding="utf-8")
+    _assert_issue62_pr_dual_identity_plan(plan_source)
+    _assert_issue62_reuse_queries_select_source_heads(plan_source)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        (
+            '--commit "$FEATURE_SHA" --limit 20',
+            '--commit "$CANDIDATE_MERGE_SHA" --limit 20',
+        ),
+        (
+            'CANDIDATE_RUN=$(jq -r --arg sha "$FEATURE_SHA"',
+            'CANDIDATE_RUN=$(jq -r --arg sha "$CANDIDATE_MERGE_SHA"',
+        ),
+        (
+            '--commit "$DEVELOP_MERGE_SHA" --limit 20',
+            '--commit "$CANDIDATE_MERGE_SHA" --limit 20',
+        ),
+        (
+            'CANDIDATE_RUN=$(jq -r --arg sha "$DEVELOP_MERGE_SHA"',
+            'CANDIDATE_RUN=$(jq -r --arg sha "$CANDIDATE_MERGE_SHA"',
+        ),
+    ),
+    ids=("feature-query", "feature-selector", "release-query", "release-selector"),
+)
+def test_issue62_reuse_query_and_selector_reject_identity_mutations(
+    old: str,
+    new: str,
+) -> None:
+    control = ISSUE62_PLAN.read_text(encoding="utf-8")
+    mutated = control.replace(old, new, 1)
+    assert mutated != control
+
+    with pytest.raises(AssertionError):
+        _assert_issue62_reuse_queries_select_source_heads(mutated)
 
 
 @pytest.mark.parametrize(

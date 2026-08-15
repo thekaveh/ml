@@ -5334,7 +5334,7 @@ graph edits, or stage anything until the focused clean gate is green.
       --commit "$FEATURE_SHA" --limit 20 \
       --json databaseId,headSha,status,conclusion,url \
       > "$FINAL_ROOT/candidate-feature-runs.json"
-    CANDIDATE_RUN=$(jq -r --arg sha "$CANDIDATE_MERGE_SHA" \
+    CANDIDATE_RUN=$(jq -r --arg sha "$FEATURE_SHA" \
       '[.[] | select(.headSha == $sha and .status == "completed" and .conclusion == "success")] | first | .databaseId // empty' \
       "$FINAL_ROOT/candidate-feature-runs.json")
     if test -n "$CANDIDATE_RUN"; then
@@ -5826,7 +5826,7 @@ graph edits, or stage anything until the focused clean gate is green.
       --commit "$DEVELOP_MERGE_SHA" --limit 20 \
       --json databaseId,headSha,status,conclusion,url \
       > "$FINAL_ROOT/candidate-release-runs.json"
-    CANDIDATE_RUN=$(jq -r --arg sha "$CANDIDATE_MERGE_SHA" \
+    CANDIDATE_RUN=$(jq -r --arg sha "$DEVELOP_MERGE_SHA" \
       '[.[] | select(.headSha == $sha and .status == "completed" and .conclusion == "success")] | first | .databaseId // empty' \
       "$FINAL_ROOT/candidate-release-runs.json")
     if test -n "$CANDIDATE_RUN"; then

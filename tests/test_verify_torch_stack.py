@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ast
 import dataclasses
 import importlib.util
+import re
 import sys
 import traceback
 import warnings
@@ -40,8 +42,6 @@ EXPECTED_IMPORTS = {
     "pyg-lib": "pyg_lib",
     "torch-scatter": "torch_scatter",
     "torch-sparse": "torch_sparse",
-    "torch-cluster": "torch_cluster",
-    "torch-spline-conv": "torch_spline_conv",
 }
 EXPECTED_VERSIONS = {
     "torch": "2.11.0",
@@ -54,8 +54,6 @@ EXPECTED_VERSIONS = {
     "pyg-lib": "0.8.0",
     "torch-scatter": "2.1.2",
     "torch-sparse": "0.6.18",
-    "torch-cluster": "1.6.3",
-    "torch-spline-conv": "1.2.2",
 }
 CORE = "torch==2.11.0\ntorchvision==0.26.0\ntorchaudio==2.11.0\n"
 ECOSYSTEM = "pytorch-lightning==2.6.1\ntorchmetrics==1.9.0\ntorchao==0.18.0\n"
@@ -63,13 +61,13 @@ RUNTIME = (
     "-r torch-ecosystem-requirements.txt\n"
     "--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html\n"
     "pyg-lib==0.8.0\ntorch-scatter==2.1.2\ntorch-sparse==0.6.18\n"
-    "torch-cluster==1.6.3\ntorch-spline-conv==1.2.2\ntorch_geometric==2.8.0.post1\n"
+    "torch_geometric==2.8.0.post1\n"
 )
 AUDIT = "-r torch-core-requirements.txt\n-r torch-ecosystem-requirements.txt\ntorch_geometric==2.8.0.post1\n"
 EXTENSIONS = (
     "# Pre-resolved compiled PyG extension supplement for the strict audit.\n"
     "# Runtime source: torch-requirements.txt retains the approved PyG wheel selector.\n"
-    "torch-scatter==2.1.2\ntorch-sparse==0.6.18\ntorch-cluster==1.6.3\ntorch-spline-conv==1.2.2\n"
+    "torch-scatter==2.1.2\ntorch-sparse==0.6.18\n"
 )
 MANIFESTS = {
     "torch-core-requirements.txt": CORE,
@@ -82,8 +80,6 @@ COMPILED = {
     "pyg-lib",
     "torch-scatter",
     "torch-sparse",
-    "torch-cluster",
-    "torch-spline-conv",
 }
 BINARY_WHEELS = COMPILED | {"torch", "torchvision", "torchaudio"}
 SENSITIVE = (
@@ -155,9 +151,12 @@ class FakeStack:
             module_path.parent.mkdir(parents=True, exist_ok=True)
             module_path.touch()
             wheel_tag = platform_tag if distribution in BINARY_WHEELS else "py3-none-any"
+            version = EXPECTED_VERSIONS[distribution]
+            if system == "Linux" and distribution in COMPILED:
+                version = f"{version}+pt211cpu"
             self.distributions[distribution] = FakeDistribution(
                 distribution,
-                EXPECTED_VERSIONS[distribution],
+                version,
                 root,
                 f"Wheel-Version: 1.0\nTag: {wheel_tag}\n",
             )
@@ -167,7 +166,9 @@ class FakeStack:
                 module.__version__ = EXPECTED_VERSIONS[distribution]
                 module.version = SimpleNamespace(cuda=None)
             self.modules[import_name] = module
-        canaries = CanaryHooks(*(self._canary(name) for name in ("scatter", "sparse", "cluster", "sampler", "spline")))
+        canaries = CanaryHooks(
+            *(self._canary(name) for name in ("scatter", "sparse", "sampler"))
+        )
         self.hooks = VerificationHooks(
             distribution=self._distribution,
             installed_names=lambda: tuple(self.names),
@@ -227,6 +228,33 @@ def test_public_interfaces_and_import_map_are_exact(manifest_repo: Path) -> None
     assert all(dataclasses.is_dataclass(value) for value in (StackPin, StackContract, StackEvidence))
 
 
+def _assert_selected_import_and_canary_boundary(
+    imports: dict[str, str], canaries: tuple[str, ...]
+) -> None:
+    assert imports == EXPECTED_IMPORTS
+    assert canaries == ("scatter", "sparse", "sampler")
+
+
+@pytest.mark.parametrize(
+    ("imports", "canaries"),
+    (
+        (EXPECTED_IMPORTS | {"torch-cluster": "torch_cluster"}, ("scatter", "sparse", "sampler")),
+        (
+            EXPECTED_IMPORTS | {"torch-spline-conv": "torch_spline_conv"},
+            ("scatter", "sparse", "sampler"),
+        ),
+        (EXPECTED_IMPORTS, ("scatter", "sparse", "cluster", "sampler")),
+        (EXPECTED_IMPORTS, ("scatter", "sparse", "sampler", "spline")),
+    ),
+    ids=("torch-cluster", "torch-spline-conv", "cluster-canary", "spline-canary"),
+)
+def test_selected_boundary_rejects_legacy_reinsertions(
+    imports: dict[str, str], canaries: tuple[str, ...]
+) -> None:
+    with pytest.raises(AssertionError):
+        _assert_selected_import_and_canary_boundary(imports, canaries)
+
+
 def test_current_five_manifests_produce_the_canonical_contract() -> None:
     contract = load_stack_contract(REPO_ROOT, "Darwin", "arm64")
 
@@ -282,7 +310,7 @@ def test_supported_platform_wheel_contracts_pass(tmp_path: Path, system: str, ma
     evidence = verify_torch_stack(repo=stack.repo, hooks=stack.hooks)
 
     assert evidence == StackEvidence(system, machine, "2.11.0", "pyg-lib")
-    assert stack.calls == ["scatter", "sparse", "cluster", "sampler", "spline", "nnx"]
+    assert stack.calls == ["scatter", "sparse", "sampler", "nnx"]
 
 
 def test_local_pyg_versions_require_pt211cpu_and_compatible_wheel_tags(fake_stack: FakeStack) -> None:
@@ -337,11 +365,11 @@ def test_distribution_requires_readable_wheel_metadata(fake_stack: FakeStack) ->
 
 
 def test_imported_module_must_be_owned_by_record(fake_stack: FakeStack) -> None:
-    fake_stack.remove_record_file("torch-cluster", "torch_cluster/__init__.py")
+    fake_stack.remove_record_file("torch-sparse", "torch_sparse/__init__.py")
 
     with pytest.raises(
         TorchStackVerificationError,
-        match=r"^torch stack verification failed: torch-cluster: metadata$",
+        match=r"^torch stack verification failed: torch-sparse: metadata$",
     ):
         verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
 
@@ -382,12 +410,12 @@ def test_linux_rejects_every_normalized_nvidia_distribution(fake_stack: FakeStac
 def test_canaries_run_once_in_stable_order_and_nnx_is_last(fake_stack: FakeStack) -> None:
     verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
 
-    assert fake_stack.calls == ["scatter", "sparse", "cluster", "sampler", "spline", "nnx"]
+    assert fake_stack.calls == ["scatter", "sparse", "sampler", "nnx"]
 
 
 @pytest.mark.parametrize(
     ("failed", "category"),
-    (("scatter", "operator"), ("sparse", "operator"), ("cluster", "operator"), ("sampler", "sampler"), ("spline", "operator")),
+    (("scatter", "operator"), ("sparse", "operator"), ("sampler", "sampler")),
 )
 def test_each_runtime_canary_failure_is_fail_closed(fake_stack: FakeStack, failed: str, category: str) -> None:
     def explode(modules):
@@ -417,20 +445,20 @@ def test_warning_only_canary_fails_at_its_direct_api_boundary(fake_stack: FakeSt
     assert "\n" in WARNING_SENSITIVE
     fake_stack.hooks = dataclasses.replace(
         fake_stack.hooks,
-        canaries=dataclasses.replace(fake_stack.hooks.canaries, cluster=warning_canary),
+        canaries=dataclasses.replace(fake_stack.hooks.canaries, sparse=warning_canary),
     )
 
     with warnings.catch_warnings(record=True) as escaped:
         warnings.simplefilter("always")
         with pytest.raises(
             TorchStackVerificationError,
-            match=r"^torch stack verification failed: cluster: operator$",
+            match=r"^torch stack verification failed: sparse: operator$",
         ) as caught:
             verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
 
     diagnostic = "".join(traceback.format_exception(caught.type, caught.value, caught.tb))
     assert escaped == []
-    assert fake_stack.calls == ["scatter", "sparse"]
+    assert fake_stack.calls == ["scatter"]
     for sensitive in ("user:password", "packages.invalid", "/Users/example/private", "second-secret"):
         assert sensitive not in diagnostic
 
@@ -467,7 +495,7 @@ def test_nnx_delegation_cannot_skip_or_warn_and_continue(fake_stack: FakeStack) 
             verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
 
     assert escaped == []
-    assert fake_stack.calls == ["scatter", "sparse", "cluster", "sampler", "spline"]
+    assert fake_stack.calls == ["scatter", "sparse", "sampler"]
     assert SENSITIVE not in "".join(traceback.format_exception(caught.type, caught.value, caught.tb))
 
 
@@ -493,7 +521,7 @@ def test_warning_only_nnx_fails_at_its_direct_api_boundary(fake_stack: FakeStack
 
     diagnostic = "".join(traceback.format_exception(caught.type, caught.value, caught.tb))
     assert escaped == []
-    assert fake_stack.calls == ["scatter", "sparse", "cluster", "sampler", "spline", "nnx"]
+    assert fake_stack.calls == ["scatter", "sparse", "sampler", "nnx"]
     for sensitive in ("user:password", "packages.invalid", "/Users/example/private", "second-secret"):
         assert sensitive not in diagnostic
 
@@ -504,7 +532,7 @@ def test_environment_variables_cannot_bypass_canaries_or_nnx(fake_stack: FakeSta
 
     verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
 
-    assert fake_stack.calls == ["scatter", "sparse", "cluster", "sampler", "spline", "nnx"]
+    assert fake_stack.calls == ["scatter", "sparse", "sampler", "nnx"]
 
 
 @pytest.mark.parametrize("boundary", ("platform", "inventory", "distribution", "import", "canary", "nnx"))
@@ -746,7 +774,7 @@ def test_torch_version_evidence_is_validated_before_nnx(fake_stack: FakeStack) -
     ):
         verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
 
-    assert fake_stack.calls == ["scatter", "sparse", "cluster", "sampler", "spline"]
+    assert fake_stack.calls == ["scatter", "sparse", "sampler"]
 
 
 def test_injected_torch_version_is_rejected_before_nnx(fake_stack: FakeStack) -> None:
@@ -758,7 +786,7 @@ def test_injected_torch_version_is_rejected_before_nnx(fake_stack: FakeStack) ->
     ):
         verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
 
-    assert fake_stack.calls == ["scatter", "sparse", "cluster", "sampler", "spline"]
+    assert fake_stack.calls == ["scatter", "sparse", "sampler"]
 
 
 @pytest.mark.parametrize("distribution", tuple(sorted(BINARY_WHEELS)))
@@ -822,9 +850,6 @@ class _DefaultCanaryRig:
         self.events: list[str] = []
         self.scatter_result = _CanaryResult((2,))
         self.sparse_result = _CanaryResult((2, 1))
-        self.cluster_result = _CanaryResult((2, 2), elements=4)
-        self.batch = SimpleNamespace(batch_size=1, num_edges=1)
-        self.spline_result = _CanaryResult((2, 2))
         rig = self
 
         class SparseTensor:
@@ -836,69 +861,23 @@ class _DefaultCanaryRig:
                 rig.events.append("sparse-matmul")
                 return rig.sparse_result
 
-        class NeighborLoader:
-            def __init__(inner_self, data, **kwargs):
-                rig.events.append("neighbor-loader")
-                inner_self.data = data
-                inner_self.kwargs = kwargs
-
-            def __iter__(inner_self):
-                rig.events.append("neighbor-batch")
-                return iter((rig.batch,))
-
-        class SplineConv:
-            def __init__(inner_self, *args, **kwargs):
-                rig.events.append("spline-init")
-
-            def __call__(inner_self, *args):
-                rig.events.append("spline-forward")
-                return rig.spline_result
-
         self.modules = {
             "torch": SimpleNamespace(tensor=lambda value: value),
             "torch-scatter": SimpleNamespace(scatter=self._scatter),
             "torch-sparse": SimpleNamespace(SparseTensor=SparseTensor),
-            "torch-cluster": SimpleNamespace(knn=self._knn),
-            "torch-geometric": SimpleNamespace(
-                data=SimpleNamespace(Data=self._data),
-                loader=SimpleNamespace(NeighborLoader=NeighborLoader),
-                nn=SimpleNamespace(SplineConv=SplineConv),
-            ),
         }
 
     def _scatter(self, *args, **kwargs):
         self.events.append("scatter")
         return self.scatter_result
 
-    def _knn(self, *args, **kwargs):
-        self.events.append("cluster-knn")
-        return self.cluster_result
-
-    def _data(self, **kwargs):
-        self.events.append("graph-data")
-        return SimpleNamespace(**kwargs)
-
-
-def test_default_canary_bodies_execute_all_required_operators() -> None:
+def test_default_operator_canary_bodies_execute_required_operators() -> None:
     rig = _DefaultCanaryRig()
 
     verifier_module._scatter_canary(rig.modules)
     verifier_module._sparse_canary(rig.modules)
-    verifier_module._cluster_canary(rig.modules)
-    verifier_module._sampler_canary(rig.modules)
-    verifier_module._spline_canary(rig.modules)
 
-    assert rig.events == [
-        "scatter",
-        "sparse-init",
-        "sparse-matmul",
-        "cluster-knn",
-        "graph-data",
-        "neighbor-loader",
-        "neighbor-batch",
-        "spline-init",
-        "spline-forward",
-    ]
+    assert rig.events == ["scatter", "sparse-init", "sparse-matmul"]
 
 
 @pytest.mark.parametrize(
@@ -906,15 +885,10 @@ def test_default_canary_bodies_execute_all_required_operators() -> None:
     (
         ("scatter", lambda rig: setattr(rig, "scatter_result", _CanaryResult((1,)))),
         ("sparse", lambda rig: setattr(rig, "sparse_result", _CanaryResult((1, 1)))),
-        ("cluster", lambda rig: setattr(rig, "cluster_result", _CanaryResult((1, 2), elements=2))),
-        ("cluster", lambda rig: setattr(rig, "cluster_result", _CanaryResult((2, 0), elements=0))),
-        ("sampler", lambda rig: setattr(rig.batch, "batch_size", 0)),
-        ("sampler", lambda rig: setattr(rig.batch, "num_edges", 0)),
-        ("spline", lambda rig: setattr(rig, "spline_result", _CanaryResult((2, 1)))),
     ),
-    ids=("scatter-shape", "sparse-shape", "cluster-shape", "cluster-empty", "sampler-seed", "sampler-edge", "spline-shape"),
+    ids=("scatter-shape", "sparse-shape"),
 )
-def test_default_canary_bodies_reject_empty_or_weakened_results(canary: str, mutation) -> None:
+def test_default_operator_canary_bodies_reject_weakened_results(canary: str, mutation) -> None:
     rig = _DefaultCanaryRig()
     mutation(rig)
 
@@ -946,7 +920,7 @@ def test_verifier_module_has_no_environment_or_pytest_bypass() -> None:
     assert "except Exception: pass" not in source
 
 
-@pytest.mark.parametrize("omitted", ("scatter", "sparse", "cluster", "sampler", "spline", "nnx"))
+@pytest.mark.parametrize("omitted", ("scatter", "sparse", "sampler", "nnx"))
 def test_source_mutations_cannot_omit_a_canary_or_nnx(tmp_path: Path, omitted: str) -> None:
     source = (REPO_ROOT / "scripts" / "verify_torch_stack.py").read_text(encoding="utf-8")
     if omitted == "nnx":
@@ -977,6 +951,608 @@ def test_source_mutations_cannot_omit_a_canary_or_nnx(tmp_path: Path, omitted: s
         module.verify_torch_stack(repo=repo, hooks=stack.hooks)
 
         with pytest.raises(AssertionError):
-            assert stack.calls == ["scatter", "sparse", "cluster", "sampler", "spline", "nnx"]
+            assert stack.calls == ["scatter", "sparse", "sampler", "nnx"]
     finally:
         sys.modules.pop(module_name, None)
+
+
+def _assert_consumer_gates_fail_closed(graph_source: str, quantization_source: str) -> None:
+    for source in (graph_source, quantization_source):
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                assert not (
+                    isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "pytest"
+                    and node.func.attr in {"skip", "importorskip"}
+                )
+                assert not (
+                    isinstance(node.func.value, ast.Attribute)
+                    and isinstance(node.func.value.value, ast.Name)
+                    and node.func.value.value.id == "pytest"
+                    and node.func.value.attr == "mark"
+                    and node.func.attr == "skipif"
+                )
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                assert node.func.id not in {"_has_pyg_sampler", "_import_torchao_or_skip"}
+            if isinstance(node, ast.Name):
+                assert node.id != "_HAS_PYG_SAMPLER"
+            if isinstance(node, ast.Attribute):
+                assert not (
+                    isinstance(node.value, ast.Name)
+                    and node.value.id == "torch"
+                    and node.attr == "int1"
+                )
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id == "hasattr" and len(node.args) >= 2:
+                    assert not (
+                        isinstance(node.args[0], ast.Name)
+                        and node.args[0].id == "torch"
+                        and isinstance(node.args[1], ast.Constant)
+                        and node.args[1].value == "int1"
+                    )
+
+
+def test_graph_and_quantization_consumers_have_no_optional_backend_bypass() -> None:
+    graph_source = (
+        REPO_ROOT / "tests" / "nnx_surface" / "test_node_classification_reddit_gnn_pyg.py"
+    ).read_text(encoding="utf-8")
+    quantization_source = (
+        REPO_ROOT / "tests" / "nnx_surface" / "test_quantization_mnist_ffnn_pytorch.py"
+    ).read_text(encoding="utf-8")
+
+    _assert_consumer_gates_fail_closed(graph_source, quantization_source)
+    _assert_no_other_consumer_warning_capture(graph_source, quantization_source)
+
+
+@pytest.mark.parametrize(
+    ("consumer", "mutation"),
+    (
+        ("graph", "\ndef restored_skip():\n    pytest.skip('missing backend')\n"),
+        ("graph", "\ndef restored_importorskip():\n    pytest.importorskip('pyg_lib')\n"),
+        ("graph", "\n_HAS_PYG_SAMPLER = True\n"),
+        ("graph", "\n@pytest.mark.skipif(True, reason='missing backend')\ndef restored_skipif():\n    pass\n"),
+        ("graph", "\ndef restored_probe():\n    return _has_pyg_sampler()\n"),
+        ("quantization", "\ndef restored_quantization_probe():\n    return _import_torchao_or_skip()\n"),
+        ("quantization", "\ndef restored_int1_guard():\n    return hasattr(torch, 'int1')\n"),
+    ),
+    ids=(
+        "pytest-skip",
+        "pytest-importorskip",
+        "sampler-flag",
+        "skipif-decorator",
+        "sampler-probe",
+        "torchao-probe",
+        "torch-int1-guard",
+    ),
+)
+def test_consumer_gate_source_mutations_are_rejected(consumer: str, mutation: str) -> None:
+    clean_graph = "def test_graph():\n    import pyg_lib\n    import torch_sparse\n"
+    clean_quantization = "def test_quantization():\n    import torchao\n"
+    graph_source = clean_graph + (mutation if consumer == "graph" else "")
+    quantization_source = clean_quantization + (mutation if consumer == "quantization" else "")
+
+    with pytest.raises(AssertionError):
+        _assert_consumer_gates_fail_closed(graph_source, quantization_source)
+
+
+def _warnings_call(node: ast.AST, attribute: str) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "warnings"
+        and node.func.attr == attribute
+    )
+
+
+def _assert_qat_warning_capture_is_exact(source: str) -> None:
+    tree = ast.parse(source)
+    functions = tuple(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "test_qat_prepare_train_convert_and_inference"
+    )
+    assert len(functions) == 1
+    function = functions[0]
+    captures = tuple(
+        node
+        for node in function.body
+        if isinstance(node, ast.With)
+        and len(node.items) == 1
+        and _warnings_call(node.items[0].context_expr, "catch_warnings")
+    )
+    assert len(captures) == 1
+    capture = captures[0]
+    context = capture.items[0]
+    assert isinstance(context.optional_vars, ast.Name)
+    assert context.optional_vars.id == "caught"
+    assert len(context.context_expr.keywords) == 1
+    keyword = context.context_expr.keywords[0]
+    assert keyword.arg == "record"
+    assert isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+    assert len(capture.body) == 2
+    filter_statement, train_statement = capture.body
+    assert isinstance(filter_statement, ast.Expr)
+    assert _warnings_call(filter_statement.value, "simplefilter")
+    assert len(filter_statement.value.args) == 1
+    assert isinstance(filter_statement.value.args[0], ast.Constant)
+    assert filter_statement.value.args[0].value == "always"
+    assert not filter_statement.value.keywords
+    assert isinstance(train_statement, ast.Assign)
+    assert len(train_statement.targets) == 1
+    assert isinstance(train_statement.targets[0], ast.Name)
+    assert train_statement.targets[0].id == "run"
+    assert isinstance(train_statement.value, ast.Call)
+    assert isinstance(train_statement.value.func, ast.Attribute)
+    assert isinstance(train_statement.value.func.value, ast.Name)
+    assert train_statement.value.func.value.id == "model"
+    assert train_statement.value.func.attr == "train"
+    capture_index = function.body.index(capture)
+    validation = function.body[capture_index + 1]
+    assert isinstance(validation, ast.Assign)
+    assert len(validation.targets) == 1
+    assert isinstance(validation.targets[0], ast.Name)
+    assert validation.targets[0].id == "qat_warning_evidence"
+    assert isinstance(validation.value, ast.Call)
+    assert isinstance(validation.value.func, ast.Name)
+    assert validation.value.func.id == "_assert_qat_warning_debt"
+    assert len(validation.value.args) == 1
+    assert isinstance(validation.value.args[0], ast.Name)
+    assert validation.value.args[0].id == "caught"
+    assert len(validation.value.keywords) == 1
+    assert validation.value.keywords[0].arg == "qat_config"
+    assert isinstance(validation.value.keywords[0].value, ast.Name)
+    assert validation.value.keywords[0].value.id == "qat_config"
+    config_assignments = tuple(
+        node
+        for node in function.body[:capture_index]
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "qat_config"
+            for target in node.targets
+        )
+    )
+    assert len(config_assignments) == 1
+    assert isinstance(config_assignments[0].value, ast.Constant)
+    assert config_assignments[0].value.value == "8da4w"
+    for facade_name in ("QATLifecycleCallback", "qat_train_step_factory"):
+        calls = tuple(
+            node
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "nnx"
+            and node.func.attr == facade_name
+        )
+        assert len(calls) == 1
+        config_keywords = tuple(
+            keyword for keyword in calls[0].keywords if keyword.arg == "qat_config"
+        )
+        assert len(config_keywords) == 1
+        assert isinstance(config_keywords[0].value, ast.Name)
+        assert config_keywords[0].value.id == "qat_config"
+
+
+def _assert_no_other_consumer_warning_capture(
+    graph_source: str,
+    quantization_source: str,
+) -> None:
+    graph_tree = ast.parse(graph_source)
+    quantization_tree = ast.parse(quantization_source)
+    graph_captures = tuple(
+        node for node in ast.walk(graph_tree) if _warnings_call(node, "catch_warnings")
+    )
+    quantization_captures = tuple(
+        node
+        for node in ast.walk(quantization_tree)
+        if _warnings_call(node, "catch_warnings")
+    )
+    graph_filters = tuple(
+        node for node in ast.walk(graph_tree) if _warnings_call(node, "simplefilter")
+    )
+    quantization_filters = tuple(
+        node
+        for node in ast.walk(quantization_tree)
+        if _warnings_call(node, "simplefilter")
+    )
+    assert not graph_captures
+    assert not graph_filters
+    assert len(quantization_captures) == 1
+    assert len(quantization_filters) == 1
+    _assert_qat_warning_capture_is_exact(quantization_source)
+
+
+CLEAN_QAT_CAPTURE_SOURCE = '''
+def test_qat_prepare_train_convert_and_inference():
+    qat_config = "8da4w"
+    callback = nnx.QATLifecycleCallback(qat_config=qat_config)
+    train_step = nnx.qat_train_step_factory(qat_config=qat_config)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        run = model.train(callbacks=[callback], train_step_fn=train_step)
+    qat_warning_evidence = _assert_qat_warning_debt(caught, qat_config=qat_config)
+    logits, classes = model.predict(X=X)
+'''
+
+
+def test_qat_warning_capture_contract_accepts_only_exact_synthetic_fixture() -> None:
+    _assert_qat_warning_capture_is_exact(CLEAN_QAT_CAPTURE_SOURCE)
+    _assert_no_other_consumer_warning_capture(
+        "def test_graph():\n    pass\n",
+        CLEAN_QAT_CAPTURE_SOURCE,
+    )
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        ("record=True", "record=False"),
+        ('simplefilter("always")', 'simplefilter("ignore")'),
+        ('qat_config = "8da4w"', 'qat_config = "8da4w-next"'),
+        (
+            "    qat_warning_evidence = _assert_qat_warning_debt(caught, qat_config=qat_config)\n",
+            "",
+        ),
+    ),
+)
+def test_qat_warning_capture_contract_rejects_shape_mutations(old: str, new: str) -> None:
+    mutated = CLEAN_QAT_CAPTURE_SOURCE.replace(old, new, 1)
+    assert mutated != CLEAN_QAT_CAPTURE_SOURCE
+    with pytest.raises(AssertionError):
+        _assert_qat_warning_capture_is_exact(mutated)
+
+
+@pytest.mark.parametrize(
+    "line",
+    (
+        "    callback = nnx.QATLifecycleCallback(qat_config=qat_config)\n",
+        "    logits, classes = model.predict(X=X)\n",
+    ),
+    ids=("callback-inside-capture", "predict-inside-capture"),
+)
+def test_qat_warning_capture_contract_rejects_syntactic_broadening(line: str) -> None:
+    capture_anchor = '        warnings.simplefilter("always")\n'
+    assert CLEAN_QAT_CAPTURE_SOURCE.count(line) == 1
+    assert CLEAN_QAT_CAPTURE_SOURCE.count(capture_anchor) == 1
+    without_original = CLEAN_QAT_CAPTURE_SOURCE.replace(line, "", 1)
+    mutated = without_original.replace(
+        capture_anchor,
+        capture_anchor + "        " + line.lstrip(),
+        1,
+    )
+    assert mutated != CLEAN_QAT_CAPTURE_SOURCE
+    ast.parse(mutated)
+    with pytest.raises(AssertionError):
+        _assert_qat_warning_capture_is_exact(mutated)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    (
+        "\ndef other():\n    with warnings.catch_warnings(record=True):\n        pass\n",
+        "\ndef other():\n    warnings.simplefilter('always')\n",
+    ),
+)
+def test_qat_warning_capture_contract_rejects_other_consumer_capture(extra: str) -> None:
+    with pytest.raises(AssertionError):
+        _assert_no_other_consumer_warning_capture(
+            "def test_graph():\n    pass\n",
+            CLEAN_QAT_CAPTURE_SOURCE + extra,
+        )
+
+
+def test_qat_warning_origin_source_mutation_cannot_delete_is_file_guard(
+    tmp_path: Path,
+) -> None:
+    source_path = (
+        REPO_ROOT
+        / "tests"
+        / "nnx_surface"
+        / "test_quantization_mnist_ffnn_pytorch.py"
+    )
+    source = source_path.read_text(encoding="utf-8")
+    mutated = source.replace(" or not origin.is_file()", "", 1)
+    assert mutated != source
+    module_path = tmp_path / "mutated_qat_warning_debt.py"
+    module_path.write_text(mutated, encoding="utf-8")
+    module_name = "mutated_qat_warning_debt"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+        distributions, record = module._exact_qat_warning(tmp_path / "inventory")
+        exact_path = Path(record.filename)
+        exact_path.unlink()
+        exact_path.mkdir()
+        with pytest.raises(AssertionError, match="qat warning debt validation failed"):
+            module._assert_qat_warning_debt(
+                (module._warning_record(exact_path),),
+                qat_config="8da4w",
+                distribution=distributions.__getitem__,
+            )
+    finally:
+        sys.modules.pop(module_name, None)
+
+
+def _call_to_name(node: ast.AST, name: str) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == name
+    )
+
+
+def _direct_selected_import(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "hooks"
+        and node.func.attr == "import_module"
+        and len(node.args) == 1
+        and isinstance(node.args[0], ast.Attribute)
+        and isinstance(node.args[0].value, ast.Name)
+        and node.args[0].value.id == "pin"
+        and node.args[0].attr == "import_name"
+        and not node.keywords
+    )
+
+
+def _assert_selected_import_warning_boundary(source: str) -> None:
+    tree = ast.parse(source)
+    assignments = tuple(
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name)
+            and target.id == "_IMPORT_WARNING_OUTER_COMPONENTS"
+            for target in node.targets
+        )
+    )
+    assert len(assignments) == 1
+    value = assignments[0].value
+    assert isinstance(value, ast.Call)
+    assert isinstance(value.func, ast.Name) and value.func.id == "frozenset"
+    assert len(value.args) == 1 and not value.keywords
+    assert isinstance(value.args[0], ast.Tuple)
+    members = tuple(
+        element.value
+        for element in value.args[0].elts
+        if isinstance(element, ast.Constant) and isinstance(element.value, str)
+    )
+    assert members == ("torch-geometric", "torch-sparse")
+    assert len(members) == len(value.args[0].elts)
+
+    verify_functions = tuple(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "verify_torch_stack"
+    )
+    assert len(verify_functions) == 1
+    verify_function = verify_functions[0]
+    branches = tuple(
+        node
+        for node in ast.walk(verify_function)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Compare)
+        and isinstance(node.test.left, ast.Attribute)
+        and isinstance(node.test.left.value, ast.Name)
+        and node.test.left.value.id == "pin"
+        and node.test.left.attr == "distribution"
+        and len(node.test.ops) == 1
+        and isinstance(node.test.ops[0], ast.In)
+        and len(node.test.comparators) == 1
+        and isinstance(node.test.comparators[0], ast.Name)
+        and node.test.comparators[0].id == "_IMPORT_WARNING_OUTER_COMPONENTS"
+    )
+    assert len(branches) == 1
+    branch = branches[0]
+    wrapper_calls = tuple(
+        node
+        for node in ast.walk(verify_function)
+        if _call_to_name(node, "_import_with_selected_warning_boundary")
+    )
+    direct_calls = tuple(
+        node for node in ast.walk(verify_function) if _direct_selected_import(node)
+    )
+    assert len(wrapper_calls) == 1
+    assert len(direct_calls) == 1
+    assert any(node is wrapper_calls[0] for statement in branch.body for node in ast.walk(statement))
+    assert any(node is direct_calls[0] for statement in branch.orelse for node in ast.walk(statement))
+
+    capture_calls = tuple(
+        (function.name, node)
+        for function in tree.body
+        if isinstance(function, ast.FunctionDef)
+        for node in ast.walk(function)
+        if _call_to_name(node, "_capture_selected_import")
+    )
+    assert len(capture_calls) == 1
+    assert capture_calls[0][0] == "_import_with_selected_warning_boundary"
+
+
+def _is_sys_modules(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "sys"
+        and node.attr == "modules"
+    )
+
+
+def _mutates_sys_modules(node: ast.AST) -> bool:
+    targets: tuple[ast.AST, ...] = ()
+    if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+        if isinstance(node, ast.Assign):
+            targets = tuple(node.targets)
+        else:
+            targets = (node.target,)
+    elif isinstance(node, ast.Delete):
+        targets = tuple(node.targets)
+    if any(
+        _is_sys_modules(target)
+        or (isinstance(target, ast.Subscript) and _is_sys_modules(target.value))
+        for target in targets
+    ):
+        return True
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and _is_sys_modules(node.func.value)
+        and node.func.attr
+        in {"clear", "pop", "popitem", "setdefault", "update", "__delitem__", "__setitem__"}
+    )
+
+
+def _pytest_filterwarnings_call(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "filterwarnings"
+        and isinstance(node.func.value, ast.Attribute)
+        and isinstance(node.func.value.value, ast.Name)
+        and node.func.value.value.id == "pytest"
+        and node.func.value.attr == "mark"
+    )
+
+
+def _assert_no_warning_policy_bypass(sources: dict[str, str]) -> None:
+    assert set(sources) == {
+        "verifier",
+        "conftest",
+        "graph",
+        "quantization",
+        "make",
+        "ci",
+    }
+    for source in sources.values():
+        assert "PYTHONWARNINGS" not in source
+        assert "--disable-warnings" not in source
+        assert re.search(r"(?:^|\s)-W\s+ignore(?:\s|$)", source) is None
+    for name in ("verifier", "conftest", "graph", "quantization"):
+        tree = ast.parse(sources[name])
+        for node in ast.walk(tree):
+            assert not _warnings_call(node, "filterwarnings")
+            assert not _pytest_filterwarnings_call(node)
+            assert not _mutates_sys_modules(node)
+            if _warnings_call(node, "simplefilter"):
+                assert node.args
+                action = node.args[0]
+                assert not (
+                    isinstance(action, ast.Constant)
+                    and isinstance(action.value, str)
+                    and action.value == "ignore"
+                )
+
+
+def _warning_policy_sources() -> dict[str, str]:
+    return {
+        "verifier": (REPO_ROOT / "scripts" / "verify_torch_stack.py").read_text(
+            encoding="utf-8"
+        ),
+        "conftest": (REPO_ROOT / "tests" / "nnx_surface" / "conftest.py").read_text(
+            encoding="utf-8"
+        ),
+        "graph": (
+            REPO_ROOT
+            / "tests"
+            / "nnx_surface"
+            / "test_node_classification_reddit_gnn_pyg.py"
+        ).read_text(encoding="utf-8"),
+        "quantization": (
+            REPO_ROOT
+            / "tests"
+            / "nnx_surface"
+            / "test_quantization_mnist_ffnn_pytorch.py"
+        ).read_text(encoding="utf-8"),
+        "make": (REPO_ROOT / "Makefile").read_text(encoding="utf-8"),
+        "ci": (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        ),
+    }
+
+
+def test_selected_import_warning_boundary_is_exactly_local() -> None:
+    source = (REPO_ROOT / "scripts" / "verify_torch_stack.py").read_text(
+        encoding="utf-8"
+    )
+
+    _assert_selected_import_warning_boundary(source)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        (
+            "if pin.distribution in _IMPORT_WARNING_OUTER_COMPONENTS:",
+            "if True:",
+        ),
+        (
+            "module = hooks.import_module(pin.import_name)",
+            "module = _import_with_selected_warning_boundary(\n"
+            "                    pin, distribution, torch_distribution, hooks\n"
+            "                )",
+        ),
+        (
+            '_IMPORT_WARNING_OUTER_COMPONENTS = frozenset(("torch-geometric", "torch-sparse"))',
+            '_IMPORT_WARNING_OUTER_COMPONENTS = frozenset(("torch-geometric", "torch-sparse", "torchao"))',
+        ),
+    ),
+    ids=("unconditional-wrapper", "all-import-wrapper", "broadened-membership"),
+)
+def test_selected_import_warning_boundary_rejects_source_mutations(
+    old: str, new: str
+) -> None:
+    source = (REPO_ROOT / "scripts" / "verify_torch_stack.py").read_text(
+        encoding="utf-8"
+    )
+    mutated = source.replace(old, new, 1)
+    assert mutated != source
+    ast.parse(mutated)
+    with pytest.raises(AssertionError):
+        _assert_selected_import_warning_boundary(mutated)
+
+
+def test_warning_policy_has_no_global_cli_environment_or_module_bypass() -> None:
+    _assert_no_warning_policy_bypass(_warning_policy_sources())
+
+
+@pytest.mark.parametrize(
+    ("consumer", "mutation"),
+    (
+        ("graph", "\nwarnings.filterwarnings('ignore')\n"),
+        ("quantization", "\nwarnings.simplefilter('ignore')\n"),
+        (
+            "conftest",
+            "\npytestmark = pytest.mark.filterwarnings('ignore::DeprecationWarning')\n",
+        ),
+        ("make", "\nPYTHONWARNINGS=ignore pytest\n"),
+        ("ci", "\n      run: pytest -W ignore\n"),
+        ("ci", "\n      run: pytest --disable-warnings\n"),
+        ("verifier", "\ndel sys.modules['torch_geometric']\n"),
+        ("graph", "\nsys.modules['torch_sparse'] = object()\n"),
+    ),
+    ids=(
+        "filterwarnings",
+        "simplefilter-ignore",
+        "pytest-mark-filterwarnings",
+        "pythonwarnings",
+        "cli-w-ignore",
+        "disable-warnings",
+        "sys-modules-delete",
+        "sys-modules-replace",
+    ),
+)
+def test_warning_policy_rejects_each_bypass_mutation(
+    consumer: str, mutation: str
+) -> None:
+    sources = _warning_policy_sources()
+    sources[consumer] += mutation
+    with pytest.raises(AssertionError):
+        _assert_no_warning_policy_bypass(sources)

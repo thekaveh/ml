@@ -94,74 +94,68 @@ def _assert_audit_advisories_contract(makefile: Path, cwd: Path) -> None:
     assert failure_probe.returncode != 0
 
 
-def _assert_nnx_install_fixture_contract(source: str) -> None:
-    tree = ast.parse(source)
-    verifier_imports = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.ImportFrom)
-        and node.module == "scripts.verify_nnx_install"
-        and any(alias.name == "verify_nnx_install" for alias in node.names)
-    ]
-    fixtures = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_verify_nnx_installation_contract"
-    ]
-    initial_verifier_calls = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.Expr)
-        and isinstance(node.value, ast.Call)
-        and isinstance(node.value.func, ast.Name)
-        and node.value.func.id == "verify_nnx_install"
-        and not node.value.args
-        and not node.value.keywords
-    ]
-    nnx_imports = [
-        node
-        for node in tree.body
-        if (
-            isinstance(node, ast.Import)
-            and any(
-                alias.name == "nnx" or alias.name.startswith("nnx.")
-                for alias in node.names
-            )
-        )
-        or (
-            isinstance(node, ast.ImportFrom)
-            and node.module is not None
-            and (node.module == "nnx" or node.module.startswith("nnx."))
-        )
-    ]
+def _is_nnx_import(node: ast.stmt) -> bool:
+    if isinstance(node, ast.Import):
+        return any(alias.name == "nnx" or alias.name.startswith("nnx.") for alias in node.names)
+    return (
+        isinstance(node, ast.ImportFrom)
+        and node.module is not None
+        and (node.module == "nnx" or node.module.startswith("nnx."))
+    )
 
-    assert len(verifier_imports) == 1
-    assert len(initial_verifier_calls) == 1
-    assert len(nnx_imports) == 1
-    assert tree.body.index(verifier_imports[0]) < tree.body.index(initial_verifier_calls[0])
-    assert tree.body.index(initial_verifier_calls[0]) < tree.body.index(nnx_imports[0])
-    assert len(fixtures) == 1
-    fixture = fixtures[0]
-    assert len(fixture.decorator_list) == 1
-    decorator = fixture.decorator_list[0]
-    assert isinstance(decorator, ast.Call)
-    assert isinstance(decorator.func, ast.Attribute)
-    assert isinstance(decorator.func.value, ast.Name)
-    assert (decorator.func.value.id, decorator.func.attr) == ("pytest", "fixture")
-    assert not decorator.args
-    assert {keyword.arg: ast.literal_eval(keyword.value) for keyword in decorator.keywords} == {
-        "scope": "session",
-        "autouse": True,
+
+def _assert_nnx_collection_verifier_contract(source: str) -> None:
+    tree = ast.parse(source)
+    expected_imports = {
+        "scripts.verify_torch_stack": "verify_torch_stack",
+        "scripts.verify_nnx_install": "verify_nnx_install",
     }
-    assert not fixture.args.args
-    assert len(fixture.body) == 1
-    invocation = fixture.body[0]
-    assert isinstance(invocation, ast.Expr)
-    assert isinstance(invocation.value, ast.Call)
-    assert isinstance(invocation.value.func, ast.Name)
-    assert invocation.value.func.id == "verify_nnx_install"
-    assert not invocation.value.args
-    assert not invocation.value.keywords
+    for module_name, binding in expected_imports.items():
+        imports = tuple(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom)
+            and node.module == module_name
+            and node.level == 0
+        )
+        assert len(imports) == 1
+        assert not any(
+            isinstance(node, ast.Import)
+            and any(alias.name == module_name for alias in node.names)
+            for node in tree.body
+        )
+        assert len(imports[0].names) == 1
+        assert imports[0].names[0].name == binding
+        assert imports[0].names[0].asname is None
+    assert not [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_verify_nnx_installation_contract"
+    ]
+    calls = {
+        name: tuple(
+            node
+            for node in tree.body
+            if isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == name
+        )
+        for name in ("verify_torch_stack", "verify_nnx_install")
+    }
+    assert len(calls["verify_torch_stack"]) == 1
+    assert len(calls["verify_nnx_install"]) == 1
+    assert not calls["verify_torch_stack"][0].value.args
+    assert not calls["verify_torch_stack"][0].value.keywords
+    assert not calls["verify_nnx_install"][0].value.args
+    assert not calls["verify_nnx_install"][0].value.keywords
+    nnx_imports = tuple(node for node in tree.body if _is_nnx_import(node))
+    assert nnx_imports
+    assert tree.body.index(calls["verify_torch_stack"][0]) < tree.body.index(
+        calls["verify_nnx_install"][0]
+    )
+    assert tree.body.index(calls["verify_nnx_install"][0]) < tree.body.index(nnx_imports[0])
 
 
 def test_mkdocs_commands_suppress_only_the_upstream_material_banner():
@@ -314,57 +308,104 @@ def test_audit_advisories_contract_rejects_makefile_mutations(
         _assert_audit_advisories_contract(makefile, tmp_path)
 
 
-def test_nnx_surface_has_a_session_autouse_installation_verifier():
+def test_nnx_surface_verifies_stack_then_nnx_once_before_collection_imports():
     source = (REPO_ROOT / "tests" / "nnx_surface" / "conftest.py").read_text(encoding="utf-8")
 
-    _assert_nnx_install_fixture_contract(source)
+    _assert_nnx_collection_verifier_contract(source)
 
 
 @pytest.mark.parametrize(
     ("original", "mutation"),
     (
-        ('scope="session"', 'scope="function"'),
-        ("autouse=True", "autouse=False"),
         (
+            "from scripts.verify_torch_stack import verify_torch_stack",
+            "from scripts.verify_torch_stack import verify_torch_stack as stack_verify",
+        ),
+        (
+            "from scripts.verify_nnx_install import verify_nnx_install",
+            "from scripts.verify_nnx_install import *",
+        ),
+        (
+            "from scripts.verify_torch_stack import verify_torch_stack",
+            "from scripts.verify_other import verify_torch_stack",
+        ),
+        (
+            "from scripts.verify_nnx_install import verify_nnx_install",
+            "def import_verifier():\n    from scripts.verify_nnx_install import verify_nnx_install",
+        ),
+        (
+            "from scripts.verify_torch_stack import verify_torch_stack",
+            "from scripts.verify_torch_stack import verify_torch_stack\n"
+            "from scripts.verify_torch_stack import verify_torch_stack",
+        ),
+        (
+            "from scripts.verify_nnx_install import verify_nnx_install",
+            "import scripts.verify_nnx_install",
+        ),
+        ("verify_torch_stack()\n", ""),
+        ("verify_nnx_install()\n", ""),
+        (
+            "verify_torch_stack()\nverify_nnx_install()",
+            "verify_nnx_install()\nverify_torch_stack()",
+        ),
+        (
+            "verify_torch_stack()\nverify_nnx_install()",
+            "verify_torch_stack()\nverify_torch_stack()\nverify_nnx_install()",
+        ),
+        (
+            "verify_torch_stack()\nverify_nnx_install()",
+            "verify_torch_stack()\nverify_nnx_install()\nverify_nnx_install()",
+        ),
+        (
+            "verify_torch_stack()\nverify_nnx_install()\n\nimport nnx",
+            "import nnx\n\nverify_torch_stack()\nverify_nnx_install()",
+        ),
+        (
+            "verify_torch_stack()\n",
+            "def verify_during_collection():\n    verify_torch_stack()\n",
+        ),
+        (
+            "verify_nnx_install()\n",
+            "try:\n    verify_nnx_install()\nexcept Exception:\n    pass\n",
+        ),
+        (
+            "verify_torch_stack()\n",
+            "if ENABLE_VERIFY:\n    verify_torch_stack()\n",
+        ),
+        (
+            "import nnx  # noqa: E402  # both provenance gates precede collection imports",
+            "import nnx  # noqa: E402  # both provenance gates precede collection imports\n\n"
+            "@pytest.fixture(scope=\"session\", autouse=True)\n"
+            "def _verify_nnx_installation_contract():\n"
             "    verify_nnx_install()",
-            "    try:\n        verify_nnx_install()\n    except VerificationError:\n        pass",
-        ),
-        (
-            "    verify_nnx_install()",
-            '    os.environ["NNX_ALLOW_EDITABLE"] = "1"\n    verify_nnx_install()',
-        ),
-        (
-            "verify_nnx_install()\n\nimport nnx",
-            "import nnx\n\nverify_nnx_install()",
-        ),
-        ("verify_nnx_install()\n\nimport nnx", "import nnx"),
-        (
-            "verify_nnx_install()\n\nimport nnx",
-            "from nnx.utils import seed\n\nverify_nnx_install()\n\nimport nnx",
-        ),
-        (
-            "verify_nnx_install()\n\nimport nnx",
-            "import nnx.utils\n\nverify_nnx_install()\n\nimport nnx",
         ),
     ),
     ids=(
-        "function-scope",
-        "autouse-disabled",
-        "error-swallowed",
-        "environment-mutated",
-        "initial-verifier-reordered",
-        "initial-verifier-removed",
-        "submodule-from-import-before-verifier",
-        "submodule-import-before-verifier",
+        "torch-import-alias",
+        "nnx-star-import",
+        "torch-wrong-module",
+        "nnx-import-inside-function",
+        "torch-import-duplicated",
+        "nnx-module-import",
+        "torch-call-deleted",
+        "nnx-call-deleted",
+        "calls-reversed",
+        "torch-call-duplicated",
+        "nnx-call-duplicated",
+        "calls-after-nnx",
+        "torch-call-inside-function",
+        "nnx-call-inside-try",
+        "torch-call-conditional",
+        "autouse-fixture-restored",
     ),
 )
-def test_nnx_surface_installation_fixture_contract_rejects_mutations(original: str, mutation: str):
+def test_nnx_collection_verifier_contract_rejects_mutations(original: str, mutation: str):
     source = (REPO_ROOT / "tests" / "nnx_surface" / "conftest.py").read_text(encoding="utf-8")
     mutated = source.replace(original, mutation, 1)
 
     assert mutated != source
     with pytest.raises(AssertionError):
-        _assert_nnx_install_fixture_contract(mutated)
+        _assert_nnx_collection_verifier_contract(mutated)
 
 
 def test_smoke_tier_a_writes_to_temporary_outputs_without_mutating_sources(

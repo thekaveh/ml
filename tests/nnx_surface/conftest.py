@@ -14,15 +14,12 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from scripts.verify_nnx_install import verify_nnx_install
+from scripts.verify_torch_stack import verify_torch_stack
 
+verify_torch_stack()
 verify_nnx_install()
 
-import nnx  # noqa: E402  # provenance must be verified before collection imports NNx
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _verify_nnx_installation_contract():
-    verify_nnx_install()
+import nnx  # noqa: E402  # both provenance gates precede collection imports
 
 
 @pytest.fixture(autouse=True)

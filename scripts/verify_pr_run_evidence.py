@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,16 @@ def _string(value: object, message: str) -> str:
 def _integer(value: object, message: str) -> int:
     _require(isinstance(value, int) and not isinstance(value, bool), message)
     return value
+
+
+def _timestamp(value: object, message: str) -> str:
+    text = _string(value, message)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise PrRunEvidenceError(message) from error
+    _require(parsed.tzinfo == timezone.utc and text.endswith("Z"), message)
+    return text
 
 
 def _sha(value: object, message: str) -> str:
@@ -129,7 +140,7 @@ def verify_pr_run_evidence(
     merge_tree: object,
     head_tree: object,
 ) -> dict[str, object]:
-    """Return schema-1 evidence only when both GitHub PR identities are exact."""
+    """Return schema-2 evidence only when both GitHub PR identities are exact."""
     _require(_REPOSITORY.fullmatch(expected_repo) is not None, "expected repository")
     _require(expected_pr_number > 0, "expected PR number")
     for value, label in (
@@ -185,14 +196,37 @@ def verify_pr_run_evidence(
         _require(run_id not in summary_by_id, "unique summary run id")
         summary_by_id[run_id] = summary
 
-    record_workflows: set[str] = set()
+    selected_workflows: set[str] = set()
     record_ids: set[int] = set()
     output_runs: list[dict[str, object]] = []
+    contaminating_runs: list[dict[str, object]] = []
+    selected_ci_jobs: dict[str, str] | None = None
+    contaminating_ci_jobs: list[dict[str, str]] = []
     for record in records:
-        _require(set(record) == {"workflow", "jobs", "rest", "view", "log"}, "run record schema")
+        _require(
+            set(record) == {
+                "workflow", "jobs", "action", "selected", "rest", "view", "log",
+            },
+            "run record schema",
+        )
         workflow = _string(record.get("workflow"), "workflow name")
-        _require(workflow not in record_workflows, "unique workflow")
-        record_workflows.add(workflow)
+        selected = record.get("selected")
+        _require(isinstance(selected, bool), "run selection")
+        action = record.get("action")
+        if workflow == "CI":
+            action = _string(action, "CI action")
+            _require(
+                action in {"opened", "labeled", "synchronize"},
+                "supported CI action",
+            )
+        else:
+            _require(action is None, "non-CI action")
+            _require(selected is True, "non-CI run selected")
+        if selected:
+            _require(workflow not in selected_workflows, "unique selected workflow")
+            selected_workflows.add(workflow)
+        else:
+            _require(workflow == "CI" and action == "opened", "opened CI contaminant")
         expected_jobs_raw = _mapping(record.get("jobs"), "job policy")
         expected_jobs = {
             _string(name, "job name"): _string(conclusion, "job conclusion")
@@ -231,7 +265,18 @@ def verify_pr_run_evidence(
         _require(rest.get("head_branch") == expected_head_ref, "REST head ref")
         rest_repository = _mapping(rest.get("head_repository"), "REST head repository")
         _require(rest_repository.get("full_name") == expected_repo, "REST head repository name")
-        _require(rest.get("run_attempt") == 1, "first run attempt")
+        run_attempt = _integer(rest.get("run_attempt"), "REST run attempt")
+        _require(run_attempt == 1, "first run attempt")
+        created_at = _timestamp(rest.get("created_at"), "REST created at")
+        _require(summary.get("createdAt") == created_at, "summary created at")
+        display_title = _string(rest.get("display_title"), "REST display title")
+        _require(summary.get("displayTitle") == display_title, "summary display title")
+        if workflow == "CI":
+            _require(
+                display_title
+                == f"CI / pull_request / {action} / PR {expected_pr_number}",
+                "CI action display title",
+            )
         _pull_request_association(
             rest,
             expected_repo=expected_repo,
@@ -261,16 +306,23 @@ def verify_pr_run_evidence(
                 f"https://github.com/{expected_repo}/actions/runs/{run_id}/job/",
                 f"{name} URL",
             )
-            selected_check = checks_by_link.get(job_url)
-            _require(selected_check is not None, f"{name} selected PR check")
-            _require(selected_check.get("name") == name, f"{name} PR check name")
-            expected_state, expected_bucket = {
-                "success": ("SUCCESS", "pass"),
-                "skipped": ("SKIPPED", "skipping"),
-            }[conclusion]
-            _require(selected_check.get("state") == expected_state, f"{name} PR check state")
-            _require(selected_check.get("bucket") == expected_bucket, f"{name} PR check bucket")
-            check_urls[name] = job_url
+            if selected:
+                selected_check = checks_by_link.get(job_url)
+                _require(selected_check is not None, f"{name} selected PR check")
+                _require(selected_check.get("name") == name, f"{name} PR check name")
+                expected_state, expected_bucket = {
+                    "success": ("SUCCESS", "pass"),
+                    "skipped": ("SKIPPED", "skipping"),
+                }[conclusion]
+                _require(
+                    selected_check.get("state") == expected_state,
+                    f"{name} PR check state",
+                )
+                _require(
+                    selected_check.get("bucket") == expected_bucket,
+                    f"{name} PR check bucket",
+                )
+                check_urls[name] = job_url
 
         log = _string(record.get("log"), "run log")
         _checkout_evidence(
@@ -279,26 +331,69 @@ def verify_pr_run_evidence(
             pr_number=expected_pr_number,
             merge_sha=expected_merge_sha,
         )
-        output_runs.append(
-            {
-                "database_id": run_id,
-                "workflow": workflow,
-                "url": rest["html_url"],
-                "metadata_head_sha": expected_head_sha,
-                "checkout_sha": expected_merge_sha,
-                "jobs": dict(sorted(expected_jobs.items())),
-                "check_urls": dict(sorted(check_urls.items())),
-                "log_sha256": hashlib.sha256(log.encode("utf-8")).hexdigest(),
-            }
-        )
+        if selected:
+            if workflow == "CI":
+                tier_b = expected_jobs.get("smoke-tier-b")
+                if tier_b == "success":
+                    _require(action in {"labeled", "synchronize"}, "selected Tier B CI action")
+                elif tier_b == "skipped":
+                    _require(action in {"opened", "synchronize"}, "selected skipped Tier B CI action")
+                else:
+                    raise PrRunEvidenceError("selected CI Tier B policy")
+                selected_ci_jobs = expected_jobs
+            output_runs.append(
+                {
+                    "database_id": run_id,
+                    "workflow": workflow,
+                    "url": rest["html_url"],
+                    "event": "pull_request",
+                    "action": action,
+                    "created_at": created_at,
+                    "run_attempt": run_attempt,
+                    "metadata_head_sha": expected_head_sha,
+                    "checkout_sha": expected_merge_sha,
+                    "jobs": dict(sorted(expected_jobs.items())),
+                    "check_urls": dict(sorted(check_urls.items())),
+                    "log_sha256": hashlib.sha256(log.encode("utf-8")).hexdigest(),
+                }
+            )
+        else:
+            contaminating_ci_jobs.append(expected_jobs)
+            contaminating_runs.append(
+                {
+                    "database_id": run_id,
+                    "workflow": workflow,
+                    "url": rest["html_url"],
+                    "event": "pull_request",
+                    "action": action,
+                    "created_at": created_at,
+                    "run_attempt": run_attempt,
+                    "metadata_head_sha": expected_head_sha,
+                    "checkout_sha": expected_merge_sha,
+                    "jobs": dict(sorted(expected_jobs.items())),
+                    "log_sha256": hashlib.sha256(log.encode("utf-8")).hexdigest(),
+                }
+            )
 
     _require(record_ids == set(summary_by_id), "exact run ids")
+    _require(selected_ci_jobs is not None, "selected CI run")
+    if selected_ci_jobs.get("smoke-tier-b") == "success":
+        _require(len(contaminating_ci_jobs) <= 1, "unique opened CI contaminant")
+        opened_policy = dict(selected_ci_jobs)
+        opened_policy["smoke-tier-b"] = "skipped"
+        _require(
+            all(policy == opened_policy for policy in contaminating_ci_jobs),
+            "opened CI contaminant policy",
+        )
+    else:
+        _require(not contaminating_ci_jobs, "unexpected CI contaminant")
     _require(
-        record_workflows == {str(item["workflowName"]) for item in summaries},
-        "exact workflow set",
+        selected_workflows == {"CI", "Docs gate", "Atlas contract"}
+        or selected_workflows == {"CI"},
+        "selected workflow set",
     )
     return {
-        "schema": 1,
+        "schema": 2,
         "pull_request": {"number": expected_pr_number, "url": expected_pr_url},
         "source_head": {
             "repository": expected_repo,
@@ -316,6 +411,9 @@ def verify_pr_run_evidence(
             "tree": merge_tree_value,
         },
         "runs": sorted(output_runs, key=lambda item: str(item["workflow"])),
+        "contaminating_runs": sorted(
+            contaminating_runs, key=lambda item: int(item["database_id"])
+        ),
     }
 
 
@@ -373,7 +471,7 @@ def main(argv: list[str] | None = None) -> int:
         ):
             _require(path.is_absolute(), "absolute paths")
         manifest = _mapping(_load_json(args.manifest), "manifest")
-        _require(set(manifest) == {"schema", "runs"} and manifest["schema"] == 1, "manifest schema")
+        _require(set(manifest) == {"schema", "runs"} and manifest["schema"] == 2, "manifest schema")
         records: list[dict[str, object]] = []
         for item in _sequence(manifest["runs"], "manifest runs"):
             record = _mapping(item, "manifest run")
@@ -381,6 +479,8 @@ def main(argv: list[str] | None = None) -> int:
                 set(record) == {
                     "workflow",
                     "jobs",
+                    "action",
+                    "selected",
                     "rest_path",
                     "view_path",
                     "log_path",
@@ -395,6 +495,8 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "workflow": record["workflow"],
                     "jobs": record["jobs"],
+                    "action": record["action"],
+                    "selected": record["selected"],
                     "rest": _load_json(rest_path),
                     "view": _load_json(view_path),
                     "log": log_path.read_text(encoding="utf-8"),

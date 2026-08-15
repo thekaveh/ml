@@ -47,10 +47,17 @@ def _pull_request() -> dict[str, object]:
     }
 
 
-def _rest_run(run_id: int) -> dict[str, object]:
+def _rest_run(run_id: int, workflow: str, action: str | None) -> dict[str, object]:
+    created_at = f"2026-08-15T00:00:{run_id % 60:02d}Z"
     return {
         "id": run_id,
         "event": "pull_request",
+        "created_at": created_at,
+        "display_title": (
+            f"CI / pull_request / {action} / PR {PR_NUMBER}"
+            if workflow == "CI"
+            else f"PR {PR_NUMBER}"
+        ),
         "head_sha": HEAD_SHA,
         "head_branch": HEAD_REF,
         "head_repository": {"id": 619028479, "full_name": REPO},
@@ -88,11 +95,16 @@ def _run_record(
     run_id: int,
     workflow: str,
     jobs: dict[str, str],
+    *,
+    action: str | None = None,
+    selected: bool = True,
 ) -> dict[str, object]:
     return {
         "workflow": workflow,
         "jobs": jobs,
-        "rest": _rest_run(run_id),
+        "action": action,
+        "selected": selected,
+        "rest": _rest_run(run_id, workflow, action),
         "view": {
             "databaseId": run_id,
             "workflowName": workflow,
@@ -125,8 +137,22 @@ def _control() -> dict[str, object]:
             {
                 "pytest-repository": "success",
                 "verify-repo": "success",
+                "smoke-tier-b": "success",
                 "smoke-tier-c": "skipped",
             },
+            action="labeled",
+        ),
+        _run_record(
+            104,
+            "CI",
+            {
+                "pytest-repository": "success",
+                "verify-repo": "success",
+                "smoke-tier-b": "skipped",
+                "smoke-tier-c": "skipped",
+            },
+            action="opened",
+            selected=False,
         ),
         _run_record(102, "Docs gate", {"check": "success"}),
         _run_record(103, "Atlas contract", {"atlas-contract": "success"}),
@@ -139,6 +165,7 @@ def _control() -> dict[str, object]:
             "link": job["url"],
         }
         for record in records
+        if record["selected"]
         for job in record["view"]["jobs"]
     ]
     checks.append(
@@ -156,9 +183,11 @@ def _control() -> dict[str, object]:
             {
                 "databaseId": record["rest"]["id"],
                 "workflowName": record["workflow"],
+                "displayTitle": record["rest"]["display_title"],
                 "event": "pull_request",
                 "headSha": HEAD_SHA,
                 "headBranch": HEAD_REF,
+                "createdAt": record["rest"]["created_at"],
                 "status": "completed",
                 "conclusion": "success",
                 "url": record["rest"]["html_url"],
@@ -196,7 +225,7 @@ def _verify(control: dict[str, object]) -> dict[str, object]:
 def test_pr_run_evidence_binds_source_metadata_and_synthetic_checkout() -> None:
     evidence = _verify(_control())
 
-    assert evidence["schema"] == 1
+    assert evidence["schema"] == 2
     assert evidence["pull_request"] == {
         "number": PR_NUMBER,
         "url": f"https://github.com/{REPO}/pull/{PR_NUMBER}",
@@ -223,6 +252,30 @@ def test_pr_run_evidence_binds_source_metadata_and_synthetic_checkout() -> None:
     }
     assert all(run["metadata_head_sha"] == HEAD_SHA for run in evidence["runs"])
     assert all(run["checkout_sha"] == MERGE_SHA for run in evidence["runs"])
+    selected_ci = next(run for run in evidence["runs"] if run["workflow"] == "CI")
+    assert selected_ci["action"] == "labeled"
+    assert selected_ci["created_at"] == "2026-08-15T00:00:41Z"
+    assert selected_ci["run_attempt"] == 1
+    assert evidence["contaminating_runs"] == [
+        {
+            "action": "opened",
+            "checkout_sha": MERGE_SHA,
+            "created_at": "2026-08-15T00:00:44Z",
+            "database_id": 104,
+            "event": "pull_request",
+            "jobs": {
+                "pytest-repository": "success",
+                "smoke-tier-b": "skipped",
+                "smoke-tier-c": "skipped",
+                "verify-repo": "success",
+            },
+            "log_sha256": "258740bba31123c443229eb550f9a22c680b0ae30bfae8ba73ebb1bf2bb180ea",
+            "metadata_head_sha": HEAD_SHA,
+            "run_attempt": 1,
+            "url": f"https://github.com/{REPO}/actions/runs/104",
+            "workflow": "CI",
+        }
+    ]
     selected_links = {
         link for run in evidence["runs"] for link in run["check_urls"].values()
     }
@@ -277,6 +330,90 @@ def test_pr_run_evidence_rejects_real_pr_job_failure() -> None:
 
 
 @pytest.mark.parametrize(
+    "mutation",
+    (
+        "select-skipped-opened-ci",
+        "ambiguous-qualifying-ci",
+        "wrong-selected-action-title",
+        "wrong-created-at",
+        "wrong-contaminant-action",
+        "wrong-contaminant-source",
+        "contaminant-tier-b-success",
+    ),
+)
+def test_pr_run_evidence_rejects_ci_selection_mutations(mutation: str) -> None:
+    control = copy.deepcopy(_control())
+    selected = next(
+        record
+        for record in control["run_records"]
+        if record["workflow"] == "CI" and record["selected"]
+    )
+    opened = next(
+        record
+        for record in control["run_records"]
+        if record["workflow"] == "CI" and not record["selected"]
+    )
+    if mutation == "select-skipped-opened-ci":
+        selected["selected"] = False
+        opened["selected"] = True
+    elif mutation == "ambiguous-qualifying-ci":
+        duplicate = copy.deepcopy(selected)
+        duplicate["rest"]["id"] = 105
+        duplicate["rest"]["html_url"] = f"https://github.com/{REPO}/actions/runs/105"
+        duplicate["view"]["databaseId"] = 105
+        duplicate["view"]["url"] = duplicate["rest"]["html_url"]
+        for index, job in enumerate(duplicate["view"]["jobs"], start=1):
+            job["url"] = f"{duplicate['rest']['html_url']}/job/{index}"
+        duplicate["log"] = duplicate["log"].replace("101", "105")
+        control["run_records"].append(duplicate)
+        control["run_summaries"].append(
+            {
+                "databaseId": 105,
+                "workflowName": "CI",
+                "displayTitle": duplicate["rest"]["display_title"],
+                "event": "pull_request",
+                "headSha": HEAD_SHA,
+                "headBranch": HEAD_REF,
+                "createdAt": duplicate["rest"]["created_at"],
+                "status": "completed",
+                "conclusion": "success",
+                "url": duplicate["rest"]["html_url"],
+            }
+        )
+    elif mutation == "wrong-selected-action-title":
+        selected["rest"]["display_title"] = (
+            f"CI / pull_request / opened / PR {PR_NUMBER}"
+        )
+    elif mutation == "wrong-created-at":
+        control["run_summaries"][0]["createdAt"] = "2026-08-15T00:59:59Z"
+    elif mutation == "wrong-contaminant-action":
+        opened["action"] = "labeled"
+        opened["rest"]["display_title"] = (
+            f"CI / pull_request / labeled / PR {PR_NUMBER}"
+        )
+        summary = next(
+            item for item in control["run_summaries"] if item["databaseId"] == 104
+        )
+        summary["displayTitle"] = opened["rest"]["display_title"]
+    elif mutation == "wrong-contaminant-source":
+        opened["rest"]["head_sha"] = MERGE_SHA
+    elif mutation == "contaminant-tier-b-success":
+        opened["jobs"]["smoke-tier-b"] = "success"
+        job = next(
+            item for item in opened["view"]["jobs"] if item["name"] == "smoke-tier-b"
+        )
+        job["conclusion"] = "success"
+        opened["log"] += _checkout_log(("smoke-tier-b",))
+    else:  # pragma: no cover - exhaustive table
+        raise AssertionError(mutation)
+
+    from scripts.verify_pr_run_evidence import PrRunEvidenceError
+
+    with pytest.raises(PrRunEvidenceError):
+        _verify(control)
+
+
+@pytest.mark.parametrize(
     ("mutation", "value"),
     (
         ("pr-head-sha", MERGE_SHA),
@@ -296,6 +433,7 @@ def test_pr_run_evidence_rejects_real_pr_job_failure() -> None:
         ("association-head-ref", "wrong-head"),
         ("association-base-ref", "main"),
         ("run-attempt", 2),
+        ("bool-run-attempt", True),
         ("run-event", "push"),
         ("run-status", "in_progress"),
         ("run-conclusion", "failure"),
@@ -319,7 +457,7 @@ def test_pr_run_evidence_rejects_identity_and_checkout_mutations(
     pr = control["pr"]
     summaries = control["run_summaries"]
     records = control["run_records"]
-    first = records[0]
+    first = next(record for record in records if record["selected"])
     rest = first["rest"]
     view = first["view"]
     association = rest["pull_requests"][0]
@@ -356,7 +494,7 @@ def test_pr_run_evidence_rejects_identity_and_checkout_mutations(
         association["head"]["ref"] = value
     elif mutation == "association-base-ref":
         association["base"]["ref"] = value
-    elif mutation == "run-attempt":
+    elif mutation in {"run-attempt", "bool-run-attempt"}:
         rest["run_attempt"] = value
     elif mutation == "run-event":
         rest["event"] = value
@@ -435,13 +573,15 @@ def test_cli_writes_validated_evidence_only_after_all_inputs_pass(
             {
                 "workflow": record["workflow"],
                 "jobs": record["jobs"],
+                "action": record["action"],
+                "selected": record["selected"],
                 "rest_path": str(rest_path),
                 "view_path": str(view_path),
                 "log_path": str(log_path),
             }
         )
     manifest_path.write_text(
-        json.dumps({"schema": 1, "runs": manifest_runs}), encoding="utf-8"
+        json.dumps({"schema": 2, "runs": manifest_runs}), encoding="utf-8"
     )
     monkeypatch.setattr(
         verify_pr_run_evidence,
@@ -481,4 +621,4 @@ def test_cli_writes_validated_evidence_only_after_all_inputs_pass(
     )
 
     assert result == 0
-    assert json.loads(output_path.read_text(encoding="utf-8"))["schema"] == 1
+    assert json.loads(output_path.read_text(encoding="utf-8"))["schema"] == 2

@@ -1,10 +1,12 @@
 name: CI
+run-name: "CI / ${{ github.event_name }} / ${{ github.event.action || 'none' }} / PR ${{ github.event.pull_request.number || 0 }}"
 
 on:
   push:
     branches: [develop, main]
   pull_request:
     branches: [develop, main]
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
   schedule:
     # Weekly smoke of Tier-B/C papermill targets, surfaces env drift early.

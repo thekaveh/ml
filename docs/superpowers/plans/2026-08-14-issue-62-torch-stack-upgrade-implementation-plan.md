@@ -4747,8 +4747,14 @@ graph edits, or stage anything until the focused clean gate is green.
   SHA and PR head/base repository/ref/SHA association. The separately fetched current synthetic
   merge must have the exact ordered base/head parents and source-head tree, while every applicable
   CI/Docs/Atlas job's redacted log must prove the exact synthetic ref fetch, checkout, and full
-  HEAD SHA. Schema-6 hashes the resulting feature/release/optional-sync evidence; neither identity
-  may substitute for the other.
+  HEAD SHA. CI exposes the exact pull-request action through its deterministic run name and listens
+  to exactly `opened`, `synchronize`, `reopened`, and `labeled`. Schema-2 PR-run evidence selects
+  exactly one current-source `labeled`/`synchronize` Tier B-success CI run, retains at most one
+  `opened` Tier B-skip contaminant, binds created-at/first-attempt/PR association, and requires one
+  applicable Docs and Atlas run; sync evidence selects its sole unlabeled `opened`/`synchronize`
+  CI run. Schema-6 hashes the resulting feature/release/optional-sync evidence and carries selected
+  and contaminating run URLs separately; neither SHA identity nor run class may substitute for the
+  other.
 
 - [ ] **Step 1: Create and verify a clean prequalification worktree**
 
@@ -5330,13 +5336,34 @@ graph edits, or stage anything until the focused clean gate is green.
       > "$FINAL_ROOT/candidate-feature-labels.json"
     git fetch origin "+refs/pull/$CANDIDATE_PR/merge:refs/issue62/reuse-feature-$CANDIDATE_PR"
     CANDIDATE_MERGE_SHA=$(git rev-parse "refs/issue62/reuse-feature-$CANDIDATE_PR")
+    gh pr checks "$CANDIDATE_PR" --repo "$REPO" --watch --fail-fast
     gh run list --repo "$REPO" --workflow CI --event pull_request \
       --commit "$FEATURE_SHA" --limit 20 \
-      --json databaseId,headSha,status,conclusion,url \
+      --json databaseId,workflowName,displayTitle,event,headSha,headBranch,createdAt,status,conclusion,url \
       > "$FINAL_ROOT/candidate-feature-runs.json"
-    CANDIDATE_RUN=$(jq -r --arg sha "$FEATURE_SHA" \
-      '[.[] | select(.headSha == $sha and .status == "completed" and .conclusion == "success")] | first | .databaseId // empty' \
-      "$FINAL_ROOT/candidate-feature-runs.json")
+    CANDIDATE_RUN=$(python - "$FINAL_ROOT/candidate-feature-runs.json" \
+      "$FEATURE_SHA" "$CANDIDATE_PR" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  source, expected_sha, pr_number = sys.argv[1:]
+  runs = json.loads(Path(source).read_text(encoding="utf-8"))
+  prefix, suffix = "CI / pull_request / ", f" / PR {pr_number}"
+  selected = []
+  for run in runs:
+      assert run["headSha"] == expected_sha and run["event"] == "pull_request"
+      title = run["displayTitle"]
+      assert title.startswith(prefix) and title.endswith(suffix)
+      action = title[len(prefix):-len(suffix)]
+      if action in {"labeled", "synchronize"}:
+          selected.append(run)
+      else:
+          assert action == "opened"
+  assert len(selected) == 1
+  print(selected[0]["databaseId"])
+  PY
+    )
     if test -n "$CANDIDATE_RUN"; then
       gh run view "$CANDIDATE_RUN" --repo "$REPO" --json headSha,event,jobs,url \
         > "$FINAL_ROOT/candidate-feature-run.json"
@@ -5373,9 +5400,9 @@ graph edits, or stage anything until the focused clean gate is green.
     FEATURE_PR_URL=$(gh pr view "$FEATURE_PR" --repo "$REPO" --json url --jq .url)
   else
     FEATURE_PR_URL=$(gh pr create --repo "$REPO" --base develop --head "$FEATURE_REF" \
-      --label tier-b-smoke \
       --title "$FEATURE_TITLE" --body "$FEATURE_BODY")
     FEATURE_PR=$(gh pr view "$FEATURE_PR_URL" --repo "$REPO" --json number --jq .number)
+    gh pr edit "$FEATURE_PR" --repo "$REPO" --add-label tier-b-smoke
   fi
   test "$(gh pr view "$FEATURE_PR" --repo "$REPO" --json headRefOid --jq .headRefOid)" = "$FEATURE_SHA"
   DISPATCH_BOUNDARY=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
@@ -5497,26 +5524,60 @@ graph edits, or stage anything until the focused clean gate is green.
   gh pr checks "$FEATURE_PR" --repo "$REPO" --watch --fail-fast
   gh run list --repo "$REPO" --branch "$FEATURE_REF" --event pull_request \
     --commit "$FEATURE_SHA" --limit 50 \
-    --json databaseId,workflowName,event,headSha,headBranch,status,conclusion,url \
+    --json databaseId,workflowName,displayTitle,event,headSha,headBranch,createdAt,status,conclusion,url \
     > "$FINAL_ROOT/pr-runs.json"
-  python - "$FINAL_ROOT/pr-runs.json" "$FINAL_ROOT/feature-pr-run-ids.json" <<'PY'
+  python - "$FINAL_ROOT/pr-runs.json" "$FEATURE_PR" \
+    "$FINAL_ROOT/feature-pr-run-selection.json" <<'PY'
   import json
   import sys
   from pathlib import Path
 
-  runs = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-  expected = {"CI", "Docs gate", "Atlas contract"}
-  assert len(runs) == 3 and {run["workflowName"] for run in runs} == expected
-  assert len({run["databaseId"] for run in runs}) == 3
-  Path(sys.argv[2]).write_text(
-      json.dumps({run["workflowName"]: run["databaseId"] for run in runs}, sort_keys=True)
-      + "\n",
-      encoding="utf-8",
+  runs_path, pr_number, output_path = sys.argv[1:]
+  runs = json.loads(Path(runs_path).read_text(encoding="utf-8"))
+  groups = {
+      name: [run for run in runs if run["workflowName"] == name]
+      for name in ("CI", "Docs gate", "Atlas contract")
+  }
+  assert len(groups["Docs gate"]) == 1 and len(groups["Atlas contract"]) == 1
+  assert len(runs) == sum(len(group) for group in groups.values())
+  assert len({run["databaseId"] for run in runs}) == len(runs)
+
+  prefix = "CI / pull_request / "
+  suffix = f" / PR {pr_number}"
+  ci_actions = []
+  for run in groups["CI"]:
+      title = run["displayTitle"]
+      assert title.startswith(prefix) and title.endswith(suffix)
+      action = title[len(prefix):-len(suffix)]
+      assert action in {"opened", "labeled", "synchronize"}
+      ci_actions.append((run, action))
+  selected = [(run, action) for run, action in ci_actions if action in {"labeled", "synchronize"}]
+  opened = [(run, action) for run, action in ci_actions if action == "opened"]
+  assert len(selected) == 1 and len(opened) <= 1
+  assert len(ci_actions) == len(selected) + len(opened)
+  inventory = {
+      "selected": {
+          "CI": {"database_id": selected[0][0]["databaseId"], "action": selected[0][1]},
+          "Docs gate": {"database_id": groups["Docs gate"][0]["databaseId"], "action": None},
+          "Atlas contract": {"database_id": groups["Atlas contract"][0]["databaseId"], "action": None},
+      },
+      "contaminating_ci": [
+          {"database_id": run["databaseId"], "action": action}
+          for run, action in opened
+      ],
+  }
+  Path(output_path).write_text(
+      json.dumps(inventory, indent=2, sort_keys=True) + "\n", encoding="utf-8",
   )
   PY
-  FEATURE_CI_RUN=$(jq -r '.CI' "$FINAL_ROOT/feature-pr-run-ids.json")
-  FEATURE_DOCS_RUN=$(jq -r '."Docs gate"' "$FINAL_ROOT/feature-pr-run-ids.json")
-  FEATURE_ATLAS_RUN=$(jq -r '."Atlas contract"' "$FINAL_ROOT/feature-pr-run-ids.json")
+  FEATURE_CI_RUN=$(jq -r '.selected.CI.database_id' "$FINAL_ROOT/feature-pr-run-selection.json")
+  FEATURE_CI_ACTION=$(jq -r '.selected.CI.action' "$FINAL_ROOT/feature-pr-run-selection.json")
+  FEATURE_OPENED_CI_RUN=$(jq -r '.contaminating_ci[0].database_id // empty' \
+    "$FINAL_ROOT/feature-pr-run-selection.json")
+  FEATURE_DOCS_RUN=$(jq -r '.selected["Docs gate"].database_id' \
+    "$FINAL_ROOT/feature-pr-run-selection.json")
+  FEATURE_ATLAS_RUN=$(jq -r '.selected["Atlas contract"].database_id' \
+    "$FINAL_ROOT/feature-pr-run-selection.json")
   for RUN_ID in "$FEATURE_CI_RUN" "$FEATURE_DOCS_RUN" "$FEATURE_ATLAS_RUN"; do
     case "$RUN_ID" in ''|*[!0-9]*) exit 1;; esac
   done
@@ -5538,12 +5599,24 @@ graph edits, or stage anything until the focused clean gate is green.
   gh run view "$FEATURE_CI_RUN" --repo "$REPO" --log > "$FINAL_ROOT/feature-pr-ci.log"
   gh run view "$FEATURE_DOCS_RUN" --repo "$REPO" --log > "$FINAL_ROOT/feature-pr-docs.log"
   gh run view "$FEATURE_ATLAS_RUN" --repo "$REPO" --log > "$FINAL_ROOT/feature-pr-atlas.log"
-  python - "$FINAL_ROOT/feature-pr-manifest.json" "$FINAL_ROOT" <<'PY'
+  if test -n "$FEATURE_OPENED_CI_RUN"; then
+    case "$FEATURE_OPENED_CI_RUN" in *[!0-9]*) exit 1;; esac
+    gh api "repos/$REPO/actions/runs/$FEATURE_OPENED_CI_RUN" \
+      > "$FINAL_ROOT/feature-pr-ci-opened-rest.json"
+    gh run view "$FEATURE_OPENED_CI_RUN" --repo "$REPO" \
+      --json databaseId,workflowName,event,headSha,status,conclusion,url,jobs \
+      > "$FINAL_ROOT/feature-pr-ci-opened-view.json"
+    gh run view "$FEATURE_OPENED_CI_RUN" --repo "$REPO" \
+      --log > "$FINAL_ROOT/feature-pr-ci-opened.log"
+  fi
+  python - "$FINAL_ROOT/feature-pr-manifest.json" "$FINAL_ROOT" \
+    "$FINAL_ROOT/feature-pr-run-selection.json" <<'PY'
   import json
   import sys
   from pathlib import Path
 
-  output, root = Path(sys.argv[1]), Path(sys.argv[2])
+  output, root, selection_path = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+  selection = json.loads(selection_path.read_text(encoding="utf-8"))
   ci_jobs = {
       "atlas-consumer-policy": "success", "dependency-audit": "success",
       "pytest-repository": "success", "pytest-nnx-surface": "success",
@@ -5551,19 +5624,22 @@ graph edits, or stage anything until the focused clean gate is green.
       "tier-a-papermill": "success", "smoke-tier-b": "success",
       "smoke-tier-c": "skipped",
   }
-  specs = (
-      ("CI", "ci", ci_jobs),
-      ("Docs gate", "docs", {"check": "success"}),
-      ("Atlas contract", "atlas", {"atlas-contract": "success"}),
-  )
-  manifest = {"schema": 1, "runs": [
+  specs = [
+      ("CI", "ci", ci_jobs, selection["selected"]["CI"]["action"], True),
+      ("Docs gate", "docs", {"check": "success"}, None, True),
+      ("Atlas contract", "atlas", {"atlas-contract": "success"}, None, True),
+  ]
+  if selection["contaminating_ci"]:
+      opened_jobs = {**ci_jobs, "smoke-tier-b": "skipped"}
+      specs.append(("CI", "ci-opened", opened_jobs, "opened", False))
+  manifest = {"schema": 2, "runs": [
       {
-          "workflow": workflow, "jobs": jobs,
+          "workflow": workflow, "jobs": jobs, "action": action, "selected": selected,
           "rest_path": str(root / f"feature-pr-{slug}-rest.json"),
           "view_path": str(root / f"feature-pr-{slug}-view.json"),
           "log_path": str(root / f"feature-pr-{slug}.log"),
       }
-      for workflow, slug, jobs in specs
+      for workflow, slug, jobs, action, selected in specs
   ]}
   output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
   PY
@@ -5587,7 +5663,12 @@ graph edits, or stage anything until the focused clean gate is green.
   URLs from the selected pull-request runs, so a push-only skip cannot contaminate the gate and a
   missing, reassociated, skipped, or failed selected check fails closed. GitHub Actions metadata is bound to exact source
   `FEATURE_SHA` and PR/base/repository identity, while every applicable job log independently proves
-  execution on the current synthetic `PR_MERGE_SHA`; neither identity may substitute for the other. The
+  execution on the current synthetic `PR_MERGE_SHA`; neither identity may substitute for the other.
+  The exact CI run name binds `pull_request` plus the selected `labeled`/`synchronize` action and PR
+  number; REST and summary created-at values, first attempt, and exact PR association must agree.
+  A new PR's single `opened` CI run may retain a Tier B skip only as schema-2 contaminating evidence;
+  selecting it, accepting multiple qualifying CI runs, or losing the exact single Docs/Atlas runs
+  fails closed. The
   conditionally skipped PR-event `smoke-tier-c` job is not evidence and is replaced by the successful
   workflow dispatch on exact `FEATURE_SHA`, whose 210-minute bound is mechanically tied to every
   enabled job's maximum 180-minute timeout plus 30 minutes of queue headroom and whose exact ten-job
@@ -5808,13 +5889,34 @@ graph edits, or stage anything until the focused clean gate is green.
       > "$FINAL_ROOT/candidate-release-labels.json"
     git fetch origin "+refs/pull/$CANDIDATE_PR/merge:refs/issue62/reuse-release-$CANDIDATE_PR"
     CANDIDATE_MERGE_SHA=$(git rev-parse "refs/issue62/reuse-release-$CANDIDATE_PR")
+    gh pr checks "$CANDIDATE_PR" --repo "$REPO" --watch --fail-fast
     gh run list --repo "$REPO" --workflow CI --event pull_request \
       --commit "$DEVELOP_MERGE_SHA" --limit 20 \
-      --json databaseId,headSha,status,conclusion,url \
+      --json databaseId,workflowName,displayTitle,event,headSha,headBranch,createdAt,status,conclusion,url \
       > "$FINAL_ROOT/candidate-release-runs.json"
-    CANDIDATE_RUN=$(jq -r --arg sha "$DEVELOP_MERGE_SHA" \
-      '[.[] | select(.headSha == $sha and .status == "completed" and .conclusion == "success")] | first | .databaseId // empty' \
-      "$FINAL_ROOT/candidate-release-runs.json")
+    CANDIDATE_RUN=$(python - "$FINAL_ROOT/candidate-release-runs.json" \
+      "$DEVELOP_MERGE_SHA" "$CANDIDATE_PR" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  source, expected_sha, pr_number = sys.argv[1:]
+  runs = json.loads(Path(source).read_text(encoding="utf-8"))
+  prefix, suffix = "CI / pull_request / ", f" / PR {pr_number}"
+  selected = []
+  for run in runs:
+      assert run["headSha"] == expected_sha and run["event"] == "pull_request"
+      title = run["displayTitle"]
+      assert title.startswith(prefix) and title.endswith(suffix)
+      action = title[len(prefix):-len(suffix)]
+      if action in {"labeled", "synchronize"}:
+          selected.append(run)
+      else:
+          assert action == "opened"
+  assert len(selected) == 1
+  print(selected[0]["databaseId"])
+  PY
+    )
     if test -n "$CANDIDATE_RUN"; then
       gh run view "$CANDIDATE_RUN" --repo "$REPO" --json headSha,event,jobs,url \
         > "$FINAL_ROOT/candidate-release-run.json"
@@ -5851,9 +5953,9 @@ graph edits, or stage anything until the focused clean gate is green.
     RELEASE_PR_URL=$(gh pr view "$RELEASE_PR" --repo "$REPO" --json url --jq .url)
   else
     RELEASE_PR_URL=$(gh pr create --repo "$REPO" --base main --head develop \
-      --label tier-b-smoke \
       --title "$RELEASE_TITLE" --body "$RELEASE_BODY")
     RELEASE_PR=$(gh pr view "$RELEASE_PR_URL" --repo "$REPO" --json number --jq .number)
+    gh pr edit "$RELEASE_PR" --repo "$REPO" --add-label tier-b-smoke
   fi
   gh pr view "$RELEASE_PR" --repo "$REPO" \
     --json number,state,isDraft,url,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,potentialMergeCommit \
@@ -5867,26 +5969,59 @@ graph edits, or stage anything until the focused clean gate is green.
     > "$FINAL_ROOT/release-pr-checks.json"
   gh run list --repo "$REPO" --branch develop --event pull_request \
     --commit "$DEVELOP_MERGE_SHA" --limit 50 \
-    --json databaseId,workflowName,event,headSha,headBranch,status,conclusion,url \
+    --json databaseId,workflowName,displayTitle,event,headSha,headBranch,createdAt,status,conclusion,url \
     > "$FINAL_ROOT/release-pr-runs.json"
-  python - "$FINAL_ROOT/release-pr-runs.json" "$FINAL_ROOT/release-pr-run-ids.json" <<'PY'
+  python - "$FINAL_ROOT/release-pr-runs.json" "$RELEASE_PR" \
+    "$FINAL_ROOT/release-pr-run-selection.json" <<'PY'
   import json
   import sys
   from pathlib import Path
 
-  runs = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-  expected = {"CI", "Docs gate", "Atlas contract"}
-  assert len(runs) == 3 and {run["workflowName"] for run in runs} == expected
-  assert len({run["databaseId"] for run in runs}) == 3
-  Path(sys.argv[2]).write_text(
-      json.dumps({run["workflowName"]: run["databaseId"] for run in runs}, sort_keys=True)
-      + "\n",
-      encoding="utf-8",
+  runs_path, pr_number, output_path = sys.argv[1:]
+  runs = json.loads(Path(runs_path).read_text(encoding="utf-8"))
+  groups = {
+      name: [run for run in runs if run["workflowName"] == name]
+      for name in ("CI", "Docs gate", "Atlas contract")
+  }
+  assert len(groups["Docs gate"]) == 1 and len(groups["Atlas contract"]) == 1
+  assert len(runs) == sum(len(group) for group in groups.values())
+  assert len({run["databaseId"] for run in runs}) == len(runs)
+  prefix = "CI / pull_request / "
+  suffix = f" / PR {pr_number}"
+  ci_actions = []
+  for run in groups["CI"]:
+      title = run["displayTitle"]
+      assert title.startswith(prefix) and title.endswith(suffix)
+      action = title[len(prefix):-len(suffix)]
+      assert action in {"opened", "labeled", "synchronize"}
+      ci_actions.append((run, action))
+  selected = [(run, action) for run, action in ci_actions if action in {"labeled", "synchronize"}]
+  opened = [(run, action) for run, action in ci_actions if action == "opened"]
+  assert len(selected) == 1 and len(opened) <= 1
+  assert len(ci_actions) == len(selected) + len(opened)
+  inventory = {
+      "selected": {
+          "CI": {"database_id": selected[0][0]["databaseId"], "action": selected[0][1]},
+          "Docs gate": {"database_id": groups["Docs gate"][0]["databaseId"], "action": None},
+          "Atlas contract": {"database_id": groups["Atlas contract"][0]["databaseId"], "action": None},
+      },
+      "contaminating_ci": [
+          {"database_id": run["databaseId"], "action": action}
+          for run, action in opened
+      ],
+  }
+  Path(output_path).write_text(
+      json.dumps(inventory, indent=2, sort_keys=True) + "\n", encoding="utf-8",
   )
   PY
-  RELEASE_CI_RUN=$(jq -r '.CI' "$FINAL_ROOT/release-pr-run-ids.json")
-  RELEASE_DOCS_RUN=$(jq -r '."Docs gate"' "$FINAL_ROOT/release-pr-run-ids.json")
-  RELEASE_ATLAS_RUN=$(jq -r '."Atlas contract"' "$FINAL_ROOT/release-pr-run-ids.json")
+  RELEASE_CI_RUN=$(jq -r '.selected.CI.database_id' "$FINAL_ROOT/release-pr-run-selection.json")
+  RELEASE_CI_ACTION=$(jq -r '.selected.CI.action' "$FINAL_ROOT/release-pr-run-selection.json")
+  RELEASE_OPENED_CI_RUN=$(jq -r '.contaminating_ci[0].database_id // empty' \
+    "$FINAL_ROOT/release-pr-run-selection.json")
+  RELEASE_DOCS_RUN=$(jq -r '.selected["Docs gate"].database_id' \
+    "$FINAL_ROOT/release-pr-run-selection.json")
+  RELEASE_ATLAS_RUN=$(jq -r '.selected["Atlas contract"].database_id' \
+    "$FINAL_ROOT/release-pr-run-selection.json")
   for RUN_ID in "$RELEASE_CI_RUN" "$RELEASE_DOCS_RUN" "$RELEASE_ATLAS_RUN"; do
     case "$RUN_ID" in ''|*[!0-9]*) exit 1;; esac
   done
@@ -5908,12 +6043,24 @@ graph edits, or stage anything until the focused clean gate is green.
   gh run view "$RELEASE_CI_RUN" --repo "$REPO" --log > "$FINAL_ROOT/release-pr-ci.log"
   gh run view "$RELEASE_DOCS_RUN" --repo "$REPO" --log > "$FINAL_ROOT/release-pr-docs.log"
   gh run view "$RELEASE_ATLAS_RUN" --repo "$REPO" --log > "$FINAL_ROOT/release-pr-atlas.log"
-  python - "$FINAL_ROOT/release-pr-manifest.json" "$FINAL_ROOT" <<'PY'
+  if test -n "$RELEASE_OPENED_CI_RUN"; then
+    case "$RELEASE_OPENED_CI_RUN" in *[!0-9]*) exit 1;; esac
+    gh api "repos/$REPO/actions/runs/$RELEASE_OPENED_CI_RUN" \
+      > "$FINAL_ROOT/release-pr-ci-opened-rest.json"
+    gh run view "$RELEASE_OPENED_CI_RUN" --repo "$REPO" \
+      --json databaseId,workflowName,event,headSha,status,conclusion,url,jobs \
+      > "$FINAL_ROOT/release-pr-ci-opened-view.json"
+    gh run view "$RELEASE_OPENED_CI_RUN" --repo "$REPO" \
+      --log > "$FINAL_ROOT/release-pr-ci-opened.log"
+  fi
+  python - "$FINAL_ROOT/release-pr-manifest.json" "$FINAL_ROOT" \
+    "$FINAL_ROOT/release-pr-run-selection.json" <<'PY'
   import json
   import sys
   from pathlib import Path
 
-  output, root = Path(sys.argv[1]), Path(sys.argv[2])
+  output, root, selection_path = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+  selection = json.loads(selection_path.read_text(encoding="utf-8"))
   ci_jobs = {
       "atlas-consumer-policy": "success", "dependency-audit": "success",
       "pytest-repository": "success", "pytest-nnx-surface": "success",
@@ -5921,19 +6068,22 @@ graph edits, or stage anything until the focused clean gate is green.
       "tier-a-papermill": "success", "smoke-tier-b": "success",
       "smoke-tier-c": "skipped",
   }
-  specs = (
-      ("CI", "ci", ci_jobs),
-      ("Docs gate", "docs", {"check": "success"}),
-      ("Atlas contract", "atlas", {"atlas-contract": "success"}),
-  )
-  manifest = {"schema": 1, "runs": [
+  specs = [
+      ("CI", "ci", ci_jobs, selection["selected"]["CI"]["action"], True),
+      ("Docs gate", "docs", {"check": "success"}, None, True),
+      ("Atlas contract", "atlas", {"atlas-contract": "success"}, None, True),
+  ]
+  if selection["contaminating_ci"]:
+      opened_jobs = {**ci_jobs, "smoke-tier-b": "skipped"}
+      specs.append(("CI", "ci-opened", opened_jobs, "opened", False))
+  manifest = {"schema": 2, "runs": [
       {
-          "workflow": workflow, "jobs": jobs,
+          "workflow": workflow, "jobs": jobs, "action": action, "selected": selected,
           "rest_path": str(root / f"release-pr-{slug}-rest.json"),
           "view_path": str(root / f"release-pr-{slug}-view.json"),
           "log_path": str(root / f"release-pr-{slug}.log"),
       }
-      for workflow, slug, jobs in specs
+      for workflow, slug, jobs, action, selected in specs
   ]}
   output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
   PY
@@ -6148,21 +6298,30 @@ graph edits, or stage anything until the focused clean gate is green.
       "$(git rev-parse "$RELEASE_MERGE_SHA^{tree}")"
     gh run list --repo "$REPO" --branch main --event pull_request \
       --commit "$RELEASE_MERGE_SHA" --limit 50 \
-      --json databaseId,workflowName,event,headSha,headBranch,status,conclusion,url \
+      --json databaseId,workflowName,displayTitle,event,headSha,headBranch,createdAt,status,conclusion,url \
       > "$FINAL_ROOT/sync-pr-runs.json"
-    python - "$FINAL_ROOT/sync-pr-runs.json" "$FINAL_ROOT/sync-pr-run-ids.json" <<'PY'
+    python - "$FINAL_ROOT/sync-pr-runs.json" "$FINAL_ROOT/sync-pr-run-ids.json" \
+      "$SYNC_PR" <<'PY'
   import json
   import sys
   from pathlib import Path
 
   runs = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
   assert len(runs) == 1 and {run["workflowName"] for run in runs} == {"CI"}
+  prefix = "CI / pull_request / "
+  suffix = f" / PR {sys.argv[3]}"
+  title = runs[0]["displayTitle"]
+  assert title.startswith(prefix) and title.endswith(suffix)
+  action = title[len(prefix):-len(suffix)]
+  assert action in {"opened", "synchronize"}
   Path(sys.argv[2]).write_text(
-      json.dumps({"CI": runs[0]["databaseId"]}, sort_keys=True) + "\n",
+      json.dumps({"CI": {"database_id": runs[0]["databaseId"], "action": action}},
+                 sort_keys=True) + "\n",
       encoding="utf-8",
   )
   PY
-    SYNC_CI_RUN=$(jq -r '.CI' "$FINAL_ROOT/sync-pr-run-ids.json")
+    SYNC_CI_RUN=$(jq -r '.CI.database_id' "$FINAL_ROOT/sync-pr-run-ids.json")
+    SYNC_CI_ACTION=$(jq -r '.CI.action' "$FINAL_ROOT/sync-pr-run-ids.json")
     case "$SYNC_CI_RUN" in ''|*[!0-9]*) exit 1;; esac
     gh api "repos/$REPO/actions/runs/$SYNC_CI_RUN" > "$FINAL_ROOT/sync-pr-ci-rest.json"
     gh run view "$SYNC_CI_RUN" --repo "$REPO" \
@@ -6182,8 +6341,9 @@ graph edits, or stage anything until the focused clean gate is green.
       "tier-a-papermill": "success", "smoke-tier-b": "skipped",
       "smoke-tier-c": "skipped",
   }
-  manifest = {"schema": 1, "runs": [{
-      "workflow": "CI", "jobs": jobs,
+  action = json.loads((root / "sync-pr-run-ids.json").read_text(encoding="utf-8"))["CI"]["action"]
+  manifest = {"schema": 2, "runs": [{
+      "workflow": "CI", "jobs": jobs, "action": action, "selected": True,
       "rest_path": str(root / "sync-pr-ci-rest.json"),
       "view_path": str(root / "sync-pr-ci-view.json"),
       "log_path": str(root / "sync-pr-ci.log"),
@@ -6586,7 +6746,7 @@ graph edits, or stage anything until the focused clean gate is green.
           pr_evidence = value["linux_x86_64"][key]
           require(set(pr_evidence) == {
               "source_head_sha", "synthetic_merge_sha", "check_urls", "pr_run_urls",
-              "run_evidence_sha256",
+              "contaminating_pr_run_urls", "run_evidence_sha256",
           }, f"{key} evidence schema")
           require(
               pr_evidence["source_head_sha"] == value["identities"][source_identity],
@@ -6605,6 +6765,15 @@ graph edits, or stage anything until the focused clean gate is green.
               "pytest-repository", "dependency-audit", "pytest-nnx-surface", "smoke-tier-b",
           }, f"{key} Linux check URLs")
           require(pr_evidence["pr_run_urls"], f"{key} Linux run URLs")
+          require(
+              isinstance(pr_evidence["contaminating_pr_run_urls"], list)
+              and len(pr_evidence["contaminating_pr_run_urls"]) <= 1
+              and all(url.startswith("https://github.com/thekaveh/ml-eng-lab/actions/runs/")
+                      for url in pr_evidence["contaminating_pr_run_urls"])
+              and not (set(pr_evidence["contaminating_pr_run_urls"])
+                       & set(pr_evidence["pr_run_urls"])),
+              f"{key} contaminating run URLs",
+          )
           require(
               all(any(url.startswith(run_url + "/job/")
                       for run_url in pr_evidence["pr_run_urls"])
@@ -6798,7 +6967,7 @@ graph edits, or stage anything until the focused clean gate is green.
           f"{label} PR workflows",
       )
       require(all(item["url"].startswith("https://github.com/") for item in runs), f"{label} PR run URL")
-      require(run_evidence["schema"] == 1, f"{label} dual-identity schema")
+      require(run_evidence["schema"] == 2, f"{label} dual-identity schema")
       require(
           run_evidence["pull_request"]["url"] == pr_urls[label],
           f"{label} dual-identity PR URL",
@@ -6838,6 +7007,11 @@ graph edits, or stage anything until the focused clean gate is green.
       require(
           all(item["metadata_head_sha"] == expected_source_sha
               and item["checkout_sha"] == expected_merge_sha
+              and item["event"] == "pull_request"
+              and item["run_attempt"] == 1
+              and isinstance(item["created_at"], str)
+              and (item["workflow"] != "CI"
+                   or item["action"] in {"labeled", "synchronize"})
               and isinstance(item["log_sha256"], str)
               and len(item["log_sha256"]) == 64
               for item in dual_runs.values()),
@@ -6859,11 +7033,29 @@ graph edits, or stage anything until the focused clean gate is green.
           expected_checks <= selected_check_urls.keys(),
           f"missing {label} selected Linux PR checks",
       )
+      selected_run_urls = sorted({item["url"] for item in dual_runs.values()})
+      contaminants = run_evidence["contaminating_runs"]
+      require(len(contaminants) <= 1, f"{label} opened contaminant cardinality")
+      require(
+          all(item["workflow"] == "CI" and item["action"] == "opened"
+              and item["event"] == "pull_request"
+              and item["run_attempt"] == 1
+              and item["metadata_head_sha"] == expected_source_sha
+              and item["checkout_sha"] == expected_merge_sha
+              and isinstance(item["created_at"], str)
+              and isinstance(item["log_sha256"], str)
+              and len(item["log_sha256"]) == 64
+              and item["jobs"]["smoke-tier-b"] == "skipped"
+              and item["jobs"]["smoke-tier-c"] == "skipped"
+              for item in contaminants),
+          f"{label} opened contaminant policy",
+      )
       return {
           "source_head_sha": expected_source_sha,
           "synthetic_merge_sha": expected_merge_sha,
           "check_urls": dict(sorted(selected_check_urls.items())),
-          "pr_run_urls": sorted({item["url"] for item in runs}),
+          "pr_run_urls": selected_run_urls,
+          "contaminating_pr_run_urls": sorted(item["url"] for item in contaminants),
           "run_evidence_sha256": hashlib.sha256(
               (final_root / f"{label}-pr-run-evidence.json").read_bytes()
           ).hexdigest(),
@@ -6927,7 +7119,8 @@ graph edits, or stage anything until the focused clean gate is green.
           all(run["url"].startswith("https://github.com/") for run in sync_runs),
           "sync PR run URL",
       )
-      require(sync_run_evidence["schema"] == 1, "sync dual-identity schema")
+      require(sync_run_evidence["schema"] == 2, "sync dual-identity schema")
+      require(sync_run_evidence["contaminating_runs"] == [], "sync contaminants")
       require(
           sync_run_evidence["pull_request"]["url"] == pr_urls["sync"],
           "sync dual-identity PR URL",
@@ -6962,6 +7155,9 @@ graph edits, or stage anything until the focused clean gate is green.
       require(
           len(sync_run_evidence["runs"]) == 1
           and sync_run_evidence["runs"][0]["workflow"] == "CI"
+          and sync_run_evidence["runs"][0]["action"] in {"opened", "synchronize"}
+          and sync_run_evidence["runs"][0]["event"] == "pull_request"
+          and sync_run_evidence["runs"][0]["run_attempt"] == 1
           and isinstance(sync_run_evidence["runs"][0]["log_sha256"], str)
           and len(sync_run_evidence["runs"][0]["log_sha256"]) == 64,
           "sync dual-identity workflow/log",
@@ -7132,13 +7328,17 @@ graph edits, or stage anything until the focused clean gate is green.
   wrong_pr_check_association["linux_x86_64"]["feature_pr"]["check_urls"][
       "verify-repo"
   ] = "https://github.com/thekaveh/ml-eng-lab/actions/runs/999/job/999"
+  wrong_pr_contaminant_url = copy.deepcopy(report)
+  wrong_pr_contaminant_url["linux_x86_64"]["feature_pr"][
+      "contaminating_pr_run_urls"
+  ] = ["https://example.com/not-a-run"]
   for mutation in (
       wrong_name, missing_metadata, missing_release_evidence, missing_final_develop_evidence,
       missing_warning_debt, ignored_global_warnings, wrong_import_warning_hash,
       missing_qat_debt, wrong_qat_key,
       zero_qat_warnings, bypassed_qat_global_warnings,
       wrong_pr_source_identity, wrong_pr_merge_identity, wrong_pr_evidence_hash,
-      wrong_pr_check_association,
+      wrong_pr_check_association, wrong_pr_contaminant_url,
   ):
       try:
           validate_report_schema(mutation)
@@ -7519,7 +7719,9 @@ graph edits, or stage anything until the focused clean gate is green.
   `always`; missing, wrong-key, zero-count, and global-bypass mutations fail. The report also records
   final audit identities/result, full/NNx/QAT JUnit totals, Docker
   probes, Tier hashes/durations, distinct feature/release Linux PR checks/runs tied to their synthetic
-  merge SHAs, the exact final-develop push runs, optional sync PR check/run URLs, exact `CI`-only
+  merge SHAs, schema-2 selected `labeled`/`synchronize` action/created-at/first-attempt evidence,
+  separately retained `opened` Tier B-skip contaminating run URLs, the exact final-develop push
+  runs, optional sync PR check/run URLs, exact `CI`-only
   workflow names, and hashes (the content-neutral sync does not fabricate a path-filtered Docs run),
   and Pages/wiki evidence; missing debt evidence and an `ignore` global action are killed by schema
   mutations; both QAT JSON and JUnit files are included in evidence-file hashes.
@@ -7544,7 +7746,11 @@ graph edits, or stage anything until the focused clean gate is green.
   upstream. Release ownership on shared `develop -> main` requires the exact Issue-62 title identity
   plus bounded one-paragraph body/reference constraints, and ambiguous/broader candidates fail for
   manual review rather than close. Feature/release reuse still requires exact title/body/SHA, label,
-  and successful Tier B. Issues #65/#66 are proved open before the first push, snapshotted without
+  and one unambiguous current-source `labeled`/`synchronize` CI run with successful Tier B; a new PR
+  is created before its label is added so the exact labeled trigger is observable. The CI trigger
+  and run-name contracts preserve base branches, require exactly opened/synchronize/reopened/labeled,
+  and expose event/action/PR identity; at most one opened Tier B-skip run is retained but never
+  selected. Issues #65/#66 are proved open before the first push, snapshotted without
   volatile `updatedAt`/timeline data, and compared after publication for exact substantive equality.
   A needed `main -> develop` sync inventories first, reuses only exact current copy/SHA with successful
   required checks and the only applicable `CI` workflow, closes only stale dedicated sync candidates,

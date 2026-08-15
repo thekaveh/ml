@@ -539,6 +539,19 @@ check's expected success or conditional-skip state, and rejects a missing or rea
 keeps a legitimate push-only skip from contaminating PR evidence without masking any failure or
 unexpected skip in the selected PR-event suite.
 
+The Tier B label is applied after GitHub creates a new pull request, so the immutable `opened`
+payload can legitimately omit it. CI therefore retains the `develop`/`main` base filter and
+subscribes to exactly `opened`, `synchronize`, `reopened`, and `labeled`. Its deterministic run name
+records the event name, exact action, and PR number in Actions REST metadata. Feature and release
+evidence selects exactly one current-source CI run whose action is `labeled` or `synchronize` and
+whose Tier B job succeeds; at most one same-source `opened` CI run with only Tier B conditionally
+skipped is retained as contaminating evidence, never selected. Multiple qualifying CI runs, a
+selected `opened` skip, any other action, or a mismatched created-at value, first-attempt value,
+source SHA, or PR association fails closed. Docs gate and Atlas contract each contribute exactly
+one applicable current-source run. A content-neutral unlabeled sync PR instead selects exactly one
+`opened` or `synchronize` CI run with Tier B conditionally skipped. In every case the selected and
+contaminating inventories remain explicit in schema-2 PR-run evidence and schema-6 report inputs.
+
 Issue #62 is complete only after required feature and release checks are green, Tier A/B/C evidence
 is attached to the issue, the issue and project item are closed, documentation is published, and
 feature branches, obsolete PRs, temporary worktrees, disposable environments, and repository-owned

@@ -4708,7 +4708,9 @@ graph edits, or stage anything until the focused clean gate is green.
   export PREQUAL_ROOT
   PREQUAL_SHA=$(git rev-parse HEAD)
   git worktree add --detach "$PREQUAL_ROOT/worktree" "$PREQUAL_SHA"
-  git -C "$PREQUAL_ROOT/worktree" -c submodule.infra.url=/Users/kaveh/repos/ml-eng-lab/infra submodule update --init --recursive infra
+  git -C "$PREQUAL_ROOT/worktree" -c protocol.file.allow=always \
+    -c submodule.infra.url=/Users/kaveh/repos/ml-eng-lab/infra \
+    submodule update --init --recursive infra
   python3.11 -m venv "$PREQUAL_ROOT/venv"
   export PATH="$PREQUAL_ROOT/venv/bin:$PATH"
   export JUPYTER_PATH="$PREQUAL_ROOT/jupyter/share/jupyter"
@@ -4748,7 +4750,18 @@ graph edits, or stage anything until the focused clean gate is green.
   python -m pip install -r docs-requirements.txt
   python -m pip install -r vulnerability-audit-requirements.txt
   make nlp-assets
-  python -m ipykernel install --prefix "$PREQUAL_ROOT/jupyter" --name python3 --display-name "Issue 62 Python 3"
+  python - <<'PY'
+  import os
+
+  from ipykernel.kernelspec import install
+
+  install(
+      prefix=os.path.join(os.environ["PREQUAL_ROOT"], "jupyter"),
+      kernel_name="python3",
+      display_name="Issue 62 Python 3",
+      frozen_modules=True,
+  )
+  PY
   python - <<'PY'
   import json
   import os
@@ -4807,7 +4820,8 @@ graph edits, or stage anything until the focused clean gate is green.
   git diff --check
   ```
 
-  Expected: the parser proves the kernelspec resource directory is below the isolated prefix and
+  Expected: the direct kernelspec API opts into frozen modules so current ipykernel does not inject
+  `-Xfrozen_modules=off`; the parser proves the resource directory is below the isolated prefix and
   its complete `argv` is exactly `[venv-python, -m, ipykernel_launcher, -f, {connection_file}]`; every command exits
   0; the focused NNx suite treats warnings as errors and its JUnit totals have failures, errors,
   and skipped all equal to zero; the QAT test asserts exactly one approved record under the exact
@@ -4905,7 +4919,9 @@ graph edits, or stage anything until the focused clean gate is green.
   export FINAL_ROOT
   export FINAL_SHA=$(git rev-parse HEAD)
   git worktree add --detach "$FINAL_ROOT/worktree" "$FINAL_SHA"
-  git -C "$FINAL_ROOT/worktree" -c submodule.infra.url=/Users/kaveh/repos/ml-eng-lab/infra submodule update --init --recursive infra
+  git -C "$FINAL_ROOT/worktree" -c protocol.file.allow=always \
+    -c submodule.infra.url=/Users/kaveh/repos/ml-eng-lab/infra \
+    submodule update --init --recursive infra
   python3.11 -m venv "$FINAL_ROOT/venv"
   export PATH="$FINAL_ROOT/venv/bin:$PATH"
   export JUPYTER_PATH="$FINAL_ROOT/jupyter/share/jupyter"
@@ -4936,7 +4952,18 @@ graph edits, or stage anything until the focused clean gate is green.
   python -m pip install -r docs-requirements.txt
   python -m pip install -r vulnerability-audit-requirements.txt
   make nlp-assets
-  python -m ipykernel install --prefix "$FINAL_ROOT/jupyter" --name python3 --display-name "Issue 62 Final Python 3"
+  python - <<'PY'
+  import os
+
+  from ipykernel.kernelspec import install
+
+  install(
+      prefix=os.path.join(os.environ["FINAL_ROOT"], "jupyter"),
+      kernel_name="python3",
+      display_name="Issue 62 Final Python 3",
+      frozen_modules=True,
+  )
+  PY
   python - <<'PY'
   import json
   import os

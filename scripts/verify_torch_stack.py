@@ -568,6 +568,9 @@ def _sampler_canary(modules: Mapping[str, ModuleType]) -> None:
     torch = modules["torch"]
     geometric = modules["torch-geometric"]
     typing = importlib.import_module("torch_geometric.typing")
+    subgraph_type = importlib.import_module(
+        "torch_geometric.sampler.base"
+    ).SubgraphType
     if not typing.WITH_PYG_LIB or not typing.WITH_TORCH_SPARSE:
         raise RuntimeError("both sampler backends must be available")
     original_with_pyg = typing.WITH_PYG_LIB
@@ -592,6 +595,7 @@ def _sampler_canary(modules: Mapping[str, ModuleType]) -> None:
             fallback = next(iter(geometric.loader.NeighborLoader(
                 data, num_neighbors=[-1], input_nodes=torch.tensor([0]),
                 batch_size=1, shuffle=False, num_workers=0,
+                subgraph_type=subgraph_type.induced,
             )))
             if pyg_spy.calls != 1 or sparse_spy.calls != 1:
                 raise RuntimeError("fallback sampler did not use only torch-sparse")

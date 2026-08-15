@@ -691,6 +691,9 @@ change, clean path, extra scoped status, or hash drift stops Task 2.1.
       torch = modules["torch"]
       geometric = modules["torch-geometric"]
       typing = importlib.import_module("torch_geometric.typing")
+      subgraph_type = importlib.import_module(
+          "torch_geometric.sampler.base"
+      ).SubgraphType
       if not typing.WITH_PYG_LIB or not typing.WITH_TORCH_SPARSE:
           raise RuntimeError("both sampler backends must be available")
       original_with_pyg = typing.WITH_PYG_LIB
@@ -718,6 +721,7 @@ change, clean path, extra scoped status, or hash drift stops Task 2.1.
               fallback = next(iter(geometric.loader.NeighborLoader(
                   data, num_neighbors=[-1], input_nodes=torch.tensor([0]),
                   batch_size=1, shuffle=False, num_workers=0,
+                  subgraph_type=subgraph_type.induced,
               )))
               if pyg_spy.calls != 1 or sparse_spy.calls != 1:
                   raise RuntimeError("fallback sampler did not use only torch-sparse")
@@ -736,7 +740,12 @@ change, clean path, extra scoped status, or hash drift stops Task 2.1.
   assignment through `_replace_operation` is valid for PyTorch `OpOverloadPacket` attributes and
   restores the exact original object in `finally`. Task 2 cannot import the future selected wheels,
   so `tests/test_verify_torch_stack_platform.py` uses this faithful fake rig: its loader reads the
-  same typing flag and calls the same two `torch.ops` packet attributes as PyG 2.8.
+  same typing flag, records the exact loader arguments, and calls the same two `torch.ops` packet
+  attributes as PyG 2.8. The preferred call omits `subgraph_type`; the forced fallback call must use
+  the actual `SubgraphType.induced` enum because PyG checks enum identity before string
+  normalization on its Linux warning path. Non-vacuous source mutations that omit the argument,
+  replace it with the `"induced"` string, or select `SubgraphType.directional` must still execute
+  both backend operators and then fail the loader-argument contract.
 
   ```python
   @dataclass

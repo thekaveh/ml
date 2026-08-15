@@ -468,8 +468,10 @@ def _sampler_test_rig(monkeypatch, module=verifier):
     typing = ModuleType("torch_geometric.typing")
     typing.WITH_PYG_LIB = True
     typing.WITH_TORCH_SPARSE = True
+    subgraph_type = SimpleNamespace(induced=object(), directional=object())
     pyg_operation = _FakeBackendOperation()
     sparse_operation = _FakeBackendOperation()
+    loader_calls: list[dict[str, object]] = []
     torch = SimpleNamespace(tensor=lambda value: value, ops=SimpleNamespace(
         pyg=SimpleNamespace(neighbor_sample=pyg_operation),
         torch_sparse=SimpleNamespace(neighbor_sample=sparse_operation),
@@ -482,7 +484,17 @@ def _sampler_test_rig(monkeypatch, module=verifier):
     class FakeNeighborLoader:
         def __init__(self, data: object, **kwargs: object) -> None:
             del data
-            assert kwargs == {"num_neighbors": [-1], "input_nodes": [0], "batch_size": 1, "shuffle": False, "num_workers": 0}
+            loader_calls.append(kwargs)
+            assert {
+                key: value for key, value in kwargs.items()
+                if key != "subgraph_type"
+            } == {
+                "num_neighbors": [-1],
+                "input_nodes": [0],
+                "batch_size": 1,
+                "shuffle": False,
+                "num_workers": 0,
+            }
 
         def __iter__(self):
             if typing.WITH_PYG_LIB:
@@ -493,17 +505,50 @@ def _sampler_test_rig(monkeypatch, module=verifier):
 
     geometric = SimpleNamespace(data=SimpleNamespace(Data=FakeData), loader=SimpleNamespace(NeighborLoader=FakeNeighborLoader))
     original_import = module.importlib.import_module
-    monkeypatch.setattr(module.importlib, "import_module", lambda name: typing if name == "torch_geometric.typing" else original_import(name))
-    return {"torch": torch, "torch-geometric": geometric}, typing, pyg_operation, sparse_operation
+    monkeypatch.setattr(
+        module.importlib,
+        "import_module",
+        lambda name: (
+            typing if name == "torch_geometric.typing"
+            else SimpleNamespace(SubgraphType=subgraph_type)
+            if name == "torch_geometric.sampler.base"
+            else original_import(name)
+        ),
+    )
+    return (
+        {"torch": torch, "torch-geometric": geometric},
+        typing,
+        subgraph_type,
+        pyg_operation,
+        sparse_operation,
+        loader_calls,
+    )
+
+
+def _assert_sampler_loader_contract(
+    loader_calls: list[dict[str, object]],
+    subgraph_type: SimpleNamespace,
+) -> None:
+    assert len(loader_calls) == 2
+    assert "subgraph_type" not in loader_calls[0]
+    assert loader_calls[1]["subgraph_type"] is subgraph_type.induced
 
 
 def test_sampler_canary_uses_pyg_then_forced_sparse_and_restores_state(monkeypatch) -> None:
-    modules, typing, pyg_operation, sparse_operation = _sampler_test_rig(monkeypatch)
+    (
+        modules,
+        typing,
+        subgraph_type,
+        pyg_operation,
+        sparse_operation,
+        loader_calls,
+    ) = _sampler_test_rig(monkeypatch)
     original_flag = typing.WITH_PYG_LIB
     original_pyg = modules["torch"].ops.pyg.neighbor_sample
     original_sparse = modules["torch"].ops.torch_sparse.neighbor_sample
     verifier._sampler_canary(modules)
     assert (pyg_operation.calls, sparse_operation.calls) == (1, 1)
+    _assert_sampler_loader_contract(loader_calls, subgraph_type)
     assert typing.WITH_PYG_LIB is original_flag
     assert modules["torch"].ops.pyg.neighbor_sample is original_pyg
     assert modules["torch"].ops.torch_sparse.neighbor_sample is original_sparse
@@ -519,9 +564,44 @@ def test_sampler_backend_selection_mutations_are_killed(tmp_path: Path, monkeypa
     mutated = source.replace(before, after, 1)
     assert mutated != source
     module = _import_mutated_verifier(tmp_path, mutated)
-    modules, _, _, _ = _sampler_test_rig(monkeypatch, module)
+    modules, _, _, _, _, _ = _sampler_test_rig(monkeypatch, module)
     with pytest.raises(RuntimeError, match=r"sampler"):
         module._sampler_canary(modules)
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    (
+        "",
+        '                subgraph_type="induced",\n',
+        "                subgraph_type=subgraph_type.directional,\n",
+    ),
+    ids=("omitted", "string-lookalike", "directional"),
+)
+def test_sampler_fallback_subgraph_type_mutations_are_killed(
+    tmp_path: Path,
+    monkeypatch,
+    replacement: str,
+) -> None:
+    source = (REPO_ROOT / "scripts/verify_torch_stack.py").read_text(encoding="utf-8")
+    exact = "                subgraph_type=subgraph_type.induced,\n"
+    assert source.count(exact) == 1
+    mutated = source.replace(exact, replacement, 1)
+    module = _import_mutated_verifier(tmp_path, mutated)
+    (
+        modules,
+        _,
+        subgraph_type,
+        pyg_operation,
+        sparse_operation,
+        loader_calls,
+    ) = _sampler_test_rig(monkeypatch, module)
+
+    module._sampler_canary(modules)
+
+    assert (pyg_operation.calls, sparse_operation.calls) == (1, 1)
+    with pytest.raises((AssertionError, KeyError)):
+        _assert_sampler_loader_contract(loader_calls, subgraph_type)
 
 
 def test_import_warning_debt_constants_are_literal_and_exact() -> None:

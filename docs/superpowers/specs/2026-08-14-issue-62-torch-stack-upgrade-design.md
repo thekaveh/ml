@@ -244,6 +244,10 @@ The canonical stack therefore treats compiled graph support as mandatory:
 
 - pyg-lib is the preferred backend;
 - torch-sparse remains an independently importable fallback;
+- the verifier passes the actual `torch_geometric.sampler.base.SubgraphType.induced` enum only to
+  the forced torch-sparse loader. PyG 2.8.0.post1 checks that enum identity before normalizing
+  string values and otherwise emits a Linux-only fallback deprecation, so an omitted,
+  `"induced"`-string, or directional fallback argument violates the warning-free canary contract;
 - SAGE, GraphConv, and GAT execute against a real sampled batch;
 - scatter and sparse execute tiny representative operations; and
 - the Linux CI contract rejects a skip caused by missing or ABI-incompatible extensions.

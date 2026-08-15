@@ -171,7 +171,7 @@ container.
 1. On [github.com/thekaveh/ml-eng-lab](https://github.com/thekaveh/ml-eng-lab) → green **Code** button → **Codespaces** tab → **Create codespace on main**.
 2. Wait ~2-3 min for `postCreateCommand` to run `make codespace-setup` (= Torch-first dependency install + `make nlp-assets`). Progress is visible in the terminal panel.
 3. Open any notebook. You can either:
-   - **Stay in VS Code (browser)** — the Jupyter / Python extensions are preinstalled per the devcontainer config; works for the 28 tier-covered active notebooks. The quantization notebook is manual-only in the reviewed Torch 2.11.0 / torchvision 0.26.0 / torchao 0.18.0 side environment.
+   - **Stay in VS Code (browser)** — the Jupyter / Python extensions are preinstalled per the devcontainer config; works for the 28 tier-covered active notebooks. Execute the quantization notebook manually in a fresh canonical environment installed by `make install-torch-stack`; the notebook remains outside Tier A/B/C under Issue #66.
    - **Switch to JupyterLab** — click the dropdown next to "Open" on github.com → choose JupyterLab. To make JupyterLab the single-click default for all your codespaces, go to [github.com/settings/codespaces → Editor preference → JupyterLab](https://github.com/settings/codespaces).
 
 See [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) for the exact image + extension set, and [`Makefile`](Makefile) `codespace-setup` target for the Codespaces/venv install recipe. The §3.2 Docker path bakes the same Torch-first dependency order into [`Dockerfile`](Dockerfile). GitHub currently includes 120 Codespaces compute hours per month for Free accounts and 180 for Pro; on the default two-core machine, that corresponds to 60 or 90 machine-hours.

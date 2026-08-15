@@ -1261,6 +1261,18 @@ _ISSUE62_FORBIDDEN_CURRENT_FACTS = (
     "complete final acceptance is proven",
 )
 
+_ISSUE62_PENDING_PLATFORM_SENTENCE = (
+    "Linux is CPU-only; Darwin arm64, native Linux arm64 Docker, and Linux x86_64 PR-gate "
+    "evidence remain pending and are required in Task 7."
+)
+
+_ISSUE62_PREMATURE_PLATFORM_VERDICTS = (
+    "accepted",
+    "qualified",
+    "completed",
+    "succeeded",
+)
+
 
 def _issue62_current_documents() -> dict[str, str]:
     def read(path: str) -> str:
@@ -1346,6 +1358,56 @@ def test_issue62_current_contract_rejects_obsolete_fact(forbidden: str) -> None:
 
     with pytest.raises(AssertionError):
         _assert_issue62_current_contract(documents)
+
+
+def _assert_issue62_platform_qualification_is_pending(section: str) -> None:
+    assert _ISSUE62_PENDING_PLATFORM_SENTENCE in section
+    lowered = section.lower()
+    for verdict in _ISSUE62_PREMATURE_PLATFORM_VERDICTS:
+        assert verdict not in lowered
+
+
+def test_issue62_platform_qualification_remains_pending_before_task7() -> None:
+    text = (REPO_ROOT / "docs/env-setup.md").read_text(encoding="utf-8")
+    local_venv = _same_level_section(text, "4.1.3 Local Python venv")
+
+    _assert_issue62_platform_qualification_is_pending(local_venv)
+
+
+@pytest.mark.parametrize("verdict", _ISSUE62_PREMATURE_PLATFORM_VERDICTS)
+def test_issue62_platform_pending_contract_rejects_premature_verdict(verdict: str) -> None:
+    text = (REPO_ROOT / "docs/env-setup.md").read_text(encoding="utf-8")
+    local_venv = _same_level_section(text, "4.1.3 Local Python venv")
+    mutated = f"{local_venv}\n\nThe three platform gates are {verdict}."
+    assert mutated != local_venv
+    assert verdict in mutated
+
+    with pytest.raises(AssertionError):
+        _assert_issue62_platform_qualification_is_pending(mutated)
+
+
+def test_issue62_manual_quantization_guidance_uses_fresh_canonical_environment() -> None:
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    contributing = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    task_readme = (
+        REPO_ROOT / "notebooks/quantization-mnist-ffnn-pytorch/README.md"
+    ).read_text(encoding="utf-8")
+    surfaces = {
+        "README.md": _between(readme, "**How to use**:\n", "See [`.devcontainer"),
+        "CONTRIBUTING.md": _same_level_section(contributing, "4. Modifying shared code"),
+        "notebooks/quantization-mnist-ffnn-pytorch/README.md": _same_level_section(
+            task_readme, "4. How to run"
+        ),
+    }
+
+    for path, current in surfaces.items():
+        assert "manual" in current, path
+        assert "fresh canonical environment" in current, path
+        assert "make install-torch-stack" in current, path
+        assert "outside Tier A/B/C" in current, path
+        assert "Issue #66" in current, path
+        assert "side environment" not in current, path
+        assert "side pair" not in current, path
 
 
 def test_issue62_dependency_sections_replace_complete_old_contracts():

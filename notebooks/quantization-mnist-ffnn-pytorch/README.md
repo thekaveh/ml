@@ -33,7 +33,8 @@ This notebook is the in-repo demo of both, side by side on the same baseline arc
 Torch 2.11.0, torchvision 0.26.0, torchao 0.18.0, and thekaveh-nnx[lm]==0.2.0. The complete
 notebook remains outside Tier A/B/C; Atlas remains Issue #65 and is not acceptance evidence.
 
-To run locally, use the reviewed side pair Torch 2.11.0, torchvision 0.26.0, and torchao 0.18.0, then execute the notebook manually:
+Execute the notebook manually in a fresh canonical environment installed by `make install-torch-stack`;
+the notebook remains outside Tier A/B/C under Issue #66:
 
 ```bash
 cd notebooks/quantization-mnist-ffnn-pytorch

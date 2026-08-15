@@ -82,7 +82,7 @@ make verify-nnx-install
 jupyter lab
 ```
 
-Use Python 3.11 and make install-torch-stack; the installer ends with binary-only thekaveh-nnx[lm]==0.2.0. After the last asset install, package state is frozen through pip-check, Torch verification, NNx verification, and the workload. Linux is CPU-only; Darwin and native Linux arm64 Docker are locally qualified, and Linux x86_64 is qualified by the PR gates.
+Use Python 3.11 and make install-torch-stack; the installer ends with binary-only thekaveh-nnx[lm]==0.2.0. After the last asset install, package state is frozen through pip-check, Torch verification, NNx verification, and the workload. Linux is CPU-only; Darwin arm64, native Linux arm64 Docker, and Linux x86_64 PR-gate evidence remain pending and are required in Task 7.
 
 ## 4.1.4 GitHub Codespaces
 

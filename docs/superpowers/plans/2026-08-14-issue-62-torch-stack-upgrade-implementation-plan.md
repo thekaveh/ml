@@ -3009,7 +3009,7 @@ graph edits, or stage anything until the focused clean gate is green.
 
 - [ ] **Step 7: Write smoke-output oracle RED tests**
 
-  In `tests/test_verify_smoke_outputs.py`, use an injected inventory loader and temporary notebooks. Cover exact counts 18/6/4, missing and extra inventory items, duplicate sources, duplicate mapped outputs, an extra `.ipynb` anywhere below the output root, inventory command failure, missing/empty/invalid JSON, non-notebook JSON, zero code cells, a null code-cell execution count, an error output, and safe redaction. Mutate away the recursive output-set equality and the nonempty-code-cell gate independently; each mutation must fail its named test. A valid fixture is:
+  In `tests/test_verify_smoke_outputs.py`, use an injected inventory loader and temporary notebooks. Cover exact counts 18/6/4, missing and extra inventory items, duplicate sources, duplicate mapped outputs, an extra `.ipynb` anywhere below the output root, inventory command failure, missing/empty/invalid JSON, non-notebook JSON, zero code cells, a non-mapping cell, a non-list outputs value, non-mapping output entries, null/bool/string/non-integer code-cell execution counts, an error output, and safe redaction. Mutate away the recursive output-set equality, nonempty-code-cell gate, cell/output shape gates, and strict integer execution-count gate independently; each mutation must fail its named test without leaking an unstable direct-API exception. A valid fixture is:
 
   ```python
   def write_executed_notebook(path: Path) -> None:
@@ -3066,15 +3066,29 @@ graph edits, or stage anything until the focused clean gate is green.
               raise ValueError
       except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
           raise SmokeOutputError(tier, "invalid") from None
+      if any(not isinstance(cell, Mapping) for cell in cells):
+          raise SmokeOutputError(tier, "invalid")
       code_cells = tuple(cell for cell in cells if cell.get("cell_type") == "code")
       if not code_cells:
           raise SmokeOutputError(tier, "invalid")
-      if any(cell.get("execution_count") is None for cell in code_cells):
+      if any(not isinstance(cell.get("outputs"), list) for cell in code_cells):
+          raise SmokeOutputError(tier, "invalid")
+      if any(
+          not isinstance(output_item, Mapping)
+          for cell in code_cells
+          for output_item in cell["outputs"]
+      ):
+          raise SmokeOutputError(tier, "invalid")
+      if any(
+          not isinstance(cell.get("execution_count"), int)
+          or isinstance(cell.get("execution_count"), bool)
+          for cell in code_cells
+      ):
           raise SmokeOutputError(tier, "unexecuted")
       if any(
           output_item.get("output_type") == "error"
           for cell in code_cells
-          for output_item in cell.get("outputs", ())
+          for output_item in cell["outputs"]
       ):
           raise SmokeOutputError(tier, "error")
       return NotebookArtifact(source, output, len(code_cells))
@@ -5368,17 +5382,65 @@ graph edits, or stage anything until the focused clean gate is green.
     sleep 10
   done
   test -n "$TIER_C_RUN"
+  DISPATCH_MAX_ENABLED_TIMEOUT_MINUTES=$(python - <<'PY'
+  from pathlib import Path
+
+  import yaml
+
+  workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+  jobs = workflow["jobs"]
+  expected = {
+      "atlas-consumer-policy", "dependency-audit", "pytest-repository",
+      "pytest-nnx-surface", "verify-repo", "docs-build", "docker-build",
+      "tier-a-papermill", "smoke-tier-b", "smoke-tier-c",
+  }
+  assert set(jobs) == expected
+  assert all(isinstance(jobs[name]["timeout-minutes"], int) for name in expected)
+  print(max(jobs[name]["timeout-minutes"] for name in expected))
+  PY
+  )
+  DISPATCH_QUEUE_HEADROOM_MINUTES=30
+  DISPATCH_POLL_ATTEMPTS=1260
+  DISPATCH_POLL_INTERVAL_SECONDS=10
+  test "$DISPATCH_MAX_ENABLED_TIMEOUT_MINUTES" -eq 180
+  test "$DISPATCH_QUEUE_HEADROOM_MINUTES" -ge 30
+  test "$((DISPATCH_POLL_ATTEMPTS * DISPATCH_POLL_INTERVAL_SECONDS))" -eq \
+    "$(((DISPATCH_MAX_ENABLED_TIMEOUT_MINUTES + DISPATCH_QUEUE_HEADROOM_MINUTES) * 60))"
+  test "$((DISPATCH_POLL_ATTEMPTS * DISPATCH_POLL_INTERVAL_SECONDS))" -gt \
+    "$((DISPATCH_MAX_ENABLED_TIMEOUT_MINUTES * 60))"
   TIER_C_STATUS=
   TIER_C_CONCLUSION=
-  for ATTEMPT in $(seq 1 180); do
+  for ATTEMPT in $(seq 1 "$DISPATCH_POLL_ATTEMPTS"); do
     TIER_C_STATUS=$(gh run view "$TIER_C_RUN" --repo "$REPO" --json status --jq .status)
     TIER_C_CONCLUSION=$(gh run view "$TIER_C_RUN" --repo "$REPO" --json conclusion --jq .conclusion)
     test "$TIER_C_STATUS" = completed && break
-    sleep 10
+    sleep "$DISPATCH_POLL_INTERVAL_SECONDS"
   done
   test "$TIER_C_STATUS" = completed
   test "$TIER_C_CONCLUSION" = success
-  test "$(gh run view "$TIER_C_RUN" --repo "$REPO" --json headSha --jq .headSha)" = "$FEATURE_SHA"
+  gh run view "$TIER_C_RUN" --repo "$REPO" \
+    --json jobs,url,headSha,status,conclusion,event \
+    > "$FINAL_ROOT/tier-c-run.json"
+  python - "$FINAL_ROOT/tier-c-run.json" "$FEATURE_SHA" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  run = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  assert run["headSha"] == sys.argv[2]
+  assert run["event"] == "workflow_dispatch"
+  assert run["status"] == "completed" and run["conclusion"] == "success"
+  assert run["url"].startswith("https://github.com/")
+  expected = {
+      "atlas-consumer-policy", "dependency-audit", "pytest-repository",
+      "pytest-nnx-surface", "verify-repo", "docs-build", "docker-build",
+      "tier-a-papermill", "smoke-tier-b", "smoke-tier-c",
+  }
+  jobs = {job["name"]: job for job in run["jobs"]}
+  assert set(jobs) == expected
+  assert all(jobs[name]["conclusion"] == "success" for name in expected)
+  assert all(jobs[name]["url"].startswith("https://github.com/") for name in expected)
+  PY
   ```
 
   Fetch the PR test merge ref, distinguish it from the feature commit, and gate the SHA on which
@@ -5425,43 +5487,126 @@ graph edits, or stage anything until the focused clean gate is green.
       for check in checks
   )
   PY
-  gh run view "$TIER_C_RUN" --repo "$REPO" \
-    --json jobs,url,headSha,status,conclusion,event \
-    --jq '{url,headSha,status,conclusion,event,tier_c: [.jobs[] | select(.name == "smoke-tier-c") | {name,conclusion,url}]}' \
-    > "$FINAL_ROOT/tier-c-run.json"
-  test "$(jq -r '.tier_c | length' "$FINAL_ROOT/tier-c-run.json")" = 1
-  test "$(jq -r '.tier_c[0].conclusion' "$FINAL_ROOT/tier-c-run.json")" = success
   ```
 
   Expected: every applicable PR check is green on the recorded synthetic `PR_MERGE_SHA`; the
   conditionally skipped PR-event `smoke-tier-c` job is not evidence and is replaced by the successful
-  dispatch on exact `FEATURE_SHA`; the detached qualification checkout pushes the explicit remote
+  workflow dispatch on exact `FEATURE_SHA`, whose 210-minute bound is mechanically tied to every
+  enabled job's maximum 180-minute timeout plus 30 minutes of queue headroom and whose exact ten-job
+  set must all succeed; the detached qualification checkout pushes the explicit remote
   ref without attempting to establish a local upstream; no pending, skipped, neutral, cancelled,
   stale-SHA, or rerun-masked
   result is accepted as evidence. Attach the ignored Darwin/native-arm64/advisory/Tier 18/6/4 report and the Linux
   x86_64 run/check URLs to Issue #62 and the PR.
 
-- [ ] **Step 8: Merge feature to develop and develop to main without changing rulesets**
+- [ ] **Step 8: Reconcile the required checks, then merge feature to develop and develop to main**
 
-  Read the protected ruleset without updating it, merge through GitHub, and preserve four distinct
-  identities: feature commit, feature PR synthetic merge, develop merge, and release merge.
+  Only after the successful feature PR supplies the live `dependency-audit` context, read the
+  protected ruleset. Accept an already exact-three status-check list; otherwise replace only that
+  nested list with the three live contexts while preserving every other mutable ruleset field.
+  Snapshot the post-reconciliation ruleset before merging, then preserve four distinct identities:
+  feature commit, feature PR synthetic merge, develop merge, and release merge.
 
   ```bash
-  gh api "repos/$REPO/rulesets/18620095" > "$FINAL_ROOT/ruleset.json"
-  python - "$FINAL_ROOT/ruleset.json" <<'PY'
+  gh api "repos/$REPO/rulesets/18620095" > "$FINAL_ROOT/ruleset-before.json"
+  python - "$FINAL_ROOT/ruleset-before.json" "$FINAL_ROOT/ruleset-update.json" \
+    "$FINAL_ROOT/ruleset-action.txt" <<'PY'
+  import copy
   import json
   import sys
   from pathlib import Path
 
   rule = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  expected_keys = {
+      "id", "name", "target", "source_type", "source", "enforcement", "conditions",
+      "rules", "node_id", "created_at", "updated_at", "bypass_actors",
+      "current_user_can_bypass", "_links",
+  }
+  assert set(rule) == expected_keys
+  assert rule["id"] == 18620095 and rule["target"] == "branch"
   assert rule["name"] == "gitflow" and rule["enforcement"] == "active"
+  assert rule["source_type"] == "Repository" and rule["source"] == "thekaveh/ml-eng-lab"
+  assert rule["conditions"]["ref_name"]["exclude"] == []
   assert set(rule["conditions"]["ref_name"]["include"]) == {
       "refs/heads/main", "refs/heads/develop",
   }
-  status = next(item for item in rule["rules"] if item["type"] == "required_status_checks")
-  assert {item["context"] for item in status["parameters"]["required_status_checks"]} == {
+  status_rules = [item for item in rule["rules"] if item["type"] == "required_status_checks"]
+  assert len(status_rules) == 1
+  desired = [
+      {"context": "pytest-repository"},
+      {"context": "atlas-consumer-policy"},
+      {"context": "dependency-audit"},
+  ]
+  current = status_rules[0]["parameters"]["required_status_checks"]
+  assert isinstance(current, list)
+  assert all(isinstance(item, dict) and set(item) == {"context"} for item in current)
+  assert len({item["context"] for item in current}) == len(current)
+  already_exact = len(current) == 3 and {
+      item["context"] for item in current
+  } == {item["context"] for item in desired}
+  payload = {
+      key: copy.deepcopy(rule[key])
+      for key in ("name", "target", "enforcement", "bypass_actors", "conditions", "rules")
+  }
+  payload_status = [
+      item for item in payload["rules"] if item["type"] == "required_status_checks"
+  ]
+  assert len(payload_status) == 1
+  if not already_exact:
+      payload_status[0]["parameters"]["required_status_checks"] = desired
+  Path(sys.argv[2]).write_text(
+      json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+  )
+  Path(sys.argv[3]).write_text(
+      ("keep" if already_exact else "update") + "\n", encoding="utf-8",
+  )
+  PY
+  case "$(cat "$FINAL_ROOT/ruleset-action.txt")" in
+    keep)
+      cp "$FINAL_ROOT/ruleset-before.json" "$FINAL_ROOT/ruleset.json"
+      ;;
+    update)
+      gh api --method PUT "repos/$REPO/rulesets/18620095" \
+        --input "$FINAL_ROOT/ruleset-update.json" > "$FINAL_ROOT/ruleset.json"
+      ;;
+    *) exit 1;;
+  esac
+  python - "$FINAL_ROOT/ruleset-before.json" "$FINAL_ROOT/ruleset.json" \
+    "$FINAL_ROOT/ruleset-update.json" "$FINAL_ROOT/ruleset-action.txt" <<'PY'
+  import copy
+  import json
+  import sys
+  from pathlib import Path
+
+  before = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  after = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+  payload = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
+  action = Path(sys.argv[4]).read_text(encoding="utf-8").strip()
+  mutable_keys = ("name", "target", "enforcement", "bypass_actors", "conditions", "rules")
+
+  def status(rule: dict[str, object]) -> dict[str, object]:
+      matches = [item for item in rule["rules"] if item["type"] == "required_status_checks"]
+      assert len(matches) == 1
+      return matches[0]
+
+  desired_contexts = {
       "pytest-repository", "atlas-consumer-policy", "dependency-audit",
   }
+  after_checks = status(after)["parameters"]["required_status_checks"]
+  assert len(after_checks) == 3
+  assert {item["context"] for item in after_checks} == desired_contexts
+  assert all(set(item) == {"context"} for item in after_checks)
+  assert {key: after[key] for key in mutable_keys} == payload
+  before_other = copy.deepcopy(before)
+  after_other = copy.deepcopy(after)
+  before_other.pop("updated_at")
+  after_other.pop("updated_at")
+  status(before_other)["parameters"]["required_status_checks"] = copy.deepcopy(after_checks)
+  assert before_other == after_other
+  if action == "keep":
+      assert before == after
+  else:
+      assert action == "update" and before["updated_at"] != after["updated_at"]
   PY
   gh pr merge "$FEATURE_PR" --repo "$REPO" --merge --delete-branch
   DEVELOP_MERGE_SHA=$(gh pr view "$FEATURE_PR" --repo "$REPO" --json mergeCommit --jq .mergeCommit.oid)
@@ -5874,7 +6019,7 @@ graph edits, or stage anything until the focused clean gate is green.
   assert runs and all(run["headSha"] == sys.argv[2] for run in runs)
   assert all(run["event"] == "pull_request" for run in runs)
   assert all(run["status"] == "completed" and run["conclusion"] == "success" for run in runs)
-  assert {run["workflowName"] for run in runs} >= {"CI", "Docs gate"}
+  assert {run["workflowName"] for run in runs} == {"CI"}
   assert all(run["url"].startswith("https://github.com/") for run in runs)
   PY
     gh pr merge "$SYNC_PR" --repo "$REPO" --merge
@@ -5956,12 +6101,17 @@ graph edits, or stage anything until the focused clean gate is green.
   ```
 
   Expected: `FINAL_DEVELOP_SHA` names the post-sync `origin/develop` commit; when a sync PR was
-  required it is the actual `SYNC_PR_MERGE_SHA`. The bounded 120-minute poll exceeds the Tier A
+  required it is the actual `SYNC_PR_MERGE_SHA`. A content-neutral sync has no changed documentation
+  path, so its synthetic merge requires the exact `CI` workflow and its three required job contexts;
+  the path-filtered `Docs gate` is neither expected nor accepted as fabricated evidence. The bounded 120-minute poll exceeds the Tier A
   90-minute timeout by 30 minutes of queue headroom, records at least the successful `CI` push run
   for that exact SHA, records every other exact-SHA run as completed/successful, and the embedded
   queued-run mutation proves completion remains blocked while any such run is pending. The
   arithmetic assertions fail before polling if an edit lowers the bound below the required
-  90-minute runtime plus queue headroom.
+  90-minute runtime plus queue headroom. The live ruleset is either already exact-three or receives
+  one narrowly constructed update after the context exists; before/post structure proves that only
+  `required_status_checks` changed, and the post-reconciliation snapshot must remain byte-identical
+  through final branch synchronization.
 
 - [ ] **Step 9: Verify publication, clean Issue #62 state, then publish completion and close**
 
@@ -6272,13 +6422,15 @@ graph edits, or stage anything until the focused clean gate is green.
           require(sync_pr is None, "unexpected sync PR evidence")
       else:
           require(set(sync_pr) == {
-              "test_merge_sha", "merge_sha", "url", "check_urls", "run_urls",
+              "test_merge_sha", "merge_sha", "url", "check_urls", "workflow_names",
+              "run_urls",
           }, "sync PR evidence schema")
           require(sync_pr["test_merge_sha"] == sync_test, "sync PR test SHA")
           require(sync_pr["merge_sha"] == sync_merge, "sync PR merge SHA")
           require(set(sync_pr["check_urls"]) >= {
               "pytest-repository", "atlas-consumer-policy", "dependency-audit",
           }, "sync PR check URLs")
+          require(sync_pr["workflow_names"] == ["CI"], "sync PR workflows")
           require(sync_pr["run_urls"], "sync PR run URLs")
       require(set(value["pull_requests"]) == {"feature", "release", "sync"}, "PR URL schema")
       require(
@@ -6372,9 +6524,24 @@ graph edits, or stage anything until the focused clean gate is green.
       tier_c_run["headSha"] == identities["feature_sha"]
       and tier_c_run["event"] == "workflow_dispatch"
       and tier_c_run["status"] == "completed"
-      and tier_c_run["conclusion"] == "success"
-      and tier_c_run["tier_c"][0]["conclusion"] == "success",
-      "Tier C dispatch result",
+      and tier_c_run["conclusion"] == "success",
+      "workflow dispatch result",
+  )
+  dispatch_jobs = {job["name"]: job for job in tier_c_run["jobs"]}
+  expected_dispatch_jobs = {
+      "atlas-consumer-policy", "dependency-audit", "pytest-repository",
+      "pytest-nnx-surface", "verify-repo", "docs-build", "docker-build",
+      "tier-a-papermill", "smoke-tier-b", "smoke-tier-c",
+  }
+  require(set(dispatch_jobs) == expected_dispatch_jobs, "workflow dispatch job set")
+  require(
+      all(dispatch_jobs[name]["conclusion"] == "success" for name in expected_dispatch_jobs),
+      "workflow dispatch job result",
+  )
+  require(
+      all(dispatch_jobs[name]["url"].startswith("https://github.com/")
+          for name in expected_dispatch_jobs),
+      "workflow dispatch job URL",
   )
   expected_checks = {
       "pytest-repository", "atlas-consumer-policy", "dependency-audit", "pytest-nnx-surface",
@@ -6472,7 +6639,7 @@ graph edits, or stage anything until the focused clean gate is green.
           "sync PR run result",
       )
       require(
-          {run["workflowName"] for run in sync_runs} >= {"CI", "Docs gate"},
+          {run["workflowName"] for run in sync_runs} == {"CI"},
           "sync PR workflows",
       )
       require(
@@ -6486,6 +6653,7 @@ graph edits, or stage anything until the focused clean gate is green.
           "check_urls": {
               name: sync_by_check[name]["link"] for name in sorted(sync_required)
           },
+          "workflow_names": sorted({run["workflowName"] for run in sync_runs}),
           "run_urls": sorted({run["url"] for run in sync_runs}),
       }
 
@@ -6702,19 +6870,33 @@ graph edits, or stage anything until the focused clean gate is green.
   git merge --ff-only origin/main
   git switch develop
   test -z "$(git ls-remote origin refs/heads/codex/issue-62-torch-stack-upgrade)"
-  git update-ref -d "refs/issue62/pr-$FEATURE_PR-merge"
-  git update-ref -d "refs/issue62/pr-$RELEASE_PR-merge"
-  if test -n "${SYNC_PR:-}"; then
-    git update-ref -d "refs/issue62/pr-$SYNC_PR-merge"
-  fi
-  git for-each-ref --format='%(refname)' \
-    refs/issue62/reuse-feature- refs/issue62/reuse-release- refs/issue62/reuse-sync- \
-    > /private/tmp/issue62-reuse-refs.txt
-  while IFS= read -r REUSE_REF; do
-    case "$REUSE_REF" in refs/issue62/reuse-feature-[0-9]*|refs/issue62/reuse-release-[0-9]*|refs/issue62/reuse-sync-[0-9]*) ;; *) exit 1;; esac
-    git update-ref -d "$REUSE_REF"
-  done < /private/tmp/issue62-reuse-refs.txt
-  rm -f /private/tmp/issue62-reuse-refs.txt
+  git for-each-ref --format='%(refname)' refs/issue62/ \
+    > /private/tmp/issue62-owned-refs.txt
+  while IFS= read -r OWNED_REF; do
+    case "$OWNED_REF" in
+      refs/issue62/reuse-feature-*)
+        REF_NUMBER=${OWNED_REF#refs/issue62/reuse-feature-}
+        ;;
+      refs/issue62/reuse-release-*)
+        REF_NUMBER=${OWNED_REF#refs/issue62/reuse-release-}
+        ;;
+      refs/issue62/reuse-sync-*)
+        REF_NUMBER=${OWNED_REF#refs/issue62/reuse-sync-}
+        ;;
+      refs/issue62/pr-*-merge)
+        REF_NUMBER=${OWNED_REF#refs/issue62/pr-}
+        REF_NUMBER=${REF_NUMBER%-merge}
+        case " $FEATURE_PR $RELEASE_PR ${SYNC_PR:-} " in
+          *" $REF_NUMBER "*) ;;
+          *) exit 1;;
+        esac
+        ;;
+      *) exit 1;;
+    esac
+    case "$REF_NUMBER" in ''|*[!0-9]*) exit 1;; esac
+    git update-ref -d "$OWNED_REF"
+  done < /private/tmp/issue62-owned-refs.txt
+  rm -f /private/tmp/issue62-owned-refs.txt
   test -z "$(git for-each-ref --format='%(refname)' refs/issue62/)"
   gh pr list --repo "$REPO" --state open --limit 1000 \
     --json number,title,body,baseRefName,headRefName \
@@ -6958,8 +7140,10 @@ graph edits, or stage anything until the focused clean gate is green.
   warnings-as-errors plus parsed JUnit totals; local `always` captures are exactly the selected
   import wrapper/fresh-interpreter probe and the QAT test's `model.train` assertion; Tier A/B/C use
   recursive exact output sets with 18 nested, 6 basename, and 4 basename artifacts and no zero-code
-  notebook.
-- [x] **Immutable identities:** feature HEAD, feature PR synthetic merge, develop merge, release PR synthetic merge, release merge, final post-sync develop SHA, and optional sync PR synthetic/actual merge SHAs are recorded separately; dispatch evidence is tied to the feature SHA, PR evidence to synthetic merge SHAs, final push evidence to the exact final develop SHA, and tree equality prevents content drift.
+  notebook. Every cell/output is a mapping, every code-cell outputs value is a list, and every
+  execution count is an integer but not a bool; malformed shapes fail through stable
+  `invalid`/`unexecuted` categories, with independent deletion mutations for each guard.
+- [x] **Immutable identities:** feature HEAD, feature PR synthetic merge, develop merge, release PR synthetic merge, release merge, final post-sync develop SHA, and optional sync PR synthetic/actual merge SHAs are recorded separately; dispatch evidence is tied to the feature SHA and requires the exact ten enabled jobs to succeed under a mechanically derived 210-minute bound, PR evidence is tied to synthetic merge SHAs, final push evidence to the exact final develop SHA, and tree equality prevents content drift.
 - [x] **Current-doc bounds:** Task 6 uses the real `4.1.6` heading, replaces complete same-level dependency sections 6.1.2 and 6.1.11 plus the stale manifest-owned graph release paragraph, places generated-row tokens directly in both source specs, regenerates once, and stages/tests/parity-checks both specs, the generated canonical page, and `docs/notebooks/node_classification-reddit-gnn-pyg.md`.
 - [x] **External evidence schema:** report schema 6 uses the exact ten distribution metadata names
   including `pytorch-lightning`, separate NNx metadata, positive exact import-warning debt evidence
@@ -6971,8 +7155,9 @@ graph edits, or stage anything until the focused clean gate is green.
   `always`; missing, wrong-key, zero-count, and global-bypass mutations fail. The report also records
   final audit identities/result, full/NNx/QAT JUnit totals, Docker
   probes, Tier hashes/durations, distinct feature/release Linux PR checks/runs tied to their synthetic
-  merge SHAs, the exact final-develop push runs, optional sync PR check/run URLs and hashes, and
-  Pages/wiki evidence; missing debt evidence and an `ignore` global action are killed by schema
+  merge SHAs, the exact final-develop push runs, optional sync PR check/run URLs, exact `CI`-only
+  workflow names, and hashes (the content-neutral sync does not fabricate a path-filtered Docs run),
+  and Pages/wiki evidence; missing debt evidence and an `ignore` global action are killed by schema
   mutations; both QAT JSON and JUnit files are included in evidence-file hashes.
 - [x] **Clean continuation and retirement:** r4 is reusable only after exact platform, Python,
   prefix, public-version inventory, and pip-check preflight at Task 2.1 HEAD; otherwise a fresh r5 is
@@ -6998,12 +7183,18 @@ graph edits, or stage anything until the focused clean gate is green.
   and successful Tier B. Issues #65/#66 are proved open before the first push, snapshotted without
   volatile `updatedAt`/timeline data, and compared after publication for exact substantive equality.
   A needed `main -> develop` sync inventories first, reuses only exact current copy/SHA with successful
-  required checks, closes only stale dedicated sync candidates, fails on ambiguity/collision, and
-  never blindly creates. Dispatch and Pages runs remain new after snapshotted UTC/ID boundaries and
-  complete within bounded polls; a separate 720-by-10-second exact-SHA poll requires successful
+  required checks and the only applicable `CI` workflow, closes only stale dedicated sync candidates,
+  fails on ambiguity/collision, and never blindly creates. After the live dependency-audit context
+  exists, the ruleset is either accepted at exact-three or only its nested required-check list is
+  updated; all other fields are compared and its post-reconciliation snapshot stays byte-identical.
+  Dispatch and Pages runs remain new after snapshotted UTC/ID boundaries; dispatch uses a
+  1260-by-10-second bound tied to the 180-minute enabled-job maximum plus 30 minutes of queue
+  headroom. A separate 720-by-10-second exact-SHA poll requires successful
   final-develop `CI`, mechanically exceeds the 90-minute Tier A timeout by 30 minutes of queue
   headroom, and the final noncompleted-run audit includes final-develop plus optional sync identities
-  with a queued-run blocking mutation.
+  with a queued-run blocking mutation. Cleanup enumerates the complete `refs/issue62/` namespace
+  once, rejects any ref outside the exact numeric PR/reuse patterns, deletes only validated refs,
+  and proves the namespace empty.
 - [x] **Completion ordering:** Pages/report evidence is persisted in the primary ignored root, successful final-develop runs are proved, then validated cleanup, zero scoped PRs/runs, main/develop synchronization, clean status, and deleted temporary evidence roots are proved before any completion comment or project mutation. Only afterward does the plan publish the report, prove Issue #53 open before/after its completion comment, set and re-query Issue #62 as project Done, and run `gh issue close 62` as the final command.
 - [x] **Staging safety:** historical Task 1/2 ownership excludes the original five preserved paths;
   at Task 2.1 entry, pre-stage, post-commit, clean qualification, and Task 3 handoff the portable

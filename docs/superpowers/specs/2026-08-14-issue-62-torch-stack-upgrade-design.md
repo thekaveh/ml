@@ -521,6 +521,17 @@ validation, the exact feature SHA is pushed and merged by pull request into `dev
 `develop`-to-`main` pull request publishes the accepted result. Main and develop are then audited
 for content equality and synchronized through the protected-branch flow if necessary.
 
+GitHub exposes two distinct SHA identities for each `pull_request` run, and completion evidence
+must preserve both rather than treating them as interchangeable. Actions REST run, job, check
+suite, and check-run metadata associate the run with the pull request's source-head SHA. The
+default `actions/checkout` behavior executes the current `refs/pull/<number>/merge` synthetic merge
+SHA. Qualification therefore binds successful run metadata to the exact source repository, head
+and base refs/SHAs, and pull-request number; independently proves the current synthetic merge's
+ordered base/head parents and tree; and verifies the redacted log for every applicable job fetched,
+checked out, and reported that full synthetic SHA. Every `pull_request` checkout in CI, Docs gate,
+and Atlas contract must omit `with.ref`; an explicit head, base, or arbitrary ref would bypass the
+merge simulation and is prohibited.
+
 Issue #62 is complete only after required feature and release checks are green, Tier A/B/C evidence
 is attached to the issue, the issue and project item are closed, documentation is published, and
 feature branches, obsolete PRs, temporary worktrees, disposable environments, and repository-owned

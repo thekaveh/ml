@@ -36,6 +36,145 @@ ISSUE62_PLAN = (
     / "2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md"
 )
 
+_ISSUE62_PULL_REQUEST_CHECKOUTS = {
+    ".github/workflows/ci.yml": {
+        "atlas-consumer-policy",
+        "dependency-audit",
+        "pytest-repository",
+        "pytest-nnx-surface",
+        "verify-repo",
+        "docs-build",
+        "docker-build",
+        "tier-a-papermill",
+        "smoke-tier-b",
+        "smoke-tier-c",
+    },
+    ".github/workflows/docs.yml": {"check"},
+    ".github/workflows/atlas-contract.yml": {"atlas-contract"},
+}
+
+
+def _assert_pull_request_checkouts_use_synthetic_merge_default(
+    workflows: Mapping[str, dict],
+) -> None:
+    assert set(workflows) == set(_ISSUE62_PULL_REQUEST_CHECKOUTS)
+    for path, expected_jobs in _ISSUE62_PULL_REQUEST_CHECKOUTS.items():
+        workflow = workflows[path]
+        assert "pull_request" in workflow["on"]
+        assert set(workflow["jobs"]) == expected_jobs
+        for job_name, job in workflow["jobs"].items():
+            checkouts = [
+                step
+                for step in job["steps"]
+                if str(step.get("uses", "")).startswith("actions/checkout@")
+            ]
+            assert len(checkouts) == 1, (path, job_name)
+            assert "ref" not in checkouts[0].get("with", {}), (path, job_name)
+
+
+def _load_issue62_pull_request_workflows() -> dict[str, dict]:
+    return {
+        path: _load_workflow(REPO / path)
+        for path in _ISSUE62_PULL_REQUEST_CHECKOUTS
+    }
+
+
+def test_pull_request_checkouts_preserve_default_synthetic_merge_ref() -> None:
+    _assert_pull_request_checkouts_use_synthetic_merge_default(
+        _load_issue62_pull_request_workflows()
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "job_name"),
+    tuple(
+        (path, job_name)
+        for path, job_names in _ISSUE62_PULL_REQUEST_CHECKOUTS.items()
+        for job_name in sorted(job_names)
+    ),
+)
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "${{ github.event.pull_request.head.sha }}",
+        "${{ github.event.pull_request.base.sha }}",
+        "refs/heads/develop",
+    ),
+    ids=("head", "base", "arbitrary"),
+)
+def test_pull_request_checkout_contract_rejects_ref_overrides(
+    path: str,
+    job_name: str,
+    mutation: str,
+) -> None:
+    workflows = _load_issue62_pull_request_workflows()
+    checkout = next(
+        step
+        for step in workflows[path]["jobs"][job_name]["steps"]
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    checkout.setdefault("with", {})["ref"] = mutation
+
+    with pytest.raises(AssertionError):
+        _assert_pull_request_checkouts_use_synthetic_merge_default(workflows)
+
+
+def _assert_issue62_pr_dual_identity_plan(plan_source: str) -> None:
+    task7 = plan_source.split("## 12.22.11 Task 7:", maxsplit=1)[1]
+    assert '--commit "$PR_MERGE_SHA"' not in task7
+    assert '--commit "$RELEASE_PR_MERGE_SHA"' not in task7
+    assert '--commit "$SYNC_PR_TEST_MERGE_SHA"' not in task7
+    for source_sha in ("FEATURE_SHA", "DEVELOP_MERGE_SHA", "RELEASE_MERGE_SHA"):
+        assert f'--commit "${source_sha}"' in task7
+    assert task7.count("python -m scripts.verify_pr_run_evidence") == 3
+    for evidence in (
+        "feature-pr-run-evidence.json",
+        "release-pr-run-evidence.json",
+        "sync-pr-run-evidence.json",
+    ):
+        assert f'--output "$FINAL_ROOT/{evidence}"' in task7
+        assert evidence in task7.split("evidence_paths = [", maxsplit=1)[1]
+    assert task7.count("potentialMergeCommit") == 3
+    assert task7.count("headRepository") == 3
+    assert task7.count("--log >") == 7
+    for mutation_name in (
+        "wrong_pr_source_identity",
+        "wrong_pr_merge_identity",
+        "wrong_pr_evidence_hash",
+    ):
+        assert task7.count(mutation_name) == 3
+
+
+def test_issue62_task7_plan_preserves_pr_source_and_synthetic_identities() -> None:
+    _assert_issue62_pr_dual_identity_plan(ISSUE62_PLAN.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        ('--commit "$FEATURE_SHA"', '--commit "$PR_MERGE_SHA"'),
+        (
+            "python -m scripts.verify_pr_run_evidence",
+            "python -m scripts.verify_smoke_outputs",
+        ),
+        ("feature-pr-run-evidence.json", "feature-pr-runs.json"),
+        ("potentialMergeCommit", "mergeCommit"),
+        ("headRepository", "sourceRepository"),
+        ("--log >", "--log-failed >"),
+        ("wrong_pr_source_identity", "wrong_source_identity"),
+        ("wrong_pr_merge_identity", "wrong_merge_identity"),
+        ("wrong_pr_evidence_hash", "wrong_evidence_hash"),
+    ),
+)
+def test_issue62_task7_dual_identity_plan_rejects_mutations(old: str, new: str) -> None:
+    control = ISSUE62_PLAN.read_text(encoding="utf-8")
+    _assert_issue62_pr_dual_identity_plan(control)
+    prefix, task7 = control.split("## 12.22.11 Task 7:", maxsplit=1)
+    mutated = prefix + "## 12.22.11 Task 7:" + task7.replace(old, new, 1)
+
+    with pytest.raises(AssertionError):
+        _assert_issue62_pr_dual_identity_plan(mutated)
+
 
 def _assert_issue62_qat_debt_plan_selectors(plan_source: str) -> None:
     selectors = tuple(

@@ -131,8 +131,27 @@ def _control() -> dict[str, object]:
         _run_record(102, "Docs gate", {"check": "success"}),
         _run_record(103, "Atlas contract", {"atlas-contract": "success"}),
     ]
+    checks = [
+        {
+            "name": job["name"],
+            "state": "SUCCESS" if job["conclusion"] == "success" else "SKIPPED",
+            "bucket": "pass" if job["conclusion"] == "success" else "skipping",
+            "link": job["url"],
+        }
+        for record in records
+        for job in record["view"]["jobs"]
+    ]
+    checks.append(
+        {
+            "name": "smoke-tier-b",
+            "state": "SKIPPED",
+            "bucket": "skipping",
+            "link": f"https://github.com/{REPO}/actions/runs/999/job/999",
+        }
+    )
     return {
         "pr": _pull_request(),
+        "checks": checks,
         "run_summaries": [
             {
                 "databaseId": record["rest"]["id"],
@@ -158,6 +177,7 @@ def _verify(control: dict[str, object]) -> dict[str, object]:
 
     return verify_pr_run_evidence(
         pr=control["pr"],
+        checks=control["checks"],
         run_summaries=control["run_summaries"],
         run_records=control["run_records"],
         expected_repo=REPO,
@@ -203,6 +223,57 @@ def test_pr_run_evidence_binds_source_metadata_and_synthetic_checkout() -> None:
     }
     assert all(run["metadata_head_sha"] == HEAD_SHA for run in evidence["runs"])
     assert all(run["checkout_sha"] == MERGE_SHA for run in evidence["runs"])
+    selected_links = {
+        link for run in evidence["runs"] for link in run["check_urls"].values()
+    }
+    assert f"https://github.com/{REPO}/actions/runs/999/job/999" not in selected_links
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing-selected-check",
+        "wrong-link-run-association",
+        "selected-required-skipped",
+        "selected-required-failed",
+    ),
+)
+def test_pr_run_evidence_rejects_selected_check_mutations(mutation: str) -> None:
+    control = copy.deepcopy(_control())
+    selected = next(
+        check
+        for check in control["checks"]
+        if check["name"] == "verify-repo" and "/actions/runs/101/" in check["link"]
+    )
+    if mutation == "missing-selected-check":
+        control["checks"].remove(selected)
+    elif mutation == "wrong-link-run-association":
+        selected["link"] = f"https://github.com/{REPO}/actions/runs/999/job/2"
+    elif mutation == "selected-required-skipped":
+        selected["state"] = "SKIPPED"
+        selected["bucket"] = "skipping"
+    elif mutation == "selected-required-failed":
+        selected["state"] = "FAILURE"
+        selected["bucket"] = "fail"
+    else:  # pragma: no cover - the parameter table is exhaustive
+        raise AssertionError(mutation)
+
+    from scripts.verify_pr_run_evidence import PrRunEvidenceError
+
+    with pytest.raises(PrRunEvidenceError):
+        _verify(control)
+
+
+def test_pr_run_evidence_rejects_real_pr_job_failure() -> None:
+    control = copy.deepcopy(_control())
+    ci = next(record for record in control["run_records"] if record["workflow"] == "CI")
+    selected_job = next(job for job in ci["view"]["jobs"] if job["name"] == "verify-repo")
+    selected_job["conclusion"] = "failure"
+
+    from scripts.verify_pr_run_evidence import PrRunEvidenceError
+
+    with pytest.raises(PrRunEvidenceError):
+        _verify(control)
 
 
 @pytest.mark.parametrize(
@@ -344,10 +415,12 @@ def test_cli_writes_validated_evidence_only_after_all_inputs_pass(
 
     control = _control()
     pr_path = tmp_path / "pr.json"
+    checks_path = tmp_path / "checks.json"
     runs_path = tmp_path / "runs.json"
     manifest_path = tmp_path / "manifest.json"
     output_path = tmp_path / "evidence.json"
     pr_path.write_text(json.dumps(control["pr"]), encoding="utf-8")
+    checks_path.write_text(json.dumps(control["checks"]), encoding="utf-8")
     runs_path.write_text(json.dumps(control["run_summaries"]), encoding="utf-8")
 
     manifest_runs = []
@@ -382,6 +455,8 @@ def test_cli_writes_validated_evidence_only_after_all_inputs_pass(
             str(pr_path),
             "--runs-json",
             str(runs_path),
+            "--checks-json",
+            str(checks_path),
             "--manifest",
             str(manifest_path),
             "--git-root",

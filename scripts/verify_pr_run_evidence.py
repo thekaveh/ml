@@ -115,6 +115,7 @@ def _pull_request_association(
 def verify_pr_run_evidence(
     *,
     pr: object,
+    checks: object,
     run_summaries: object,
     run_records: object,
     expected_repo: str,
@@ -138,6 +139,17 @@ def verify_pr_run_evidence(
     ):
         _sha(value, label)
     _require(expected_head_sha != expected_merge_sha, "distinct source and merge SHAs")
+
+    check_rows = tuple(
+        _mapping(item, "PR check") for item in _sequence(checks, "PR checks")
+    )
+    _require(bool(check_rows), "nonempty PR checks")
+    checks_by_link: dict[str, Mapping[str, Any]] = {}
+    for check in check_rows:
+        _require(set(check) == {"name", "state", "bucket", "link"}, "PR check schema")
+        link = _string(check.get("link"), "PR check link")
+        _require(link not in checks_by_link, "unique PR check link")
+        checks_by_link[link] = check
 
     pr_data = _mapping(pr, "PR document")
     _require(pr_data.get("number") == expected_pr_number, "PR number")
@@ -239,15 +251,26 @@ def verify_pr_run_evidence(
             _require(name not in jobs_by_name, "unique run job")
             jobs_by_name[name] = job
         _require(set(jobs_by_name) == set(expected_jobs), "exact job set")
+        check_urls: dict[str, str] = {}
         for name, conclusion in expected_jobs.items():
             job = jobs_by_name[name]
             _require(job.get("status") == "completed", f"{name} status")
             _require(job.get("conclusion") == conclusion, f"{name} conclusion")
-            _url(
+            job_url = _url(
                 job.get("url"),
                 f"https://github.com/{expected_repo}/actions/runs/{run_id}/job/",
                 f"{name} URL",
             )
+            selected_check = checks_by_link.get(job_url)
+            _require(selected_check is not None, f"{name} selected PR check")
+            _require(selected_check.get("name") == name, f"{name} PR check name")
+            expected_state, expected_bucket = {
+                "success": ("SUCCESS", "pass"),
+                "skipped": ("SKIPPED", "skipping"),
+            }[conclusion]
+            _require(selected_check.get("state") == expected_state, f"{name} PR check state")
+            _require(selected_check.get("bucket") == expected_bucket, f"{name} PR check bucket")
+            check_urls[name] = job_url
 
         log = _string(record.get("log"), "run log")
         _checkout_evidence(
@@ -264,6 +287,7 @@ def verify_pr_run_evidence(
                 "metadata_head_sha": expected_head_sha,
                 "checkout_sha": expected_merge_sha,
                 "jobs": dict(sorted(expected_jobs.items())),
+                "check_urls": dict(sorted(check_urls.items())),
                 "log_sha256": hashlib.sha256(log.encode("utf-8")).hexdigest(),
             }
         )
@@ -321,6 +345,7 @@ def _git_identity(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pr-json", type=Path, required=True)
+    parser.add_argument("--checks-json", type=Path, required=True)
     parser.add_argument("--runs-json", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--git-root", type=Path, required=True)
@@ -338,7 +363,14 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        for path in (args.pr_json, args.runs_json, args.manifest, args.git_root, args.output):
+        for path in (
+            args.pr_json,
+            args.checks_json,
+            args.runs_json,
+            args.manifest,
+            args.git_root,
+            args.output,
+        ):
             _require(path.is_absolute(), "absolute paths")
         manifest = _mapping(_load_json(args.manifest), "manifest")
         _require(set(manifest) == {"schema", "runs"} and manifest["schema"] == 1, "manifest schema")
@@ -373,6 +405,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         evidence = verify_pr_run_evidence(
             pr=_load_json(args.pr_json),
+            checks=_load_json(args.checks_json),
             run_summaries=_load_json(args.runs_json),
             run_records=records,
             expected_repo=args.repo,

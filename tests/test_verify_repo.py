@@ -127,6 +127,12 @@ def _assert_issue62_pr_dual_identity_plan(plan_source: str) -> None:
     for source_sha in ("FEATURE_SHA", "DEVELOP_MERGE_SHA", "RELEASE_MERGE_SHA"):
         assert f'--commit "${source_sha}"' in task7
     assert task7.count("python -m scripts.verify_pr_run_evidence") == 3
+    for checks in (
+        "pr-checks.json",
+        "release-pr-checks.json",
+        "sync-pr-checks.json",
+    ):
+        assert f'--checks-json "$FINAL_ROOT/{checks}"' in task7
     for evidence in (
         "feature-pr-run-evidence.json",
         "release-pr-run-evidence.json",
@@ -137,10 +143,17 @@ def _assert_issue62_pr_dual_identity_plan(plan_source: str) -> None:
     assert task7.count("potentialMergeCommit") == 3
     assert task7.count("headRepository") == 3
     assert task7.count("--log >") == 7
+    assert task7.count('url.startswith(item["url"] + "/job/")') == 1
+    assert task7.count(
+        'url.startswith(sync_run_evidence["runs"][0]["url"] + "/job/")'
+    ) == 1
+    assert 'by_check = {item["name"]: item for item in checks}' not in task7
+    assert 'sync_by_check = {item["name"]: item for item in sync_checks}' not in task7
     for mutation_name in (
         "wrong_pr_source_identity",
         "wrong_pr_merge_identity",
         "wrong_pr_evidence_hash",
+        "wrong_pr_check_association",
     ):
         assert task7.count(mutation_name) == 3
 
@@ -214,9 +227,19 @@ def test_issue62_reuse_query_and_selector_reject_identity_mutations(
         ("potentialMergeCommit", "mergeCommit"),
         ("headRepository", "sourceRepository"),
         ("--log >", "--log-failed >"),
+        ("--checks-json", "--unbound-checks-json"),
+        (
+            'url.startswith(item["url"] + "/job/")',
+            'url.startswith("https://github.com/")',
+        ),
+        (
+            'url.startswith(sync_run_evidence["runs"][0]["url"] + "/job/")',
+            'url.startswith("https://github.com/")',
+        ),
         ("wrong_pr_source_identity", "wrong_source_identity"),
         ("wrong_pr_merge_identity", "wrong_merge_identity"),
         ("wrong_pr_evidence_hash", "wrong_evidence_hash"),
+        ("wrong_pr_check_association", "wrong_check_association"),
     ),
 )
 def test_issue62_task7_dual_identity_plan_rejects_mutations(old: str, new: str) -> None:

@@ -5567,8 +5567,11 @@ graph edits, or stage anything until the focused clean gate is green.
   ]}
   output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
   PY
+  gh pr checks "$FEATURE_PR" --repo "$REPO" --json name,state,bucket,link \
+    > "$FINAL_ROOT/pr-checks.json"
   python -m scripts.verify_pr_run_evidence \
     --pr-json "$FINAL_ROOT/feature-pr-identity.json" \
+    --checks-json "$FINAL_ROOT/pr-checks.json" \
     --runs-json "$FINAL_ROOT/pr-runs.json" \
     --manifest "$FINAL_ROOT/feature-pr-manifest.json" \
     --git-root "$PWD" --repo "$REPO" --pr-number "$FEATURE_PR" \
@@ -5576,30 +5579,13 @@ graph edits, or stage anything until the focused clean gate is green.
     --base-ref develop --base-sha "$FEATURE_PR_BASE_SHA" \
     --merge-sha "$PR_MERGE_SHA" \
     --output "$FINAL_ROOT/feature-pr-run-evidence.json"
-  gh pr checks "$FEATURE_PR" --repo "$REPO" --json name,state,bucket,link \
-    > "$FINAL_ROOT/pr-checks.json"
-  python - "$FINAL_ROOT/pr-checks.json" <<'PY'
-  import json
-  import sys
-  from pathlib import Path
-
-  checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-  expected = {
-      "pytest-repository", "atlas-consumer-policy", "dependency-audit",
-      "pytest-nnx-surface", "verify-repo", "docs-build", "docker-build",
-      "tier-a-papermill", "smoke-tier-b",
-  }
-  by_name = {check["name"]: check for check in checks}
-  assert expected <= by_name.keys()
-  assert all(by_name[name]["bucket"] == "pass" for name in expected)
-  assert all(
-      check["bucket"] == "pass" or check["name"] == "smoke-tier-c"
-      for check in checks
-  )
-  PY
   ```
 
-  Expected: every applicable PR check is green. GitHub Actions metadata is bound to exact source
+  Expected: every selected PR-event check has its manifest conclusion. GitHub may aggregate check
+  rows from a same-source push suite into `gh pr checks`; those unrelated rows are retained as raw
+  evidence but neither accepted nor rejected as PR evidence. The verifier joins only the exact job
+  URLs from the selected pull-request runs, so a push-only skip cannot contaminate the gate and a
+  missing, reassociated, skipped, or failed selected check fails closed. GitHub Actions metadata is bound to exact source
   `FEATURE_SHA` and PR/base/repository identity, while every applicable job log independently proves
   execution on the current synthetic `PR_MERGE_SHA`; neither identity may substitute for the other. The
   conditionally skipped PR-event `smoke-tier-c` job is not evidence and is replaced by the successful
@@ -5879,26 +5865,6 @@ graph edits, or stage anything until the focused clean gate is green.
   gh pr checks "$RELEASE_PR" --repo "$REPO" --watch --fail-fast
   gh pr checks "$RELEASE_PR" --repo "$REPO" --json name,state,bucket,link \
     > "$FINAL_ROOT/release-pr-checks.json"
-  python - "$FINAL_ROOT/release-pr-checks.json" <<'PY'
-  import json
-  import sys
-  from pathlib import Path
-
-  checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-  expected = {
-      "pytest-repository", "atlas-consumer-policy", "dependency-audit",
-      "pytest-nnx-surface", "verify-repo", "docs-build", "docker-build",
-      "tier-a-papermill", "smoke-tier-b",
-  }
-  by_name = {check["name"]: check for check in checks}
-  assert expected <= by_name.keys()
-  assert all(by_name[name]["bucket"] == "pass" for name in expected)
-  assert all(by_name[name]["link"].startswith("https://github.com/") for name in expected)
-  assert all(
-      check["bucket"] == "pass" or check["name"] == "smoke-tier-c"
-      for check in checks
-  )
-  PY
   gh run list --repo "$REPO" --branch develop --event pull_request \
     --commit "$DEVELOP_MERGE_SHA" --limit 50 \
     --json databaseId,workflowName,event,headSha,headBranch,status,conclusion,url \
@@ -5973,6 +5939,7 @@ graph edits, or stage anything until the focused clean gate is green.
   PY
   python -m scripts.verify_pr_run_evidence \
     --pr-json "$FINAL_ROOT/release-pr-identity.json" \
+    --checks-json "$FINAL_ROOT/release-pr-checks.json" \
     --runs-json "$FINAL_ROOT/release-pr-runs.json" \
     --manifest "$FINAL_ROOT/release-pr-manifest.json" \
     --git-root "$PWD" --repo "$REPO" --pr-number "$RELEASE_PR" \
@@ -6173,20 +6140,8 @@ graph edits, or stage anything until the focused clean gate is green.
     SYNC_PR_BASE_SHA=$(jq -r .baseRefOid "$FINAL_ROOT/sync-pr-identity.json")
     test "$(jq -r .headRefOid "$FINAL_ROOT/sync-pr-identity.json")" = "$RELEASE_MERGE_SHA"
     gh pr checks "$SYNC_PR" --repo "$REPO" --watch --fail-fast
-    gh pr checks "$SYNC_PR" --repo "$REPO" --json name,bucket,link \
+    gh pr checks "$SYNC_PR" --repo "$REPO" --json name,state,bucket,link \
       > "$FINAL_ROOT/sync-pr-checks.json"
-    python - "$FINAL_ROOT/sync-pr-checks.json" <<'PY'
-  import json
-  import sys
-  from pathlib import Path
-
-  checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-  required = {"pytest-repository", "atlas-consumer-policy", "dependency-audit"}
-  by_name = {check["name"]: check for check in checks}
-  assert required <= by_name.keys()
-  assert all(by_name[name]["bucket"] == "pass" for name in required)
-  assert all(by_name[name]["link"].startswith("https://github.com/") for name in required)
-  PY
     git fetch origin "+refs/pull/$SYNC_PR/merge:refs/issue62/pr-$SYNC_PR-merge"
     SYNC_PR_TEST_MERGE_SHA=$(git rev-parse "refs/issue62/pr-$SYNC_PR-merge")
     test "$(git rev-parse "$SYNC_PR_TEST_MERGE_SHA^{tree}")" = \
@@ -6237,6 +6192,7 @@ graph edits, or stage anything until the focused clean gate is green.
   PY
     python -m scripts.verify_pr_run_evidence \
       --pr-json "$FINAL_ROOT/sync-pr-identity.json" \
+      --checks-json "$FINAL_ROOT/sync-pr-checks.json" \
       --runs-json "$FINAL_ROOT/sync-pr-runs.json" \
       --manifest "$FINAL_ROOT/sync-pr-manifest.json" \
       --git-root "$PWD" --repo "$REPO" --pr-number "$SYNC_PR" \
@@ -6649,6 +6605,12 @@ graph edits, or stage anything until the focused clean gate is green.
               "pytest-repository", "dependency-audit", "pytest-nnx-surface", "smoke-tier-b",
           }, f"{key} Linux check URLs")
           require(pr_evidence["pr_run_urls"], f"{key} Linux run URLs")
+          require(
+              all(any(url.startswith(run_url + "/job/")
+                      for run_url in pr_evidence["pr_run_urls"])
+                  for url in pr_evidence["check_urls"].values()),
+              f"{key} selected check/run association",
+          )
       final_develop = value["linux_x86_64"]["final_develop_push"]
       require(set(final_develop) == {
           "merge_sha", "workflow_names", "run_urls",
@@ -6683,6 +6645,11 @@ graph edits, or stage anything until the focused clean gate is green.
           }, "sync PR check URLs")
           require(sync_pr["workflow_names"] == ["CI"], "sync PR workflows")
           require(sync_pr["run_urls"], "sync PR run URLs")
+          require(
+              all(any(url.startswith(run_url + "/job/") for run_url in sync_pr["run_urls"])
+                  for url in sync_pr["check_urls"].values()),
+              "sync selected check/run association",
+          )
       require(set(value["pull_requests"]) == {"feature", "release", "sync"}, "PR URL schema")
       require(
           (value["pull_requests"]["sync"] is None) == (sync_merge is None),
@@ -6767,10 +6734,8 @@ graph edits, or stage anything until the focused clean gate is green.
   import_warning_debt = load_json(final_root / "import-warning-debt.json")
   qat_warning_debt = load_json(final_root / "qat-warning-debt.json")
 
-  feature_pr_checks = load_json(final_root / "pr-checks.json")
   feature_pr_runs = load_json(final_root / "pr-runs.json")
   feature_pr_run_evidence = load_json(final_root / "feature-pr-run-evidence.json")
-  release_pr_checks = load_json(final_root / "release-pr-checks.json")
   release_pr_runs = load_json(final_root / "release-pr-runs.json")
   release_pr_run_evidence = load_json(final_root / "release-pr-run-evidence.json")
   final_develop_runs = load_json(final_root / "final-develop-runs.json")
@@ -6810,7 +6775,6 @@ graph edits, or stage anything until the focused clean gate is green.
   }
 
   def pr_evidence(
-      checks: list[dict[str, object]],
       runs: list[dict[str, object]],
       run_evidence: dict[str, object],
       expected_source_sha: str,
@@ -6819,16 +6783,6 @@ graph edits, or stage anything until the focused clean gate is green.
       expected_base_ref: str,
       label: str,
   ) -> dict[str, object]:
-      by_check = {item["name"]: item for item in checks}
-      require(expected_checks <= by_check.keys(), f"missing {label} Linux PR checks")
-      require(
-          all(by_check[name]["bucket"] == "pass" for name in expected_checks),
-          f"{label} PR check result",
-      )
-      require(
-          all(by_check[name]["link"].startswith("https://github.com/") for name in expected_checks),
-          f"{label} PR check URL",
-      )
       require(
           runs and all(item["headSha"] == expected_source_sha for item in runs),
           f"{label} PR source run SHA",
@@ -6889,10 +6843,26 @@ graph edits, or stage anything until the focused clean gate is green.
               for item in dual_runs.values()),
           f"{label} metadata/checkout identities",
       )
+      selected_check_urls: dict[str, str] = {}
+      for item in dual_runs.values():
+          jobs = item["jobs"]
+          check_urls = item["check_urls"]
+          require(set(check_urls) == set(jobs), f"{label} selected check job set")
+          for name, url in check_urls.items():
+              require(name not in selected_check_urls, f"{label} unique selected check name")
+              require(
+                  url.startswith(item["url"] + "/job/"),
+                  f"{label} selected check run association",
+              )
+              selected_check_urls[name] = url
+      require(
+          expected_checks <= selected_check_urls.keys(),
+          f"missing {label} selected Linux PR checks",
+      )
       return {
           "source_head_sha": expected_source_sha,
           "synthetic_merge_sha": expected_merge_sha,
-          "check_urls": {name: by_check[name]["link"] for name in sorted(expected_checks)},
+          "check_urls": dict(sorted(selected_check_urls.items())),
           "pr_run_urls": sorted({item["url"] for item in runs}),
           "run_evidence_sha256": hashlib.sha256(
               (final_root / f"{label}-pr-run-evidence.json").read_bytes()
@@ -6900,12 +6870,12 @@ graph edits, or stage anything until the focused clean gate is green.
       }
 
   feature_pr_evidence = pr_evidence(
-      feature_pr_checks, feature_pr_runs, feature_pr_run_evidence,
+      feature_pr_runs, feature_pr_run_evidence,
       identities["feature_sha"], identities["feature_pr_merge_sha"],
       "codex/issue-62-torch-stack-upgrade", "develop", "feature",
   )
   release_pr_evidence = pr_evidence(
-      release_pr_checks, release_pr_runs, release_pr_run_evidence,
+      release_pr_runs, release_pr_run_evidence,
       identities["develop_merge_sha"], identities["release_pr_merge_sha"],
       "develop", "main", "release",
   )
@@ -6935,21 +6905,9 @@ graph edits, or stage anything until the focused clean gate is green.
   }
   sync_pr_evidence = None
   if identities["sync_pr_merge_sha"] is not None:
-      sync_checks = load_json(final_root / "sync-pr-checks.json")
       sync_runs = load_json(final_root / "sync-pr-runs.json")
       sync_run_evidence = load_json(final_root / "sync-pr-run-evidence.json")
       sync_required = {"pytest-repository", "atlas-consumer-policy", "dependency-audit"}
-      sync_by_check = {item["name"]: item for item in sync_checks}
-      require(sync_required <= sync_by_check.keys(), "missing sync PR checks")
-      require(
-          all(sync_by_check[name]["bucket"] == "pass" for name in sync_required),
-          "sync PR check result",
-      )
-      require(
-          all(sync_by_check[name]["link"].startswith("https://github.com/")
-              for name in sync_required),
-          "sync PR check URL",
-      )
       require(
           sync_runs
           and all(run["headSha"] == identities["release_merge_sha"] for run in sync_runs),
@@ -7014,14 +6972,23 @@ graph edits, or stage anything until the focused clean gate is green.
               for item in sync_run_evidence["runs"]),
           "sync metadata/checkout identities",
       )
+      sync_selected_check_urls = sync_run_evidence["runs"][0]["check_urls"]
+      require(
+          set(sync_selected_check_urls) == set(sync_run_evidence["runs"][0]["jobs"]),
+          "sync selected check job set",
+      )
+      require(sync_required <= sync_selected_check_urls.keys(), "missing sync selected PR checks")
+      require(
+          all(url.startswith(sync_run_evidence["runs"][0]["url"] + "/job/")
+              for url in sync_selected_check_urls.values()),
+          "sync selected check run association",
+      )
       sync_pr_evidence = {
           "source_head_sha": identities["release_merge_sha"],
           "test_merge_sha": identities["sync_pr_test_merge_sha"],
           "merge_sha": identities["sync_pr_merge_sha"],
           "url": pr_urls["sync"],
-          "check_urls": {
-              name: sync_by_check[name]["link"] for name in sorted(sync_required)
-          },
+          "check_urls": dict(sorted(sync_selected_check_urls.items())),
           "workflow_names": sorted({run["workflowName"] for run in sync_runs}),
           "run_urls": sorted({run["url"] for run in sync_runs}),
           "run_evidence_sha256": hashlib.sha256(
@@ -7161,12 +7128,17 @@ graph edits, or stage anything until the focused clean gate is green.
   wrong_pr_merge_identity["linux_x86_64"]["release_pr"]["synthetic_merge_sha"] = "0" * 40
   wrong_pr_evidence_hash = copy.deepcopy(report)
   wrong_pr_evidence_hash["linux_x86_64"]["feature_pr"]["run_evidence_sha256"] = "0" * 64
+  wrong_pr_check_association = copy.deepcopy(report)
+  wrong_pr_check_association["linux_x86_64"]["feature_pr"]["check_urls"][
+      "verify-repo"
+  ] = "https://github.com/thekaveh/ml-eng-lab/actions/runs/999/job/999"
   for mutation in (
       wrong_name, missing_metadata, missing_release_evidence, missing_final_develop_evidence,
       missing_warning_debt, ignored_global_warnings, wrong_import_warning_hash,
       missing_qat_debt, wrong_qat_key,
       zero_qat_warnings, bypassed_qat_global_warnings,
       wrong_pr_source_identity, wrong_pr_merge_identity, wrong_pr_evidence_hash,
+      wrong_pr_check_association,
   ):
       try:
           validate_report_schema(mutation)

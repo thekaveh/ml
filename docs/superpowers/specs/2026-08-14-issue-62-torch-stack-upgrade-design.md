@@ -532,6 +532,13 @@ checked out, and reported that full synthetic SHA. Every `pull_request` checkout
 and Atlas contract must omit `with.ref`; an explicit head, base, or arbitrary ref would bypass the
 merge simulation and is prohibited.
 
+GitHub can also display same-source `push` check rows in a pull request's aggregate check rollup.
+Those rows remain raw evidence but cannot determine the pull-request gate. The gate joins each
+expected job to the exact job URL from the selected `pull_request` run, requires that selected
+check's expected success or conditional-skip state, and rejects a missing or reassociated URL. This
+keeps a legitimate push-only skip from contaminating PR evidence without masking any failure or
+unexpected skip in the selected PR-event suite.
+
 Issue #62 is complete only after required feature and release checks are green, Tier A/B/C evidence
 is attached to the issue, the issue and project item are closed, documentation is published, and
 feature branches, obsolete PRs, temporary worktrees, disposable environments, and repository-owned

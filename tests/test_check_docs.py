@@ -4,9 +4,11 @@ from __future__ import annotations
 import hashlib
 import re
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
+import yaml
 
 from scripts.docs.check_docs import (
     check_notebook_infrastructure,
@@ -601,21 +603,24 @@ def test_real_user_docs_publish_advisory_baseline_contract():
 
 
 def test_current_runtime_surface_comments_describe_the_selected_torch_contract():
-    surfaces = {
-        path: (REPO_ROOT / path).read_text(encoding="utf-8")
-        for path in (
-            ".github/workflows/ci.yml",
-            "Dockerfile",
-            ".devcontainer/devcontainer.json",
-        )
+    expected = {
+        "Makefile": (
+            "# Issue #62 canonical CPU stack: Torch 2.11, binary pyg-lib/scatter/sparse, "
+            "NNx 0.2.0 last."
+        ),
+        ".github/workflows/ci.yml": (
+            "# Issue #62: final install, pip-check, Torch/NNx verification, then workload; "
+            "no late package mutation."
+        ),
+        "Dockerfile": "# Issue #62 CPU image: no service startup and no source-built PyG extension.",
+        ".devcontainer/devcontainer.json": (
+            "// Issue #62 setup delegates to make codespace-setup; it starts no service."
+        ),
     }
 
-    for path, source in surfaces.items():
-        assert "Torch 2.11" in source, path
-        assert "three PyG wheels" in source, path
-        assert "torchao 0.18" in source, path
-        assert "Issue #66" in source and "manual-only" in source, path
-        assert "Ollama" not in source, path
+    for path, comment in expected.items():
+        source = (REPO_ROOT / path).read_text(encoding="utf-8")
+        assert comment in source, path
 
 
 def test_real_user_docs_publish_current_vulnerability_snapshot():
@@ -1186,59 +1191,237 @@ def test_contract_failure_stops_before_generated_surface_build(tmp_path, monkeyp
     assert check_docs.check(tmp_path, tmp_path / "generated") == 1
 
 
-_TORCH_BOOTSTRAP_COMMAND = "`python -m pip install --upgrade pip wheel`"
-_TORCH_CONTRACT_DOC_PATHS = (
-    "docs/dependency-contracts.md",
-    "docs/superpowers/specs/2026-08-14-issue-62-torch-stack-upgrade-design.md",
-    "docs/superpowers/plans/2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md",
+def _same_level_section(text: str, heading: str) -> str:
+    marker = f"## {heading}\n"
+    assert text.count(marker) == 1
+    body = text.split(marker, 1)[1]
+    return body.split("\n## ", 1)[0].strip()
+
+
+def _between(text: str, start: str, end: str) -> str:
+    assert text.count(start) == 1
+    assert text.count(end) == 1
+    return text.split(start, 1)[1].split(end, 1)[0]
+
+
+_ISSUE62_REQUIRED_CURRENT_FACTS = (
+    "torch==2.11.0",
+    "torchvision==0.26.0",
+    "torchaudio==2.11.0",
+    "pytorch-lightning==2.6.1",
+    "torchmetrics==1.9.0",
+    "torchao==0.18.0",
+    "torch-geometric==2.8.0.post1",
+    "pyg-lib==0.8.0",
+    "torch-scatter==2.1.2",
+    "torch-sparse==0.6.18",
+    "thekaveh-nnx[lm]==0.2.0",
+    "make install-torch-stack",
+    "python -m pip check",
+    "make verify-torch-stack",
+    "make verify-nnx-install",
+    "--only-binary=pyg-lib,torch-scatter,torch-sparse",
+    "Linux is CPU-only",
+    "Darwin arm64",
+    "native Linux arm64 Docker",
+    "Linux x86_64",
+    "Issue #65",
+    "Issue #66",
+    "no containerized Ollama",
+    "Torch 2.11.0 with outer torch-geometric 2.8.0.post1",
+    "Torch 2.11.0 with outer torch-sparse 0.6.18",
+    "DeprecationWarning",
+    "`torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.",
+    "torch/jit/_script.py",
+    'Torch 2.11.0 + torchao 0.18.0 + thekaveh-nnx 0.2.0 + qat_config="8da4w"',
+    "exactly one identity-UserWarning",
+    "Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead "
+    "(e.g. TorchAODType.INT4 -> torch.int4)",
+    "torchao/quantization/quant_primitives.py",
+    "fresh-interpreter",
+    "no global filter is allowed",
+    "fresh environment or rebuilt image",
+    "Feed disappearance is reconciliation evidence, never proof of remediation.",
+    "The dependency and focused runtime contracts are implemented; complete Tier A/B/C and "
+    "container acceptance evidence is pending.",
+)
+
+_ISSUE62_FORBIDDEN_CURRENT_FACTS = (
+    "torch==2.4.1",
+    "torchao>=",
+    "torch-cluster==",
+    "torch-spline-conv==",
+    "pip install --upgrade pip wheel",
+    "--no-build-isolation",
+    "five canaries",
+    "twelve components",
+    "graph backends are unavailable on Darwin",
+    "quantization notebook is tier-covered",
+    "Issue #62 upgrades Atlas",
+    "complete final acceptance is proven",
 )
 
 
-def _torch_contract_docs() -> dict[str, str]:
+def _issue62_current_documents() -> dict[str, str]:
+    def read(path: str) -> str:
+        return (REPO_ROOT / path).read_text(encoding="utf-8")
+
+    readme = read("README.md")
+    contributing = read("CONTRIBUTING.md")
+    security = read("SECURITY.md")
+    changelog = read("CHANGELOG.md")
+    ledger = read("docs/dependency-contracts.md")
     return {
-        path: (REPO_ROOT / path).read_text(encoding="utf-8")
-        for path in _TORCH_CONTRACT_DOC_PATHS
+        "README.md": _between(readme, "### 3.3. Local venv\n", "## 4. Tasks\n"),
+        "CONTRIBUTING.md": _same_level_section(contributing, "6. Verification"),
+        "SECURITY.md": _same_level_section(security, "13.6 Dependency advisories"),
+        "CHANGELOG.md": changelog[: changelog.index("## [0.1.0]")],
+        "docs/dependency-contracts.md": "\n".join(
+            (
+                _between(
+                    ledger,
+                    "### 6.1.1.2 Current Issue #62 four-surface audit\n",
+                    "### 6.1.1.3 Alias-aware historical reconciliation\n",
+                ),
+                _same_level_section(ledger, "6.1.2 Torch Stack Pin"),
+                _same_level_section(ledger, "6.1.3 Manual-Only Quantization Notebook"),
+                _same_level_section(ledger, "6.1.9 Atlas Versus Local/CI Dependency Boundaries"),
+                _same_level_section(ledger, "6.1.11 Canonical Bootstrap Tooling"),
+            )
+        ),
+        **{
+            path: read(path)
+            for path in (
+                "docs/env-setup.md",
+                "docs/architecture.md",
+                "docs/FINDINGS-ATLAS.md",
+                "docs/notebook-infrastructure.md",
+                "docs/notebooks/node_classification-reddit-gnn-pyg.md",
+                "docs/notebooks/pruning-mnist-ffnn-pytorch.md",
+                "docs/notebooks/quantization-mnist-ffnn-pytorch.md",
+                "notebooks/node_classification-reddit-gnn-pyg/README.md",
+                "notebooks/node_classification-reddit-gnn-pyg/docs/spec.yaml",
+                "notebooks/quantization-mnist-ffnn-pytorch/README.md",
+                "notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml",
+                "Makefile",
+                ".github/workflows/ci.yml",
+                "Dockerfile",
+                ".devcontainer/devcontainer.json",
+                "docs/assets/badges/pytorch.svg",
+            )
+        },
     }
 
 
-def _assert_torch_source_build_tooling_docs(documents: dict[str, str]) -> None:
-    for path in _TORCH_CONTRACT_DOC_PATHS:
-        assert _TORCH_BOOTSTRAP_COMMAND in documents[path]
-
-    design = " ".join(documents[_TORCH_CONTRACT_DOC_PATHS[1]].split())
-    assert (
-        "`wheel` supplies the `bdist_wheel` command required by the later "
-        "`--no-build-isolation` source build"
-    ) in design
-
-    plan = documents[_TORCH_CONTRACT_DOC_PATHS[2]]
-    assert '"--upgrade", "pip", "wheel"' in plan
-    assert "assert linux[0].argv == darwin[0].argv == UPGRADE_PIP" in plan
-    assert "omitting `wheel` from all three supported system/machine pairs" in plan
-
-    ledger = " ".join(documents[_TORCH_CONTRACT_DOC_PATHS[0]].split())
-    assert (
-        "`wheel` supplies `bdist_wheel` for the required "
-        "`--no-build-isolation` source build"
-    ) in ledger
+def _assert_issue62_current_contract(documents: Mapping[str, str]) -> None:
+    current = "\n".join(documents.values())
+    for required in _ISSUE62_REQUIRED_CURRENT_FACTS:
+        assert required in current
+    for forbidden in _ISSUE62_FORBIDDEN_CURRENT_FACTS:
+        assert forbidden not in current
 
 
-def test_current_torch_source_build_tooling_docs_are_exact() -> None:
-    _assert_torch_source_build_tooling_docs(_torch_contract_docs())
+def test_issue62_current_surfaces_publish_only_the_implemented_contract() -> None:
+    _assert_issue62_current_contract(_issue62_current_documents())
 
 
-@pytest.mark.parametrize("path", _TORCH_CONTRACT_DOC_PATHS)
-def test_current_torch_source_build_tooling_docs_reject_wheel_omission(path: str) -> None:
-    documents = _torch_contract_docs()
-    assert _TORCH_BOOTSTRAP_COMMAND in documents[path]
-    documents[path] = documents[path].replace(
-        _TORCH_BOOTSTRAP_COMMAND,
-        "`python -m pip install --upgrade pip`",
-        1,
-    )
+@pytest.mark.parametrize("required", _ISSUE62_REQUIRED_CURRENT_FACTS)
+def test_issue62_current_contract_rejects_required_fact_omission(required: str) -> None:
+    documents = _issue62_current_documents()
+    mutated = False
+    for path, current in documents.items():
+        if required in current:
+            documents[path] = current.replace(required, "removed-current-fact")
+            mutated = True
+    assert mutated
 
     with pytest.raises(AssertionError):
-        _assert_torch_source_build_tooling_docs(documents)
+        _assert_issue62_current_contract(documents)
+
+
+@pytest.mark.parametrize("forbidden", _ISSUE62_FORBIDDEN_CURRENT_FACTS)
+def test_issue62_current_contract_rejects_obsolete_fact(forbidden: str) -> None:
+    documents = _issue62_current_documents()
+    documents["README.md"] += f"\n{forbidden}\n"
+
+    with pytest.raises(AssertionError):
+        _assert_issue62_current_contract(documents)
+
+
+def test_issue62_dependency_sections_replace_complete_old_contracts():
+    text = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    torch_section = _same_level_section(text, "6.1.2 Torch Stack Pin")
+    for exact in (
+        "torch==2.11.0",
+        "pytorch-lightning==2.6.1",
+        "torch-geometric==2.8.0.post1",
+        "--only-binary=pyg-lib,torch-scatter,torch-sparse",
+        "stage 0 upgrades pip only",
+        "four-surface advisory reconciliation from six commands",
+        "Tier A/B/C 18/6/4",
+    ):
+        assert exact in torch_section
+    for obsolete in (
+        "2.4.1", "torch-cluster", "torch-spline-conv", "--no-build-isolation",
+        "source build", "deliberately stable local/CI compatibility baseline",
+    ):
+        assert obsolete not in torch_section
+    bootstrap = _same_level_section(text, "6.1.11 Canonical Bootstrap Tooling")
+    assert bootstrap == (
+        "The canonical installer upgrades pip alone in stage 0 and installs every selected "
+        "graph extension as a compatible binary wheel in stage 2. Docker, Codespaces, CI, and "
+        "local setup delegate to make install-torch-stack; none carries a second bootstrap or "
+        "dependency algorithm. Exact pip/setuptools locks, full Python lockfiles, and base-image "
+        "digest pinning remain Issue #63 and do not change the Issue #62 four-stage install contract."
+    )
+
+
+def test_issue62_notebook_specs_drive_exact_generated_rows():
+    graph = yaml.safe_load((
+        REPO_ROOT / "notebooks/node_classification-reddit-gnn-pyg/docs/spec.yaml"
+    ).read_text(encoding="utf-8"))
+    quant = yaml.safe_load((
+        REPO_ROOT / "notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml"
+    ).read_text(encoding="utf-8"))
+    assert graph["atlas"]["constraints"] == [
+        "Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the "
+        "repository Torch 2.11 CPU stack; Atlas remains Issue #65."
+    ]
+    assert quant["atlas"]["constraints"] == [
+        "Manual-only under Issue #66; Issue #62 qualifies only the tiny Torch 2.11.0 + "
+        "torchao 0.18.0 PTQ/QAT dependency surface."
+    ]
+    generated = (
+        REPO_ROOT / "docs/notebook-infrastructure.md"
+    ).read_text(encoding="utf-8").splitlines()
+    graph_row = next(line for line in generated if "node_classification-reddit-gnn-pyg" in line)
+    quant_row = next(line for line in generated if "quantization-mnist-ffnn-pytorch" in line)
+    assert all(token in graph_row for token in ("pyg-lib", "torch-sparse", "Issue #65"))
+    assert all(token in quant_row for token in ("Torch 2.11.0", "torchao 0.18.0", "Issue #66"))
+
+
+def test_issue62_manual_tier_uses_actual_environment_heading():
+    text = (REPO_ROOT / "docs/env-setup.md").read_text(encoding="utf-8")
+    tier_mapping = _same_level_section(text, "4.1.6 Tier mapping")
+    manual = next(line for line in tier_mapping.splitlines() if line.startswith("- **Manual-only:**"))
+    assert "Issue #66" in manual
+    assert "Torch 2.11.0 + torchao 0.18.0" in manual
+
+
+def test_issue62_graph_canonical_page_has_current_release_guidance():
+    text = (
+        REPO_ROOT / "docs/notebooks/node_classification-reddit-gnn-pyg.md"
+    ).read_text(encoding="utf-8")
+    pitfalls = _same_level_section(text, "8.13.7 Pitfalls")
+    exact = (
+        "- **Run both graph tiers during release review.** Issue #62 requires mandatory "
+        "zero-skip graph tests plus Tier B and Tier C execution on the supported Torch 2.11 "
+        "CPU stack. Sampling must prove preferred pyg-lib selection and forced torch-sparse "
+        "fallback; install with make install-torch-stack and prove with make verify-torch-stack."
+    )
+    assert exact in pitfalls
+    assert "Issue #61 completed Tier B and Tier C" not in pitfalls
+    assert "with `torch_sparse==0.6.18`" not in pitfalls
 
 
 _NNX_RETAINED_TRIAL_FACTS = (
@@ -1299,7 +1482,7 @@ def _assert_nnx_retain_decision_docs(documents: dict[str, str]) -> None:
     assert "torch ≥ 2.5" not in combined
     for surface in quantization_surfaces:
         assert "Torch 2.11.0" in surface
-        assert "torchvision 0.26.0" in surface
+        assert "torchvision 0.26.0" in surface or "torchvision==0.26.0" in surface
         assert "torchao 0.18.0" in surface
 
 

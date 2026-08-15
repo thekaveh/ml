@@ -4,9 +4,7 @@ WORKDIR /usr/src/app
 
 COPY . .
 
-# The canonical Torch 2.11 runtime uses three PyG wheels and importable
-# torchao 0.18. The complete quantization notebook stays manual-only under
-# Issue #66; this build installs no service runtime.
+# Issue #62 CPU image: no service startup and no source-built PyG extension.
 RUN make install-torch-stack \
   && make nlp-assets \
   && python -m pip check \

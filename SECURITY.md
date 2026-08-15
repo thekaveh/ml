@@ -69,6 +69,8 @@ reachable or changes its impact. Atlas ownership and admission rules are defined
 
 ## 13.6 Dependency advisories
 
+Issue #62 audits four logical surfaces through six physical commands. Resolver audits cover core plus ecosystem plus PyG; supplement audits cover only torch-scatter and torch-sparse. pyg-lib is external-index provenance verified by the stack verifier, not a PyPI supplement result. Feed disappearance is reconciliation evidence, never proof of remediation.
+
 Dependency reports are triaged against the exact version and execution surface that ml-eng-lab
 actually consumes. `security/accepted-advisories.json` is the reviewed policy artifact, and the
 [dependency contract ledger](docs/dependency-contracts.md) supplies its current Markdown evidence,

@@ -73,17 +73,16 @@ for the GNN notebooks; serious GNN training may need 16–50 GiB.
 ## 4.1.3 Local Python venv
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python3.11 -m venv .venv && source .venv/bin/activate
 make install-torch-stack
-pip install -r requirements.txt
 make nlp-assets
+python -m pip check
+make verify-torch-stack
+make verify-nnx-install
 jupyter lab
 ```
 
-The local/CI package contract remains intentionally separate from Atlas. In particular,
-`torch-core-requirements.txt` pins Torch 2.4.1 and the corresponding PyG wheels; see
-[dependency-contracts.md](dependency-contracts.md) before changing it. `make nlp-assets` obtains
-the spaCy `en_core_web_sm` model and NLTK `vader_lexicon` required by two Tier-A notebooks.
+Use Python 3.11 and make install-torch-stack; the installer ends with binary-only thekaveh-nnx[lm]==0.2.0. After the last asset install, package state is frozen through pip-check, Torch verification, NNx verification, and the workload. Linux is CPU-only; Darwin and native Linux arm64 Docker are locally qualified, and Linux x86_64 is qualified by the PR gates.
 
 ## 4.1.4 GitHub Codespaces
 
@@ -91,10 +90,9 @@ Create a codespace on `main` from GitHub. `.devcontainer/devcontainer.json` runs
 `make codespace-setup`, which installs the local/CI dependency contract and NLP assets in the
 auto-cloned `/workspaces/ml-eng-lab` checkout. Use browser VS Code or JupyterLab as appropriate.
 
-Codespaces is CPU-only and disposable: `data/` and `runs/` are lost when a codespace is deleted.
-The quantization notebook is still manual-only because the Codespaces/local package contract uses
-Torch 2.4.1; Atlas has a newer observed package surface but has not yet received a full
-quantization-notebook smoke.
+Codespaces is CPU-only and disposable: data/ and runs/ are lost when a codespace is deleted. The
+full quantization notebook remains manual-only under Issue #66; Issue #62 qualifies only the tiny
+Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface, not an Atlas or Tier A/B/C notebook run.
 
 ## 4.1.5 GPU notes
 
@@ -114,6 +112,4 @@ The authoritative lists are `Makefile` (`TIER_A`, `TIER_B`, and `TIER_C`) and
 - **Tier B:** `make smoke-tier-b` writes parameterized smoke outputs to `/tmp/ml-smoke`.
 - **Tier C:** `make smoke-tier-c` runs the expensive Reddit training pipelines in smoke mode;
   preserved code cells remain guarded by the baseline verifier.
-- **Manual-only:** `notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb` stays out of the
-  automated tiers. The local/CI 2.4.1 stack cannot import its torchao path; package presence in
-  Atlas is not sufficient evidence to reclassify it.
+- **Manual-only:** notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb stays outside the automated tiers under Issue #66. Issue #62 qualifies only its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; Atlas remains Issue #65 and cannot reclassify it.

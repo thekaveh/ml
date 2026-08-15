@@ -96,6 +96,14 @@ python -c "import nltk; nltk.download('vader_lexicon', quiet=True)"
 
 Exit code 0 iff zero error-severity findings; warnings are informational. Tier-C **code-cell source** equality with the `pre-cleanup-baseline` git tag is enforced by check E5 (markdown / outputs are not compared). Edits to phase3 markdown cells should still use `scripts/edit_notebook_markdown.py` for safety.
 
+After the last package or data install, run `python -m pip check`, `make verify-torch-stack`, and
+`make verify-nnx-install`; never mutate the environment between those gates and the workload. Keep
+pytest at -W error. Temporary debt assertions are limited to the verifier-local exact TorchScript
+import group and the quantization test's exact NNx 0.2.0 8da4w model.train warning; neither permits
+a global, CLI, environment, pytest, or conftest filter. A warning-free fresh probe or QAT call stops
+qualification for debt retirement. Roll back manifests, installer, verifier, CI/Docker, advisory
+policy/ledger, and documentation atomically in a fresh environment or rebuilt image.
+
 ### 6.1. Helper scripts
 
 - `scripts/verify_repo.py` — the four-check oracle described above.

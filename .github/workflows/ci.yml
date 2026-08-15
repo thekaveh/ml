@@ -100,6 +100,7 @@ jobs:
             docs-requirements.txt
 
       - name: Install dependencies
+        # Issue #62: final install, pip-check, Torch/NNx verification, then workload; no late package mutation.
         run: |
           make install-torch-stack
           python -m pip install -r docs-requirements.txt
@@ -291,12 +292,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: tier-a-notebooks
-          # All 18 Tier-A notebooks — keep in sync with Makefile TIER_A.
-          # (mnist-pytorch moved to Tier-B per issue #7; quantization-mnist-pytorch
-          # originally moved to Tier-B per issue #10. The current Torch 2.11,
-          # three PyG wheels, and importable torchao 0.18 stack is qualified,
-          # while the complete quantization notebook remains manual-only under
-          # Issue #66. See Makefile TIER_B for the durable ownership boundary.)
+          # All 18 Tier-A notebooks; the complete quantization notebook remains manual-only under Issue #66. Issue #62 qualifies only its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface.
           path: |
             /tmp/ml-tier-a/notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb
             /tmp/ml-tier-a/notebooks/tabular_classification-iris-mlp-pytorch/notebook.ipynb

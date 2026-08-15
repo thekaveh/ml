@@ -127,12 +127,20 @@ docker run -p 8888:8888 -v "$(pwd):/home/jovyan/work" --shm-size=4g ml-eng-lab
 ### 3.3. Local venv
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python3.11 -m venv .venv && source .venv/bin/activate
 make install-torch-stack
-pip install -r requirements.txt   # pulls thekaveh-nnx[lm]==0.2.0 from PyPI
-make nlp-assets  # one-time spaCy + NLTK assets used by the 2 NLP Tier-A notebooks
+make nlp-assets
+python -m pip check
+make verify-torch-stack
+make verify-nnx-install
 jupyter lab
 ```
+
+The supported CPU matrix is torch==2.11.0, torchvision==0.26.0,
+torch_geometric==2.8.0.post1, pyg-lib==0.8.0+pt211, torch-scatter==2.1.2+pt211,
+torch-sparse==0.6.18+pt211, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0; Linux wheels use the
++pt211cpu local tag. The verifier exercises scatter, sparse, and real sampler canaries, including
+preferred pyg-lib sampling and the forced torch-sparse fallback.
 
 See [docs/env-setup.md](docs/env-setup.md) for environment details.
 
@@ -156,7 +164,7 @@ container.
 **Scenarios this does NOT support**:
 - GPU workloads — GitHub deprecated GPU Codespaces 2025-08-29 (Azure NCv3 retirement). The few GPU-benefiting notebooks (heaviest is `self_supervised-fmnist-jepa-pytorch`) still run on CPU here, just slowly; for real GPU you want a separate path (Modal `function.spawn`, a self-hosted GPU box behind Jupyter Enterprise Gateway, or Vertex AI Workbench / Colab Enterprise).
 - Data persistence across Codespace deletions — anything written to `./data/` or `./runs/` is gone when the Codespace is deleted (Codespaces are intended to be cheap and disposable). Commit any results you want to keep, or use Codespaces' "prebuild" feature if dep install time becomes a bottleneck.
-- The quantization-mnist-ffnn-pytorch notebook remains manual-only: the local/CI Torch 2.4.1 stack cannot import the required torchao path, while the Atlas package surface has not yet received a full notebook smoke. See [docs/dependency-contracts.md](docs/dependency-contracts.md).
+- The quantization-mnist-ffnn-pytorch notebook remains manual-only under Issue #66. Issue #62 qualifies only its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; the full notebook remains outside Tier A/B/C and is not Atlas evidence.
 
 **How to use**:
 

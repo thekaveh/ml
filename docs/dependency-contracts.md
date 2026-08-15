@@ -276,56 +276,40 @@ non-reachability, or an upstream fix. Remove it only through this reviewed seque
 
 ## 6.1.2 Torch Stack Pin
 
-`torch-core-requirements.txt` pins the core Torch stack:
+The supported Python 3.11 CPU matrix is torch==2.11.0, torchvision==0.26.0,
+torchaudio==2.11.0, pytorch-lightning==2.6.1, torchmetrics==1.9.0, torchao==0.18.0,
+torch-geometric==2.8.0.post1, pyg-lib==0.8.0, torch-scatter==2.1.2, and
+torch-sparse==0.6.18; thekaveh-nnx[lm]==0.2.0 remains the separately verified consumer pin.
 
-- `torch==2.4.1`
-- `pytorch-lightning==2.4.0`
-- `torchvision==0.19.1`
-- `torchaudio==2.4.1`
-- `torchmetrics==1.4.2`
+torch-core-requirements.txt contains the Torch trio. torch-ecosystem-requirements.txt contains
+Lightning, TorchMetrics, and torchao. torch-requirements.txt contains the ecosystem include, the
+Torch 2.11 CPU PyG selector, pyg-lib, scatter, sparse, and PyG. torch-audit-requirements.txt
+contains core plus ecosystem plus PyG. pyg-extension-audit-requirements.txt contains only scatter
+and sparse; pyg-lib is an external-index artifact verified by WHEEL/RECORD, platform, ownership,
+import, and sampler gates.
 
-`torch-requirements.txt` includes `torch-core-requirements.txt` and then pins:
+The temporary verifier-local import debts have literal keys Torch 2.11.0 with outer torch-geometric 2.8.0.post1 and Torch 2.11.0 with outer torch-sparse 0.6.18. Every record in a nonempty captured group must have category identity DeprecationWarning, message `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`., and exact selected-Torch RECORD origin torch/jit/_script.py. Count and line number are not pinned. Pytest remains -W error, no global filter is allowed, and a warning-free fresh-interpreter probe retires the exception.
 
-- PyG wheels resolved from `https://data.pyg.org/whl/torch-2.4.0+cpu.html`
-- `torch-scatter==2.1.2`
-- `torch-sparse==0.6.18`
-- `torch-cluster==1.6.3`
-- `torch-spline-conv==1.2.2`
-- `torch_geometric==2.6.1`
+Separately, the immutable Torch 2.11.0 + torchao 0.18.0 + thekaveh-nnx 0.2.0 + qat_config="8da4w" QAT debt is asserted only around NNx model.train: exactly one identity-UserWarning must equal the complete Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead (e.g. TorchAODType.INT4 -> torch.int4) and originate from the selected torchao RECORD path torchao/quantization/quant_primitives.py. Pytest remains -W error; zero warnings or tuple drift stops qualification for debt retirement; Issue #66 or an earlier NNx/Atlas upgrade owns migration to the current torch.int4 API.
 
-`torch-audit-requirements.txt` contains the core include and `torch_geometric==2.6.1`; the
-pre-resolved `pyg-extension-audit-requirements.txt` contains the four compiled extension pins.
-They are consumed only by `make audit-advisories`, never by runtime installation.
+make install-torch-stack has four stages: stage 0 upgrades pip only; stage 1 installs the Torch trio
+from the Linux CPU index or Darwin's native index; stage 2 installs torch-requirements.txt with
+--only-binary=pyg-lib,torch-scatter,torch-sparse; stage 3 installs remaining root requirements and
+binary-only thekaveh-nnx[lm]==0.2.0 last. Acceptance requires pip-check, the ten-component stack
+verifier, the NNx verifier, four-surface advisory reconciliation from six commands, full repository
+tests, zero-skip focused graph/quantization tests, Tier A/B/C 18/6/4, Darwin arm64, native Linux
+arm64 Docker, Linux x86_64 PR gates, and three-surface documentation parity. Any failure rejects
+the matrix and rollback restores the complete prior contract in a fresh environment or rebuilt
+image.
 
-Reason: this is the deliberately stable local/CI compatibility baseline. It is
-not required to match the separately pinned Atlas JupyterHub runtime.
-
-Upgrade criteria:
-
-1. Select a Torch version with matching `torchvision`, `torchaudio`, and PyG CPU
-   wheels.
-2. Confirm the reviewed `torchao==0.18.0` surface imports with its required Torch >=2.11 and a
-   matching torchvision build.
-3. Re-run `make test`, `make verify`, `make test-nnx-surface`, and the complete Tier A/B/C
-   matrix on the candidate environment.
-4. Update README, environment docs, and this ledger in the same change.
+The dependency and focused runtime contracts are implemented; complete Tier A/B/C and container acceptance evidence is pending.
 
 ## 6.1.3 Manual-Only Quantization Notebook
 
-`notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb` consumes the torchao quantization
-surface. The reviewed torchao 0.18.0 release requires Torch >=2.11, so it is incompatible with
-the pinned `torch==2.4.1` environment. The notebook remains an active task but is manual-only
-until the Torch stack is upgraded.
-
-Expected local side environment for this notebook:
-
-- `torch==2.11.0`
-- `torchvision==0.26.0`
-- `torchao==0.18.0`
-
-Do not add the quantization notebook back to `Makefile` Tier-A/B/C until the
-repository-wide local/CI Torch stack supports it. Atlas has a newer observed
-package surface, but package availability alone is not a full notebook smoke.
+notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb remains manual-only under Issue #66.
+Issue #62 qualifies only the tiny PTQ/QAT dependency surface on torch==2.11.0,
+torchvision==0.26.0, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0. Do not add the complete notebook
+to Tier A/B/C without Issue #66 acceptance; Atlas remains Issue #65 and is not a substitute.
 
 ## 6.1.4 Papermill CLI Contract
 
@@ -451,19 +435,11 @@ smoke.
 
 ## 6.1.9 Atlas Versus Local/CI Dependency Boundaries
 
-Atlas's runtime image is Atlas-owned infrastructure and may advance independently of
-the checked-in local/CI manifests. The local/CI Torch 2.4.1 contract remains the
-source of truth for `make test`, papermill CI, Dockerfile, and Codespaces.
-Conversely, notebooks using the remote kernel rely on the observed Atlas package
-surface recorded above. Any change that makes a notebook depend on a version
-only Atlas provides must add an explicit task contract and update both this
-ledger and the relevant runbook.
-
-The quantization notebook is still manual-only. Atlas now imports the needed
-package layer, but its complete PTQ/QAT execution has not been run there. A
-future reclassification requires a targeted Atlas notebook smoke as well as the
-local/CI compatibility decision; do not promote it based only on `torchao`
-metadata.
+Atlas is Atlas-owned infrastructure and remains Issue #65. The checked-in Torch 2.11 CPU manifests
+are authoritative for make test, papermill CI, Dockerfile, and Codespaces; no Atlas package
+observation changes that contract. The complete quantization notebook remains manual-only under
+Issue #66 even though Issue #62 qualifies its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency
+surface.
 
 ## 6.1.10 GitHub Actions Pins
 
@@ -486,20 +462,9 @@ Upgrade criteria:
 2. Update the workflow SHA and inline tag comment together.
 3. Parse workflow YAML and run the relevant local contract checks.
 
-## 6.1.11 Bootstrap Tooling Gap
+## 6.1.11 Canonical Bootstrap Tooling
 
-The bootstrap paths still upgrade or install the Python packaging toolchain
-without exact pip/setuptools pins:
-
-- The installer invoked by the `Makefile` target `install-torch-stack` runs
-  `python -m pip install --upgrade pip wheel` before the core and runtime stages; `wheel` supplies
-  `bdist_wheel` for the required `--no-build-isolation` source build.
-- `Dockerfile` upgrades `pip` and `setuptools` before project requirements.
-
-This is accepted temporarily because pinning bootstrap tools changes every
-environment creation path and belongs with the coordinated dependency-lock
-work. Until then, maintenance passes should treat unexpected resolver behavior
-or build-isolation changes as dependency-contract findings.
+The canonical installer upgrades pip alone in stage 0 and installs every selected graph extension as a compatible binary wheel in stage 2. Docker, Codespaces, CI, and local setup delegate to make install-torch-stack; none carries a second bootstrap or dependency algorithm. Exact pip/setuptools locks, full Python lockfiles, and base-image digest pinning remain Issue #63 and do not change the Issue #62 four-stage install contract.
 
 ## 6.1.12 Deferred Reproducibility Hardening
 

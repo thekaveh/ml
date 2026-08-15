@@ -13,6 +13,9 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- Coordinated the supported CPU Torch stack at Torch 2.11/PyG 2.8.0.post1/torchao 0.18 with
+  binary-only pyg-lib, torch-scatter, and torch-sparse wheels, NNx 0.2.0 verification, and
+  manual-only Issue #66 quantization ownership.
 - **NNx 0.2.2 release review and 0.2.0 retention:** canonical binary-wheel validation of the
   immutable 0.2.2 release passed the complete repository suite (`1,350 passed`), Tier A (`18/18`),
   Tier B (`6/6`), Tier C (`4/4`), and an isolated QAT checkpoint round trip.

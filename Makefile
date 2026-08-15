@@ -217,12 +217,12 @@ nlp-assets:
 verify:
 	$(PYTHON) scripts/verify_repo.py --check all --fast
 
+# Issue #62 canonical CPU stack: Torch 2.11, binary pyg-lib/scatter/sparse, NNx 0.2.0 last.
 install-torch-stack:
 	$(PYTHON) -m scripts.install_torch_stack
 
 # Full one-shot dep install for the GitHub Codespaces / "Reopen in Container"
-# path (README §3.4). Reuses the same Torch-first install order as CI and
-# Docker runtime uses three binary PyG wheels and has no source-build fallback.
+# path (README §3.4). Reuses the same canonical install order as CI and Docker.
 # Recursively invokes nlp-assets so the spaCy + NLTK download steps stay in
 # one place across the §3.2 (Docker), §3.3 (venv), and §3.4 (Codespaces) paths.
 codespace-setup: install-torch-stack

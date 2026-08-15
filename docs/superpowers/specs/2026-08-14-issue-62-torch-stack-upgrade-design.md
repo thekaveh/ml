@@ -203,8 +203,11 @@ The entire captured group must match; a mixed group fails. The wrapper consumes 
 group before returning the imported module, so the CLI's outer warning capture remains strict.
 The existing `_run_warning_free` boundaries around scatter, sparse, the real sampler, and NNx are
 unchanged. Pytest still runs with `-W error`; JUnit still requires a positive test count and zero
-failures, errors, and skips; both graph backends remain mandatory; and any warning outside this
-single import wrapper fails. No pytest, global, environment, or conftest warning filter is allowed.
+failures, errors, and skips; both graph backends remain mandatory; and, except for Section 12.21.8's
+separate test-local QAT compatibility-debt assertion around the NNx `model.train` call, every
+verifier, graph, or consumer warning outside this single import wrapper fails. The QAT assertion is
+not a verifier exception or a warning filter. No pytest, global, CLI, environment, or conftest
+warning filter is allowed.
 
 Verifier tests accept an exact one-or-more matching group and reject a wrong category or subclass,
 message or punctuation, origin path, outer component, a mixed group, and a matching warning emitted
@@ -262,6 +265,44 @@ The canonical Torch 2.11 stack removes the current `torch.int1` import incompati
 existing quantization surface test changes from backend-skippable to fail-closed and proves the
 NNx PTQ and QAT imports plus a tiny prepare, train-step, convert, and inference path.
 
+That focused QAT path exposes one compatibility debt forced by retaining the Atlas-compatible NNx
+0.2.0 boundary. `thekaveh-nnx` 0.2.0 maps its public `qat_config="8da4w"` facade to torchao's
+legacy `Int8DynActInt4WeightQATQuantizer`. Under Torch 2.11.0 and torchao 0.18.0, the eligible QAT
+linear is created through `TorchAODType.INT4`, whose metaclass emits this complete warning:
+
+```text
+Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead (e.g. TorchAODType.INT4 -> torch.int4)
+```
+
+Pytest remains globally strict with `-W error`. The quantization test may use one local
+`warnings.catch_warnings(record=True)` capture, with `simplefilter("always")`, around only the
+NNx 0.2.0 8da4w `model.train(...)` call. The test must then prove all of the following before it
+accepts that captured group:
+
+- the immutable debt key is exactly Torch 2.11.0, torchao 0.18.0, `thekaveh-nnx` 0.2.0, and
+  `qat_config="8da4w"`;
+- the group contains exactly one warning record;
+- `record.category is UserWarning`, so subclasses do not match;
+- `str(record.message)` equals the complete warning above, including punctuation; and
+- the resolved `record.filename` equals the one exact RECORD-owned
+  `torchao/quantization/quant_primitives.py` file from the selected torchao distribution.
+
+The origin is derived fail-closed from `importlib.metadata.distribution("torchao").files`: exactly
+one `PackagePath` must have POSIX path `torchao/quantization/quant_primitives.py`, resolve through
+that distribution's `locate_file`, exist as a concrete file, and remain owned by that selected
+distribution. Missing, duplicate, unlocatable, non-file, non-owned, basename-only, suffix-only, or
+package-root guesses fail. Zero, multiple, mixed, wrong-category, wrong-message, wrong-origin, or
+wrong-version/config warning groups fail. The local capture does not cover callback construction,
+train-step factory construction, prediction, PTQ, imports, fixtures, graph execution, verifier
+execution, or any other test statement, so every other warning remains fatal under `-W error`.
+
+Zero captured warnings or any debt-key drift is a mandatory debt-retirement stop, not ordinary
+success. The implementation must remove the local capture and its debt-specific machinery, rerun
+the unchanged QAT test directly under `-W error`, and update the design before qualification may
+continue. Issue #66, or an earlier coordinated NNx/Atlas upgrade, owns the permanent migration of
+the retained NNx facade to torchao's current `torch.int4` QAT API. Issue #62 neither suppresses the
+warning nor bypasses NNx to call that current API directly.
+
 The complete `quantization-mnist-ffnn-pytorch` notebook remains manual-only and outside Tier A,
 Tier B, and Tier C. Issue #66 owns any later notebook execution, output refresh, threshold review,
 or tier promotion. Issue #62 updates the current rationale from "the canonical stack cannot
@@ -304,8 +345,8 @@ gate, and the focused jobs remain diagnostic evidence. Workflow contract tests e
 - Linux CPU provenance and no CUDA package selection;
 - compatible pyg-lib, torch-scatter, and torch-sparse wheels with no failure masking or optional
   compiled-extension skips in canonical jobs;
-- only the verifier-local, exact import-warning exception, with no workflow, pytest, environment,
-  or conftest warning filter;
+- only the verifier-local exact import-warning exception and Section 12.21.8's exact test-local QAT
+  debt assertion, with no workflow, pytest, CLI, environment, or conftest warning filter;
 - no Atlas initialization or service, container, Ollama, or ComfyUI startup; and
 - unchanged binary-only NNx selection and canonical verification.
 
@@ -351,6 +392,7 @@ Current documentation changes cover:
 - the PyG sampler and three-wheel compiled-extension acceptance contract, including the explicit
   exclusion of unused legacy operators;
 - the temporary exact-match TorchScript import-warning debt and its upgrade-time removal trigger;
+- the temporary exact-match NNx 0.2.0 8da4w QAT warning debt and its upgrade-time removal trigger;
 - the refreshed advisory snapshot and residual risk;
 - contributor and rollback procedures; and
 - durable Unreleased history in `CHANGELOG.md`.
@@ -411,6 +453,30 @@ A pytest, environment, conftest, or process-wide filter would hide unrelated war
 the repository's warning-free acceptance gate. The selected exception instead proves component,
 category identity, complete message, and owned origin inside one import call, then leaves every
 outer warning boundary unchanged.
+
+### 12.21.14.7 Filter the NNx QAT warning globally
+
+A global, CLI, environment, pytest, or conftest filter would make unrelated `UserWarning` records
+in quantization, graph, and repository tests invisible. Even a message-qualified global filter
+would outlive the immutable dependency tuple and turn debt retirement into silent acceptance. The
+selected test-local capture surrounds only the NNx 0.2.0 8da4w `model.train` call and asserts one
+exact category, message, and torchao RECORD-owned origin before continuing.
+
+### 12.21.14.8 Monkeypatch torchao or carry a repository fork
+
+Replacing `TorchAODType.INT4` at runtime, editing the installed wheel, or carrying a private
+torchao/NNx fork would make the selected artifacts differ from the exact public wheels qualified by
+the installer, RECORD, and provenance gates. It would also create an unowned compatibility layer
+outside the retained NNx 0.2.0 and Atlas boundary. Issue #62 records the bounded debt instead;
+Issue #66 or an earlier coordinated NNx/Atlas upgrade owns the permanent upstream-API migration.
+
+### 12.21.14.9 Bypass the NNx facade with torchao's current QAT API
+
+Directly rewriting the surface test to use `QATConfig`, `quantize_`, and `torch.int4` would be
+warning-free but would stop testing the repository's actual NNx 0.2.0 consumer contract. The
+surface test must continue through `nnx.QATLifecycleCallback` and
+`nnx.qat_train_step_factory`; the current torchao API is migration evidence, not a substitute for
+the facade that Issue #62 is required to qualify.
 
 ## 12.21.15 Failure handling and rollback
 

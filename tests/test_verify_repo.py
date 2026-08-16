@@ -127,6 +127,12 @@ def _assert_issue62_pr_dual_identity_plan(plan_source: str) -> None:
     for source_sha in ("FEATURE_SHA", "DEVELOP_MERGE_SHA", "RELEASE_MERGE_SHA"):
         assert f'--commit "${source_sha}"' in task7
     assert task7.count("python -m scripts.verify_pr_run_evidence") == 3
+    for checks in (
+        "pr-checks.json",
+        "release-pr-checks.json",
+        "sync-pr-checks.json",
+    ):
+        assert f'--checks-json "$FINAL_ROOT/{checks}"' in task7
     for evidence in (
         "feature-pr-run-evidence.json",
         "release-pr-run-evidence.json",
@@ -136,11 +142,33 @@ def _assert_issue62_pr_dual_identity_plan(plan_source: str) -> None:
         assert evidence in task7.split("evidence_paths = [", maxsplit=1)[1]
     assert task7.count("potentialMergeCommit") == 3
     assert task7.count("headRepository") == 3
-    assert task7.count("--log >") == 7
+    assert task7.count("--log >") == 9
+    assert task7.count('manifest = {"schema": 2, "runs": [') == 3
+    assert task7.count('"contaminating_ci"') >= 4
+    assert task7.count('"contaminating_pr_run_urls"') >= 7
+    assert task7.count('displayTitle,event,headSha,headBranch,createdAt') >= 3
+    assert task7.count("--add-label tier-b-smoke") == 2
+    assert task7.count(
+        'selected = [(run, action) for run, action in ci_actions '
+        'if action in {"labeled", "synchronize"}]'
+    ) == 2
+    assert task7.count("assert len(selected) == 1 and len(opened) <= 1") == 2
+    assert task7.count('action in {"opened", "synchronize"}') == 1
+    assert task7.count(
+        'sync_run_evidence["runs"][0]["action"] in {"opened", "synchronize"}'
+    ) == 1
+    assert task7.count('url.startswith(item["url"] + "/job/")') == 1
+    assert task7.count(
+        'url.startswith(sync_run_evidence["runs"][0]["url"] + "/job/")'
+    ) == 1
+    assert 'by_check = {item["name"]: item for item in checks}' not in task7
+    assert 'sync_by_check = {item["name"]: item for item in sync_checks}' not in task7
     for mutation_name in (
         "wrong_pr_source_identity",
         "wrong_pr_merge_identity",
         "wrong_pr_evidence_hash",
+        "wrong_pr_check_association",
+        "wrong_pr_contaminant_url",
     ):
         assert task7.count(mutation_name) == 3
 
@@ -156,10 +184,13 @@ def _assert_issue62_reuse_queries_select_source_heads(plan_source: str) -> None:
         block = task7.split(start, maxsplit=1)[1].split(end, maxsplit=1)[0]
         assert block.count(f'--commit "${source_sha}" --limit 20') == 1
         assert block.count(
-            f'CANDIDATE_RUN=$(jq -r --arg sha "${source_sha}"'
+            f'CANDIDATE_RUN=$(python - "$FINAL_ROOT/candidate-{label}-runs.json"'
         ) == 1
+        assert block.count(f'"${source_sha}" "$CANDIDATE_PR" <<\'PY\'') == 1
+        assert 'if action in {"labeled", "synchronize"}:' in block
+        assert 'assert len(selected) == 1' in block
         assert '--commit "$CANDIDATE_MERGE_SHA"' not in block
-        assert 'CANDIDATE_RUN=$(jq -r --arg sha "$CANDIDATE_MERGE_SHA"' not in block
+        assert '"$CANDIDATE_MERGE_SHA" "$CANDIDATE_PR"' not in block
 
 
 def test_issue62_task7_plan_preserves_pr_source_and_synthetic_identities() -> None:
@@ -176,16 +207,16 @@ def test_issue62_task7_plan_preserves_pr_source_and_synthetic_identities() -> No
             '--commit "$CANDIDATE_MERGE_SHA" --limit 20',
         ),
         (
-            'CANDIDATE_RUN=$(jq -r --arg sha "$FEATURE_SHA"',
-            'CANDIDATE_RUN=$(jq -r --arg sha "$CANDIDATE_MERGE_SHA"',
+            '"$FEATURE_SHA" "$CANDIDATE_PR" <<\'PY\'',
+            '"$CANDIDATE_MERGE_SHA" "$CANDIDATE_PR" <<\'PY\'',
         ),
         (
             '--commit "$DEVELOP_MERGE_SHA" --limit 20',
             '--commit "$CANDIDATE_MERGE_SHA" --limit 20',
         ),
         (
-            'CANDIDATE_RUN=$(jq -r --arg sha "$DEVELOP_MERGE_SHA"',
-            'CANDIDATE_RUN=$(jq -r --arg sha "$CANDIDATE_MERGE_SHA"',
+            '"$DEVELOP_MERGE_SHA" "$CANDIDATE_PR" <<\'PY\'',
+            '"$CANDIDATE_MERGE_SHA" "$CANDIDATE_PR" <<\'PY\'',
         ),
     ),
     ids=("feature-query", "feature-selector", "release-query", "release-selector"),
@@ -214,9 +245,34 @@ def test_issue62_reuse_query_and_selector_reject_identity_mutations(
         ("potentialMergeCommit", "mergeCommit"),
         ("headRepository", "sourceRepository"),
         ("--log >", "--log-failed >"),
+        ('manifest = {"schema": 2, "runs": [', 'manifest = {"schema": 1, "runs": ['),
+        ('"contaminating_pr_run_urls"', '"ignored_pr_run_urls"'),
+        ("--add-label tier-b-smoke", "--remove-label tier-b-smoke"),
+        (
+            'if action in {"labeled", "synchronize"}]',
+            'if action in {"opened", "synchronize"}]',
+        ),
+        (
+            "assert len(selected) == 1 and len(opened) <= 1",
+            "assert len(selected) == 1 and len(opened) <= 2",
+        ),
+        (
+            'sync_run_evidence["runs"][0]["action"] in {"opened", "synchronize"}',
+            'sync_run_evidence["runs"][0]["action"] == "opened"',
+        ),
+        ("--checks-json", "--unbound-checks-json"),
+        (
+            'url.startswith(item["url"] + "/job/")',
+            'url.startswith("https://github.com/")',
+        ),
+        (
+            'url.startswith(sync_run_evidence["runs"][0]["url"] + "/job/")',
+            'url.startswith("https://github.com/")',
+        ),
         ("wrong_pr_source_identity", "wrong_source_identity"),
         ("wrong_pr_merge_identity", "wrong_merge_identity"),
         ("wrong_pr_evidence_hash", "wrong_evidence_hash"),
+        ("wrong_pr_check_association", "wrong_check_association"),
     ),
 )
 def test_issue62_task7_dual_identity_plan_rejects_mutations(old: str, new: str) -> None:
@@ -5006,10 +5062,18 @@ def _assert_dependency_audit_job_contract(workflow: dict) -> None:
 def _assert_dependency_audit_ci_envelope(workflow: dict) -> None:
     assert workflow["on"] == {
         "push": {"branches": ["develop", "main"]},
-        "pull_request": {"branches": ["develop", "main"]},
+        "pull_request": {
+            "branches": ["develop", "main"],
+            "types": ["opened", "synchronize", "reopened", "labeled"],
+        },
         "workflow_dispatch": "",
         "schedule": [{"cron": "0 7 * * 1"}],
     }
+    assert workflow["run-name"] == (
+        "CI / ${{ github.event_name }} / "
+        "${{ github.event.action || 'none' }} / PR "
+        "${{ github.event.pull_request.number || 0 }}"
+    )
     assert workflow["permissions"] == {"contents": "read"}
 
 
@@ -5027,6 +5091,10 @@ def test_ci_dependency_audit_job_contract():
         "remove-dispatch",
         "change-cron",
         "add-write-permission",
+        "remove-pr-types",
+        "remove-labeled-type",
+        "wrong-pr-type",
+        "wrong-run-name",
     ),
 )
 def test_ci_dependency_audit_envelope_rejects_trigger_or_permission_mutations(mutation):
@@ -5037,6 +5105,14 @@ def test_ci_dependency_audit_envelope_rejects_trigger_or_permission_mutations(mu
         del workflow["on"]["workflow_dispatch"]
     elif mutation == "change-cron":
         workflow["on"]["schedule"][0]["cron"] = "17 3 * * 1"
+    elif mutation == "remove-pr-types":
+        del workflow["on"]["pull_request"]["types"]
+    elif mutation == "remove-labeled-type":
+        workflow["on"]["pull_request"]["types"].remove("labeled")
+    elif mutation == "wrong-pr-type":
+        workflow["on"]["pull_request"]["types"][-1] = "closed"
+    elif mutation == "wrong-run-name":
+        workflow["run-name"] = "CI"
     else:
         workflow["permissions"]["pull-requests"] = "write"
 
@@ -6395,6 +6471,12 @@ def test_ci_covers_gitflow_pr_targets():
 
     assert set(workflow["on"]["push"]["branches"]) == {"develop", "main"}
     assert set(workflow["on"]["pull_request"]["branches"]) == {"develop", "main"}
+    assert workflow["on"]["pull_request"]["types"] == [
+        "opened",
+        "synchronize",
+        "reopened",
+        "labeled",
+    ]
 
 
 def test_documentation_workflows_install_cairo_and_gate_pages_inputs():

@@ -112,11 +112,11 @@ def test_real_manifest_projects_current_vulnerability_snapshot_to_site(tmp_path)
     out = tmp_path / "generated/site"
     render_site(manifest, REPO_ROOT, out, trusted_output_root=tmp_path)
     ledger = (out / "dependency-contracts.md").read_text(encoding="utf-8")
-    assert "### 6.1.1.2 Current accepted advisories" in ledger
+    assert "### 6.1.1.2 Current Issue #62 four-surface audit" in ledger
     assert "2026-08-12" in ledger
     assert "archived audit provenance only" in ledger
     assert "../SECURITY.md" not in ledger
-    assert "](#6112-current-accepted-advisories)" in ledger
+    assert "](#6112-current-issue-62-four-surface-audit)" in ledger
 
 
 def test_real_manifest_projects_advisory_baseline_contract_to_site(tmp_path):

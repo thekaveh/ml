@@ -11,12 +11,9 @@ The tests don't download Reddit2 (which is ~1.5GB). They build a tiny
 synthetic PyG `Data` via the `tiny_graph_data` fixture and exercise the
 GNN forward pass via a 1-batch `NeighborLoader`.
 
-The GNN forward-pass tests use a 1-batch `NeighborLoader`, which requires
-`pyg-lib` or `torch-sparse` at runtime. Both ship Linux/x86 wheels only
-(via torch-requirements.txt's find-links URL), so on Darwin/ARM the three
-forward-pass tests are skipped cleanly. The `NNParams.state()` round-trip
-test runs everywhere - it's pure Python and pins the consolidated-n_heads
-contract regardless of PyG state.
+The canonical stack requires both `pyg-lib` and `torch-sparse`, and every
+model path executes a sampled batch rather than accepting import-only evidence.
+The `NNParams.state()` round-trip remains a pure-Python contract.
 """
 from __future__ import annotations
 
@@ -30,39 +27,6 @@ from nnx import (
     NNParams,
     NNTrainParams,
     Nets,
-)
-
-
-# PyG's NeighborLoader sampler requires either `pyg_lib` (preferred) or
-# `torch_sparse` (legacy) at runtime. Wheels for both ship Linux/x86 only
-# via the PyG find-links URL in torch-requirements.txt, so they're
-# unavailable on Darwin ARM. CI runs on Linux and has them; local Mac
-# checkouts skip these tests cleanly.
-def _has_pyg_sampler() -> bool:
-    """Return True iff either pyg_lib or torch_sparse imports cleanly.
-
-    Catches `Exception` (not just ImportError) because pyg_lib / torch_sparse
-    are C-extension wheels; on torch ABI mismatch they can raise OSError or
-    RuntimeError at import. Either way we treat the sampler as unavailable.
-    """
-    try:
-        import pyg_lib  # noqa: F401
-        return True
-    except Exception:
-        pass
-    try:
-        import torch_sparse  # noqa: F401
-        return True
-    except Exception:
-        return False
-
-
-_HAS_PYG_SAMPLER = _has_pyg_sampler()
-_PYG_SAMPLER_SKIP_REASON = (
-    "PyG NeighborLoader requires optional pyg-lib or torch-sparse at runtime; neither is "
-    "installed in this focused environment. Issue #61 proved the complete graph matrix on "
-    "Darwin arm64 with torch_sparse==0.6.18. Constructor + n_heads contract "
-    "(test_nnparams_state_round_trips_n_heads) still runs."
 )
 
 
@@ -91,11 +55,40 @@ def gnn_loaders(tiny_graph_data):
     return train_loader, val_loader
 
 
-@pytest.mark.skipif(not _HAS_PYG_SAMPLER, reason=_PYG_SAMPLER_SKIP_REASON)
+def _assert_sampled_batch_is_executable(loader) -> None:
+    batch = next(iter(loader))
+    assert int(batch.batch_size) > 0
+    assert int(batch.edge_index.numel()) > 0
+
+
+def test_canonical_sampler_backends_and_batch_are_executable(tiny_graph_data):
+    import pyg_lib
+    import torch_sparse
+    from torch_geometric.loader import NeighborLoader
+
+    batch = next(
+        iter(
+            NeighborLoader(
+                tiny_graph_data.data,
+                num_neighbors=[2, 2],
+                batch_size=2,
+                input_nodes=tiny_graph_data.data.train_mask,
+                shuffle=False,
+                num_workers=0,
+            )
+        )
+    )
+    assert pyg_lib is not None
+    assert torch_sparse is not None
+    assert int(batch.batch_size) > 0
+    assert int(batch.edge_index.numel()) > 0
+
+
 @pytest.mark.parametrize("net_enum", [Nets.GRAPH_SAGE, Nets.GRAPH_CONV])
 def test_gnn_train_one_batch_sage_or_conv(net_enum, tiny_graph_data, gnn_loaders):
     """GraphSAGE and GraphConv share the no-attention path. Both should construct + 1-epoch-train."""
     train_loader, val_loader = gnn_loaders
+    _assert_sampled_batch_is_executable(train_loader)
     model = NNModel(
         params=NNModelParams(net=net_enum, device=Devices.CPU, loss=Losses.CROSS_ENTROPY),
         net_params=NNParams(
@@ -114,7 +107,6 @@ def test_gnn_train_one_batch_sage_or_conv(net_enum, tiny_graph_data, gnn_loaders
     assert run is not None
 
 
-@pytest.mark.skipif(not _HAS_PYG_SAMPLER, reason=_PYG_SAMPLER_SKIP_REASON)
 def test_gat_consolidates_n_heads_into_nnparams(tiny_graph_data, gnn_loaders):
     """Regression test for the GraphAttNNParams audit miss.
 
@@ -124,6 +116,7 @@ def test_gat_consolidates_n_heads_into_nnparams(tiny_graph_data, gnn_loaders):
     fails CI rather than the weekly Tier-B/C smoke.
     """
     train_loader, val_loader = gnn_loaders
+    _assert_sampled_batch_is_executable(train_loader)
     model = NNModel(
         params=NNModelParams(net=Nets.GRAPH_ATT, device=Devices.CPU, loss=Losses.CROSS_ENTROPY),
         net_params=NNParams(

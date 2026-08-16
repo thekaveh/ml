@@ -15,10 +15,11 @@ import importlib.util
 import io
 import json
 import re
+import shlex
 import subprocess
 import sys
 import tokenize
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from urllib.parse import unquote
@@ -178,7 +179,7 @@ _FORBIDDEN_TOPLEVEL_DIRS = ("common",)
 _RUNTIME_ONLY_MODULES = frozenset({
     "numpy",
     "torch", "torchvision", "torch_geometric", "torch_sparse", "torch_scatter",
-    "torch_cluster", "torch_spline_conv", "pyg_lib",
+    "pyg_lib",
     "matplotlib", "seaborn", "pandas", "sklearn", "scipy",
     "networkx", "community",
     "nnx",
@@ -492,6 +493,9 @@ def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
         if raw_html_block is not None:
             if re.search(rf"</{raw_html_block}\s*>", line, re.IGNORECASE):
                 raw_html_block = None
+            stripped.append(" " * len(line))
+            continue
+        if line.startswith("    "):
             stripped.append(" " * len(line))
             continue
         line, in_comment, inline_marker = mask_html_comments(
@@ -1037,10 +1041,54 @@ _ATLAS_INFRA_GITLINK_SHA_RE = re.compile(
     re.MULTILINE,
 )
 _DEPENDENCY_CURRENT_SNAPSHOT_RE = re.compile(
-    r"^###[ \t]+6[.]1[.]1[.]2[ \t]+Current[ \t]+accepted[ \t]+"
-    r"advisories[ \t]*\r?$"
-    r"(?P<body>.*?)(?=^#{2,3}[ \t]|\Z)",
+    r"^###[ \t]+6[.]1[.]1[.]2[ \t]+Current[ \t]+Issue[ \t]+#62[ \t]+"
+    r"four-surface[ \t]+audit[ \t]*\r?$"
+    r"(?P<body>.*?)(?=^#{1,3}[ \t]|\Z)",
     re.MULTILINE | re.DOTALL,
+)
+_DEPENDENCY_HASH_HEADER = "| Input | SHA-256 |"
+_DEPENDENCY_HASH_SEPARATOR = "| --- | --- |"
+_DEPENDENCY_HASH_ROW_RE = re.compile(
+    r"\| `(?P<path>[^`]+)` \| `(?P<sha256>[0-9a-f]{64})` \|"
+)
+_DEPENDENCY_HASH_INPUTS = (
+    "vulnerability-audit-requirements.txt",
+    "requirements.txt",
+    "torch-core-requirements.txt",
+    "torch-ecosystem-requirements.txt",
+    "torch-requirements.txt",
+    "torch-audit-requirements.txt",
+    "pyg-extension-audit-requirements.txt",
+    "docs-requirements.txt",
+    "atlas-contract-requirements.txt",
+    "security/accepted-advisories.json",
+)
+_DEPENDENCY_HTML_TYPE1_TAGS = ("pre", "script", "style", "textarea")
+_DEPENDENCY_HTML_TYPE6_TAGS = (
+    "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption",
+    "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt",
+    "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2",
+    "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html", "iframe", "legend", "li",
+    "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p",
+    "param", "search", "section", "source", "summary", "table", "tbody", "td", "tfoot", "th", "thead",
+    "title", "tr", "track", "ul",
+)
+_DEPENDENCY_HTML_TYPE1_OPEN_RE = re.compile(
+    rf"^ {{0,3}}<(?P<tag>{'|'.join(_DEPENDENCY_HTML_TYPE1_TAGS)})(?:[ \t]|>|$)",
+    re.IGNORECASE,
+)
+_DEPENDENCY_HTML_TYPE6_OPEN_RE = re.compile(
+    rf"^ {{0,3}}</?(?P<tag>{'|'.join(_DEPENDENCY_HTML_TYPE6_TAGS)})(?:[ \t]|/?>|$)",
+    re.IGNORECASE,
+)
+_DEPENDENCY_PYG_SUPPLEMENT_CONTRACT = (
+    "The pre-resolved `pyg-extension-audit-requirements.txt` supplement contains exactly "
+    "`torch-scatter==2.1.2` and `torch-sparse==0.6.18`; it contains neither "
+    "`torch-cluster` nor `torch-spline-conv`."
+)
+_DEPENDENCY_PYG_LIB_LIMITATION = (
+    "pyg-lib is an exact external-index wheel outside ordinary PyPI audit coverage; "
+    "its version and provenance are verified by `verify_torch_stack`."
 )
 _DEPENDENCY_SUMMARY_HEADER = (
     "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | "
@@ -1077,6 +1125,35 @@ _MARKDOWN_ADVISORY_SURFACES = {
 }
 
 
+def _masked_markdown_line(line: str) -> str:
+    return "".join("\r" if char == "\r" else "\n" if char == "\n" else " " for char in line)
+
+
+def _mask_dependency_raw_html(text: str) -> str:
+    masked: list[str] = []
+    type1_tag: str | None = None
+    in_type6 = False
+    for line in text.splitlines(keepends=True):
+        if type1_tag is None and not in_type6:
+            type1 = _DEPENDENCY_HTML_TYPE1_OPEN_RE.match(line)
+            type6 = _DEPENDENCY_HTML_TYPE6_OPEN_RE.match(line)
+            if type1 is not None:
+                type1_tag = type1["tag"].lower()
+            elif type6 is not None:
+                in_type6 = True
+            else:
+                masked.append(line)
+                continue
+        masked.append(_masked_markdown_line(line))
+        if type1_tag is not None and re.search(
+            rf"</{re.escape(type1_tag)}[ \t]*>", line, re.IGNORECASE,
+        ):
+            type1_tag = None
+        elif in_type6 and not line.strip():
+            in_type6 = False
+    return "".join(masked)
+
+
 def _dependency_table_rows(
     body: str, *, header: str, separator: str
 ) -> list[str] | None:
@@ -1105,7 +1182,10 @@ def _markdown_advisory_surfaces(value: str, *, canonical_order: tuple[str, ...])
         raise ValueError(f"unknown advisory surface label: {error.args[0]}") from error
     if len(set(surfaces)) != len(surfaces):
         raise ValueError("advisory surface labels must be unique")
-    return tuple(surface for surface in canonical_order if surface in surfaces)
+    ordered_surfaces = tuple(surface for surface in canonical_order if surface in surfaces)
+    if surfaces != ordered_surfaces:
+        raise ValueError("advisory surface labels must use canonical order")
+    return surfaces
 
 
 def _format_advisory_identity(
@@ -1214,6 +1294,74 @@ def _dependency_advisory_baseline_findings(
     return findings
 
 
+def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
+    location = "docs/dependency-contracts.md"
+    lines = _dependency_table_rows(
+        body,
+        header=_DEPENDENCY_HASH_HEADER,
+        separator=_DEPENDENCY_HASH_SEPARATOR,
+    )
+    if lines is None:
+        return [Finding(
+            id="D10.dependency_input_hash",
+            check="docs",
+            severity="error",
+            location=location,
+            message="current Issue #62 input-hash table is missing or malformed",
+        )]
+    rows = [_DEPENDENCY_HASH_ROW_RE.fullmatch(line) for line in lines]
+    if not all(rows):
+        return [Finding(
+            id="D10.dependency_input_hash",
+            check="docs",
+            severity="error",
+            location=location,
+            message="current Issue #62 input-hash row is malformed",
+        )]
+    parsed = [(row["path"], row["sha256"]) for row in rows if row is not None]
+    names = [name for name, _ in parsed]
+    if len(names) != len(set(names)):
+        return [Finding(
+            id="D10.dependency_input_hash",
+            check="docs",
+            severity="error",
+            location=location,
+            message="current Issue #62 input-hash table has duplicate paths",
+        )]
+    if tuple(names) != _DEPENDENCY_HASH_INPUTS:
+        return [Finding(
+            id="D10.dependency_input_hash",
+            check="docs",
+            severity="error",
+            location=location,
+            message="current Issue #62 input-hash paths or order drifted",
+            detail={"expected": list(_DEPENDENCY_HASH_INPUTS), "actual": names},
+        )]
+    findings: list[Finding] = []
+    for relative_path, recorded in parsed:
+        source = repo / relative_path
+        if not source.is_file():
+            findings.append(Finding(
+                id="D10.dependency_input_hash",
+                check="docs",
+                severity="error",
+                location=relative_path,
+                message="current Issue #62 hashed input is missing",
+            ))
+            continue
+        actual = hashlib.sha256(source.read_bytes()).hexdigest()
+        if actual != recorded:
+            findings.append(Finding(
+                id="D10.dependency_input_hash",
+                check="docs",
+                severity="error",
+                location=relative_path,
+                message="current Issue #62 recorded input hash is stale",
+                detail={"expected": recorded, "actual": actual},
+            ))
+    return findings
+
+
 def _dependency_ledger_findings(repo: Path) -> list[Finding]:
     path = repo / "docs" / "dependency-contracts.md"
     infra_exists = (repo / "infra").exists()
@@ -1239,7 +1387,9 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
         )]
     text = _read_text(path)
     findings: list[Finding] = []
-    published_text = _strip_markdown_code(text, strip_inline=False)
+    published_text = _mask_dependency_raw_html(
+        _strip_markdown_code(text, strip_inline=False)
+    )
     snapshot_matches = list(_DEPENDENCY_CURRENT_SNAPSHOT_RE.finditer(published_text))
     if not snapshot_matches:
         findings.append(Finding(
@@ -1282,6 +1432,32 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
             separator=_DEPENDENCY_ADVISORY_SEPARATOR,
         )
         findings.extend(_dependency_advisory_baseline_findings(repo, advisory_lines))
+        findings.extend(_dependency_input_hash_findings(repo, body))
+        normalized_body = " ".join(body.split())
+        if "zero vulnerabilities" in body:
+            findings.append(Finding(
+                id="D10.dependency_ledger_contract",
+                check="docs",
+                severity="error",
+                location="docs/dependency-contracts.md",
+                message="current Issue #62 audit must not claim zero vulnerabilities",
+            ))
+        if _DEPENDENCY_PYG_SUPPLEMENT_CONTRACT not in normalized_body:
+            findings.append(Finding(
+                id="D10.dependency_ledger_contract",
+                check="docs",
+                severity="error",
+                location="docs/dependency-contracts.md",
+                message="current Issue #62 PyG supplement contract is missing or stale",
+            ))
+        if _DEPENDENCY_PYG_LIB_LIMITATION not in normalized_body:
+            findings.append(Finding(
+                id="D10.dependency_pyg_lib_limitation",
+                check="docs",
+                severity="error",
+                location="docs/dependency-contracts.md",
+                message="current Issue #62 pyg-lib external-index audit limitation is missing",
+            ))
         package_rows = (
             [_DEPENDENCY_SUMMARY_ROW_RE.fullmatch(line) for line in summary_lines]
             if summary_lines
@@ -1520,6 +1696,351 @@ def _workflow_action_pin_findings(repo: Path) -> list[Finding]:
     return findings
 
 
+_EXPECTED_TORCH_STACK_IMPORTS = {
+    "torch": "torch",
+    "torchvision": "torchvision",
+    "torchaudio": "torchaudio",
+    "pytorch-lightning": "pytorch_lightning",
+    "torchmetrics": "torchmetrics",
+    "torchao": "torchao",
+    "torch-geometric": "torch_geometric",
+    "pyg-lib": "pyg_lib",
+    "torch-scatter": "torch_scatter",
+    "torch-sparse": "torch_sparse",
+}
+_EXPECTED_RUNTIME_ONLY_MODULES = frozenset({
+    "numpy", "torch", "torchvision", "torch_geometric", "torch_sparse",
+    "torch_scatter", "pyg_lib", "matplotlib", "seaborn", "pandas", "sklearn",
+    "scipy", "networkx", "community", "nnx", "tqdm",
+})
+_EXPECTED_RUNTIME_AVAILABLE_IMPORTS = (
+    "torch", "torch_geometric", "pyg_lib", "torch_scatter", "torch_sparse",
+)
+_MUTATING_DECLARATION_METHODS = frozenset({
+    "update", "clear", "pop", "popitem", "setdefault", "add", "discard", "remove",
+    "append", "extend", "insert", "reverse", "sort", "__setitem__", "__delitem__",
+})
+_INPLACE_DECLARATION_DUNDERS = frozenset({
+    "__iadd__", "__iand__", "__idivmod__", "__ifloordiv__", "__ilshift__",
+    "__imatmul__", "__imod__", "__imul__", "__ior__", "__ipow__", "__irshift__",
+    "__isub__", "__itruediv__", "__ixor__",
+})
+_UNBOUND_MUTATOR_TYPES = frozenset({"dict", "frozenset", "list", "set", "tuple"})
+_OPERATOR_MUTATION_FUNCTIONS = frozenset(
+    method[2:-2] for method in _INPLACE_DECLARATION_DUNDERS
+) | frozenset({"iconcat", "setitem", "delitem"})
+
+
+def _protected_name_bindings(tree: ast.AST, name: str) -> list[ast.AST]:
+    bindings: list[ast.AST] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id == name:
+            bindings.append(node)
+        elif isinstance(node, ast.arg) and node.arg == name:
+            bindings.append(node)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
+            bindings.append(node)
+        elif isinstance(node, ast.alias) and (node.asname == name or node.name == name):
+            bindings.append(node)
+        elif isinstance(node, ast.ExceptHandler) and node.name == name:
+            bindings.append(node)
+        elif isinstance(node, ast.MatchAs) and node.name == name:
+            bindings.append(node)
+    return bindings
+
+
+def _protected_mutation_root(node: ast.AST) -> str | None:
+    while isinstance(node, (ast.Attribute, ast.Subscript)):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
+def _is_mutating_declaration_method(method: str) -> bool:
+    return method in _MUTATING_DECLARATION_METHODS or method in _INPLACE_DECLARATION_DUNDERS
+
+
+def _operator_module_aliases(tree: ast.AST) -> frozenset[str]:
+    return frozenset(
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "operator"
+    )
+
+
+def _operator_function_aliases(tree: ast.AST) -> frozenset[str]:
+    return frozenset(
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "operator" and node.level == 0
+        for alias in node.names
+        if alias.name in _OPERATOR_MUTATION_FUNCTIONS
+    )
+
+
+def _operator_star_imports(tree: ast.AST) -> list[ast.alias]:
+    return [
+        alias
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "operator" and node.level == 0
+        for alias in node.names
+        if alias.name == "*"
+    ]
+
+
+def _is_unbound_mutator_type(node: ast.AST) -> bool:
+    return isinstance(node, ast.Name) and node.id in _UNBOUND_MUTATOR_TYPES
+
+
+def _is_operator_mutator_call(
+    function: ast.Attribute,
+    operator_aliases: frozenset[str],
+) -> bool:
+    return (
+        isinstance(function.value, ast.Name)
+        and function.value.id in operator_aliases
+        and function.attr in _OPERATOR_MUTATION_FUNCTIONS
+    )
+
+
+def _protected_name_mutations(
+    tree: ast.AST,
+    name: str,
+    allowed_target: ast.Name,
+) -> list[ast.AST]:
+    mutations: list[ast.AST] = []
+    operator_aliases = _operator_module_aliases(tree)
+    operator_function_aliases = _operator_function_aliases(tree)
+    mutations.extend(_operator_star_imports(tree))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = (node.target,)
+        elif isinstance(node, ast.Delete):
+            targets = node.targets
+        else:
+            targets = ()
+        for target in targets:
+            if target is not allowed_target and _protected_mutation_root(target) == name:
+                mutations.append(target)
+        if not isinstance(node, ast.Call):
+            continue
+        protected_first_argument = (
+            bool(node.args) and _protected_mutation_root(node.args[0]) == name
+        )
+        if isinstance(node.func, ast.Name):
+            if protected_first_argument and node.func.id in operator_function_aliases:
+                mutations.append(node)
+            continue
+        if isinstance(node.func, ast.Attribute):
+            direct_receiver = _protected_mutation_root(node.func.value) == name
+            qualified_mutator = protected_first_argument and (
+                (
+                    _is_unbound_mutator_type(node.func.value)
+                    and _is_mutating_declaration_method(node.func.attr)
+                )
+                or _is_operator_mutator_call(node.func, operator_aliases)
+            )
+            if (
+                direct_receiver and _is_mutating_declaration_method(node.func.attr)
+            ) or qualified_mutator:
+                mutations.append(node)
+    return mutations
+
+
+def _literal_assignment_values(source: str, name: str) -> object:
+    tree = ast.parse(source)
+    assignments = [
+        node for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == name
+    ]
+    if len(assignments) != 1:
+        raise ValueError(f"{name} must have exactly one direct assignment")
+    assignment = assignments[0]
+    if (
+        _protected_name_bindings(tree, name) != [assignment.targets[0]]
+        or _protected_name_mutations(tree, name, assignment.targets[0])
+    ):
+        raise ValueError(f"{name} must not be rebound")
+    value = assignment.value
+    if name == "IMPORTS":
+        if not isinstance(value, ast.Dict) or any(key is None for key in value.keys):
+            raise ValueError("IMPORTS must be a plain literal dictionary")
+        pairs = [
+            (ast.literal_eval(key), ast.literal_eval(item))
+            for key, item in zip(value.keys, value.values, strict=True)
+        ]
+        if not all(isinstance(key, str) and isinstance(item, str) for key, item in pairs):
+            raise ValueError("IMPORTS must map strings to strings")
+        if len({key for key, _ in pairs}) != len(pairs):
+            raise ValueError("IMPORTS must not repeat keys")
+        return dict(pairs)
+    if name == "_RUNTIME_ONLY_MODULES":
+        if not (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "frozenset"
+            and len(value.args) == 1
+            and not value.keywords
+            and isinstance(value.args[0], ast.Set)
+        ):
+            raise ValueError("_RUNTIME_ONLY_MODULES must be a frozenset literal")
+        items = [ast.literal_eval(item) for item in value.args[0].elts]
+        if not all(isinstance(item, str) for item in items) or len(set(items)) != len(items):
+            raise ValueError("_RUNTIME_ONLY_MODULES must contain unique strings")
+        return frozenset(items)
+    if name == "_RUNTIME_AVAILABLE_IMPORTS":
+        if not isinstance(value, ast.Tuple):
+            raise ValueError("_RUNTIME_AVAILABLE_IMPORTS must be a tuple literal")
+        items = tuple(ast.literal_eval(item) for item in value.elts)
+        if not all(isinstance(item, str) for item in items) or len(set(items)) != len(items):
+            raise ValueError("_RUNTIME_AVAILABLE_IMPORTS must contain unique strings")
+        return items
+    raise ValueError(f"unknown protected declaration: {name}")
+
+
+def _workflow_run_commands(source: str) -> tuple[str, ...]:
+    if _yaml is None:
+        raise ValueError("PyYAML is required to parse workflow commands")
+    parsed = _yaml.safe_load(source)
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("jobs"), dict):
+        raise ValueError("workflow jobs are invalid")
+    commands: list[str] = []
+    for job in parsed["jobs"].values():
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps", ())
+        if not isinstance(steps, list):
+            raise ValueError("workflow steps are invalid")
+        for step in steps:
+            if isinstance(step, dict) and "run" in step:
+                if not isinstance(step["run"], str):
+                    raise ValueError("workflow run command is invalid")
+                commands.append(step["run"])
+    return tuple(commands)
+
+
+def _docker_run_commands(source: str) -> tuple[str, ...]:
+    commands: list[str] = []
+    current: list[str] = []
+    continuing = False
+    for raw_line in source.splitlines():
+        line = raw_line.strip()
+        if not current:
+            if not line or line.startswith("#") or not line.upper().startswith("RUN "):
+                continue
+            line = line[4:].strip()
+        current.append(line[:-1].rstrip() if line.endswith("\\") else line)
+        continuing = line.endswith("\\")
+        if not continuing:
+            commands.append("\n".join(current))
+            current = []
+    if current or continuing:
+        raise ValueError("Docker RUN instruction has an unterminated continuation")
+    return tuple(commands)
+
+
+def _has_python_candidate(command: str) -> bool:
+    return any(
+        not line.lstrip().startswith("#")
+        and re.search(r"(?:^|[;&|]\s*)python(?:3(?:\.\d+)?)?\s+-c\b", line)
+        for line in command.splitlines()
+    )
+
+
+def _python_command_imports(commands: Iterable[str]) -> set[str]:
+    imports: set[str] = set()
+    for command in commands:
+        try:
+            argv = shlex.split(command, comments=True)
+        except ValueError:
+            if _has_python_candidate(command):
+                raise ValueError("python -c shell command is malformed") from None
+            continue
+        for index, value in enumerate(argv[:-2]):
+            if not re.fullmatch(r"python(?:3(?:\.\d+)?)?", value) or argv[index + 1] != "-c":
+                continue
+            try:
+                tree = ast.parse(argv[index + 2])
+            except SyntaxError:
+                raise ValueError("python -c source is invalid") from None
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imports.update(alias.name.split(".", 1)[0] for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    imports.add(node.module.split(".", 1)[0])
+    return imports
+
+
+def _torch_runtime_contract_findings(repo: Path) -> list[Finding]:
+    declarations = (
+        ("scripts/verify_torch_stack.py", "IMPORTS", _EXPECTED_TORCH_STACK_IMPORTS),
+        ("scripts/verify_repo.py", "_RUNTIME_ONLY_MODULES", _EXPECTED_RUNTIME_ONLY_MODULES),
+        ("scripts/verify_repo.py", "_RUNTIME_AVAILABLE_IMPORTS", _EXPECTED_RUNTIME_AVAILABLE_IMPORTS),
+    )
+    findings: list[Finding] = []
+    for location, name, required in declarations:
+        try:
+            values = _literal_assignment_values(
+                (repo / location).read_text(encoding="utf-8"), name
+            )
+            if isinstance(values, dict):
+                import_values = set(values.values())
+            else:
+                import_values = set(values)
+            missing = _TORCH_RUNTIME_IMPORTS - import_values
+            forbidden = import_values & _FORBIDDEN_TORCH_RUNTIME_IMPORTS
+            drift = values != required
+            if missing or forbidden or drift:
+                findings.append(Finding(
+                    id="D10.torch_runtime_contract", check="docs", severity="error",
+                    location=f"{location}:{name}",
+                    message="Torch runtime imports drift from the selected graph contract",
+                    detail={
+                        "missing": sorted(missing),
+                        "forbidden": sorted(forbidden),
+                        "actual": sorted(import_values),
+                    },
+                ))
+        except (OSError, SyntaxError, StopIteration, ValueError):
+            findings.append(Finding(
+                id="D10.torch_runtime_contract", check="docs", severity="error",
+                location=f"{location}:{name}",
+                message="Torch runtime import declaration is unreadable or invalid",
+            ))
+
+    command_sources = (
+        (".github/workflows/ci.yml", _workflow_run_commands),
+        ("Dockerfile", _docker_run_commands),
+    )
+    for location, extract_commands in command_sources:
+        try:
+            imports = _python_command_imports(extract_commands(
+                (repo / location).read_text(encoding="utf-8")
+            ))
+        except (OSError, ValueError, TypeError):
+            findings.append(Finding(
+                id="D10.torch_runtime_contract", check="docs", severity="error",
+                location=location,
+                message="Torch runtime availability declaration is unreadable or invalid",
+            ))
+            continue
+        forbidden = imports & _FORBIDDEN_TORCH_RUNTIME_IMPORTS
+        if forbidden:
+            findings.append(Finding(
+                id="D10.torch_runtime_contract", check="docs", severity="error",
+                location=location,
+                message="CI/Docker runtime availability imports a retired graph module",
+                detail={"forbidden": sorted(forbidden)},
+            ))
+    return findings
+
+
 def _notebook_markdown_text(nb_path: Path) -> str:
     try:
         doc = nbformat.read(nb_path, as_version=4)
@@ -1735,6 +2256,7 @@ def check_docs(repo: Path) -> CheckResult:
 
     result.findings.extend(_dependency_ledger_findings(repo))
     result.findings.extend(_workflow_action_pin_findings(repo))
+    result.findings.extend(_torch_runtime_contract_findings(repo))
     result.findings.extend(_stale_layout_guidance_findings(repo))
 
     return result
@@ -2396,6 +2918,17 @@ def _phase3_code_cells_unchanged(repo: Path) -> list[Finding]:
     return findings
 
 
+_RUNTIME_AVAILABLE_IMPORTS = (
+    "torch",
+    "torch_geometric",
+    "pyg_lib",
+    "torch_scatter",
+    "torch_sparse",
+)
+_TORCH_RUNTIME_IMPORTS = frozenset(_RUNTIME_AVAILABLE_IMPORTS)
+_FORBIDDEN_TORCH_RUNTIME_IMPORTS = frozenset(("torch_cluster", "torch_spline_conv"))
+
+
 def _runtime_available() -> bool:
     """True when the heavyweight ML runtime (torch, PyG) is importable in this env.
 
@@ -2407,18 +2940,10 @@ def _runtime_available() -> bool:
     meaningful only in the Atlas JupyterHub runtime or an equivalent
     fully-provisioned env.
     """
-    for canary in (
-        "torch",
-        "torch_geometric",
-        "torch_sparse",
-        "torch_scatter",
-        "torch_cluster",
-        "torch_spline_conv",
-        "pyg_lib",
-    ):
-        if importlib.util.find_spec(canary) is None:
-            return False
-    return True
+    return all(
+        importlib.util.find_spec(import_name) is not None
+        for import_name in _RUNTIME_AVAILABLE_IMPORTS
+    )
 
 
 def check_execution(repo: Path, fast: bool) -> CheckResult:

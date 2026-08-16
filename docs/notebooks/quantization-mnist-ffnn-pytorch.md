@@ -7,15 +7,13 @@ the deep-dive companion to the task notebook: it states the problem, builds the 
 dissects the PTQ vs QAT contracts, reads the code top to bottom, reports the measured
 accuracy / size / latency comparison, and catalogues the pitfalls and extensions.
 
-The notebook is **manual-only** — it is *not* in the Tier-A/B/C papermill targets and is not
-re-executed in CI. The reviewed torchao 0.18.0 release requires Torch >=2.11, while the local/CI
-contract pins `torch==2.4.1`; the 2026-06-15 weekly `smoke-tier-b` cron confirmed that the
-root-stack import surface is incompatible.
-Atlas JupyterHub has a newer observed package surface, but the complete PTQ/QAT notebook has not
-yet been smoked there, so package availability does not change the manual-only classification.
-See `README.md` §4 and issue #10 for the full rationale. Issue #61 proved the accepted QAT side
-environment with Torch 2.11.0, torchvision 0.26.0, and torchao 0.18.0. The older committed
-notebook outputs were produced under Torch 2.8.0 and remain historical evidence.
+The notebook is **manual-only** under Issue #66 and is not in the Tier A/B/C papermill targets.
+Issue #62 qualifies only the tiny PTQ/QAT dependency surface on torch==2.11.0,
+torchvision==0.26.0, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0. The retained NNx 0.2.0 8da4w
+model.train call has one exact test-local UserWarning debt at
+torchao/quantization/quant_primitives.py; zero warnings or tuple drift retires the assertion, and
+all other warnings remain fatal under -W error. Atlas remains Issue #65 and is not acceptance
+evidence. The older committed Torch 2.8.0 outputs remain historical evidence and are not rewritten.
 
 This notebook belongs to the "efficient/compressed MLP" family: where §8.5 edits the architecture
 and §8.7 drives the weights sparse, quantization keeps the architecture and sparsity fixed and
@@ -63,7 +61,7 @@ smallest size at a measurable accuracy cost that a longer training budget would 
 | Per-channel scales | One scale per output channel; finer than per-tensor quantization |
 | int4 groupsize 32 | 4-bit weights grouped in blocks of 32; hidden widths must divide 32 |
 | `QATLifecycleCallback` | `on_train_begin` inserts fake-quant; `on_train_end` converts to truly-quantized |
-| Manual-only (CI-excluded) | local/CI Torch 2.4.1 cannot import the required torchao path; Atlas smoke pending |
+| Manual-only (CI-excluded) | Issue #62 qualifies the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; Issue #66 owns full-notebook execution outside Tier A/B/C. |
 
 The `nnx` surface consumed is: `NNModel`, `NNParams`, `NNModelParams`, `NNTrainParams`,
 `NNOptimParams`, `NNDataset`, `Activations`, `Devices`, `Losses`, `Nets`, `Optims`, `set_seed`, and
@@ -261,12 +259,10 @@ and accelerator hardware.
 
 ## 8.8.7 Pitfalls & edge cases
 
-- **Manual-only — does not run in CI.** This is the load-bearing pitfall. The local/CI
-  `torch==2.4.1` stack cannot import the required torchao surface. Issue #61 proved the QAT
-  checkpoint round trip with Torch 2.11.0, torchvision 0.26.0, and torchao 0.18.0; torchao 0.18
-  requires Torch >=2.11. Atlas has a newer package layer, but needs a complete PTQ/QAT smoke
-  before this task can use it as runtime evidence. The committed notebook outputs were produced
-  under `torch 2.8.0` and are not the Issue #61 side-environment evidence.
+- **Manual-only — full execution belongs to Issue #66.** Issue #62 qualifies only the tiny Torch
+  2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface. The complete notebook remains outside Tier
+  A/B/C, Atlas remains Issue #65, and the committed Torch 2.8.0 outputs remain immutable historical
+  evidence.
 - **8da4w is aggressive (4-bit weights).** At the short training budget used here for CPU
   feasibility (3 epochs), QAT recovery is partial (44.53% vs FP32's 53.48%). Longer schedules
   typically close most of the gap; do not read the recorded QAT accuracy as the achievable 8da4w

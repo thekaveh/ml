@@ -33,12 +33,12 @@ admission sequence is [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
 | model_surgery-mnist-ffnn-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | knowledge_distillation-mnist-ffnn-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | pruning-mnist-ffnn-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
-| quantization-mnist-ffnn-pytorch | manual | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | Manual-only until Atlas Jupyter package validation passes. |
+| quantization-mnist-ffnn-pytorch | manual | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | Manual-only under Issue #66; Issue #62 qualifies only the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface. |
 | moe-fmnist-mixture-of-experts-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | diffusion-mnist-ddpm-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | self_supervised-fmnist-jepa-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | peft-mnist-to-fmnist-dora-vs-lora-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
-| node_classification-reddit-gnn-pyg | B/C | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
+| node_classification-reddit-gnn-pyg | B/C | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the repository Torch 2.11 CPU stack; Atlas remains Issue #65. |
 | link_prediction-karate-graphsage-pyg | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | community_detection-karate-louvain-vs-gnn-pyg | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | text_generation-tinyshakespeare-transformer-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |

@@ -2,16 +2,21 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import builtins
+import copy
 import os
 import re
+import ast
 import shlex
 import shutil
 import subprocess
 import sys
 import tomllib
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping, Sequence
 
 import pytest
 import yaml
@@ -19,9 +24,314 @@ import yaml
 from scripts import verify_repo
 
 REPO = Path(__file__).resolve().parent.parent
+REPO_ROOT = REPO
 SCRIPT = REPO / "scripts" / "verify_repo.py"
 ACTIVE_FIXTURE_DIR = "notebooks/image_classification-mnist-ffnn-numpy"
 TEST_SUBPROCESS_TIMEOUT = 30
+ISSUE62_PLAN = (
+    REPO
+    / "docs"
+    / "superpowers"
+    / "plans"
+    / "2026-08-14-issue-62-torch-stack-upgrade-implementation-plan.md"
+)
+
+_ISSUE62_PULL_REQUEST_CHECKOUTS = {
+    ".github/workflows/ci.yml": {
+        "atlas-consumer-policy",
+        "dependency-audit",
+        "pytest-repository",
+        "pytest-nnx-surface",
+        "verify-repo",
+        "docs-build",
+        "docker-build",
+        "tier-a-papermill",
+        "smoke-tier-b",
+        "smoke-tier-c",
+    },
+    ".github/workflows/docs.yml": {"check"},
+    ".github/workflows/atlas-contract.yml": {"atlas-contract"},
+}
+
+
+def _assert_pull_request_checkouts_use_synthetic_merge_default(
+    workflows: Mapping[str, dict],
+) -> None:
+    assert set(workflows) == set(_ISSUE62_PULL_REQUEST_CHECKOUTS)
+    for path, expected_jobs in _ISSUE62_PULL_REQUEST_CHECKOUTS.items():
+        workflow = workflows[path]
+        assert "pull_request" in workflow["on"]
+        assert set(workflow["jobs"]) == expected_jobs
+        for job_name, job in workflow["jobs"].items():
+            checkouts = [
+                step
+                for step in job["steps"]
+                if str(step.get("uses", "")).startswith("actions/checkout@")
+            ]
+            assert len(checkouts) == 1, (path, job_name)
+            assert "ref" not in checkouts[0].get("with", {}), (path, job_name)
+
+
+def _load_issue62_pull_request_workflows() -> dict[str, dict]:
+    return {
+        path: _load_workflow(REPO / path)
+        for path in _ISSUE62_PULL_REQUEST_CHECKOUTS
+    }
+
+
+def test_pull_request_checkouts_preserve_default_synthetic_merge_ref() -> None:
+    _assert_pull_request_checkouts_use_synthetic_merge_default(
+        _load_issue62_pull_request_workflows()
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "job_name"),
+    tuple(
+        (path, job_name)
+        for path, job_names in _ISSUE62_PULL_REQUEST_CHECKOUTS.items()
+        for job_name in sorted(job_names)
+    ),
+)
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "${{ github.event.pull_request.head.sha }}",
+        "${{ github.event.pull_request.base.sha }}",
+        "refs/heads/develop",
+    ),
+    ids=("head", "base", "arbitrary"),
+)
+def test_pull_request_checkout_contract_rejects_ref_overrides(
+    path: str,
+    job_name: str,
+    mutation: str,
+) -> None:
+    workflows = _load_issue62_pull_request_workflows()
+    checkout = next(
+        step
+        for step in workflows[path]["jobs"][job_name]["steps"]
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    checkout.setdefault("with", {})["ref"] = mutation
+
+    with pytest.raises(AssertionError):
+        _assert_pull_request_checkouts_use_synthetic_merge_default(workflows)
+
+
+def _assert_issue62_pr_dual_identity_plan(plan_source: str) -> None:
+    task7 = plan_source.split("## 12.22.11 Task 7:", maxsplit=1)[1]
+    assert '--commit "$PR_MERGE_SHA"' not in task7
+    assert '--commit "$RELEASE_PR_MERGE_SHA"' not in task7
+    assert '--commit "$SYNC_PR_TEST_MERGE_SHA"' not in task7
+    for source_sha in ("FEATURE_SHA", "DEVELOP_MERGE_SHA", "RELEASE_MERGE_SHA"):
+        assert f'--commit "${source_sha}"' in task7
+    assert task7.count("python -m scripts.verify_pr_run_evidence") == 3
+    for checks in (
+        "pr-checks.json",
+        "release-pr-checks.json",
+        "sync-pr-checks.json",
+    ):
+        assert f'--checks-json "$FINAL_ROOT/{checks}"' in task7
+    for evidence in (
+        "feature-pr-run-evidence.json",
+        "release-pr-run-evidence.json",
+        "sync-pr-run-evidence.json",
+    ):
+        assert f'--output "$FINAL_ROOT/{evidence}"' in task7
+        assert evidence in task7.split("evidence_paths = [", maxsplit=1)[1]
+    assert task7.count("potentialMergeCommit") == 3
+    assert task7.count("headRepository") == 3
+    assert task7.count("--log >") == 9
+    assert task7.count('manifest = {"schema": 2, "runs": [') == 3
+    assert task7.count('"contaminating_ci"') >= 4
+    assert task7.count('"contaminating_pr_run_urls"') >= 7
+    assert task7.count('displayTitle,event,headSha,headBranch,createdAt') >= 3
+    assert task7.count("--add-label tier-b-smoke") == 2
+    assert task7.count(
+        'selected = [(run, action) for run, action in ci_actions '
+        'if action in {"labeled", "synchronize"}]'
+    ) == 2
+    assert task7.count("assert len(selected) == 1 and len(opened) <= 1") == 2
+    assert task7.count('action in {"opened", "synchronize"}') == 1
+    assert task7.count(
+        'sync_run_evidence["runs"][0]["action"] in {"opened", "synchronize"}'
+    ) == 1
+    assert task7.count('url.startswith(item["url"] + "/job/")') == 1
+    assert task7.count(
+        'url.startswith(sync_run_evidence["runs"][0]["url"] + "/job/")'
+    ) == 1
+    assert 'by_check = {item["name"]: item for item in checks}' not in task7
+    assert 'sync_by_check = {item["name"]: item for item in sync_checks}' not in task7
+    for mutation_name in (
+        "wrong_pr_source_identity",
+        "wrong_pr_merge_identity",
+        "wrong_pr_evidence_hash",
+        "wrong_pr_check_association",
+        "wrong_pr_contaminant_url",
+    ):
+        assert task7.count(mutation_name) == 3
+
+
+def _assert_issue62_reuse_queries_select_source_heads(plan_source: str) -> None:
+    task7 = plan_source.split("## 12.22.11 Task 7:", maxsplit=1)[1]
+    for label, source_sha in (
+        ("feature", "FEATURE_SHA"),
+        ("release", "DEVELOP_MERGE_SHA"),
+    ):
+        start = f': > "$FINAL_ROOT/reusable-{label}-pr"'
+        end = f'done < "$FINAL_ROOT/current-{label}-prs"'
+        block = task7.split(start, maxsplit=1)[1].split(end, maxsplit=1)[0]
+        assert block.count(f'--commit "${source_sha}" --limit 20') == 1
+        assert block.count(
+            f'CANDIDATE_RUN=$(python - "$FINAL_ROOT/candidate-{label}-runs.json"'
+        ) == 1
+        assert block.count(f'"${source_sha}" "$CANDIDATE_PR" <<\'PY\'') == 1
+        assert 'if action in {"labeled", "synchronize"}:' in block
+        assert 'assert len(selected) == 1' in block
+        assert '--commit "$CANDIDATE_MERGE_SHA"' not in block
+        assert '"$CANDIDATE_MERGE_SHA" "$CANDIDATE_PR"' not in block
+
+
+def test_issue62_task7_plan_preserves_pr_source_and_synthetic_identities() -> None:
+    plan_source = ISSUE62_PLAN.read_text(encoding="utf-8")
+    _assert_issue62_pr_dual_identity_plan(plan_source)
+    _assert_issue62_reuse_queries_select_source_heads(plan_source)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        (
+            '--commit "$FEATURE_SHA" --limit 20',
+            '--commit "$CANDIDATE_MERGE_SHA" --limit 20',
+        ),
+        (
+            '"$FEATURE_SHA" "$CANDIDATE_PR" <<\'PY\'',
+            '"$CANDIDATE_MERGE_SHA" "$CANDIDATE_PR" <<\'PY\'',
+        ),
+        (
+            '--commit "$DEVELOP_MERGE_SHA" --limit 20',
+            '--commit "$CANDIDATE_MERGE_SHA" --limit 20',
+        ),
+        (
+            '"$DEVELOP_MERGE_SHA" "$CANDIDATE_PR" <<\'PY\'',
+            '"$CANDIDATE_MERGE_SHA" "$CANDIDATE_PR" <<\'PY\'',
+        ),
+    ),
+    ids=("feature-query", "feature-selector", "release-query", "release-selector"),
+)
+def test_issue62_reuse_query_and_selector_reject_identity_mutations(
+    old: str,
+    new: str,
+) -> None:
+    control = ISSUE62_PLAN.read_text(encoding="utf-8")
+    mutated = control.replace(old, new, 1)
+    assert mutated != control
+
+    with pytest.raises(AssertionError):
+        _assert_issue62_reuse_queries_select_source_heads(mutated)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        ('--commit "$FEATURE_SHA"', '--commit "$PR_MERGE_SHA"'),
+        (
+            "python -m scripts.verify_pr_run_evidence",
+            "python -m scripts.verify_smoke_outputs",
+        ),
+        ("feature-pr-run-evidence.json", "feature-pr-runs.json"),
+        ("potentialMergeCommit", "mergeCommit"),
+        ("headRepository", "sourceRepository"),
+        ("--log >", "--log-failed >"),
+        ('manifest = {"schema": 2, "runs": [', 'manifest = {"schema": 1, "runs": ['),
+        ('"contaminating_pr_run_urls"', '"ignored_pr_run_urls"'),
+        ("--add-label tier-b-smoke", "--remove-label tier-b-smoke"),
+        (
+            'if action in {"labeled", "synchronize"}]',
+            'if action in {"opened", "synchronize"}]',
+        ),
+        (
+            "assert len(selected) == 1 and len(opened) <= 1",
+            "assert len(selected) == 1 and len(opened) <= 2",
+        ),
+        (
+            'sync_run_evidence["runs"][0]["action"] in {"opened", "synchronize"}',
+            'sync_run_evidence["runs"][0]["action"] == "opened"',
+        ),
+        ("--checks-json", "--unbound-checks-json"),
+        (
+            'url.startswith(item["url"] + "/job/")',
+            'url.startswith("https://github.com/")',
+        ),
+        (
+            'url.startswith(sync_run_evidence["runs"][0]["url"] + "/job/")',
+            'url.startswith("https://github.com/")',
+        ),
+        ("wrong_pr_source_identity", "wrong_source_identity"),
+        ("wrong_pr_merge_identity", "wrong_merge_identity"),
+        ("wrong_pr_evidence_hash", "wrong_evidence_hash"),
+        ("wrong_pr_check_association", "wrong_check_association"),
+    ),
+)
+def test_issue62_task7_dual_identity_plan_rejects_mutations(old: str, new: str) -> None:
+    control = ISSUE62_PLAN.read_text(encoding="utf-8")
+    _assert_issue62_pr_dual_identity_plan(control)
+    prefix, task7 = control.split("## 12.22.11 Task 7:", maxsplit=1)
+    mutated = prefix + "## 12.22.11 Task 7:" + task7.replace(old, new, 1)
+
+    with pytest.raises(AssertionError):
+        _assert_issue62_pr_dual_identity_plan(mutated)
+
+
+def _assert_issue62_qat_debt_plan_selectors(plan_source: str) -> None:
+    selectors = tuple(
+        re.findall(
+            r"tests/nnx_surface/test_quantization_mnist_ffnn_pytorch\.py \\\n"
+            r"    -q -k '([^']+)'",
+            plan_source,
+        )
+    )
+    assert selectors == ("qat_warning_debt", "qat_warning_debt")
+    test_tree = ast.parse(
+        (
+            REPO
+            / "tests"
+            / "nnx_surface"
+            / "test_quantization_mnist_ffnn_pytorch.py"
+        ).read_text(encoding="utf-8")
+    )
+    debt_tests = tuple(
+        node.name
+        for node in test_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test_qat_warning_debt_")
+    )
+    assert debt_tests
+    assert all(selectors[0] in name for name in debt_tests)
+
+
+def test_issue62_qat_debt_plan_selectors_cover_every_debt_test_family():
+    _assert_issue62_qat_debt_plan_selectors(ISSUE62_PLAN.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (None, "qat_warning_debt_validator", "qat_warning_debt_key", "qat_warning_debt "),
+    ids=("omitted", "validator-only", "key-only", "trailing-space"),
+)
+def test_issue62_qat_debt_plan_selectors_reject_narrowing_mutations(mutation):
+    control = ISSUE62_PLAN.read_text(encoding="utf-8").replace(
+        "-q -k 'qat_warning_debt_validator'",
+        "-q -k 'qat_warning_debt'",
+    )
+    _assert_issue62_qat_debt_plan_selectors(control)
+    replacement = "-q" if mutation is None else f"-q -k '{mutation}'"
+    mutated = control.replace("-q -k 'qat_warning_debt'", replacement, 1)
+
+    with pytest.raises(AssertionError):
+        _assert_issue62_qat_debt_plan_selectors(mutated)
 
 
 def _parse_exact_direct_pins(path: Path) -> dict[str, str]:
@@ -1310,6 +1620,284 @@ def _write_canonical_baseline(repo: Path, document: dict) -> None:
     )
 
 
+_ISSUE62_LEDGER_MARKER = "### 6.1.1.2 Current Issue #62 four-surface audit"
+
+
+def _issue62_ledger_repo(tmp_path: Path) -> Path:
+    repo = _advisory_baseline_repo(tmp_path)
+    module = _load_verify_module()
+    for relative in module._DEPENDENCY_HASH_INPUTS:
+        source = REPO / relative
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+    return repo
+
+
+def _d10_ids(repo: Path) -> set[str]:
+    return {
+        finding.id
+        for finding in _load_verify_module()._dependency_ledger_findings(repo)
+        if finding.id.startswith("D10.dependency_")
+    }
+
+
+def _issue62_section(text: str) -> str:
+    start = text.index(_ISSUE62_LEDGER_MARKER)
+    following = re.search(r"^#{1,3}[ \t]", text[start + len(_ISSUE62_LEDGER_MARKER):], re.MULTILINE)
+    end = (
+        start + len(_ISSUE62_LEDGER_MARKER) + following.start()
+        if following is not None
+        else len(text)
+    )
+    return text[start:end]
+
+
+def _replace_issue62_section(repo: Path, mutate) -> None:
+    ledger = repo / "docs/dependency-contracts.md"
+    original = ledger.read_text(encoding="utf-8")
+    section = _issue62_section(original)
+    replacement = mutate(section)
+    assert replacement != section
+    ledger.write_text(original.replace(section, replacement, 1), encoding="utf-8")
+
+
+def test_dependency_ledger_rejects_missing_or_duplicate_current_issue62_section(tmp_path):
+    repo = _issue62_ledger_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    original = ledger.read_text(encoding="utf-8")
+    ledger.write_text(
+        original.replace(_ISSUE62_LEDGER_MARKER, "### 6.1.1.2 Archived audit", 1),
+        encoding="utf-8",
+    )
+    assert "D10.dependency_ledger_count" in _d10_ids(repo)
+    ledger.write_text(original + "\n" + _issue62_section(original), encoding="utf-8")
+    assert "D10.dependency_ledger_count" in _d10_ids(repo)
+
+
+@pytest.mark.parametrize(
+    ("needle", "replacement"),
+    (
+        (
+            "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n",
+            "",
+        ),
+        (
+            "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |",
+            "| Broken summary header |",
+        ),
+        ("| --- | --- | ---: | ---: | --- |", "| --- |"),
+        ("Result: ", "Result malformed: "),
+    ),
+)
+def test_dependency_ledger_rejects_malformed_result_summary_and_advisory_tables(
+    tmp_path, needle, replacement,
+):
+    repo = _issue62_ledger_repo(tmp_path)
+    _replace_issue62_section(repo, lambda section: section.replace(needle, replacement, 1))
+    assert "D10.dependency_ledger_count" in _d10_ids(repo)
+
+
+def test_dependency_ledger_ignores_complete_historical_audit_tables(tmp_path):
+    repo = _issue62_ledger_repo(tmp_path)
+    assert _d10_ids(repo) == set()
+    ledger = repo / "docs/dependency-contracts.md"
+    original = ledger.read_text(encoding="utf-8")
+    historical = _issue62_section(original).replace(
+        _ISSUE62_LEDGER_MARKER,
+        "### 6.1.13.1 Archived Issue #61 audit",
+        1,
+    )
+    ledger.write_text(original + "\n## 6.1.13 Archive\n\n" + historical, encoding="utf-8")
+    assert _d10_ids(repo) == set()
+
+
+def test_dependency_ledger_rejects_missing_duplicate_reordered_and_stale_input_hashes(tmp_path):
+    repo = _issue62_ledger_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    original = ledger.read_text(encoding="utf-8")
+    section = _issue62_section(original)
+    digest = hashlib.sha256((repo / "requirements.txt").read_bytes()).hexdigest()
+    row = f"| `requirements.txt` | `{digest}` |"
+    assert row in section
+    next_row = next(
+        line for line in section.splitlines()
+        if line.startswith("| `torch-core-requirements.txt`")
+    )
+    mutations = (
+        section.replace(row + "\n", "", 1),
+        section.replace(row, row + "\n" + row, 1),
+        section.replace(row + "\n" + next_row, next_row + "\n" + row, 1),
+        section.replace(row, f"| `requirements.txt` | `{'0' * 64}` |", 1),
+    )
+    for mutated in mutations:
+        ledger.write_text(original.replace(section, mutated, 1), encoding="utf-8")
+        assert "D10.dependency_input_hash" in _d10_ids(repo)
+
+
+@pytest.mark.parametrize("target", ("markdown", "json"))
+@pytest.mark.parametrize("field", ("package", "advisory_id", "accepted_version", "surfaces"))
+def test_dependency_ledger_couples_advisory_identity_version_and_surfaces_to_policy(
+    tmp_path, target, field,
+):
+    repo = _issue62_ledger_repo(tmp_path)
+    policy = repo / "security/accepted-advisories.json"
+    document = json.loads(policy.read_text(encoding="utf-8"))
+    item = document["accepted_advisories"][0]
+    replacements = {
+        "package": "different-package",
+        "advisory_id": "CVE-2099-0000",
+        "accepted_version": "0.0.0",
+        "surfaces": ["documentation"],
+    }
+    if target == "json":
+        item[field] = replacements[field]
+        _write_canonical_baseline(repo, document)
+    else:
+        def mutate_advisory_row(section: str) -> str:
+            row = next(
+                line for line in section.splitlines()
+                if line.startswith(f"| `{item['package']}` | `{item['advisory_id']}` |")
+            )
+            replacements_by_field = {
+                "package": row.replace(
+                    f"| `{item['package']}` |",
+                    f"| `{replacements['package']}` |",
+                    1,
+                ),
+                "advisory_id": row.replace(
+                    f"| `{item['advisory_id']}` |",
+                    f"| `{replacements['advisory_id']}` |",
+                    1,
+                ),
+                "accepted_version": row.replace(
+                    f"| `{item['accepted_version']}` |",
+                    f"| `{replacements['accepted_version']}` |",
+                    1,
+                ),
+                "surfaces": row.replace(
+                    "| Combined runtime; Torch |",
+                    "| Documentation |",
+                    1,
+                ),
+            }
+            return section.replace(row, replacements_by_field[field], 1)
+
+        _replace_issue62_section(repo, mutate_advisory_row)
+    assert "D10.dependency_advisory_baseline" in _d10_ids(repo)
+
+
+def test_dependency_ledger_rejects_advisory_only_package_and_count_drift(tmp_path):
+    repo = _issue62_ledger_repo(tmp_path)
+    extra = (
+        "| `advisory-only` | `CVE-2099-0001` | 1 | None listed | `1.0.0` | "
+        "None listed | Combined runtime |"
+    )
+    def add_advisory_only_row(section: str) -> str:
+        final_row = next(
+            line for line in section.splitlines()
+            if line.startswith("| `torch` | `PYSEC-2025-194` |")
+        )
+        return section.replace(final_row, f"{final_row}\n{extra}", 1)
+
+    _replace_issue62_section(repo, add_advisory_only_row)
+    assert "D10.dependency_ledger_count" in _d10_ids(repo)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda section: section.replace("known vulnerabilities", "known zero vulnerabilities", 1),
+        lambda section: section.replace("torch-scatter", "torch-cluster", 1),
+        lambda section: section.replace("torch-sparse", "torch-spline-conv", 1),
+    ),
+)
+def test_dependency_ledger_rejects_zero_vulnerability_and_legacy_extension_claims(
+    tmp_path, mutation,
+):
+    repo = _issue62_ledger_repo(tmp_path)
+    _replace_issue62_section(repo, mutation)
+    assert "D10.dependency_ledger_contract" in _d10_ids(repo)
+
+
+def test_dependency_ledger_requires_pyg_lib_external_index_limitation(tmp_path):
+    repo = _issue62_ledger_repo(tmp_path)
+    _replace_issue62_section(
+        repo,
+        lambda section: section.replace(
+            "pyg-lib is an exact external-index wheel outside ordinary PyPI audit coverage; "
+            "its version and provenance are verified by `verify_torch_stack`.",
+            "pyg-lib is fully covered by pip-audit.",
+            1,
+        ),
+    )
+    assert "D10.dependency_pyg_lib_limitation" in _d10_ids(repo)
+
+
+@pytest.mark.parametrize("tag", ("script", "pre", "style", "textarea"))
+@pytest.mark.parametrize("indent", ("", " ", "  ", "   "))
+def test_dependency_raw_html_type1_requires_matching_close(tag, indent):
+    module = _load_verify_module()
+    hidden = _ISSUE62_LEDGER_MARKER
+    visible = "### 6.1.1.3 Visible current audit"
+    source = f"{indent}<{tag}>\n{hidden}\n\n{hidden}\n</{tag}>\n{visible}\n"
+    masked = module._mask_dependency_raw_html(source)
+    assert hidden not in masked
+    assert masked.count(visible) == 1
+    assert masked.count("\n") == source.count("\n")
+
+
+_COMMONMARK_TYPE6_TAGS = (
+    "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption",
+    "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt",
+    "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2",
+    "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html", "iframe", "legend", "li",
+    "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p",
+    "param", "search", "section", "source", "summary", "table", "tbody", "td", "tfoot", "th", "thead",
+    "title", "tr", "track", "ul",
+)
+
+
+@pytest.mark.parametrize("tag", _COMMONMARK_TYPE6_TAGS)
+@pytest.mark.parametrize("indent", ("", "   "))
+def test_dependency_raw_html_type6_uses_blank_termination_without_swallowing_visible(tag, indent):
+    module = _load_verify_module()
+    hidden = _ISSUE62_LEDGER_MARKER
+    visible = "### 6.1.1.3 Visible current audit"
+    source = f"{indent}<{tag}>\n</{tag}>\n{hidden}\n\n{visible}\n"
+    masked = module._mask_dependency_raw_html(source)
+    assert hidden not in masked
+    assert visible in masked
+    assert masked.count("\n") == source.count("\n")
+
+
+@pytest.mark.parametrize("indent", ("", " ", "  ", "   "))
+def test_dependency_raw_html_hgroup_hides_decoy_but_visible_current_section_is_enforced(
+    tmp_path, indent,
+):
+    repo = _issue62_ledger_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    original = ledger.read_text(encoding="utf-8")
+    hidden_decoy = f"{indent}<hgroup>\n{_ISSUE62_LEDGER_MARKER}\n</hgroup>\n\n"
+    ledger.write_text(hidden_decoy + original, encoding="utf-8")
+    assert _d10_ids(repo) == set()
+    ledger.write_text(
+        hidden_decoy + original.replace(_ISSUE62_LEDGER_MARKER, "### 6.1.1.2 Removed visible audit", 1),
+        encoding="utf-8",
+    )
+    assert "D10.dependency_ledger_count" in _d10_ids(repo)
+
+
+def test_dependency_raw_html_four_spaces_remains_markdown_code_not_html():
+    module = _load_verify_module()
+    hidden = _ISSUE62_LEDGER_MARKER
+    source = f"    <div>\n    {hidden}\n\n{hidden}\n"
+    published = module._mask_dependency_raw_html(
+        module._strip_markdown_code(source, strip_inline=False)
+    )
+    assert published.count(hidden) == 1
+
+
 def test_docs_d10_dependency_advisory_baseline_matches_current_doc():
     r = run_verify("--check", "docs", "--fast")
     data = json.loads(r.stdout) if r.stdout else {"findings": []}
@@ -1426,7 +2014,7 @@ def test_docs_d10_dependency_advisory_baseline_flags_invalid_current_heading(
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     text = ledger.read_text(encoding="utf-8")
-    marker = "### 6.1.1.2 Current accepted advisories"
+    marker = _ISSUE62_LEDGER_MARKER
     if heading == "missing":
         text = text.replace(marker, "### 6.1.1.2 Historical advisories", 1)
     else:
@@ -1446,9 +2034,9 @@ def test_docs_d10_flags_baseline_advisory_id_drift_dependency_advisory_baseline(
 
     assert [finding.message for finding in _d10_advisory_baseline_findings(repo)] == [
         "accepted advisory baseline identity is missing from the current Markdown ledger: "
-        "pytorch-lightning 2.4.0 PYSEC-2099-1 on [combined-runtime, torch]",
+        "setuptools 81.0.0 PYSEC-2099-1 on [combined-runtime, torch]",
         "current Markdown ledger identity is missing from accepted advisory baseline JSON: "
-        "pytorch-lightning 2.4.0 PYSEC-2026-3043 on [combined-runtime, torch]",
+        "setuptools 81.0.0 PYSEC-2026-3447 on [combined-runtime, torch]",
     ]
 
 
@@ -1460,7 +2048,7 @@ def test_docs_d10_flags_baseline_package_drift_dependency_advisory_baseline(tmp_
 
     assert any(
         "accepted advisory baseline identity is missing from the current Markdown ledger: "
-        "lightning 2.4.0 PYSEC-2026-3043" in finding.message
+        "lightning 81.0.0 PYSEC-2026-3447" in finding.message
         for finding in _d10_advisory_baseline_findings(repo)
     )
 
@@ -1473,7 +2061,7 @@ def test_docs_d10_flags_baseline_accepted_version_drift_dependency_advisory_base
 
     assert any(
         "accepted advisory baseline identity is missing from the current Markdown ledger: "
-        "pytorch-lightning 9.9.9 PYSEC-2026-3043" in finding.message
+        "setuptools 9.9.9 PYSEC-2026-3447" in finding.message
         for finding in _d10_advisory_baseline_findings(repo)
     )
 
@@ -1486,7 +2074,7 @@ def test_docs_d10_flags_baseline_surface_drift_dependency_advisory_baseline(tmp_
 
     assert any(
         "accepted advisory baseline identity is missing from the current Markdown ledger: "
-        "pytorch-lightning 2.4.0 PYSEC-2026-3043 on [torch]" == finding.message
+        "setuptools 81.0.0 PYSEC-2026-3447 on [torch]" == finding.message
         for finding in _d10_advisory_baseline_findings(repo)
     )
 
@@ -1513,26 +2101,47 @@ def test_docs_d10_excludes_historical_rows_from_dependency_advisory_baseline_par
 
 def test_docs_d10_dependency_advisory_baseline_flags_unknown_current_surface(tmp_path):
     repo = _advisory_baseline_repo(tmp_path)
-    ledger = repo / "docs/dependency-contracts.md"
-    ledger.write_text(
-        ledger.read_text(encoding="utf-8").replace(
+    _replace_issue62_section(
+        repo,
+        lambda section: section.replace(
             "Combined runtime; Torch |",
             "Combined runtime; Unknown |",
             1,
         ),
-        encoding="utf-8",
     )
 
     assert _d10_advisory_baseline_findings(repo)
 
 
+def test_docs_d10_dependency_advisory_baseline_flags_noncanonical_surface_order(tmp_path):
+    repo = _advisory_baseline_repo(tmp_path)
+    ledger = repo / "docs/dependency-contracts.md"
+    section = _issue62_section(ledger.read_text(encoding="utf-8"))
+    canonical_count = section.count("Combined runtime; Torch")
+    assert canonical_count > 0
+
+    _replace_issue62_section(
+        repo,
+        lambda current: current.replace(
+            "Combined runtime; Torch",
+            "Torch; Combined runtime",
+        ),
+    )
+
+    hits = _d10_advisory_baseline_findings(repo)
+    assert len(hits) == 1
+    assert "malformed" in hits[0].message
+    assert _issue62_section(ledger.read_text(encoding="utf-8")).count(
+        "Torch; Combined runtime"
+    ) == canonical_count
+
+
 @pytest.mark.parametrize("surface", ["Combined runtime; Combined runtime", "Combined runtime; "])
 def test_docs_d10_dependency_advisory_baseline_flags_duplicate_or_empty_current_surface(tmp_path, surface):
     repo = _advisory_baseline_repo(tmp_path)
-    ledger = repo / "docs/dependency-contracts.md"
-    ledger.write_text(
-        ledger.read_text(encoding="utf-8").replace("Combined runtime; Torch", surface, 1),
-        encoding="utf-8",
+    _replace_issue62_section(
+        repo,
+        lambda section: section.replace("Combined runtime; Torch", surface, 1),
     )
 
     hits = _d10_advisory_baseline_findings(repo)
@@ -1544,12 +2153,12 @@ def test_docs_d10_dependency_advisory_baseline_reports_markdown_only_identity(tm
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     line = (
-        "| `torch` | `PYSEC-2099-1` | 1 | None listed | `2.4.1` | None listed | "
+        "| `torch` | `PYSEC-2099-1` | 1 | None listed | `2.11.0` | None listed | "
         "Combined runtime; Torch |\n"
     )
     final_row = (
-        "| `pytorch-lightning` | `PYSEC-2026-3043` | 1 | None listed | `2.4.0` | "
-        "`GHSA-75m9-98v2-hjpm`, `CVE-2026-31221` | Combined runtime; Torch |"
+        "| `torch` | `PYSEC-2025-194` | 1 | `2.13.0` | `2.11.0` | "
+        "`BIT-pytorch-2025-3000`, `CVE-2025-3000`, `GHSA-rrmf-rvhw-rf47` | Combined runtime; Torch |"
     )
     ledger.write_text(
         ledger.read_text(encoding="utf-8").replace(final_row, f"{final_row}\n{line}"),
@@ -1559,7 +2168,7 @@ def test_docs_d10_dependency_advisory_baseline_reports_markdown_only_identity(tm
     messages = [finding.message for finding in _d10_advisory_baseline_findings(repo)]
     assert messages == [
         "current Markdown ledger identity is missing from accepted advisory baseline JSON: "
-        "torch 2.4.1 PYSEC-2099-1 on [combined-runtime, torch]"
+        "torch 2.11.0 PYSEC-2099-1 on [combined-runtime, torch]"
     ]
 
 
@@ -1567,15 +2176,15 @@ def test_docs_d10_dependency_advisory_baseline_reports_policy_only_identity(tmp_
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     final_row = (
-        "| `pytorch-lightning` | `PYSEC-2026-3043` | 1 | None listed | `2.4.0` | "
-        "`GHSA-75m9-98v2-hjpm`, `CVE-2026-31221` | Combined runtime; Torch |\n"
+        "| `torch` | `PYSEC-2025-194` | 1 | `2.13.0` | `2.11.0` | "
+        "`BIT-pytorch-2025-3000`, `CVE-2025-3000`, `GHSA-rrmf-rvhw-rf47` | Combined runtime; Torch |\n"
     )
     ledger.write_text(ledger.read_text(encoding="utf-8").replace(final_row, ""), encoding="utf-8")
 
     messages = [finding.message for finding in _d10_advisory_baseline_findings(repo)]
     assert messages == [
         "accepted advisory baseline identity is missing from the current Markdown ledger: "
-        "pytorch-lightning 2.4.0 PYSEC-2026-3043 on [combined-runtime, torch]"
+        "torch 2.11.0 PYSEC-2025-194 on [combined-runtime, torch]"
     ]
 
 
@@ -1681,7 +2290,7 @@ def test_docs_d10_unclosed_or_mismatched_fence_hides_advisory_snapshot(tmp_path,
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     text = ledger.read_text(encoding="utf-8")
-    marker = "### 6.1.1.2 Current accepted advisories"
+    marker = _ISSUE62_LEDGER_MARKER
     snapshot = marker + text.split(marker, 1)[1]
     ledger.write_text(fence.format(snapshot=snapshot), encoding="utf-8")
 
@@ -1691,7 +2300,7 @@ def test_docs_d10_unclosed_or_mismatched_fence_hides_advisory_snapshot(tmp_path,
 
 
 def _current_advisory_snapshot(text: str) -> str:
-    marker = "### 6.1.1.2 Current accepted advisories"
+    marker = _ISSUE62_LEDGER_MARKER
     return marker + text.split(marker, 1)[1]
 
 
@@ -1887,7 +2496,7 @@ def _dependency_snapshot(*, summary_count=2, advisory_rows=None):
     return (
         "# 6.1 Dependency Contracts\n\n"
         "## 6.1.1 Audit Snapshot\n\n"
-        "### 6.1.1.2 Current accepted advisories\n\n"
+        "### 6.1.1.2 Current Issue #62 four-surface audit\n\n"
         f"Result: {summary_count} known vulnerabilities across 1 resolved package.\n\n"
         "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
         "| --- | --- | ---: | ---: | --- |\n"
@@ -1927,7 +2536,7 @@ def test_docs_d10_ignores_parser_compatible_historical_rows(tmp_path):
 
 def test_docs_d10_flags_missing_current_advisory_section(tmp_path):
     text = _dependency_snapshot().replace(
-        "### 6.1.1.2 Current accepted advisories",
+        "### 6.1.1.2 Current Issue #62 four-surface audit",
         "### 6.1.1.2 Historical advisories",
     )
     findings = _d10_count_findings(tmp_path, text)
@@ -2017,7 +2626,7 @@ def test_docs_d10_flags_advisory_package_absent_from_summary(tmp_path):
 def test_docs_d10_flags_duplicate_exact_current_heading(tmp_path):
     text = (
         _dependency_snapshot()
-        + "\n### 6.1.1.2 Current accepted advisories\n\n"
+        + "\n### 6.1.1.2 Current Issue #62 four-surface audit\n\n"
         + "Duplicate current section.\n"
     )
     findings = _d10_count_findings(tmp_path, text)
@@ -2027,8 +2636,8 @@ def test_docs_d10_flags_duplicate_exact_current_heading(tmp_path):
 @pytest.mark.parametrize(
     "duplicate_heading",
     [
-        "### 6.1.1.2 Current accepted advisories  \t",
-        "###\t6.1.1.2  Current\taccepted   advisories",
+        "### 6.1.1.2 Current Issue #62 four-surface audit  \t",
+        "###\t6.1.1.2  Current\tIssue  #62\tfour-surface   audit",
     ],
 )
 def test_docs_d10_flags_semantically_duplicate_current_heading(
@@ -2040,7 +2649,7 @@ def test_docs_d10_flags_semantically_duplicate_current_heading(
 
 
 def test_docs_d10_rejects_current_structures_inside_fenced_code(tmp_path):
-    heading = "### 6.1.1.2 Current accepted advisories"
+    heading = _ISSUE62_LEDGER_MARKER
     prefix, body = _dependency_snapshot().split(f"{heading}\n\n", maxsplit=1)
     text = f"{prefix}{heading}\n\n```markdown\n{body}```\n"
     findings = _d10_count_findings(tmp_path, text)
@@ -2053,7 +2662,7 @@ def test_docs_d10_ignores_current_heading_example_inside_fenced_code(tmp_path):
     text = (
         _dependency_snapshot()
         + "\n```markdown\n"
-        + "### 6.1.1.2 Current accepted advisories\n"
+        + "### 6.1.1.2 Current Issue #62 four-surface audit\n"
         + "```\n"
     )
     assert _d10_count_findings(tmp_path, text) == []
@@ -2121,7 +2730,7 @@ def test_docs_d10_flags_dependency_ledger_count_drift(tmp_path):
     (docs / "dependency-contracts.md").write_text(
         "# Dependency Contracts\n\n"
         "## 1. Audit Snapshot\n\n"
-        "### 6.1.1.2 Current accepted advisories\n\n"
+        "### 6.1.1.2 Current Issue #62 four-surface audit\n\n"
         "Result: 2 known vulnerabilities across one resolved package:\n\n"
         "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
         "| --- | --- | ---: | ---: | --- |\n"
@@ -2526,6 +3135,367 @@ def test_runtime_available_requires_pyg_extension_stack(monkeypatch):
     monkeypatch.setattr(verify_repo.importlib.util, "find_spec", fake_find_spec)
 
     assert verify_repo._runtime_available() is False
+
+
+def _torch_runtime_import_names(repo: Path) -> set[str]:
+    tree = ast.parse(
+        (repo / "scripts/verify_torch_stack.py").read_text(encoding="utf-8")
+    )
+    assignment = next(
+        node for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "IMPORTS"
+            for target in node.targets
+        )
+    )
+    imports = ast.literal_eval(assignment.value)
+    assert isinstance(imports, dict)
+    return set(imports.values())
+
+
+def test_issue62_runtime_availability_uses_only_supported_graph_modules():
+    required = {"pyg_lib", "torch_scatter", "torch_sparse", "torch_geometric"}
+    forbidden = {"torch_cluster", "torch_spline_conv"}
+    assert required <= _torch_runtime_import_names(REPO_ROOT)
+    assert forbidden.isdisjoint(_torch_runtime_import_names(REPO_ROOT))
+    assert verify_repo._RUNTIME_AVAILABLE_IMPORTS == (
+        "torch", "torch_geometric", "pyg_lib", "torch_scatter", "torch_sparse",
+    )
+
+
+def _copied_torch_runtime_contract_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    for relative in (
+        "scripts/verify_torch_stack.py",
+        "scripts/verify_repo.py",
+        ".github/workflows/ci.yml",
+        "Dockerfile",
+    ):
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text((REPO_ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
+    return repo
+
+
+def _torch_runtime_contract_findings(repo: Path):
+    return [
+        finding for finding in verify_repo.check_docs(repo).findings
+        if finding.id == "D10.torch_runtime_contract"
+    ]
+
+
+def test_torch_runtime_contract_clean_control_has_no_production_finding(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+
+    assert _torch_runtime_contract_findings(repo) == []
+
+
+@pytest.mark.parametrize("forbidden", ("torch_cluster", "torch_spline_conv"))
+@pytest.mark.parametrize("declaration", ("IMPORTS", "_RUNTIME_ONLY_MODULES", "_RUNTIME_AVAILABLE_IMPORTS"))
+def test_torch_runtime_contract_rejects_legacy_declaration_mutations(
+    tmp_path: Path, forbidden: str, declaration: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    source_path = repo / ("scripts/verify_torch_stack.py" if declaration == "IMPORTS" else "scripts/verify_repo.py")
+    source = source_path.read_text(encoding="utf-8")
+    anchor = '    "torch-sparse": "torch_sparse",' if declaration == "IMPORTS" else '    "torch_sparse",'
+    replacement = anchor + f'\n    "{forbidden}",'
+    mutated = source.replace(anchor, replacement, 1)
+    assert mutated != source
+    source_path.write_text(mutated, encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize("required", ("torch_geometric", "pyg_lib", "torch_scatter", "torch_sparse"))
+@pytest.mark.parametrize("declaration", ("IMPORTS", "_RUNTIME_ONLY_MODULES", "_RUNTIME_AVAILABLE_IMPORTS"))
+def test_torch_runtime_contract_rejects_missing_required_modules(
+    tmp_path: Path, required: str, declaration: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    source_path = repo / ("scripts/verify_torch_stack.py" if declaration == "IMPORTS" else "scripts/verify_repo.py")
+    source = source_path.read_text(encoding="utf-8")
+    anchor = f'    "{required.replace("_", "-")}": "{required}",'
+    if declaration != "IMPORTS":
+        anchor = f'    "{required}",'
+    mutated = source.replace(anchor + "\n", "", 1)
+    assert mutated != source
+    source_path.write_text(mutated, encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+def _mutate_ci_run_command(repo: Path, command: str) -> None:
+    target = repo / ".github/workflows/ci.yml"
+    source = target.read_text(encoding="utf-8")
+    anchor = "      - name: Install dependencies\n        run: |\n"
+    mutated = source.replace(anchor, anchor + f"          {command}\n", 1)
+    assert mutated != source
+    target.write_text(mutated, encoding="utf-8")
+
+
+def _mutate_docker_run_instruction(repo: Path, command: str) -> None:
+    target = repo / "Dockerfile"
+    source = target.read_text(encoding="utf-8")
+    anchor = "RUN make install-torch-stack \\\n"
+    mutated = source.replace(anchor, f"RUN {command} \\\n  && make install-torch-stack \\\n", 1)
+    assert mutated != source
+    target.write_text(mutated, encoding="utf-8")
+
+
+def test_torch_runtime_contract_ignores_historical_python_command_comments(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    _mutate_ci_run_command(repo, '# historical: python -c "import torch_cluster"')
+    _mutate_docker_run_instruction(repo, '# historical: python -c "import torch_spline_conv"')
+
+    assert _torch_runtime_contract_findings(repo) == []
+
+
+@pytest.mark.parametrize(("mutator", "forbidden"), (
+    (_mutate_ci_run_command, "torch_cluster"),
+    (_mutate_docker_run_instruction, "torch_spline_conv"),
+))
+def test_torch_runtime_contract_rejects_valid_ci_and_docker_commands(
+    tmp_path: Path, mutator, forbidden: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    mutator(repo, f'python -c "import {forbidden}"')
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize(("mutator", "command"), (
+    (_mutate_ci_run_command, 'python -c "import torch_cluster'),
+    (_mutate_docker_run_instruction, 'python -c "import ("'),
+))
+def test_torch_runtime_contract_rejects_malformed_python_candidates(
+    tmp_path: Path, mutator, command: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    mutator(repo, command)
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize("name", ("IMPORTS", "_RUNTIME_ONLY_MODULES", "_RUNTIME_AVAILABLE_IMPORTS"))
+def test_torch_runtime_contract_rejects_rebound_declarations(tmp_path: Path, name: str) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / ("scripts/verify_torch_stack.py" if name == "IMPORTS" else "scripts/verify_repo.py")
+    target.write_text(
+        target.read_text(encoding="utf-8") + f"\n{name} = {name}\n",
+        encoding="utf-8",
+    )
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+def test_torch_runtime_contract_rejects_nonliteral_declaration(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / "scripts/verify_repo.py"
+    source = target.read_text(encoding="utf-8")
+    start = source.index("_RUNTIME_AVAILABLE_IMPORTS = (")
+    end = source.index("\n)\n_TORCH_RUNTIME_IMPORTS", start) + 2
+    mutated = source[:start] + "_RUNTIME_AVAILABLE_IMPORTS = runtime_names()" + source[end:]
+    target.write_text(mutated, encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize("mutation", (
+    "\nif True:\n    IMPORTS = IMPORTS\n",
+    "\nif (_RUNTIME_ONLY_MODULES := _RUNTIME_ONLY_MODULES):\n    pass\n",
+    "\ndef _shadow(_RUNTIME_AVAILABLE_IMPORTS):\n    return _RUNTIME_AVAILABLE_IMPORTS\n",
+))
+def test_torch_runtime_contract_rejects_nested_and_nonplain_rebindings(
+    tmp_path: Path, mutation: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / ("scripts/verify_torch_stack.py" if "IMPORTS =" in mutation else "scripts/verify_repo.py")
+    target.write_text(target.read_text(encoding="utf-8") + mutation, encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize("replacement", (
+    "[\n    \"torch\", \"torch_geometric\", \"pyg_lib\", \"torch_scatter\", \"torch_sparse\",\n]",
+    "(\n    \"torch\", \"torch_geometric\", \"pyg_lib\", \"torch_scatter\", \"torch_sparse\", \"torch\",\n)",
+    "(\n    \"torch_sparse\", \"torch_scatter\", \"pyg_lib\", \"torch_geometric\", \"torch\",\n)",
+))
+def test_torch_runtime_contract_requires_exact_available_import_tuple(
+    tmp_path: Path, replacement: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / "scripts/verify_repo.py"
+    source = target.read_text(encoding="utf-8")
+    start = source.index("_RUNTIME_AVAILABLE_IMPORTS = ")
+    end = source.index("\n_TORCH_RUNTIME_IMPORTS", start)
+    mutated = source[:start] + f"_RUNTIME_AVAILABLE_IMPORTS = {replacement}" + source[end:]
+    target.write_text(mutated, encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize(("target_name", "mutation"), (
+    ("IMPORTS", "IMPORTS['legacy'] = 'torch_cluster'"),
+    ("IMPORTS", "IMPORTS.update({'legacy': 'torch_cluster'})"),
+    ("IMPORTS", "del IMPORTS"),
+    ("IMPORTS", "del IMPORTS['torch']"),
+    ("IMPORTS", "IMPORTS['torch'] += '_legacy'"),
+    ("_RUNTIME_ONLY_MODULES", "_RUNTIME_ONLY_MODULES.add('torch_cluster')"),
+    ("_RUNTIME_ONLY_MODULES", "_RUNTIME_ONLY_MODULES.__setitem__(0, 'torch_cluster')"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "del _RUNTIME_AVAILABLE_IMPORTS[0]"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "_RUNTIME_AVAILABLE_IMPORTS.append('torch_cluster')"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "_RUNTIME_AVAILABLE_IMPORTS.value = 'torch_cluster'"),
+))
+def test_torch_runtime_contract_rejects_executable_declaration_mutations(
+    tmp_path: Path, target_name: str, mutation: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / ("scripts/verify_torch_stack.py" if target_name == "IMPORTS" else "scripts/verify_repo.py")
+    target.write_text(target.read_text(encoding="utf-8") + f"\n{mutation}\n", encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize(("target_name", "mutation"), (
+    ("IMPORTS", "IMPORTS.__ior__({'legacy': 'torch_cluster'})"),
+    ("IMPORTS", "IMPORTS.__class__.__ior__(IMPORTS, {'legacy': 'torch_cluster'})"),
+    ("IMPORTS", "dict.__ior__(IMPORTS, {'legacy': 'torch_cluster'})"),
+    ("_RUNTIME_ONLY_MODULES", "_RUNTIME_ONLY_MODULES.__iand__({'torch'})"),
+    ("_RUNTIME_ONLY_MODULES", "_RUNTIME_ONLY_MODULES.__isub__({'torch'})"),
+    ("_RUNTIME_ONLY_MODULES", "_RUNTIME_ONLY_MODULES.__ixor__({'torch'})"),
+    ("_RUNTIME_ONLY_MODULES", "set.update(_RUNTIME_ONLY_MODULES, {'torch_cluster'})"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "_RUNTIME_AVAILABLE_IMPORTS.__iadd__(('torch_cluster',))"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "_RUNTIME_AVAILABLE_IMPORTS.__imul__(2)"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "list.append(_RUNTIME_AVAILABLE_IMPORTS, 'torch_cluster')"),
+))
+def test_torch_runtime_contract_rejects_inplace_and_qualified_declaration_mutations(
+    tmp_path: Path, target_name: str, mutation: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / ("scripts/verify_torch_stack.py" if target_name == "IMPORTS" else "scripts/verify_repo.py")
+    target.write_text(target.read_text(encoding="utf-8") + f"\n{mutation}\n", encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+def test_torch_runtime_contract_allows_sink_methods_with_protected_arguments(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / "scripts/verify_torch_stack.py"
+    target.write_text(
+        target.read_text(encoding="utf-8")
+        + "\nclass Sink:\n"
+        + "    def update(self, value):\n        return value\n"
+        + "    def append(self, value):\n        return value\n"
+        + "    def copy(self, value):\n        return value\n"
+        + "sink = Sink()\n"
+        + "sink.update(IMPORTS)\n"
+        + "sink.append(IMPORTS)\n"
+        + "sink.copy(IMPORTS)\n",
+        encoding="utf-8",
+    )
+
+    assert _torch_runtime_contract_findings(repo) == []
+
+
+@pytest.mark.parametrize(("target_name", "mutation"), (
+    ("IMPORTS", "import operator\noperator.ior(IMPORTS, {'legacy': 'torch_cluster'})"),
+    ("IMPORTS", "import operator as op\nop.setitem(IMPORTS, 'legacy', 'torch_cluster')"),
+    ("IMPORTS", "import operator\noperator.delitem(IMPORTS, 'torch')"),
+    ("_RUNTIME_ONLY_MODULES", "import operator\noperator.iand(_RUNTIME_ONLY_MODULES, {'torch'})"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "import operator\noperator.iadd(_RUNTIME_AVAILABLE_IMPORTS, ('torch_cluster',))"),
+))
+def test_torch_runtime_contract_rejects_operator_declaration_mutators(
+    tmp_path: Path, target_name: str, mutation: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / ("scripts/verify_torch_stack.py" if target_name == "IMPORTS" else "scripts/verify_repo.py")
+    target.write_text(target.read_text(encoding="utf-8") + f"\n{mutation}\n", encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+@pytest.mark.parametrize(("target_name", "mutation"), (
+    ("IMPORTS", "from operator import ior\nior(IMPORTS, {'legacy': 'torch_cluster'})"),
+    ("IMPORTS", "from operator import setitem as put\nput(IMPORTS, 'legacy', 'torch_cluster')"),
+    ("IMPORTS", "from operator import delitem\ndelitem(IMPORTS, 'torch')"),
+    ("_RUNTIME_ONLY_MODULES", "from operator import ixor\nixor(_RUNTIME_ONLY_MODULES, {'torch'})"),
+    ("_RUNTIME_AVAILABLE_IMPORTS", "from operator import iconcat\niconcat(_RUNTIME_AVAILABLE_IMPORTS, ('torch_cluster',))"),
+))
+def test_torch_runtime_contract_rejects_from_operator_declaration_mutators(
+    tmp_path: Path, target_name: str, mutation: str,
+) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / ("scripts/verify_torch_stack.py" if target_name == "IMPORTS" else "scripts/verify_repo.py")
+    target.write_text(target.read_text(encoding="utf-8") + f"\n{mutation}\n", encoding="utf-8")
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+def test_torch_runtime_contract_rejects_operator_star_import(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / "scripts/verify_torch_stack.py"
+    target.write_text(
+        target.read_text(encoding="utf-8") + "\nfrom operator import *\n",
+        encoding="utf-8",
+    )
+
+    assert _torch_runtime_contract_findings(repo)
+
+
+def test_torch_runtime_contract_allows_nonmutating_operator_functions(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / "scripts/verify_torch_stack.py"
+    target.write_text(
+        target.read_text(encoding="utf-8")
+        + "\nimport operator\n"
+        + "operator.getitem(IMPORTS, 'torch')\n"
+        + "operator.contains(IMPORTS, 'torch')\n"
+        + "operator.length_hint(IMPORTS)\n",
+        encoding="utf-8",
+    )
+
+    assert _torch_runtime_contract_findings(repo) == []
+
+
+def test_torch_runtime_contract_allows_nonmutating_from_operator_functions(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    target = repo / "scripts/verify_torch_stack.py"
+    target.write_text(
+        target.read_text(encoding="utf-8")
+        + "\nfrom operator import contains, getitem as lookup, length_hint\n"
+        + "lookup(IMPORTS, 'torch')\n"
+        + "contains(IMPORTS, 'torch')\n"
+        + "length_hint(IMPORTS)\n",
+        encoding="utf-8",
+    )
+
+    assert _torch_runtime_contract_findings(repo) == []
+
+
+def test_torch_runtime_contract_allows_ordinary_declaration_reads(tmp_path: Path) -> None:
+    repo = _copied_torch_runtime_contract_repo(tmp_path)
+    stack_source = repo / "scripts/verify_torch_stack.py"
+    stack_source.write_text(
+        stack_source.read_text(encoding="utf-8")
+        + "\nif 'torch' in IMPORTS:\n    selected_import = IMPORTS['torch']\n"
+        + "read_import = IMPORTS.get('torch')\n",
+        encoding="utf-8",
+    )
+    repo_source = repo / "scripts/verify_repo.py"
+    repo_source.write_text(
+        repo_source.read_text(encoding="utf-8")
+        + "\nfor runtime_name in _RUNTIME_ONLY_MODULES:\n    pass\n"
+        + "first_runtime = _RUNTIME_AVAILABLE_IMPORTS[0]\n"
+        + "qualified_import_read = dict.get(IMPORTS, 'torch')\n"
+        + "iterator = IMPORTS.__iter__()\n"
+        + "qualified_set_read = set.isdisjoint(_RUNTIME_ONLY_MODULES, {'torch'})\n"
+        + "qualified_tuple_read = tuple.count(_RUNTIME_AVAILABLE_IMPORTS, 'torch')\n",
+        encoding="utf-8",
+    )
+
+    assert _torch_runtime_contract_findings(repo) == []
 
 
 def test_full_execution_uses_temporary_tier_a_outputs(tmp_path, monkeypatch):
@@ -3094,6 +4064,950 @@ def _load_workflow(path: Path) -> dict:
     return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
+_SHELL_SEPARATORS = frozenset((";", "&&", "||", "|"))
+_MAKE_MUTATION_TARGETS = frozenset(
+    ("install-torch-stack", "codespace-setup", "nlp-assets")
+)
+_SHELL_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.DOTALL)
+_STACK_CACHE_MANIFESTS = (
+    "requirements.txt",
+    "torch-core-requirements.txt",
+    "torch-ecosystem-requirements.txt",
+    "torch-requirements.txt",
+    "torch-audit-requirements.txt",
+    "pyg-extension-audit-requirements.txt",
+)
+
+
+@dataclass(frozen=True)
+class ShellCommand:
+    argv: tuple[str, ...]
+    environment: Mapping[str, str]
+    wrappers: tuple[str, ...]
+
+
+def _parse_shell_command(argv: Sequence[str]) -> ShellCommand:
+    tokens = list(argv)
+    environment: dict[str, str] = {}
+    wrappers: list[str] = []
+    while tokens:
+        if tokens[0] in {"sudo", "env"}:
+            wrappers.append(tokens.pop(0))
+            continue
+        if _SHELL_ASSIGNMENT_RE.fullmatch(tokens[0]):
+            name, value = tokens.pop(0).split("=", 1)
+            environment[name] = value
+            continue
+        break
+    return ShellCommand(tuple(tokens), environment, tuple(wrappers))
+
+
+def _shell_commands(source: str) -> tuple[ShellCommand, ...]:
+    logical = source.replace("\\\n", " ").replace("\n", ";")
+    lexer = shlex.shlex(logical, posix=True, punctuation_chars=";&|")
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    commands: list[ShellCommand] = []
+    current: list[str] = []
+    for token in lexer:
+        if token in _SHELL_SEPARATORS:
+            if current:
+                command = _parse_shell_command(current)
+                if command.argv:
+                    commands.append(command)
+                current = []
+        else:
+            current.append(token)
+    if current:
+        command = _parse_shell_command(current)
+        if command.argv:
+            commands.append(command)
+    return tuple(commands)
+
+
+def _shell_argvs(source: str) -> tuple[tuple[str, ...], ...]:
+    return tuple(command.argv for command in _shell_commands(source))
+
+
+def _attribute_chain(node: ast.AST) -> tuple[str, ...]:
+    names: list[str] = []
+    while isinstance(node, ast.Attribute):
+        names.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        names.append(node.id)
+    return tuple(reversed(names))
+
+
+def _python_c_downloads_data(program: str) -> bool:
+    try:
+        tree = ast.parse(program)
+    except SyntaxError:
+        return True
+    return any(
+        isinstance(node, ast.Call)
+        and _attribute_chain(node.func) in (("nltk", "download"), ("spacy", "download"))
+        for node in ast.walk(tree)
+    )
+
+
+def _is_package_or_data_change(argv: tuple[str, ...]) -> bool:
+    if not argv:
+        return False
+    executable = Path(argv[0].replace("$(PYTHON)", "python")).name
+    if executable in {"pip", "pip3"}:
+        return len(argv) > 1 and argv[1] == "install"
+    if executable == "uv":
+        return len(argv) > 2 and argv[1:3] == ("pip", "install")
+    if executable in {"apt", "apt-get", "conda"}:
+        return "install" in argv[1:]
+    if executable in {"make", "$(MAKE)"}:
+        return any(
+            token in _MAKE_MUTATION_TARGETS or token.startswith("install")
+            for token in argv[1:]
+        )
+    if executable == "spacy":
+        return len(argv) > 1 and argv[1] == "download"
+    if executable == "nltk":
+        return len(argv) > 1 and argv[1] in {"download", "downloader"}
+    if executable.startswith("python"):
+        if len(argv) > 3 and argv[1:3] == ("-m", "pip"):
+            return argv[3] == "install"
+        if len(argv) > 3 and argv[1:3] == ("-m", "spacy"):
+            return argv[3] == "download"
+        if len(argv) > 2 and argv[1:3] in {
+            ("-m", "nltk"),
+            ("-m", "nltk.downloader"),
+        }:
+            return True
+        if len(argv) > 2 and argv[1] == "-c":
+            return _python_c_downloads_data(argv[2])
+    return False
+
+
+def _assert_final_install_order(commands: tuple[str, ...], workload: str) -> None:
+    argvs = tuple(argv for source in commands for argv in _shell_argvs(source))
+    installers = [
+        index
+        for index, argv in enumerate(argvs)
+        if argv == ("make", "install-torch-stack")
+    ]
+    assert len(installers) == 1
+    changes = [index for index, argv in enumerate(argvs) if _is_package_or_data_change(argv)]
+    assert installers[0] in changes
+    pip_check = argvs.index(("python", "-m", "pip", "check"))
+    stack = argvs.index(("make", "verify-torch-stack"))
+    nnx = argvs.index(("make", "verify-nnx-install"))
+    workload_argv = next(argv for argv in argvs if shlex.join(argv) == workload)
+    work = argvs.index(workload_argv)
+    assert installers[0] <= max(changes) < pip_check < stack < nnx < work
+    assert not any(_is_package_or_data_change(argv) for argv in argvs[pip_check:work])
+
+
+_WARNING_ACTIONS = ("default", "error", "ignore", "always", "module", "once")
+_FORBIDDEN_WARNING_ARGV = frozenset(
+    (
+        "--disable-warnings",
+        "--disable-pytest-warnings",
+    )
+)
+
+
+def _warning_action(specification: str) -> str:
+    action = specification.split(":", 1)[0].strip().lower()
+    if not action:
+        return "default"
+    if action == "all":
+        return "always"
+    matches = tuple(candidate for candidate in _WARNING_ACTIONS if candidate.startswith(action))
+    assert len(matches) == 1, specification
+    return matches[0]
+
+
+def _warning_actions(argv: Sequence[str]) -> tuple[str, ...]:
+    actions: list[str] = []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token in {"-W", "--pythonwarnings"}:
+            assert index + 1 < len(argv), argv
+            actions.append(_warning_action(argv[index + 1]))
+            index += 2
+            continue
+        if token.startswith("--pythonwarnings="):
+            actions.append(_warning_action(token.split("=", 1)[1]))
+            index += 1
+            continue
+        if token.startswith("-W"):
+            actions.append(_warning_action(token[2:]))
+        index += 1
+    return tuple(actions)
+
+
+def _pythonwarnings_actions(value: object) -> tuple[str, ...]:
+    assert isinstance(value, str) and value, value
+    return tuple(_warning_action(part) for part in value.split(","))
+
+
+def _pytest_plugin_options(argv: Sequence[str]) -> tuple[str, ...]:
+    plugins: list[str] = []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token == "-p":
+            assert index + 1 < len(argv), argv
+            plugins.append(argv[index + 1])
+            index += 2
+            continue
+        if token.startswith("-p"):
+            plugins.append(token[2:])
+        index += 1
+    return tuple(plugins)
+
+
+def _assert_no_warning_bypass(argv: Sequence[str]) -> None:
+    assert _FORBIDDEN_WARNING_ARGV.isdisjoint(argv)
+    assert "no:warnings" not in _pytest_plugin_options(argv)
+    assert not any("filterwarnings=" in token for token in argv)
+
+
+def _environment_warning_actions(env: object) -> tuple[str, ...]:
+    if env is None:
+        return ()
+    assert isinstance(env, dict), env
+    actions: list[str] = []
+    if "PYTHONWARNINGS" in env:
+        actions.extend(_pythonwarnings_actions(env["PYTHONWARNINGS"]))
+    if "PYTEST_ADDOPTS" in env:
+        assert isinstance(env["PYTEST_ADDOPTS"], str), env["PYTEST_ADDOPTS"]
+        addopts = tuple(shlex.split(env["PYTEST_ADDOPTS"]))
+        _assert_no_warning_bypass(addopts)
+        actions.extend(_warning_actions(addopts))
+    return tuple(actions)
+
+
+def _assert_warning_error_command(
+    argv: tuple[str, ...],
+    *environments: object,
+) -> None:
+    _assert_no_warning_bypass(argv)
+    command_actions = _warning_actions(argv)
+    environment_actions = tuple(
+        action
+        for env in environments
+        for action in _environment_warning_actions(env)
+    )
+    assert (
+        sum(
+            argv[index : index + 2] == ("-W", "error")
+            for index in range(len(argv) - 1)
+        )
+        == 1
+    ), argv
+    assert command_actions == ("error",), command_actions
+    assert command_actions + environment_actions == ("error",), (
+        command_actions,
+        environment_actions,
+    )
+
+
+def _assert_nnx_warning_contract(workflow: dict[str, object]) -> None:
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, dict)
+    job = jobs["pytest-nnx-surface"]
+    assert isinstance(job, dict)
+    steps = job["steps"]
+    assert isinstance(steps, list)
+    step = next(item for item in steps if item.get("name") == "Run NNx-surface tests")
+    pytest_commands = tuple(
+        command
+        for command in _shell_commands(step["run"])
+        if command.argv and Path(command.argv[0]).name == "pytest"
+    )
+    assert len(pytest_commands) == 1, pytest_commands
+    command = pytest_commands[0]
+    _assert_warning_error_command(
+        command.argv,
+        command.environment,
+        workflow.get("env"),
+        job.get("env"),
+        step.get("env"),
+    )
+
+
+_RUNTIME_JOB_WORKLOADS = {
+    "pytest-repository": "make test",
+    "pytest-nnx-surface": (
+        "pytest -p no:cacheprovider -W error --junitxml=/tmp/nnx-surface.xml "
+        "tests/nnx_surface -v"
+    ),
+    "verify-repo": "make verify",
+    "tier-a-papermill": "make smoke-tier-a",
+    "smoke-tier-b": "make smoke-tier-b",
+    "smoke-tier-c": "make smoke-tier-c",
+}
+
+
+def _job_run_commands(workflow: dict, job_name: str) -> tuple[str, ...]:
+    return tuple(
+        step["run"]
+        for step in workflow["jobs"][job_name]["steps"]
+        if "run" in step
+    )
+
+
+def _unquoted_pipe_operators(source: str) -> tuple[str, ...]:
+    operators: list[str] = []
+    quote: str | None = None
+    escaped = False
+    in_comment = False
+    at_word_start = True
+    index = 0
+    while index < len(source):
+        character = source[index]
+        if in_comment:
+            if character == "\n":
+                in_comment = False
+                at_word_start = True
+            index += 1
+            continue
+        if quote is not None:
+            if quote == '"' and escaped:
+                escaped = False
+            elif quote == '"' and character == "\\":
+                escaped = True
+            elif character == quote:
+                quote = None
+            index += 1
+            continue
+        if escaped:
+            escaped = False
+            at_word_start = False
+            index += 1
+            continue
+        if character == "\\":
+            escaped = True
+            index += 1
+            continue
+        if character in {"'", '"'}:
+            quote = character
+            at_word_start = False
+            index += 1
+            continue
+        if character == "#" and at_word_start:
+            in_comment = True
+            index += 1
+            continue
+        if character == "|":
+            if index + 1 < len(source) and source[index + 1] == "|":
+                operators.append("||")
+                index += 2
+            else:
+                operators.append("|")
+                index += 1
+            at_word_start = True
+            continue
+        at_word_start = character.isspace() or character in ";&()"
+        index += 1
+    return tuple(operators)
+
+
+def _assert_no_failure_masking(step: Mapping[str, object]) -> None:
+    assert "continue-on-error" not in step
+    assert "shell" not in step
+    source = step.get("run")
+    if source is None:
+        return
+    assert isinstance(source, str)
+    operators = _unquoted_pipe_operators(source)
+    assert "||" not in operators
+    assert "|" not in operators
+    for argv in _shell_argvs(source):
+        assert argv[:2] != ("set", "+e")
+        assert argv[:3] != ("set", "+o", "errexit")
+
+
+def _assert_runtime_job_install_contract(workflow: dict, job_name: str) -> None:
+    job = workflow["jobs"][job_name]
+    assert "services" not in job
+    assert "container" not in job
+    assert "continue-on-error" not in job
+    assert "defaults" not in job
+    for step in job["steps"]:
+        _assert_no_failure_masking(step)
+    setup = next(
+        step
+        for step in job["steps"]
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+    )
+    cache_paths = tuple(setup["with"]["cache-dependency-path"].splitlines())
+    assert len(cache_paths) == len(set(cache_paths))
+    assert set(_STACK_CACHE_MANIFESTS) <= set(cache_paths)
+    allowed_extras = {"docs-requirements.txt"} if job_name == "pytest-repository" else set()
+    assert set(cache_paths) - set(_STACK_CACHE_MANIFESTS) == allowed_extras
+    commands = _job_run_commands(workflow, job_name)
+    _assert_final_install_order(commands, _RUNTIME_JOB_WORKLOADS[job_name])
+    all_commands = tuple(
+        command for source in commands for command in _shell_commands(source)
+    )
+    warning_environments = (
+        workflow.get("env"),
+        job.get("env"),
+        *(step.get("env") for step in job["steps"]),
+    )
+    assert all(
+        not _environment_warning_actions(environment)
+        for environment in warning_environments
+    )
+    assert all(
+        not ({"PYTHONWARNINGS", "PYTEST_ADDOPTS"} & set(command.environment))
+        for command in all_commands
+    )
+    for command in all_commands:
+        if job_name == "pytest-nnx-surface" and Path(command.argv[0]).name == "pytest":
+            _assert_warning_error_command(command.argv, command.environment)
+        else:
+            _assert_no_warning_bypass(command.argv)
+            assert not _warning_actions(command.argv)
+    forbidden_executables = {"jupyter", "jupyterhub", "ollama", "comfyui"}
+    assert all(
+        Path(command.argv[0]).name not in forbidden_executables
+        and command.argv[:2] not in {
+            ("docker", "compose"),
+            ("docker-compose", "up"),
+            ("make", "atlas-setup"),
+            ("make", "atlas-up"),
+        }
+        for command in all_commands
+    )
+    checkout = next(step for step in job["steps"] if step.get("name") == "Checkout")
+    if job_name == "verify-repo":
+        assert checkout.get("with") == {
+            "persist-credentials": "false",
+            "fetch-depth": "0",
+            "submodules": "recursive",
+        }
+    else:
+        assert "submodules" not in checkout.get("with", {})
+
+
+def _assert_nnx_junit_contract(workflow: dict) -> None:
+    step = next(
+        item
+        for item in workflow["jobs"]["pytest-nnx-surface"]["steps"]
+        if item.get("name") == "Run NNx-surface tests"
+    )
+    assert _shell_argvs(step["run"]) == (
+        (
+            "pytest",
+            "-p",
+            "no:cacheprovider",
+            "-W",
+            "error",
+            "--junitxml=/tmp/nnx-surface.xml",
+            "tests/nnx_surface",
+            "-v",
+        ),
+        (
+            "python",
+            "-m",
+            "scripts.verify_junit",
+            "/tmp/nnx-surface.xml",
+        ),
+    )
+
+
+_TIER_OUTPUT_CONTRACTS = {
+    "tier-a-papermill": ("a", "/tmp/ml-tier-a"),
+    "smoke-tier-b": ("b", "/tmp/ml-smoke"),
+    "smoke-tier-c": ("c", "/tmp/ml-smoke"),
+}
+
+
+def _assert_tier_output_contract(workflow: dict, job_name: str) -> None:
+    argvs = tuple(
+        argv
+        for source in _job_run_commands(workflow, job_name)
+        for argv in _shell_argvs(source)
+    )
+    workload = tuple(shlex.split(_RUNTIME_JOB_WORKLOADS[job_name]))
+    tier, root = _TIER_OUTPUT_CONTRACTS[job_name]
+    oracle = (
+        "python",
+        "-m",
+        "scripts.verify_smoke_outputs",
+        "--tier",
+        tier,
+        "--root",
+        root,
+    )
+    assert argvs.count(workload) == 1
+    assert argvs.count(oracle) == 1
+    assert argvs.index(oracle) == argvs.index(workload) + 1
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        "sudo apt install libcairo2",
+        "sudo apt-get install -y libcairo2",
+        "env PIP_NO_INDEX=1 python -m pip install package",
+        "sudo env PIP_NO_INDEX=1 python -m pip install package",
+    ),
+)
+def test_package_change_classifier_normalizes_wrappers(command):
+    (argv,) = _shell_argvs(command)
+    assert _is_package_or_data_change(argv)
+
+
+def test_shell_parser_preserves_inline_warning_environment_and_wrappers():
+    (command,) = _shell_commands(
+        "sudo env PYTHONWARNINGS=ignore "
+        "PYTEST_ADDOPTS='--pythonwarnings default' pytest -W error tests/nnx_surface"
+    )
+    assert command.argv == ("pytest", "-W", "error", "tests/nnx_surface")
+    assert command.environment == {
+        "PYTHONWARNINGS": "ignore",
+        "PYTEST_ADDOPTS": "--pythonwarnings default",
+    }
+    assert command.wrappers == ("sudo", "env")
+
+
+def test_shell_parser_handles_line_continuations_newlines_and_assignments():
+    assert _shell_argvs("python -m pip check \\\n&& make verify-torch-stack\nmake verify-nnx-install") == (
+        ("python", "-m", "pip", "check"),
+        ("make", "verify-torch-stack"),
+        ("make", "verify-nnx-install"),
+    )
+    (command,) = _shell_commands("env MODE=test sudo make verify-torch-stack")
+    assert command.argv == ("make", "verify-torch-stack")
+    assert command.environment == {"MODE": "test"}
+    assert command.wrappers == ("env", "sudo")
+
+
+@pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))
+def test_ci_runtime_jobs_use_final_install_order_and_complete_cache_manifest(job_name):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    _assert_runtime_job_install_contract(workflow, job_name)
+
+
+def test_ci_verify_repo_submodule_contract_initializes_recursive_checkout():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    checkout = next(
+        step
+        for step in workflow["jobs"]["verify-repo"]["steps"]
+        if step.get("name") == "Checkout"
+    )
+
+    assert checkout["with"] == {
+        "persist-credentials": "false",
+        "fetch-depth": "0",
+        "submodules": "recursive",
+    }
+    _assert_runtime_job_install_contract(workflow, "verify-repo")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (None, False, True, "false", "true", "recursive "),
+    ids=("omitted", "false-bool", "true-bool", "false-string", "true-string", "spaced"),
+)
+def test_ci_verify_repo_submodule_contract_rejects_nonrecursive_mutations(mutation):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    checkout = next(
+        step
+        for step in workflow["jobs"]["verify-repo"]["steps"]
+        if step.get("name") == "Checkout"
+    )
+    checkout["with"]["submodules"] = "recursive"
+    _assert_runtime_job_install_contract(workflow, "verify-repo")
+
+    if mutation is None:
+        checkout["with"].pop("submodules")
+    else:
+        checkout["with"]["submodules"] = mutation
+    with pytest.raises(AssertionError):
+        _assert_runtime_job_install_contract(workflow, "verify-repo")
+
+
+@pytest.mark.parametrize(
+    "job_name",
+    tuple(name for name in _RUNTIME_JOB_WORKLOADS if name != "verify-repo"),
+)
+def test_ci_verify_repo_submodule_contract_preserves_other_runtime_checkouts(job_name):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    checkout = next(
+        step
+        for step in workflow["jobs"][job_name]["steps"]
+        if step.get("name") == "Checkout"
+    )
+    assert "submodules" not in checkout.get("with", {})
+    checkout["with"]["submodules"] = "recursive"
+
+    with pytest.raises(AssertionError):
+        _assert_runtime_job_install_contract(workflow, job_name)
+
+
+@pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))
+def test_ci_runtime_job_contract_rejects_job_continue_on_error(job_name):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    workflow["jobs"][job_name]["continue-on-error"] = "true"
+
+    with pytest.raises(AssertionError):
+        _assert_runtime_job_install_contract(workflow, job_name)
+
+
+@pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))
+def test_ci_runtime_job_contract_rejects_continue_on_error_on_every_step(job_name):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    steps = workflow["jobs"][job_name]["steps"]
+    assert steps
+
+    for step_index in range(len(steps)):
+        mutated = copy.deepcopy(workflow)
+        step = mutated["jobs"][job_name]["steps"][step_index]
+        original = copy.deepcopy(step)
+        step["continue-on-error"] = "true"
+        assert step != original
+        with pytest.raises(AssertionError):
+            _assert_runtime_job_install_contract(mutated, job_name)
+
+
+@pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))
+@pytest.mark.parametrize(
+    ("mutation", "value"),
+    (
+        ("continue-on-error", "true"),
+        ("shell", "bash {0} || true"),
+        ("run-suffix", " || true"),
+        ("run-suffix", " || :"),
+        ("run-prefix", "set +e\n"),
+        ("run-prefix", "set +o errexit\n"),
+    ),
+)
+def test_ci_runtime_job_contract_rejects_failure_masking_on_every_run_step(
+    job_name,
+    mutation,
+    value,
+):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    run_indexes = tuple(
+        index
+        for index, step in enumerate(workflow["jobs"][job_name]["steps"])
+        if "run" in step
+    )
+    assert run_indexes
+
+    for step_index in run_indexes:
+        mutated = copy.deepcopy(workflow)
+        step = mutated["jobs"][job_name]["steps"][step_index]
+        original = copy.deepcopy(step)
+        if mutation == "run-suffix":
+            step["run"] = f"{step['run']}{value}"
+        elif mutation == "run-prefix":
+            step["run"] = f"{value}{step['run']}"
+        else:
+            step[mutation] = value
+        assert step != original
+        with pytest.raises(AssertionError):
+            _assert_runtime_job_install_contract(mutated, job_name)
+
+
+@pytest.mark.parametrize(
+    ("job_name", "step_name", "command"),
+    (
+        ("verify-repo", "Run repo verifier", "make verify"),
+        (
+            "tier-a-papermill",
+            "Verify Tier-A notebook output contract",
+            "python -m scripts.verify_smoke_outputs --tier a --root /tmp/ml-tier-a",
+        ),
+        ("pytest-repository", "Install dependencies", "make install-torch-stack"),
+        (
+            "pytest-nnx-surface",
+            "Check and verify canonical Torch and NNx stack",
+            "make verify-torch-stack",
+        ),
+        ("smoke-tier-b", "Smoke-run Tier-B notebooks", "make smoke-tier-b"),
+    ),
+)
+def test_ci_runtime_job_contract_rejects_unquoted_pipeline_masking(
+    job_name,
+    step_name,
+    command,
+):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    step = next(
+        item
+        for item in workflow["jobs"][job_name]["steps"]
+        if item.get("name") == step_name
+    )
+    original = step["run"]
+    assert original.count(command) == 1
+    step["run"] = original.replace(command, f"{command} | cat", 1)
+    assert step["run"] != original
+
+    with pytest.raises(AssertionError):
+        _assert_runtime_job_install_contract(workflow, job_name)
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "make verify",
+        "python -m pip check\nmake verify-torch-stack\nmake verify-nnx-install",
+        "printf '%s\\n' 'verification | complete'",
+        "printf '%s\\n' 'fallback || complete'",
+        "printf '%s\\n' '|'",
+        "printf '%s\\n' '||'",
+        'python -c "print(\'workload | complete\')"',
+    ),
+)
+def test_ci_failure_masking_contract_accepts_ordinary_commands(source):
+    _assert_no_failure_masking({"run": source})
+
+
+@pytest.mark.parametrize("job_name", tuple(_RUNTIME_JOB_WORKLOADS))
+@pytest.mark.parametrize("manifest", _STACK_CACHE_MANIFESTS)
+def test_ci_runtime_cache_manifest_rejects_each_omission(job_name, manifest):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    setup = next(
+        step
+        for step in workflow["jobs"][job_name]["steps"]
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+    )
+    original = setup["with"]["cache-dependency-path"]
+    mutated = original.replace(f"{manifest}\n", "")
+    assert mutated != original
+    setup["with"]["cache-dependency-path"] = mutated
+    with pytest.raises(AssertionError):
+        _assert_runtime_job_install_contract(workflow, job_name)
+
+
+def _ordered_install_fixture() -> tuple[str, ...]:
+    return (
+        "sudo apt-get install -y libcairo2",
+        "make install-torch-stack",
+        "python -m pip install -r docs-requirements.txt",
+        "make nlp-assets",
+        "python -m pip check",
+        "make verify-torch-stack",
+        "make verify-nnx-install",
+        "make test",
+    )
+
+
+def test_final_install_order_accepts_allowed_setup_before_final_verification():
+    _assert_final_install_order(_ordered_install_fixture(), "make test")
+
+
+@pytest.mark.parametrize(
+    "late_change",
+    (
+        "pip install package",
+        "pip3 install package",
+        "python -m pip install package",
+        "uv pip install package",
+        "apt install package",
+        "apt-get install package",
+        "conda install package",
+        "python -m spacy download model",
+        "spacy download model",
+        "nltk download vader_lexicon",
+        "python -m nltk.downloader vader_lexicon",
+        "sudo apt install package",
+        "sudo apt-get install package",
+        "env PIP_NO_INDEX=1 python -m pip install package",
+        'python -c "import nltk; nltk.download(\'vader_lexicon\')"',
+        "make install-extra",
+        "make nlp-assets",
+        "make codespace-setup",
+    ),
+)
+def test_final_install_order_rejects_every_late_package_or_data_change(late_change):
+    commands = list(_ordered_install_fixture())
+    commands.insert(-1, late_change)
+    with pytest.raises(AssertionError):
+        _assert_final_install_order(tuple(commands), "make test")
+
+
+@pytest.mark.parametrize("position", (5, 6, 7))
+def test_final_install_order_rejects_duplicate_installer_at_each_verification_boundary(position):
+    commands = list(_ordered_install_fixture())
+    commands.insert(position, "make install-torch-stack")
+    with pytest.raises(AssertionError):
+        _assert_final_install_order(tuple(commands), "make test")
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    (
+        "-W ignore",
+        "-Wignore",
+        "-Wignore::UserWarning",
+        "-Wdefault",
+        "-Wignore::DeprecationWarning",
+        "-W once",
+        "-Wonce",
+        "-W module",
+        "-Wmodule",
+        "-W always",
+        "-Walways",
+        "-Werror",
+        "--pythonwarnings ignore",
+        "--pythonwarnings=default",
+        "--pythonwarnings=ignore::DeprecationWarning",
+        "-p no:warnings",
+        "-pno:warnings",
+        "--disable-warnings",
+    ),
+)
+def test_nnx_ci_rejects_appended_warning_cli_actions(suffix):
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    mutated = copy.deepcopy(workflow)
+    step = next(
+        item
+        for item in mutated["jobs"]["pytest-nnx-surface"]["steps"]
+        if item.get("name") == "Run NNx-surface tests"
+    )
+    original = step["run"]
+    step["run"] = original.replace("-W error", f"-W error {suffix}", 1)
+    assert step["run"] != original and "-W error" in step["run"]
+    with pytest.raises(AssertionError):
+        _assert_nnx_warning_contract(mutated)
+
+
+@pytest.mark.parametrize("level", ("workflow", "job", "step"))
+@pytest.mark.parametrize(
+    ("name", "value"),
+    (
+        ("PYTHONWARNINGS", "ignore"),
+        ("PYTHONWARNINGS", "default"),
+        ("PYTHONWARNINGS", "ignore::DeprecationWarning"),
+        ("PYTHONWARNINGS", "once"),
+        ("PYTHONWARNINGS", "module"),
+        ("PYTHONWARNINGS", "always"),
+        ("PYTHONWARNINGS", "error"),
+        ("PYTEST_ADDOPTS", "-W ignore"),
+        ("PYTEST_ADDOPTS", "-Wdefault"),
+        ("PYTEST_ADDOPTS", "-Wignore::DeprecationWarning"),
+        ("PYTEST_ADDOPTS", "-W once"),
+        ("PYTEST_ADDOPTS", "-Wmodule"),
+        ("PYTEST_ADDOPTS", "-Walways"),
+        ("PYTEST_ADDOPTS", "-Werror"),
+        ("PYTEST_ADDOPTS", "-p no:warnings"),
+        ("PYTEST_ADDOPTS", "-pno:warnings"),
+        ("PYTEST_ADDOPTS", "--disable-warnings"),
+    ),
+)
+def test_nnx_ci_rejects_appended_warning_environment(level, name, value):
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    mutated = copy.deepcopy(workflow)
+    job = mutated["jobs"]["pytest-nnx-surface"]
+    step = next(item for item in job["steps"] if item.get("name") == "Run NNx-surface tests")
+    owner = {"workflow": mutated, "job": job, "step": step}[level]
+    owner.setdefault("env", {})[name] = value
+    assert "-W error" in step["run"]
+    with pytest.raises(AssertionError):
+        _assert_nnx_warning_contract(mutated)
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    (
+        "PYTHONWARNINGS=ignore",
+        "PYTEST_ADDOPTS='-W ignore'",
+        "PYTEST_ADDOPTS='-p no:warnings'",
+        "env PYTHONWARNINGS=ignore::DeprecationWarning",
+        "env PYTEST_ADDOPTS='-Wdefault'",
+        "env PYTEST_ADDOPTS=-pno:warnings",
+        "sudo env PYTEST_ADDOPTS='-Wignore::DeprecationWarning'",
+        "sudo env PYTEST_ADDOPTS='-p no:warnings'",
+    ),
+)
+def test_nnx_ci_rejects_inline_warning_environment(prefix):
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    mutated = copy.deepcopy(workflow)
+    step = next(
+        item
+        for item in mutated["jobs"]["pytest-nnx-surface"]["steps"]
+        if item.get("name") == "Run NNx-surface tests"
+    )
+    original = step["run"]
+    step["run"] = original.replace("pytest -p", f"{prefix} pytest -p", 1)
+    assert step["run"] != original and "-W error" in step["run"]
+    with pytest.raises(AssertionError):
+        _assert_nnx_warning_contract(mutated)
+
+
+def test_nnx_ci_warning_error_contract_accepts_only_original_error_action():
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    _assert_nnx_warning_contract(workflow)
+    _assert_nnx_junit_contract(workflow)
+    assert _warning_actions(("pytest", "-Werror")) == ("error",)
+    assert _warning_actions(("pytest", "-W", "error")) == ("error",)
+    assert _warning_actions(("pytest", "--pythonwarnings", "ignore")) == ("ignore",)
+    assert _warning_actions(("pytest", "--pythonwarnings=default")) == ("default",)
+    assert _pytest_plugin_options(("pytest", "-p", "no:warnings")) == ("no:warnings",)
+    assert _pytest_plugin_options(("pytest", "-pno:warnings")) == ("no:warnings",)
+    _assert_no_warning_bypass(("pytest", "-p", "no:cacheprovider", "-W", "error"))
+    _assert_warning_error_command(("pytest", "-W", "error"))
+    for argv in (
+        ("pytest", "-Werror"),
+        ("pytest", "-W", "error", "-W", "ignore"),
+        ("pytest", "-Werror", "-Wdefault"),
+        ("pytest", "-W", "error", "-Wignore::DeprecationWarning"),
+        ("pytest", "-W", "error", "--pythonwarnings", "ignore"),
+        ("pytest", "-W", "error", "--pythonwarnings=default"),
+        ("pytest", "-W", "error", "-p", "no:warnings"),
+        ("pytest", "-W", "error", "-pno:warnings"),
+    ):
+        with pytest.raises(AssertionError):
+            _assert_warning_error_command(argv)
+
+
+@pytest.mark.parametrize("job_name", tuple(_TIER_OUTPUT_CONTRACTS))
+def test_ci_tier_output_oracle_follows_matching_workload(job_name):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    _assert_tier_output_contract(workflow, job_name)
+
+
+@pytest.mark.parametrize("job_name", tuple(_TIER_OUTPUT_CONTRACTS))
+@pytest.mark.parametrize("mutation", ("missing", "wrong-root", "duplicate-workload", "late-install"))
+def test_ci_tier_output_oracle_rejects_order_mutations(job_name, mutation):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    steps = workflow["jobs"][job_name]["steps"]
+    workload_name = {
+        "tier-a-papermill": "Run Tier-A notebooks (papermill)",
+        "smoke-tier-b": "Smoke-run Tier-B notebooks",
+        "smoke-tier-c": "Smoke-run Tier-C notebooks",
+    }[job_name]
+    workload_index = next(
+        index for index, step in enumerate(steps) if step.get("name") == workload_name
+    )
+    oracle_index = workload_index + 1
+    if mutation == "missing":
+        steps.pop(oracle_index)
+    elif mutation == "wrong-root":
+        steps[oracle_index]["run"] = steps[oracle_index]["run"].replace(
+            _TIER_OUTPUT_CONTRACTS[job_name][1], "/tmp/wrong"
+        )
+    elif mutation == "duplicate-workload":
+        steps.insert(oracle_index, copy.deepcopy(steps[workload_index]))
+    else:
+        steps.insert(oracle_index, {"name": "Late install", "run": "pip install package"})
+    with pytest.raises(AssertionError):
+        _assert_tier_output_contract(workflow, job_name)
+
+
 _DEPENDENCY_AUDIT_JOB = {
     "name": "dependency-audit",
     "runs-on": "ubuntu-24.04",
@@ -3114,6 +5028,7 @@ _DEPENDENCY_AUDIT_JOB = {
                     "vulnerability-audit-requirements.txt\n"
                     "requirements.txt\n"
                     "torch-core-requirements.txt\n"
+                    "torch-ecosystem-requirements.txt\n"
                     "torch-requirements.txt\n"
                     "torch-audit-requirements.txt\n"
                     "pyg-extension-audit-requirements.txt\n"
@@ -3147,10 +5062,18 @@ def _assert_dependency_audit_job_contract(workflow: dict) -> None:
 def _assert_dependency_audit_ci_envelope(workflow: dict) -> None:
     assert workflow["on"] == {
         "push": {"branches": ["develop", "main"]},
-        "pull_request": {"branches": ["develop", "main"]},
+        "pull_request": {
+            "branches": ["develop", "main"],
+            "types": ["opened", "synchronize", "reopened", "labeled"],
+        },
         "workflow_dispatch": "",
         "schedule": [{"cron": "0 7 * * 1"}],
     }
+    assert workflow["run-name"] == (
+        "CI / ${{ github.event_name }} / "
+        "${{ github.event.action || 'none' }} / PR "
+        "${{ github.event.pull_request.number || 0 }}"
+    )
     assert workflow["permissions"] == {"contents": "read"}
 
 
@@ -3168,6 +5091,10 @@ def test_ci_dependency_audit_job_contract():
         "remove-dispatch",
         "change-cron",
         "add-write-permission",
+        "remove-pr-types",
+        "remove-labeled-type",
+        "wrong-pr-type",
+        "wrong-run-name",
     ),
 )
 def test_ci_dependency_audit_envelope_rejects_trigger_or_permission_mutations(mutation):
@@ -3178,6 +5105,14 @@ def test_ci_dependency_audit_envelope_rejects_trigger_or_permission_mutations(mu
         del workflow["on"]["workflow_dispatch"]
     elif mutation == "change-cron":
         workflow["on"]["schedule"][0]["cron"] = "17 3 * * 1"
+    elif mutation == "remove-pr-types":
+        del workflow["on"]["pull_request"]["types"]
+    elif mutation == "remove-labeled-type":
+        workflow["on"]["pull_request"]["types"].remove("labeled")
+    elif mutation == "wrong-pr-type":
+        workflow["on"]["pull_request"]["types"][-1] = "closed"
+    elif mutation == "wrong-run-name":
+        workflow["run-name"] = "CI"
     else:
         workflow["permissions"]["pull-requests"] = "write"
 
@@ -3269,6 +5204,7 @@ def test_ci_dependency_audit_job_contract_rejects_checkout_submodules():
         "vulnerability-audit-requirements.txt",
         "requirements.txt",
         "torch-core-requirements.txt",
+        "torch-ecosystem-requirements.txt",
         "torch-requirements.txt",
         "torch-audit-requirements.txt",
         "pyg-extension-audit-requirements.txt",
@@ -3279,9 +5215,10 @@ def test_ci_dependency_audit_job_contract_rejects_checkout_submodules():
 def test_ci_dependency_audit_job_contract_rejects_missing_cache_manifest(manifest):
     workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
     setup = workflow["jobs"]["dependency-audit"]["steps"][1]
-    setup["with"]["cache-dependency-path"] = setup["with"][
-        "cache-dependency-path"
-    ].replace(f"{manifest}\n", "")
+    original = setup["with"]["cache-dependency-path"]
+    mutated = original.replace(f"{manifest}\n", "")
+    assert mutated != original
+    setup["with"]["cache-dependency-path"] = mutated
 
     with pytest.raises(AssertionError):
         _assert_dependency_audit_job_contract(workflow)
@@ -3808,6 +5745,7 @@ def test_ci_runs_repository_workflow_contract_tests():
         "documentation_workflows_install_cairo_and_gate_pages_inputs or "
         "documentation_direct_dependencies_are_exactly_pinned or "
         "docs_workflow_covers_atlas_metadata_inputs_and_parser_tests or "
+        "ci_verify_repo_submodule_contract or "
         "ci_runs_repository_workflow_contract_tests or "
         "ci_runs_complete_repository_test_contract or "
         "ci_repository_test_contract_enforces_canonical_nnx_wheel or "
@@ -3959,22 +5897,25 @@ def _assert_complete_repository_test_contract(workflow: dict) -> None:
                 "cache-dependency-path": (
                     "requirements.txt\n"
                     "torch-core-requirements.txt\n"
+                    "torch-ecosystem-requirements.txt\n"
                     "torch-requirements.txt\n"
+                    "torch-audit-requirements.txt\n"
+                    "pyg-extension-audit-requirements.txt\n"
                     "docs-requirements.txt\n"
                 ),
             },
         },
         {
             "name": "Install dependencies",
-            "run": (
-                "make install-torch-stack\n"
-                "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
-                "python -m pip install -r docs-requirements.txt\n"
-            ),
+            "run": "make install-torch-stack\npython -m pip install -r docs-requirements.txt\n",
         },
         {
-            "name": "Verify canonical NNx installation",
-            "run": "make verify-nnx-install",
+            "name": "Check and verify canonical Torch and NNx stack",
+            "run": (
+                "python -m pip check\n"
+                "make verify-torch-stack\n"
+                "make verify-nnx-install\n"
+            ),
         },
         {
             "name": "Run complete repository tests",
@@ -4128,23 +6069,31 @@ def _assert_nnx_surface_job_contract(workflow: dict) -> None:
                 "cache-dependency-path": (
                     "requirements.txt\n"
                     "torch-core-requirements.txt\n"
+                    "torch-ecosystem-requirements.txt\n"
                     "torch-requirements.txt\n"
+                    "torch-audit-requirements.txt\n"
+                    "pyg-extension-audit-requirements.txt\n"
                 ),
             },
         },
-        {
-            "name": "Install dependencies",
-            "run": (
-                "make install-torch-stack\n"
-                "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
-            ),
-        },
+        {"name": "Install dependencies", "run": "make install-torch-stack"},
         {"name": "Lint (ruff check)", "run": "make lint"},
         {
-            "name": "Verify canonical NNx installation",
-            "run": "make verify-nnx-install",
+            "name": "Check and verify canonical Torch and NNx stack",
+            "run": (
+                "python -m pip check\n"
+                "make verify-torch-stack\n"
+                "make verify-nnx-install\n"
+            ),
         },
-        {"name": "Run NNx-surface tests", "run": "make test-nnx-surface"},
+        {
+            "name": "Run NNx-surface tests",
+            "run": (
+                "pytest -p no:cacheprovider -W error "
+                "--junitxml=/tmp/nnx-surface.xml tests/nnx_surface -v\n"
+                "python -m scripts.verify_junit /tmp/nnx-surface.xml\n"
+            ),
+        },
     ]
 
 
@@ -4155,48 +6104,7 @@ def test_ci_nnx_surface_job_enforces_canonical_wheel_contract():
 
 
 def _valid_nnx_contract_workflow() -> dict:
-    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
-    repository_steps = workflow["jobs"]["pytest-repository"]["steps"]
-    repository_install = next(
-        step for step in repository_steps if step.get("name") == "Install dependencies"
-    )
-    repository_install["run"] = (
-        "make install-torch-stack\n"
-        "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
-        "python -m pip install -r docs-requirements.txt\n"
-    )
-    if not any(
-        step.get("name") == "Verify canonical NNx installation"
-        for step in repository_steps
-    ):
-        repository_steps[-1:-1] = [
-            {
-                "name": "Verify canonical NNx installation",
-                "run": "make verify-nnx-install",
-            }
-        ]
-
-    surface_steps = workflow["jobs"]["pytest-nnx-surface"]["steps"]
-    surface_install = next(
-        step for step in surface_steps if step.get("name") == "Install dependencies"
-    )
-    surface_install["run"] = (
-        "make install-torch-stack\n"
-        "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
-    )
-    surface_verifier = next(
-        step
-        for step in surface_steps
-        if step.get("name") in {"Verify nnx import", "Verify canonical NNx installation"}
-    )
-    surface_verifier.clear()
-    surface_verifier.update(
-        {
-            "name": "Verify canonical NNx installation",
-            "run": "make verify-nnx-install",
-        }
-    )
-    return workflow
+    return _load_workflow(REPO / ".github/workflows/ci.yml")
 
 
 @pytest.mark.parametrize("variable", ["NNX_ALLOW_EDITABLE", "PYTHONPATH"])
@@ -4301,9 +6209,7 @@ def test_ci_nnx_jobs_reject_noncanonical_install_commands(
         for step in workflow["jobs"][job_name]["steps"]
         if step.get("name") == "Install dependencies"
     )
-    lines = install["run"].splitlines()
-    lines[1] = install_command
-    install["run"] = "\n".join(lines) + "\n"
+    install["run"] = f"{install['run']}\n{install_command}"
 
     with pytest.raises(AssertionError):
         assert_contract(workflow)
@@ -4343,7 +6249,7 @@ def test_ci_nnx_jobs_reject_provenance_environment_overrides(
         verifier = next(
             step
             for step in job["steps"]
-            if step.get("name") == "Verify canonical NNx installation"
+            if step.get("name") == "Check and verify canonical Torch and NNx stack"
         )
         verifier["env"] = {variable: "1"}
 
@@ -4364,7 +6270,7 @@ def test_ci_nnx_jobs_reject_removed_or_reordered_verifier(job_name, assert_contr
     verifier_index = next(
         index
         for index, step in enumerate(steps)
-        if step.get("name") == "Verify canonical NNx installation"
+        if step.get("name") == "Check and verify canonical Torch and NNx stack"
     )
     verifier = steps.pop(verifier_index)
 
@@ -4420,7 +6326,9 @@ def test_ci_nnx_jobs_reject_controls_and_weakened_workloads(
         job[field] = value
     else:
         step_name = (
-            "Verify canonical NNx installation" if target == "verifier" else test_step_name
+            "Check and verify canonical Torch and NNx stack"
+            if target == "verifier"
+            else test_step_name
         )
         step = next(step for step in job["steps"] if step.get("name") == step_name)
         step[field] = value
@@ -4563,6 +6471,12 @@ def test_ci_covers_gitflow_pr_targets():
 
     assert set(workflow["on"]["push"]["branches"]) == {"develop", "main"}
     assert set(workflow["on"]["pull_request"]["branches"]) == {"develop", "main"}
+    assert workflow["on"]["pull_request"]["types"] == [
+        "opened",
+        "synchronize",
+        "reopened",
+        "labeled",
+    ]
 
 
 def test_documentation_workflows_install_cairo_and_gate_pages_inputs():
@@ -4649,18 +6563,15 @@ def test_ci_tier_a_uses_temporary_outputs_and_preserves_sources():
 _TIER_NNX_CONTRACTS = {
     "tier-a-papermill": {
         "workload": {"name": "Run Tier-A notebooks (papermill)", "run": "make smoke-tier-a"},
-        "bridge": (
-            {"name": "Download spaCy en_core_web_sm model", "run": "python -m spacy download en_core_web_sm"},
-            {"name": "Download NLTK vader_lexicon", "run": 'python -c "import nltk; nltk.download(\'vader_lexicon\', quiet=True)"'},
-        ),
+        "install": "make install-torch-stack\nmake nlp-assets\n",
     },
     "smoke-tier-b": {
         "workload": {"name": "Smoke-run Tier-B notebooks", "run": "make smoke-tier-b"},
-        "bridge": (),
+        "install": "make install-torch-stack",
     },
     "smoke-tier-c": {
         "workload": {"name": "Smoke-run Tier-C notebooks", "run": "make smoke-tier-c"},
-        "bridge": (),
+        "install": "make install-torch-stack",
     },
 }
 _LIVE_SERVICE_COMMANDS = (
@@ -4676,8 +6587,28 @@ _LIVE_SERVICE_COMMANDS = (
 
 def _assert_tier_nnx_provenance_contract(workflow: dict, job_name: str) -> None:
     _assert_no_nnx_environment_overrides(workflow)
+    _assert_runtime_job_install_contract(workflow, job_name)
+    _assert_tier_output_contract(workflow, job_name)
     job = workflow["jobs"][job_name]
     contract = _TIER_NNX_CONTRACTS[job_name]
+
+    expected_conditions = {
+        "tier-a-papermill": None,
+        "smoke-tier-b": (
+            "github.event_name == 'workflow_dispatch'\n"
+            "|| github.event_name == 'schedule'\n"
+            "|| contains(github.event.pull_request.labels.*.name, 'tier-b-smoke')\n"
+        ),
+        "smoke-tier-c": (
+            "github.event_name == 'workflow_dispatch' || "
+            "github.event_name == 'schedule'"
+        ),
+    }
+    expected_condition = expected_conditions[job_name]
+    if expected_condition is None:
+        assert "if" not in job
+    else:
+        assert job["if"] == expected_condition
 
     assert "container" not in job
     assert "services" not in job
@@ -4694,26 +6625,37 @@ def _assert_tier_nnx_provenance_contract(workflow: dict, job_name: str) -> None:
     )
     assert job["steps"][install_index] == {
         "name": "Install dependencies",
-        "run": (
-            "make install-torch-stack\n"
-            "python -m pip install --only-binary=thekaveh-nnx -r requirements.txt\n"
-        ),
+        "run": contract["install"],
     }
     verifier_index = next(
         index
         for index, step in enumerate(job["steps"])
-        if step.get("name") == "Verify canonical NNx installation"
+        if step.get("name") == "Check and verify canonical Torch and NNx stack"
     )
     assert job["steps"][verifier_index] == {
-        "name": "Verify canonical NNx installation",
-        "run": "make verify-nnx-install",
+        "name": "Check and verify canonical Torch and NNx stack",
+        "run": (
+            "python -m pip check\n"
+            "make verify-torch-stack\n"
+            "make verify-nnx-install\n"
+        ),
     }
-    assert tuple(job["steps"][install_index + 1 : verifier_index]) == contract["bridge"]
     assert job["steps"][verifier_index + 1] == contract["workload"]
     assert all(
         "pip install" not in step.get("run", "").lower()
         for step in job["steps"][verifier_index + 1 :]
     )
+    uploads = [
+        step
+        for step in job["steps"]
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    ]
+    if job_name == "tier-a-papermill":
+        assert len(uploads) == 1
+        assert uploads[0]["if"] == "always()"
+        assert uploads[0]["with"]["if-no-files-found"] == "error"
+    else:
+        assert not uploads
 
 
 @pytest.mark.parametrize("job_name", tuple(_TIER_NNX_CONTRACTS))
@@ -4747,7 +6689,7 @@ def test_ci_tier_nnx_provenance_contract_rejects_mutations(job_name, mutation):
     verifier_index = next(
         index
         for index, step in enumerate(steps)
-        if step.get("name") == "Verify canonical NNx installation"
+        if step.get("name") == "Check and verify canonical Torch and NNx stack"
     )
     if mutation == "removed_verifier":
         steps.pop(verifier_index)
@@ -4770,7 +6712,7 @@ def test_ci_tier_nnx_provenance_contract_rejects_mutations(job_name, mutation):
     else:
         raise AssertionError(f"unhandled mutation: {mutation}")
 
-    with pytest.raises((AssertionError, StopIteration)):
+    with pytest.raises((AssertionError, StopIteration, ValueError)):
         _assert_tier_nnx_provenance_contract(workflow, job_name)
 
 

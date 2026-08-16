@@ -359,9 +359,7 @@ Four observations:
   record. `make smoke-tier-c` writes to `/tmp/`; `papermill phase3-*.ipynb phase3-*.ipynb` in
   place destroys them. The `pre-cleanup-baseline` git tag enforces code-cell source equality
   (markdown and outputs are not compared, so markdown edits are safe).
-- **Run both graph tiers during release review.** Issue #61 completed Tier B and Tier C on clean
-  Darwin arm64 with `torch_sparse==0.6.18`. Platform availability still depends on compatible
-  wheels, but an assumed macOS limitation is not a valid reason to omit either tier.
+- **Run both graph tiers during release review.** Issue #62 requires mandatory zero-skip graph tests plus Tier B and Tier C execution on the supported Torch 2.11 CPU stack. Sampling must prove preferred pyg-lib selection and forced torch-sparse fallback; install with make install-torch-stack and prove with make verify-torch-stack.
 - **Use a small enough learning rate for GraphSAGE.** Phase-2 pilots at `lr=1e-2` diverged for the
   deeper SAGE stacks; all Phase-3 SAGE runs use `1e-4`. GAT tolerates `1e-2` because its attention
   softmax keeps gradient magnitudes controlled — do not assume the two architectures share an

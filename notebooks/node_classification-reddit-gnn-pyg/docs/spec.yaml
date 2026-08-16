@@ -7,7 +7,8 @@ atlas:
   required_services: [jupyterhub]
   workspace_access: remote
   artifact_policy: atlas-jupyter-volume
-  constraints: []
+  constraints:
+    - "Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the repository Torch 2.11 CPU stack; Atlas remains Issue #65."
 dataset: Reddit2
 model: "GraphSAGE / GAT / GraphConv (vs FFN baseline)"
 framework: "PyTorch + PyTorch Geometric (via nnx)"
@@ -36,7 +37,7 @@ results:
   - { metric: "validation error (Phase-2 GAT winner, 500ep)", value: "0.2521" }
 pitfalls:
   - "GAT hits a memory ceiling at hidden width >= 256 (excluded from Phase-2 nb3; Phase-3 GAT held at [128])."
-  - "Issue #61 completed Tier B and Tier C on clean Darwin arm64 with torch_sparse 0.6.18; every NNx release review must run both tiers."
+  - "Issue #62 requires zero-skip graph tests plus Tier B/C execution with preferred pyg-lib sampling and forced torch-sparse fallback; no legacy extension canary is supported."
   - "Do not re-execute Phase-3 notebooks in place; preserved Aug-2023 outputs are Tier-C artifacts."
   - "Score seed nodes only via GraphNNBase.seed_count(batch); scoring sampled neighbors leaks cross-split labels."
   - "GraphSAGE diverges at lr=1e-2; use 1e-4 for the deeper stacks (GAT tolerates 1e-2)."

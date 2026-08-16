@@ -54,15 +54,9 @@ TIER_B := \
 
 # notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb was previously the 2nd entry
 # above. Removed 2026-06-16 after the weekly smoke-tier-b cron failed at the
-# quantization import: `torchao>=0.17` (requirements.txt pin, smallest version
-# exposing nnx.quantize_int8's `Int8WeightOnlyConfig` API) cannot import under
-# the local/CI `torch==2.4.1` contract (see torch-core-requirements.txt + issue
-# #10). The reviewed torchao 0.18.0 side environment requires Torch >=2.11.
-# Notebook stays in the repo as a manual-only task; the accepted validation pair
-# is Torch 2.11.0 + torchvision 0.26.0 + torchao 0.18.0. The Tier-B move (PR #11) was made
-# under the assumption the weekly cron would still exercise it — that turned
-# out to be wrong; removing it here unblocks the remaining Tier-B notebooks
-# the cron was supposed to cover.
+# quantization import requires Torch 2.11.0, torchvision 0.26.0, and torchao
+# 0.18.0. It remains a manual-only Issue #66 task outside Tier A/B/C; that
+# issue owns notebook execution, output refresh, thresholds, and tier promotion.
 
 TIER_C := \
     notebooks/node_classification-reddit-gnn-pyg/phase3-main-model-training-and-eval-notebook.ipynb \
@@ -75,11 +69,11 @@ ATLAS_CONSUMER_TESTS := tests/test_atlas_consumer_contract.py \
 	tests/test_atlas_runtime_probe.py \
 	tests/test_atlas_makefile_contract.py
 
-SMOKE_OUT := /tmp/ml-smoke
+SMOKE_OUT ?= /tmp/ml-smoke
 TIER_A_OUT ?= /tmp/ml-tier-a
 TIER_A_OUT_ABS := $(abspath $(TIER_A_OUT))
 
-.PHONY: help run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
+.PHONY: help print-tier-a print-tier-b print-tier-c run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-torch-stack verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
 
 help:
 	@echo "Targets:"
@@ -90,6 +84,7 @@ help:
 	@echo "  smoke-tier-b      Papermill Tier-B notebooks with SMOKE_TEST=1 to $(SMOKE_OUT)/ (preserves source outputs)."
 	@echo "  smoke-tier-c      Papermill Tier-C notebooks with SMOKE_TEST=1 to $(SMOKE_OUT)/."
 	@echo "  test              Run pytest on tests/ directory."
+	@echo "  verify-torch-stack Verify the active canonical Torch stack."
 	@echo "  verify-nnx-install Verify the active NNx installation provenance."
 	@echo "  test-nnx-surface  Run only tests/nnx_surface (matches the CI pytest-nnx-surface job)."
 	@echo "  test-atlas-consumer Run the focused Atlas consumer contract tests."
@@ -125,6 +120,15 @@ atlas-connect:
 
 atlas-contract:
 	./scripts/atlas-up.sh --validate
+
+print-tier-a:
+	@printf '%s\n' $(TIER_A)
+
+print-tier-b:
+	@printf '%s\n' $(TIER_B)
+
+print-tier-c:
+	@printf '%s\n' $(TIER_C)
 
 run-tier-a:
 	@for nb in $(TIER_A); do \
@@ -175,6 +179,9 @@ smoke-tier-c:
 test:
 	pytest tests/ -v
 
+verify-torch-stack:
+	$(PYTHON) -m scripts.verify_torch_stack
+
 verify-nnx-install:
 	$(PYTHON) -m scripts.verify_nnx_install
 
@@ -219,16 +226,16 @@ nlp-assets:
 verify:
 	$(PYTHON) scripts/verify_repo.py --check all --fast
 
+# Issue #62 canonical CPU stack: Torch 2.11, binary pyg-lib/scatter/sparse, NNx 0.2.0 last.
 install-torch-stack:
-	$(PIP) install --upgrade pip
-	$(PIP) install -r torch-core-requirements.txt
-	$(PIP) install --no-build-isolation -r torch-requirements.txt
+	$(PYTHON) -m scripts.install_torch_stack
 
 # Full one-shot dep install for the GitHub Codespaces / "Reopen in Container"
-# path (README §3.4). Reuses the same Torch-first install order as CI and
-# Docker so PyG source-build fallback can import torch during extension builds.
+# path (README §3.4). Reuses the same canonical install order as CI and Docker.
 # Recursively invokes nlp-assets so the spaCy + NLTK download steps stay in
 # one place across the §3.2 (Docker), §3.3 (venv), and §3.4 (Codespaces) paths.
 codespace-setup: install-torch-stack
-	$(PIP) install -r requirements.txt
 	$(MAKE) nlp-assets
+	$(PYTHON) -m pip check
+	$(MAKE) verify-torch-stack
+	$(MAKE) verify-nnx-install

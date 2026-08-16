@@ -55,7 +55,7 @@ Convention: active experiment directory named `notebooks/[task]-[dataset]-[model
 - **`thekaveh-nnx` is a PyPI dep.** Don't bump the `requirements.txt` pin without a corresponding upstream release on [`thekaveh/NNx`](https://github.com/thekaveh/NNx). Workflow:
   1. Open a PR against `thekaveh/NNx` with the new feature + a smoke test.
   2. After merge, wait for the next NNx PyPI release. For editable iteration, clone `thekaveh/NNx` outside the ml-eng-lab tree, `pip install -e <path>[lm]` into your venv, and run `NNX_ALLOW_EDITABLE=1 make test-nnx-surface`; this validates the development surface only.
-  3. Bump `thekaveh-nnx[lm]==X.Y.Z` in ml-eng-lab's `requirements.txt` to the new version; open a PR here. Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix plus the manual quantization probe in its documented compatible side environment, even when the candidate appears not to touch those surfaces.
+  3. Bump `thekaveh-nnx[lm]==X.Y.Z` in ml-eng-lab's `requirements.txt` to the new version; open a PR here. Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix plus the focused manual quantization probe in a fresh canonical environment installed by `make install-torch-stack`; the complete notebook remains outside Tier A/B/C under Issue #66, even when the candidate appears not to touch those surfaces.
 - **`infra/` is the pinned Atlas submodule.** Do not edit it from this repository. Consumer-owned behavior belongs in `atlas.consumer.yml`, `atlas.env.user.example`, and `compose/ml-eng-lab-atlas.yml`; runbook changes belong under `docs/`. Update the gitlink only through [docs/atlas-pin-bump-runbook.md](docs/atlas-pin-bump-runbook.md).
 - **`notebooks/archive/` is read-only.** Preserved Aug-2023 work.
 
@@ -95,6 +95,14 @@ python -c "import nltk; nltk.download('vader_lexicon', quiet=True)"
 - `python scripts/verify_repo.py --check all` — adds the full Tier-A/B/C papermill smoke. Requires the Atlas JupyterHub runtime or an equivalent fully-provisioned environment.
 
 Exit code 0 iff zero error-severity findings; warnings are informational. Tier-C **code-cell source** equality with the `pre-cleanup-baseline` git tag is enforced by check E5 (markdown / outputs are not compared). Edits to phase3 markdown cells should still use `scripts/edit_notebook_markdown.py` for safety.
+
+After the last package or data install, run `python -m pip check`, `make verify-torch-stack`, and
+`make verify-nnx-install`; never mutate the environment between those gates and the workload. Keep
+pytest at -W error. Temporary debt assertions are limited to the verifier-local exact TorchScript
+import group and the quantization test's exact NNx 0.2.0 8da4w model.train warning; neither permits
+a global, CLI, environment, pytest, or conftest filter. A warning-free fresh probe or QAT call stops
+qualification for debt retirement. Roll back manifests, installer, verifier, CI/Docker, advisory
+policy/ledger, and documentation atomically in a fresh environment or rebuilt image.
 
 ### 6.1. Helper scripts
 

@@ -66,16 +66,21 @@ In the recommended runtime ([../docs/jupyterhub-integration.md](../../docs/jupyt
 
 **Never** run `papermill phase3-*.ipynb phase3-*.ipynb` (in place) — that destroys the preserved Aug-2023 training outputs.
 
-Also verified via [`tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py`](../../tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py) — fast NNx-surface contract tests covering parametrized SAGE / CONV smoke-forward, `GraphAttNN(n_heads=...)` consolidation regression, and `NNParams.state()` round-trip. Runs in the CI `pytest-nnx-surface` job on every PR (`make test-nnx-surface` locally; GNN forward-pass cases skip cleanly without `pyg-lib` / `torch-sparse`).
+Also verified via tests/nnx_surface/test_node_classification_reddit_gnn_pyg.py: fast NNx-surface
+contract tests cover parametrized SAGE/CONV smoke-forward, GraphAttNN(n_heads=...)
+consolidation, and NNParams.state() round-trip. The focused suite is mandatory with zero skips,
+and both pyg-lib preferred sampling and torch-sparse fallback are required.
 
 ## 5. Dependencies
 
-- `torch` (≥ 2.0) + `torch_geometric` + `torch_sparse`
+- torch==2.11.0 and torch_geometric==2.8.0.post1 with exactly three binary wheels: pyg-lib 0.8.0,
+  torch-scatter 2.1.2, and torch-sparse 0.6.18. Sampling proves the preferred pyg-lib path and the
+  torch-sparse fallback; no additional compiled extension package is supported.
 - `nnx` (PyPI: `thekaveh-nnx` — `Nets.FEED_FWD`, `Nets.GRAPH_CONV`, `Nets.GRAPH_SAGE`, `Nets.GRAPH_ATT`)
 - `networkx`, `community` (python-louvain), `pandas`, `seaborn`, `matplotlib`
 - `numpy`, `scikit-learn`
 
-Available via the Atlas JupyterHub runtime or the root `requirements.txt` + `torch-requirements.txt`.
+Install through make install-torch-stack and prove it with make verify-torch-stack.
 
 ## 6. Known issues
 

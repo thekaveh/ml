@@ -1,4 +1,3 @@
-# Audit-only selector-free PyG projection.
-# Runtime source: torch-requirements.txt retains the approved PyG wheel selector.
 -r torch-core-requirements.txt
-torch_geometric==2.6.1
+-r torch-ecosystem-requirements.txt
+torch_geometric==2.8.0.post1

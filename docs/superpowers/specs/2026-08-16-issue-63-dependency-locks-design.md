@@ -145,12 +145,15 @@ Index order is not a security or reproducibility policy. The lock compiler uses 
 
 - on Linux x86_64 and Linux aarch64, `torch`, `torchvision`, and `torchaudio` resolve only from
   `https://download.pytorch.org/whl/cpu`;
-- on Darwin arm64, those three packages resolve only from PyPI;
+- on Darwin arm64, those three packages and torchao resolve only from PyPI;
 - `pyg-lib`, `torch-scatter`, and `torch-sparse` resolve only from the flat
   `https://data.pyg.org/whl/torch-2.11.0+cpu.html` source on all three targets;
 - `en-core-web-sm` resolves only from the exact official URL and hash in
   `nlp-model-requirements.txt`;
-- all remaining runtime packages, including torchao, resolve only from PyPI; and
+- Linux torchao resolves from the exact Torch CPU project page selected by uv's CPU backend; its
+  installed wheel metadata is exactly `0.18.0+cpu`, while its public `0.18.0` identity remains the
+  manifest and advisory projection;
+- all remaining runtime packages resolve only from PyPI; and
 - no extra index may become a fallback source for an unbound package.
 
 The compiler must express those bindings through uv's explicit named-index/flat-index semantics,
@@ -158,7 +161,8 @@ not through `--extra-index-url`, `--index-strategy unsafe-best-match`, or candid
 Pip requirements cannot preserve uv's per-package index binding, so installation does not pretend
 otherwise. The ordered installer exposes only the sources needed by each stage: Linux core sees
 only the Torch CPU index; Darwin core sees only PyPI; runtime and root see PyPI plus the exact PyG
-flat page and rely on the already-installed core closure. The committed SHA-256 set is the final
+flat page and, on Linux only, the exact Torch CPU `torchao` project page. They rely on the
+already-installed core closure. The committed SHA-256 set is the final
 artifact authority. A same-version artifact from any reachable source is rejected unless its bytes
 match an approved hash. If the ordered core stage did not install Linux's `+cpu` artifacts, later
 stages cannot resolve or substitute them.
@@ -239,10 +243,11 @@ key from `platform.system()` and `platform.machine()`:
 1. install `<platform>/core.txt` with `--only-binary=:all:`, `--require-hashes`, and the qualified
    Torch-only `--index-url` on Linux or PyPI on Darwin;
 2. install `<platform>/runtime.txt` with `--only-binary=:all:`, `--require-hashes`, PyPI as the
-   index, and the exact PyG page as `--find-links`; and
+   index, the exact PyG page as `--find-links`, and on Linux the exact Torch CPU `torchao` project
+   page as a second flat source; and
 3. install `<platform>/root.txt` with `--only-binary=:all:`,
    `--no-binary=python-louvain`, `--no-build-isolation`, `--require-hashes`, PyPI as the index, and
-   the exact PyG page as `--find-links`.
+   the exact PyG page plus, on Linux, the exact Torch CPU `torchao` project page as `--find-links`.
 
 The stage-specific lock, binary, build-isolation, and source options are exact arguments, not
 ambient pip configuration; `PIP_INDEX_URL`, `PIP_EXTRA_INDEX_URL`, `PIP_FIND_LINKS`,
@@ -425,6 +430,14 @@ These are manifest-list/index digests, preserving native Linux amd64 and arm64 s
 `requirements/image-lock.json` records each exact source reference plus the current qualified amd64
 and arm64 child-manifest digests. Source references use the multi-platform digest so Docker Desktop
 arm64 and GitHub-hosted amd64 resolve from one reviewed identity.
+
+The Docker consumer creates `/home/jovyan/.venvs/ml-eng-lab` with the base image's qualified Python
+and places it first on `PATH` before invoking the canonical installer. It also sets
+`CONDA_AUTO_ACTIVATE_BASE=false`, preventing the Jupyter startup hook from replacing that venv with
+the base conda environment when the built image launches. Together these controls prevent unrelated
+packages preinstalled in the Jupyter base environment from contaminating the exact root lock or
+making build-time and runtime verification select different environments; the locked root supplies
+the Notebook/JupyterLab runtime inside that environment.
 
 The offline verifier parses image references structurally, requires the exact registry, repository,
 tag, and index digest recorded by the ledger, and reconciles source with that committed ledger. It

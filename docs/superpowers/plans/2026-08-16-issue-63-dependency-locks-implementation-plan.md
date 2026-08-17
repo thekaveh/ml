@@ -396,7 +396,8 @@ which stable stage failed.
   config state, unknown roles, absolute/out-of-repo locks, symlink escapes, missing locks, nonzero
   subprocess results, shell execution, output leakage, and continuation after failure.
 - [ ] Update four-stage tests to expect bootstrap/core/runtime/root locks, exact platform source
-  flags, root's python-louvain build exception, and all three supported host mappings.
+  flags including the Linux-only Torch CPU `torchao` project page required by uv's CPU backend
+  output, root's python-louvain build exception, and all three supported host mappings.
 - [ ] Add functional disposable-venv controls proving bootstrap failure stops before core, core
   failure stops before runtime, and no role installs after final verification.
 - [ ] Add Make contract RED tests for the five dedicated install targets, four-stage runtime target,
@@ -504,7 +505,10 @@ which stable stage failed.
 - [ ] Add exact dependency and image selector steps without masking. The network lock step installs
   compiler lock only when selected; the image step introduces no Python package.
 - [ ] Pin Docker and devcontainer tag@index references to the design digests. Preserve native arm64/
-  amd64 selection and never use an architecture child as the source digest.
+  amd64 selection and never use an architecture child as the source digest. Build the Docker lock
+  into its exact `/home/jovyan/.venvs/ml-eng-lab` environment so preinstalled base-image packages
+  cannot contaminate `pip check` or the runtime, and set `CONDA_AUTO_ACTIVATE_BASE=false` so the
+  Jupyter entrypoint cannot reactivate the ambient conda base ahead of the locked venv.
 - [ ] Update Codespaces and Docker comments/help to name lock behavior and VADER-only post-lock data.
 - [ ] Extend the offline verifier and mutations to require exact workflow, Docker, devcontainer,
   cache, image-ledger, and Codespaces consumer references. After this commit no executable package

@@ -17,6 +17,7 @@ from scripts.install_locked_requirements import LockedInstallError, run_install_
 PYPI_INDEX = "https://pypi.org/simple"
 CPU_INDEX = "https://download.pytorch.org/whl/cpu"
 PYG_FIND_LINKS = "https://data.pyg.org/whl/torch-2.11.0+cpu.html"
+TORCHAO_CPU_FIND_LINKS = "https://download.pytorch.org/whl/cpu/torchao"
 
 
 class InstallStage(StrEnum):
@@ -50,6 +51,11 @@ def build_install_commands(python: str, system: str, machine: str) -> tuple[Inst
     if selected is None:
         raise TorchStackInstallError("unsupported Torch stack platform")
     target, core_index = selected
+    torchao_links = (
+        ()
+        if system == "Darwin"
+        else ("--find-links", TORCHAO_CPU_FIND_LINKS)
+    )
     pip = (
         python,
         "-m",
@@ -87,6 +93,7 @@ def build_install_commands(python: str, system: str, machine: str) -> tuple[Inst
                 PYPI_INDEX,
                 "--find-links",
                 PYG_FIND_LINKS,
+                *torchao_links,
                 "-r",
                 f"{lock_root}/runtime.txt",
             ),
@@ -102,6 +109,7 @@ def build_install_commands(python: str, system: str, machine: str) -> tuple[Inst
                 PYPI_INDEX,
                 "--find-links",
                 PYG_FIND_LINKS,
+                *torchao_links,
                 "-r",
                 f"{lock_root}/root.txt",
             ),

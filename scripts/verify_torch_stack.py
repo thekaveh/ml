@@ -454,7 +454,11 @@ def _verify_local_version(pin: StackPin, version: Version, contract: StackContra
         return
     if local is None:
         return
-    if pin.distribution in _CORE_NAMES and contract.system == "Linux" and local == "cpu":
+    if (
+        pin.distribution in (_CORE_NAMES | {"torchao"})
+        and contract.system == "Linux"
+        and local == "cpu"
+    ):
         return
     raise TorchStackVerificationError(pin.distribution, "metadata")
 

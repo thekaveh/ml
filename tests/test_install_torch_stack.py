@@ -20,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPI = "https://pypi.org/simple"
 TORCH_CPU = "https://download.pytorch.org/whl/cpu"
 PYG = "https://data.pyg.org/whl/torch-2.11.0+cpu.html"
+TORCHAO_CPU = "https://download.pytorch.org/whl/cpu/torchao"
 SUPPORTED_HOSTS = (
     ("Darwin", "arm64", "darwin-arm64", PYPI),
     ("Linux", "x86_64", "linux-x86_64", TORCH_CPU),
@@ -44,6 +45,7 @@ def _pip_prefix(python: str = sys.executable) -> tuple[str, ...]:
 def _expected_commands(key: str, core_index: str) -> tuple[tuple[str, ...], ...]:
     pip = _pip_prefix()
     root = f"requirements/locks/{key}"
+    torchao_links = () if core_index == PYPI else ("--find-links", TORCHAO_CPU)
     return (
         pip + ("--only-binary=:all:", "-r", "requirements/locks/bootstrap.txt"),
         pip + ("--only-binary=:all:", "--index-url", core_index, "-r", f"{root}/core.txt"),
@@ -54,6 +56,7 @@ def _expected_commands(key: str, core_index: str) -> tuple[tuple[str, ...], ...]
             PYPI,
             "--find-links",
             PYG,
+            *torchao_links,
             "-r",
             f"{root}/runtime.txt",
         ),
@@ -66,6 +69,7 @@ def _expected_commands(key: str, core_index: str) -> tuple[tuple[str, ...], ...]
             PYPI,
             "--find-links",
             PYG,
+            *torchao_links,
             "-r",
             f"{root}/root.txt",
         ),

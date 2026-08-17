@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
 
@@ -153,6 +154,14 @@ def test_live_direct_inputs_have_one_compiler_authority_and_exact_exceptions() -
         "pytest==9.0.3\npyyaml==6.0.3\nuv==0.11.19\n"
     )
     assert "--find-links" not in (REPO_ROOT / "torch-requirements.txt").read_text(encoding="utf-8")
+    policy = tomllib.loads(
+        (REPO_ROOT / "requirements/lock-policy.toml").read_text(encoding="utf-8")
+    )
+    assert policy["package_sources"]["torchao"] == {
+        "darwin-arm64": "pypi",
+        "linux-x86_64": "torch_cpu",
+        "linux-aarch64": "torch_cpu",
+    }
 
 
 def test_live_image_ledger_has_two_exact_native_multi_platform_identities() -> None:

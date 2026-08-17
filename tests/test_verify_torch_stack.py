@@ -337,6 +337,28 @@ def test_incompatible_local_pyg_versions_fail_closed(fake_stack: FakeStack, loca
         verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
 
 
+def test_linux_accepts_exact_torchao_cpu_wheel_metadata(fake_stack: FakeStack) -> None:
+    fake_stack.version("torchao", "0.18.0+cpu")
+
+    evidence = verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
+
+    assert evidence.system == "Linux"
+
+
+@pytest.mark.parametrize("local", ("cu128", "arbitrary"))
+def test_linux_rejects_other_torchao_local_versions(
+    fake_stack: FakeStack,
+    local: str,
+) -> None:
+    fake_stack.version("torchao", f"0.18.0+{local}")
+
+    with pytest.raises(
+        TorchStackVerificationError,
+        match=r"^torch stack verification failed: torchao: metadata$",
+    ):
+        verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
+
+
 def test_public_version_drift_fails_closed(fake_stack: FakeStack) -> None:
     fake_stack.version("torchmetrics", "1.8.2")
 

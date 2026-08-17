@@ -438,6 +438,11 @@ def load_policy(repo: Path) -> LockPolicy:
             "linux-x86_64": "torch_cpu",
             "linux-aarch64": "torch_cpu",
         },
+        "torchao": {
+            "darwin-arm64": "pypi",
+            "linux-x86_64": "torch_cpu",
+            "linux-aarch64": "torch_cpu",
+        },
     }
     if raw["package_sources"] != expected_package_sources:
         raise _error("lock policy package source binding is invalid")

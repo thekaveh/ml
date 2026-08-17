@@ -53,6 +53,11 @@ darwin-arm64 = "pypi"
 linux-x86_64 = "torch_cpu"
 linux-aarch64 = "torch_cpu"
 
+[package_sources.torchao]
+darwin-arm64 = "pypi"
+linux-x86_64 = "torch_cpu"
+linux-aarch64 = "torch_cpu"
+
 [[platforms]]
 key = "darwin-arm64"
 uv_platform = "aarch64-apple-darwin"

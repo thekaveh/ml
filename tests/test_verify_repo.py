@@ -58,6 +58,27 @@ def test_dependency_lock_d10_integration_is_clean() -> None:
     assert verify_repo._dependency_lock_findings(REPO_ROOT) == []
 
 
+def test_dependency_advisory_lock_d10_integration_is_clean() -> None:
+    assert verify_repo._dependency_advisory_lock_findings(REPO_ROOT) == []
+
+
+def test_dependency_advisory_lock_d10_fails_closed_on_projection_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts import advisory_baseline
+
+    def fail_projection(repo: Path, projection_root: Path):
+        del repo, projection_root
+        raise advisory_baseline.AdvisoryBaselineError("injected lock projection drift")
+
+    monkeypatch.setattr(advisory_baseline, "derive_lock_audit_surfaces", fail_projection)
+
+    findings = verify_repo._dependency_advisory_lock_findings(REPO_ROOT)
+
+    assert [finding.id for finding in findings] == ["D10.dependency_advisory_locks"]
+    assert "injected lock projection drift" in findings[0].message
+
+
 def test_dependency_lock_d10_reports_missing_output(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     (repo / "requirements").mkdir(parents=True)
@@ -1801,9 +1822,8 @@ def test_dependency_ledger_couples_advisory_identity_version_and_surfaces_to_pol
                     1,
                 ),
                 "surfaces": row.replace(
-                    "| Combined runtime; Torch |",
-                    "| Documentation |",
-                    1,
+                    row.rsplit("|", 2)[-2].strip(),
+                    "Documentation",
                 ),
             }
             return section.replace(row, replacements_by_field[field], 1)
@@ -2059,9 +2079,11 @@ def test_docs_d10_flags_baseline_advisory_id_drift_dependency_advisory_baseline(
 
     assert [finding.message for finding in _d10_advisory_baseline_findings(repo)] == [
         "accepted advisory baseline identity is missing from the current Markdown ledger: "
-        "setuptools 81.0.0 PYSEC-2099-1 on [combined-runtime, torch]",
+        "setuptools 81.0.0 PYSEC-2099-1 on "
+        "[combined-runtime, torch, documentation, atlas-contract]",
         "current Markdown ledger identity is missing from accepted advisory baseline JSON: "
-        "setuptools 81.0.0 PYSEC-2026-3447 on [combined-runtime, torch]",
+        "setuptools 81.0.0 PYSEC-2026-3447 on "
+        "[combined-runtime, torch, documentation, atlas-contract]",
     ]
 
 

@@ -18,6 +18,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import tokenize
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, asdict
@@ -2081,9 +2082,51 @@ def _dependency_lock_findings(repo: Path) -> list[Finding]:
     ]
 
 
+def _dependency_advisory_lock_findings(repo: Path) -> list[Finding]:
+    if not (repo / "requirements" / "lock-policy.toml").is_file():
+        return []
+    location = "scripts/advisory_baseline.py"
+    try:
+        from scripts.advisory_baseline import AdvisoryBaselineError, derive_lock_audit_surfaces
+
+        with tempfile.TemporaryDirectory(prefix="verify-advisory-locks-") as temporary:
+            prepared = derive_lock_audit_surfaces(repo, Path(temporary))
+        identity = tuple(
+            (item.surface.name, item.surface.projection_kind, item.surface.output_name)
+            for item in prepared
+        )
+        expected = (
+            ("combined-runtime", "main", "combined-runtime-resolver"),
+            ("combined-runtime", "pyg-extensions", "combined-runtime-pyg-extensions"),
+            ("torch", "main", "torch-resolver"),
+            ("torch", "pyg-extensions", "torch-pyg-extensions"),
+            ("documentation", "main", "documentation"),
+            ("atlas-contract", "main", "atlas-contract"),
+        )
+        if identity != expected:
+            raise AdvisoryBaselineError("audit projection inventory is invalid")
+        if any(
+            not item.expected_versions
+            or not item.lock_inputs
+            or any(record.audited or record.reason != "non-pypi" for record in item.non_pypi)
+            for item in prepared
+        ):
+            raise AdvisoryBaselineError("audit projection evidence is invalid")
+    except (ImportError, OSError, ValueError, RuntimeError) as error:
+        return [Finding(
+            id="D10.dependency_advisory_locks",
+            check="docs",
+            severity="error",
+            location=location,
+            message=f"lock-derived advisory contract failed: {error}",
+        )]
+    return []
+
+
 def check_docs(repo: Path) -> CheckResult:
     result = CheckResult(name="docs")
     result.findings.extend(_dependency_lock_findings(repo))
+    result.findings.extend(_dependency_advisory_lock_findings(repo))
     canonical_doc_sources: set[str] = set()
 
     manifest_path = repo / "docs" / "manifest.yaml"

@@ -152,8 +152,8 @@ the resolver feed emitted it twice; policy comparison remains alias-aware and id
 
 | Package | Advisory ID | Feed Records | Fix Versions | Audited Version | Aliases | Surface |
 | --- | --- | ---: | --- | ---: | --- | --- |
-| `setuptools` | `PYSEC-2026-3447` | 1 | `83.0.0` | `81.0.0` | `BIT-setuptools-2026-59890`, `CVE-2026-59890`, `GHSA-h35f-9h28-mq5c` | Combined runtime; Torch |
-| `setuptools` | `PYSEC-2026-3447` | 1 | `83.0.0` | `81.0.0` | `BIT-setuptools-2026-59890`, `CVE-2026-59890`, `GHSA-h35f-9h28-mq5c` | Combined runtime; Torch |
+| `setuptools` | `PYSEC-2026-3447` | 1 | `83.0.0` | `81.0.0` | `BIT-setuptools-2026-59890`, `CVE-2026-59890`, `GHSA-h35f-9h28-mq5c` | Combined runtime; Torch; Documentation; Atlas contract |
+| `setuptools` | `PYSEC-2026-3447` | 1 | `83.0.0` | `81.0.0` | `BIT-setuptools-2026-59890`, `CVE-2026-59890`, `GHSA-h35f-9h28-mq5c` | Combined runtime; Torch; Documentation; Atlas contract |
 | `torch` | `PYSEC-2025-194` | 1 | `2.13.0` | `2.11.0` | `BIT-pytorch-2025-3000`, `CVE-2025-3000`, `GHSA-rrmf-rvhw-rf47` | Combined runtime; Torch |
 
 The input hashes enforced by D10 are:

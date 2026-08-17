@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -12,29 +13,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.version import InvalidVersion, Version
+
+from scripts.dependency_locks import (
+    DependencyLockError,
+    LockedRequirement,
+    TargetEnvironment,
+    load_policy,
+    parse_lock,
+    project_for_target,
+)
+from scripts.verify_dependency_locks import verify_dependency_locks
+
 
 SCHEMA_VERSION = 1
-TORCH_RUNTIME_REQUIREMENTS = "torch-requirements.txt"
-TORCH_AUDIT_REQUIREMENTS = "torch-audit-requirements.txt"
-PYG_EXTENSION_AUDIT_REQUIREMENTS = "pyg-extension-audit-requirements.txt"
-TORCH_CORE_REQUIREMENTS = "torch-core-requirements.txt"
-TORCH_ECOSYSTEM_REQUIREMENTS = "torch-ecosystem-requirements.txt"
-PYG_FIND_LINKS = "--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html"
-TORCH_CORE_LINES = ("torch==2.11.0", "torchvision==0.26.0", "torchaudio==2.11.0")
-TORCH_ECOSYSTEM_LINES = ("pytorch-lightning==2.6.1", "torchmetrics==1.9.0", "torchao==0.18.0")
-TORCH_RUNTIME_LINES = (
-    "-r torch-ecosystem-requirements.txt",
-    PYG_FIND_LINKS,
-    "pyg-lib==0.8.0",
-    "torch-scatter==2.1.2",
-    "torch-sparse==0.6.18",
-    "torch_geometric==2.8.0.post1",
-)
-TORCH_AUDIT_LINES = ("-r torch-core-requirements.txt", "-r torch-ecosystem-requirements.txt", "torch_geometric==2.8.0.post1")
-PYG_EXTENSION_AUDIT_LINES = (
-    "torch-scatter==2.1.2",
-    "torch-sparse==0.6.18",
-)
 PYG_EXTENSION_AUDIT_VERSIONS = (
     ("torch-scatter", "2.1.2"),
     ("torch-sparse", "0.6.18"),
@@ -91,11 +84,31 @@ class Baseline:
     accepted_advisories: tuple[AcceptedAdvisory, ...]
 
 
+@dataclass(frozen=True, order=True)
+class LockInput:
+    path: str
+    sha256: str
+
+
+@dataclass(frozen=True, order=True)
+class NonPyPIRecord:
+    package: str
+    version: str
+    public_version: str
+    source: str
+    hashes: tuple[str, ...]
+    targets: tuple[str, ...]
+    audited: bool = False
+    reason: str = "non-pypi"
+
+
 @dataclass(frozen=True)
 class Observation:
     surface: str
     resolved_versions: tuple[tuple[str, str], ...]
     advisories: tuple[tuple[str, str, str], ...]
+    lock_inputs: tuple[LockInput, ...] = ()
+    non_pypi: tuple[NonPyPIRecord, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -107,21 +120,35 @@ class Comparison:
 @dataclass(frozen=True)
 class AuditSurface:
     name: str
-    requirements: tuple[str, ...]
-    disable_pip: bool = False
-    no_deps: bool = False
-    output_name: str | None = None
+    projection_kind: str
+    output_name: str
+
+
+@dataclass(frozen=True)
+class PreparedAuditSurface:
+    surface: AuditSurface
+    projection: Path
+    expected_versions: tuple[tuple[str, str], ...]
+    lock_inputs: tuple[LockInput, ...]
+    non_pypi: tuple[NonPyPIRecord, ...]
 
 
 AUDIT_SURFACES = (
-    AuditSurface("combined-runtime", ("requirements.txt", TORCH_AUDIT_REQUIREMENTS), output_name="combined-runtime-resolver"),
-    AuditSurface("combined-runtime", (PYG_EXTENSION_AUDIT_REQUIREMENTS,), True, True, "combined-runtime-pyg-extensions"),
-    AuditSurface("torch", (TORCH_AUDIT_REQUIREMENTS,), output_name="torch-resolver"),
-    AuditSurface("torch", (PYG_EXTENSION_AUDIT_REQUIREMENTS,), True, True, "torch-pyg-extensions"),
-    AuditSurface("documentation", ("docs-requirements.txt",), disable_pip=True),
-    AuditSurface("atlas-contract", ("atlas-contract-requirements.txt",)),
+    AuditSurface("combined-runtime", "main", "combined-runtime-resolver"),
+    AuditSurface("combined-runtime", "pyg-extensions", "combined-runtime-pyg-extensions"),
+    AuditSurface("torch", "main", "torch-resolver"),
+    AuditSurface("torch", "pyg-extensions", "torch-pyg-extensions"),
+    AuditSurface("documentation", "main", "documentation"),
+    AuditSurface("atlas-contract", "main", "atlas-contract"),
 )
 AuditRunner = Callable[..., subprocess.CompletedProcess[str]]
+
+_BOOTSTRAP_LOCK = Path("requirements/locks/bootstrap.txt")
+_AUDIT_LOCK = Path("requirements/locks/audit.txt")
+_ATLAS_LOCK = Path("requirements/locks/atlas-contract.txt")
+_DOCS_LOCK = Path("docs-requirements.txt")
+_NON_PYPI_PACKAGES = frozenset({"en-core-web-sm", "pyg-lib"})
+_PYG_AUDITED_PACKAGES = frozenset({"torch-scatter", "torch-sparse"})
 
 
 def normalize_package_name(value: str) -> str:
@@ -358,14 +385,16 @@ def compare_baseline(baseline: Baseline, observations: Sequence[Observation]) ->
     return Comparison(tuple(sorted(set(errors))), tuple(sorted(set(notices))))
 
 
-def _audit_command(surface: AuditSurface, output: Path) -> list[str]:
-    command = [sys.executable, "-m", "pip_audit"]
-    if surface.disable_pip:
-        command.append("--disable-pip")
-    if surface.no_deps:
-        command.append("--no-deps")
-    for requirement in surface.requirements:
-        command.extend(("-r", requirement))
+def _audit_command(surface: PreparedAuditSurface, output: Path) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "pip_audit",
+        "--disable-pip",
+        "--no-deps",
+        "-r",
+        str(surface.projection),
+    ]
     command.extend(
         (
             "--strict",
@@ -384,6 +413,236 @@ def _audit_command(surface: AuditSurface, output: Path) -> list[str]:
         )
     )
     return command
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _target_for(platform: object) -> TargetEnvironment:
+    environment = dict(platform.marker_environment)
+    environment.update(
+        {
+            "implementation_version": "3.11.0",
+            "python_full_version": "3.11.0",
+            "extra": "",
+        }
+    )
+    return TargetEnvironment(key=platform.key, marker_environment=environment)
+
+
+def _lock_requirements(
+    repo: Path,
+    relative: Path,
+    targets: Sequence[TargetEnvironment],
+) -> tuple[tuple[LockedRequirement, str], ...]:
+    requirements = parse_lock(repo / relative)
+    selected: list[tuple[LockedRequirement, str]] = []
+    for target in targets:
+        selected.extend((item, target.key) for item in project_for_target(requirements, target))
+    return tuple(selected)
+
+
+def _surface_lock_paths(policy: object, surface: str) -> tuple[Path, ...]:
+    platform_paths = tuple(Path("requirements/locks") / platform.key for platform in policy.platforms)
+    if surface == "combined-runtime":
+        return (_BOOTSTRAP_LOCK, _AUDIT_LOCK) + tuple(path / "root.txt" for path in platform_paths)
+    if surface == "torch":
+        return (_BOOTSTRAP_LOCK,) + tuple(
+            child
+            for path in platform_paths
+            for child in (path / "core.txt", path / "runtime.txt")
+        )
+    if surface == "documentation":
+        return (_BOOTSTRAP_LOCK, _DOCS_LOCK)
+    if surface == "atlas-contract":
+        return (_BOOTSTRAP_LOCK, _ATLAS_LOCK)
+    raise AdvisoryBaselineError("unknown audit surface")
+
+
+def _surface_requirements(
+    repo: Path,
+    policy: object,
+    surface: str,
+) -> tuple[tuple[LockedRequirement, str, str], ...]:
+    targets = tuple(_target_for(platform) for platform in policy.platforms)
+    platform_by_key = {platform.key: platform for platform in policy.platforms}
+    records: list[tuple[LockedRequirement, str, str]] = []
+    for relative in _surface_lock_paths(policy, surface):
+        parts = relative.parts
+        if len(parts) >= 4 and parts[:2] == ("requirements", "locks"):
+            selected_targets = (next(item for item in targets if item.key == parts[2]),)
+        else:
+            selected_targets = targets
+        for requirement, target in _lock_requirements(repo, relative, selected_targets):
+            source = requirement.source or "https://pypi.org/simple"
+            if requirement.name == "pyg-lib":
+                source = platform_by_key[target].pyg_find_links
+            records.append((requirement, target, source))
+    return tuple(records)
+
+
+def _collapse_public_versions(
+    records: Sequence[tuple[LockedRequirement, str, str]],
+) -> tuple[tuple[str, str], ...]:
+    versions: dict[str, str] = {}
+    for requirement, _, _ in records:
+        if requirement.name in _NON_PYPI_PACKAGES:
+            continue
+        public = requirement.version.public
+        prior = versions.setdefault(requirement.name, public)
+        if prior != public:
+            raise AdvisoryBaselineError("dependency locks contain conflicting public versions")
+    return tuple(sorted(versions.items()))
+
+
+def _non_pypi_records(
+    records: Sequence[tuple[LockedRequirement, str, str]],
+) -> tuple[NonPyPIRecord, ...]:
+    grouped: dict[tuple[str, str, str, tuple[str, ...]], set[str]] = {}
+    for requirement, target, source in records:
+        if requirement.name not in _NON_PYPI_PACKAGES:
+            continue
+        identity = (requirement.name, str(requirement.version), source, requirement.hashes)
+        grouped.setdefault(identity, set()).add(target)
+    return tuple(
+        NonPyPIRecord(
+            package=package,
+            version=version,
+            public_version=Version(version).public,
+            source=source,
+            hashes=hashes,
+            targets=tuple(sorted(targets)),
+        )
+        for (package, version, source, hashes), targets in sorted(grouped.items())
+    )
+
+
+def _source_audit_projection(
+    repo: Path,
+    relative: Path,
+    *,
+    seen: frozenset[Path] = frozenset(),
+) -> tuple[tuple[str, str], ...]:
+    if relative in seen or relative.is_absolute() or ".." in relative.parts:
+        raise AdvisoryBaselineError("source audit projection has an invalid include")
+    try:
+        lines = (repo / relative).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as error:
+        raise AdvisoryBaselineError("source audit projection is unavailable") from error
+    projected: list[tuple[str, str]] = []
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        line = line.split("  #", 1)[0].rstrip()
+        if line.startswith("-r "):
+            include = Path(line.removeprefix("-r "))
+            projected.extend(
+                _source_audit_projection(repo, include, seen=seen | {relative})
+            )
+            continue
+        try:
+            requirement = Requirement(line)
+            specifiers = tuple(requirement.specifier)
+            if (
+                requirement.url is not None
+                or requirement.marker is not None
+                or requirement.extras
+                or len(specifiers) != 1
+                or specifiers[0].operator != "=="
+            ):
+                raise AdvisoryBaselineError("source audit projection is not exact")
+            version = Version(specifiers[0].version).public
+        except (InvalidRequirement, InvalidVersion) as error:
+            raise AdvisoryBaselineError("source audit projection is invalid") from error
+        projected.append((normalize_package_name(requirement.name), version))
+    if len(projected) != len(set(projected)):
+        raise AdvisoryBaselineError("source audit projection has a duplicate requirement")
+    return tuple(sorted(projected))
+
+
+def _validate_human_audit_projections(
+    repo: Path,
+    torch_versions: tuple[tuple[str, str], ...],
+    pyg_versions: tuple[tuple[str, str], ...],
+) -> None:
+    locked = dict(torch_versions)
+    torch_source = _source_audit_projection(repo, Path("torch-audit-requirements.txt"))
+    pyg_source = _source_audit_projection(repo, Path("pyg-extension-audit-requirements.txt"))
+    if any(locked.get(package) != version for package, version in torch_source):
+        raise AdvisoryBaselineError("human Torch audit projection does not match locks")
+    if pyg_source != pyg_versions:
+        raise AdvisoryBaselineError("human PyG audit projection does not match locks")
+
+
+def derive_lock_audit_surfaces(repo: Path, projection_root: Path) -> tuple[PreparedAuditSurface, ...]:
+    """Build deterministic no-resolve audit projections from validated lock artifacts."""
+    try:
+        findings = verify_dependency_locks(repo)
+        if findings:
+            raise AdvisoryBaselineError("dependency locks are not valid")
+        policy = load_policy(repo)
+    except (DependencyLockError, OSError) as error:
+        raise AdvisoryBaselineError("dependency locks are not valid") from error
+    projection_root.mkdir(parents=True, exist_ok=True)
+    logical: dict[
+        str,
+        tuple[tuple[tuple[str, str], ...], tuple[LockInput, ...], tuple[NonPyPIRecord, ...]],
+    ] = {}
+    for name in SURFACE_ORDER:
+        lock_paths = _surface_lock_paths(policy, name)
+        records = _surface_requirements(repo, policy, name)
+        versions = _collapse_public_versions(records)
+        expected_non_pypi = {
+            "combined-runtime": {"en-core-web-sm", "pyg-lib"},
+            "torch": {"pyg-lib"},
+            "documentation": set(),
+            "atlas-contract": set(),
+        }[name]
+        non_pypi = _non_pypi_records(records)
+        if {item.package for item in non_pypi} != expected_non_pypi:
+            raise AdvisoryBaselineError("dependency locks have invalid non-PyPI evidence")
+        lock_inputs = tuple(
+            LockInput(relative.as_posix(), _sha256(repo / relative)) for relative in lock_paths
+        )
+        logical[name] = (versions, lock_inputs, non_pypi)
+
+    prepared: list[PreparedAuditSurface] = []
+    for surface in AUDIT_SURFACES:
+        versions, lock_inputs, non_pypi = logical[surface.name]
+        if surface.projection_kind == "pyg-extensions":
+            selected = tuple(item for item in versions if item[0] in _PYG_AUDITED_PACKAGES)
+            if selected != PYG_EXTENSION_AUDIT_VERSIONS:
+                raise AdvisoryBaselineError("dependency locks have invalid PyG audit versions")
+        else:
+            selected = tuple(item for item in versions if item[0] not in _PYG_AUDITED_PACKAGES)
+        projection = projection_root / f"{surface.output_name}.requirements.txt"
+        projection.write_text(
+            "".join(f"{package}=={version}\n" for package, version in selected),
+            encoding="utf-8",
+        )
+        prepared.append(
+            PreparedAuditSurface(
+                surface=surface,
+                projection=projection,
+                expected_versions=selected,
+                lock_inputs=lock_inputs,
+                non_pypi=non_pypi,
+            )
+        )
+    torch_main = next(
+        item.expected_versions
+        for item in prepared
+        if item.surface.output_name == "torch-resolver"
+    )
+    torch_pyg = next(
+        item.expected_versions
+        for item in prepared
+        if item.surface.output_name == "torch-pyg-extensions"
+    )
+    _validate_human_audit_projections(repo, torch_main, torch_pyg)
+    return tuple(prepared)
 
 
 def _load_pip_audit_output(path: Path) -> object:
@@ -405,53 +664,18 @@ def _classify_missing_output(returncode: int, stderr: object) -> str:
     return "missing-output"
 
 
-def _semantic_requirement_lines(path: Path) -> tuple[str, ...]:
-    """Return non-comment requirement/include lines with trailing comments removed."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as error:
-        raise AdvisoryBaselineError("torch audit projection is unavailable") from error
-    lines: list[str] = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "\\" in line or ("#" in line and " #" not in line):
-            raise AdvisoryBaselineError("torch audit projection has an invalid requirement line")
-        line = line.split(" #", 1)[0].rstrip()
-        if line:
-            lines.append(line)
-    return tuple(lines)
-
-
-def _validate_torch_audit_projection(repo: Path) -> None:
-    """Require the selector-free audit manifest to exactly mirror the runtime pins."""
-    core = _semantic_requirement_lines(repo / TORCH_CORE_REQUIREMENTS)
-    ecosystem = _semantic_requirement_lines(repo / TORCH_ECOSYSTEM_REQUIREMENTS)
-    runtime = _semantic_requirement_lines(repo / TORCH_RUNTIME_REQUIREMENTS)
-    audit = _semantic_requirement_lines(repo / TORCH_AUDIT_REQUIREMENTS)
-    extensions = _semantic_requirement_lines(repo / PYG_EXTENSION_AUDIT_REQUIREMENTS)
-    if (
-        core != TORCH_CORE_LINES
-        or ecosystem != TORCH_ECOSYSTEM_LINES
-        or runtime != TORCH_RUNTIME_LINES
-        or audit != TORCH_AUDIT_LINES
-        or extensions != PYG_EXTENSION_AUDIT_LINES
-    ):
-        raise AdvisoryBaselineError("torch audit projection does not match runtime requirements")
-
-
 def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tuple[Observation, ...]:
     """Run six physical commands and merge them into four logical observations."""
-    _validate_torch_audit_projection(repo)
     observations: dict[str, Observation] = {}
     with tempfile.TemporaryDirectory(prefix="advisory-baseline-") as temporary_directory:
         output_directory = Path(temporary_directory)
-        for surface in AUDIT_SURFACES:
-            output = output_directory / f"{surface.output_name or surface.name}.json"
+        prepared_surfaces = derive_lock_audit_surfaces(repo, output_directory / "projections")
+        for prepared in prepared_surfaces:
+            surface = prepared.surface
+            output = output_directory / f"{surface.output_name}.json"
             try:
                 result = runner(
-                    _audit_command(surface, output),
+                    _audit_command(prepared, output),
                     cwd=repo,
                     check=False,
                     capture_output=True,
@@ -478,11 +702,15 @@ def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tupl
                 observation = normalize_pip_audit(surface.name, payload)
             except AdvisoryBaselineError as error:
                 raise AuditSurfaceError(surface.name, "invalid-schema") from error
-            if (
-                surface.requirements == (PYG_EXTENSION_AUDIT_REQUIREMENTS,)
-                and observation.resolved_versions != PYG_EXTENSION_AUDIT_VERSIONS
-            ):
+            if observation.resolved_versions != prepared.expected_versions:
                 raise AuditSurfaceError(surface.name, "invalid-schema")
+            observation = Observation(
+                surface=observation.surface,
+                resolved_versions=observation.resolved_versions,
+                advisories=observation.advisories,
+                lock_inputs=prepared.lock_inputs,
+                non_pypi=prepared.non_pypi,
+            )
             prior = observations.get(surface.name)
             if prior is None:
                 observations[surface.name] = observation
@@ -495,7 +723,15 @@ def run_audit_surfaces(repo: Path, runner: AuditRunner = subprocess.run) -> tupl
             if advisories & set(observation.advisories):
                 raise AuditSurfaceError(surface.name, "invalid-schema")
             advisories.update(observation.advisories)
-            observations[surface.name] = Observation(surface.name, tuple(sorted(versions.items())), tuple(sorted(advisories)))
+            if prior.lock_inputs != observation.lock_inputs or prior.non_pypi != observation.non_pypi:
+                raise AuditSurfaceError(surface.name, "invalid-schema")
+            observations[surface.name] = Observation(
+                surface.name,
+                tuple(sorted(versions.items())),
+                tuple(sorted(advisories)),
+                prior.lock_inputs,
+                prior.non_pypi,
+            )
     return tuple(observations[name] for name in SURFACE_ORDER)
 
 

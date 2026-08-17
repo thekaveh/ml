@@ -95,11 +95,15 @@ def _surface_inputs(surface: str) -> tuple[str, ...]:
     return {
         "bootstrap": ("bootstrap-requirements.txt",),
         "compiler": ("compiler-requirements.txt",),
-        "docs": ("docs-requirements.in",),
-        "audit": ("vulnerability-audit-requirements.txt",),
-        "atlas-contract": ("atlas-contract-requirements.txt",),
-        "core": ("torch-core-requirements.txt",),
-        "runtime": ("torch-core-requirements.txt", "torch-requirements.txt"),
+        "docs": ("bootstrap-requirements.txt", "docs-requirements.in"),
+        "audit": ("bootstrap-requirements.txt", "vulnerability-audit-requirements.txt"),
+        "atlas-contract": ("bootstrap-requirements.txt", "atlas-contract-requirements.txt"),
+        "core": ("bootstrap-requirements.txt", "torch-core-requirements.txt"),
+        "runtime": (
+            "bootstrap-requirements.txt",
+            "torch-core-requirements.txt",
+            "torch-requirements.txt",
+        ),
         "root": (
             "bootstrap-requirements.txt",
             "torch-core-requirements.txt",

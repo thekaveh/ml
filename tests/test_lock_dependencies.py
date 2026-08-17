@@ -60,6 +60,28 @@ def test_darwin_compile_commands_pin_deployment_target() -> None:
     assert all("MACOSX_DEPLOYMENT_TARGET" not in item.env for item in plan if item not in darwin)
 
 
+def test_dedicated_role_compiles_include_bootstrap_as_one_resolution() -> None:
+    plan = build_compile_plan(REPO_ROOT, load_policy(REPO_ROOT), "check")
+    expected_inputs = {
+        "docs": ("bootstrap-requirements.txt", "docs-requirements.in"),
+        "audit": ("bootstrap-requirements.txt", "vulnerability-audit-requirements.txt"),
+        "atlas-contract": ("bootstrap-requirements.txt", "atlas-contract-requirements.txt"),
+        "core": ("bootstrap-requirements.txt", "torch-core-requirements.txt"),
+        "runtime": (
+            "bootstrap-requirements.txt",
+            "torch-core-requirements.txt",
+            "torch-requirements.txt",
+        ),
+    }
+
+    for command in plan:
+        if command.surface not in expected_inputs:
+            continue
+        compile_index = command.argv.index("compile")
+        output_index = command.argv.index("--output-file")
+        assert command.argv[compile_index + 1 : output_index] == expected_inputs[command.surface]
+
+
 def test_check_mode_never_writes_checkout_when_runner_fails() -> None:
     before = {path: path.read_bytes() for path in REPO_ROOT.glob("requirements/locks/**/*.txt")}
 

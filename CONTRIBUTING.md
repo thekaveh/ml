@@ -128,7 +128,8 @@ make image-lock-check
 Review the complete generated diff, source bindings, wheel tags, hashes, and advisory result. Never
 hand-edit a generated lock or replace these commands with an ad hoc `pip install`. Rollback is one
 coherent revert of the human input, generated locks, image ledger/reference, installer/consumer
-wiring, policy, and documentation.
+wiring, policy, and documentation. The exact resolver cutoff in `requirements/lock-policy.toml`
+must move only as an intentional part of that reviewed update.
 
 ## 7. One concern per PR
 

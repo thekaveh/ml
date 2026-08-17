@@ -212,13 +212,14 @@ script, sets `NLTK_DATA=/home/jovyan/nltk_data`, and removes temporary build
 inputs. It contains no `spacy download`, `nltk.download`, raw curl/wget asset
 download, unverified pip install, or copied third-party archive.
 
-The Atlas change lands first in `thekaveh/atlas` through that repository's
-reviewed feature-to-`develop` workflow and its established narrow reconciliation
-path to `main`, so unrelated Atlas `develop` work is not released. ml-eng-lab
-then updates its detached `infra` gitlink to the resulting reviewed `main`
-ancestor. The parent Atlas consumer test checks the exact gitlink plus all three
-byte-equality projections and Dockerfile order. A dirty or unavailable submodule
-fails closed; tests never fetch a moving branch.
+The Atlas change is a consumer hotfix, not an Atlas feature release. It branches
+from the current Atlas `main`, merges through a reviewed PR back to `main`, and
+then uses a content-neutral `main`-to-`develop` sync PR. This avoids releasing
+unrelated Atlas `develop` work while leaving both long-lived branches with the
+same asset contract. ml-eng-lab then updates its detached `infra` gitlink to the
+reviewed Atlas `main` merge. The parent Atlas consumer test checks the exact
+gitlink plus all three byte-equality projections and Dockerfile order. A dirty
+or unavailable submodule fails closed; tests never fetch a moving branch.
 
 `scripts/atlas_runtime_probe.py` strengthens the VADER evidence. It resolves the
 resource through `nltk.data.find`, requires a filesystem ZIP owned by an entry

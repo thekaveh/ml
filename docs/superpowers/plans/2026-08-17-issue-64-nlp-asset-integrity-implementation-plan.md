@@ -309,15 +309,19 @@ cp "$ML_ROOT/nlp-model-requirements.txt" services/jupyterhub/build/nlp-model-req
 The Dockerfile block is exactly ordered:
 
 ```dockerfile
-COPY nlp-model-requirements.txt /tmp/nlp-model-requirements.txt
-COPY nlp-assets.toml /tmp/nlp-assets.toml
-COPY install_nlp_assets.py /tmp/install_nlp_assets.py
+COPY --chown=${NB_UID}:${NB_GID} nlp-model-requirements.txt /tmp/nlp-model-requirements.txt
+COPY --chown=${NB_UID}:${NB_GID} nlp-assets.toml /tmp/nlp-assets.toml
+COPY --chown=${NB_UID}:${NB_GID} install_nlp_assets.py /tmp/install_nlp_assets.py
 RUN python -m pip install --no-cache-dir --no-deps --require-hashes -r /tmp/nlp-model-requirements.txt \
  && python /tmp/install_nlp_assets.py install --manifest /tmp/nlp-assets.toml --data-dir /home/jovyan/nltk_data \
  && python /tmp/install_nlp_assets.py verify --manifest /tmp/nlp-assets.toml --data-dir /home/jovyan/nltk_data \
  && rm -f /tmp/nlp-model-requirements.txt /tmp/nlp-assets.toml /tmp/install_nlp_assets.py
 ENV NLTK_DATA=/home/jovyan/nltk_data
 ```
+
+The three projected inputs are owned by the active non-root notebook user so
+the verified cleanup is executable. The Atlas contract test must kill a
+mutation that omits any required `--chown=${NB_UID}:${NB_GID}`.
 
 Remove the old spaCy/NLTK block. Update requirements comments and the Unreleased changelog only.
 

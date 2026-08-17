@@ -206,7 +206,9 @@ cross-repository contract therefore uses reviewed, byte-identical projections:
 - `infra/services/jupyterhub/build/nlp-model-requirements.txt` equals
   `nlp-model-requirements.txt` byte for byte.
 
-The Atlas Dockerfile copies those three files, installs the spaCy model with
+The Atlas Dockerfile copies those three files with
+`--chown=${NB_UID}:${NB_GID}` so its active non-root notebook user can remove
+the verified temporary inputs, installs the spaCy model with
 `python -m pip install --no-deps --require-hashes -r`, installs VADER with the
 shared script into `/home/jovyan/nltk_data`, verifies it offline with the same
 script, sets `NLTK_DATA=/home/jovyan/nltk_data`, and removes temporary build

@@ -117,10 +117,21 @@ _EXPECTED_MARKER_KEYS = (
     "sys_platform",
 )
 _ALLOWED_MARKER_VARIABLES = frozenset(_EXPECTED_MARKER_KEYS)
+_CANDIDATE_MARKER_VARIABLES = _ALLOWED_MARKER_VARIABLES | {
+    "extra",
+    "implementation_version",
+    "platform_release",
+    "platform_version",
+    "python_full_version",
+}
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _HASH_RE = re.compile(r"[0-9a-f]{64}\Z")
 _NAME_VERSION_RE = re.compile(
     r"(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)==(?P<version>[^\s;\\]+)"
+    r"(?:\s*;\s*(?P<marker>.*?))?(?=\s+--hash=|\s*\Z)"
+)
+_DIRECT_REQUIREMENT_RE = re.compile(
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s+@\s+(?P<source>https://[^\s;\\]+)"
     r"(?:\s*;\s*(?P<marker>.*?))?(?=\s+--hash=|\s*\Z)"
 )
 _IMAGE_SOURCE_RE = re.compile(r"[a-z0-9.-]+(?:/[A-Za-z0-9._-]+)+:[A-Za-z0-9._-]+\Z")
@@ -161,7 +172,7 @@ def parse_compiler_identity(repo: Path) -> Version:
         raise _error("compiler manifest has an invalid uv version") from exc
 
 
-def _parse_marker(text: str) -> str:
+def _parse_marker(text: str, *, candidate: bool = False) -> str:
     try:
         marker = Marker(text)
     except InvalidMarker as exc:
@@ -169,7 +180,8 @@ def _parse_marker(text: str) -> str:
     scrubbed = re.sub(r"(['\"]).*?\1", "", text)
     variables = set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", scrubbed))
     variables -= {"and", "or", "in", "not"}
-    unsupported = variables - _ALLOWED_MARKER_VARIABLES
+    allowed = _CANDIDATE_MARKER_VARIABLES if candidate else _ALLOWED_MARKER_VARIABLES
+    unsupported = variables - allowed
     if unsupported:
         raise _error(f"lock marker uses unsupported variable: {sorted(unsupported)[0]}")
     return str(marker)
@@ -197,10 +209,14 @@ def _logical_requirement_lines(path: Path) -> tuple[str, ...]:
     return tuple(logical)
 
 
-def parse_lock(path: Path) -> tuple[LockedRequirement, ...]:
+def _parse_lock_requirements(path: Path, *, candidate: bool) -> tuple[LockedRequirement, ...]:
     requirements: list[LockedRequirement] = []
     for line in _logical_requirement_lines(path):
         match = _NAME_VERSION_RE.match(line)
+        direct = False
+        if match is None:
+            match = _DIRECT_REQUIREMENT_RE.match(line)
+            direct = match is not None
         if match is None:
             raise _error(f"lock requirement has unsupported syntax: {path.name}")
         remainder = line[match.end() :]
@@ -209,21 +225,39 @@ def parse_lock(path: Path) -> tuple[LockedRequirement, ...]:
             raise _error(f"lock requirement has malformed or missing hash: {path.name}")
         if len(set(hashes)) != len(hashes):
             raise _error(f"lock requirement has a duplicate hash: {path.name}")
-        try:
-            version = Version(match.group("version"))
-        except InvalidVersion as exc:
-            raise _error(f"lock requirement has invalid version: {path.name}") from exc
+        if direct:
+            source = match.group("source")
+            version_match = re.search(r"-([0-9]+(?:\.[0-9]+)+)-[^/]+\.whl\Z", source)
+            if version_match is None:
+                raise _error(f"lock direct requirement has no wheel version: {path.name}")
+            version = Version(version_match.group(1))
+        else:
+            source = None
+            try:
+                version = Version(match.group("version"))
+            except InvalidVersion as exc:
+                raise _error(f"lock requirement has invalid version: {path.name}") from exc
         marker_text = match.group("marker")
-        marker = _parse_marker(marker_text) if marker_text else None
+        marker = _parse_marker(marker_text, candidate=candidate) if marker_text else None
         requirements.append(
             LockedRequirement(
                 name=canonicalize_name(match.group("name")),
                 version=version,
                 hashes=hashes,
-                source=None,
+                source=source,
                 marker=marker,
             )
         )
+    return tuple(requirements)
+
+
+def parse_candidate_lock(path: Path) -> tuple[LockedRequirement, ...]:
+    """Parse a resolver candidate before supported-range marker projection."""
+    return _parse_lock_requirements(path, candidate=True)
+
+
+def parse_lock(path: Path) -> tuple[LockedRequirement, ...]:
+    requirements = _parse_lock_requirements(path, candidate=False)
     targets = _supported_target_environments()
     selected_names: dict[tuple[str, str], int] = {}
     for requirement in requirements:
@@ -240,7 +274,7 @@ def parse_lock(path: Path) -> tuple[LockedRequirement, ...]:
             selected_names[binding] = selected_names.get(binding, 0) + 1
             if selected_names[binding] > 1:
                 raise _error(f"lock marker overlap for {requirement.name} on {target.key}")
-    return tuple(requirements)
+    return requirements
 
 
 def _supported_target_environments() -> tuple[TargetEnvironment, ...]:

@@ -54,6 +54,30 @@ _ISSUE62_PULL_REQUEST_CHECKOUTS = {
 }
 
 
+def test_dependency_lock_d10_integration_is_clean() -> None:
+    assert verify_repo._dependency_lock_findings(REPO_ROOT) == []
+
+
+def test_dependency_lock_d10_reports_missing_output(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "requirements").mkdir(parents=True)
+    from scripts.dependency_locks import load_policy
+
+    policy = load_policy(REPO_ROOT)
+    for relative in policy.inputs + policy.outputs:
+        destination = repo / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / relative, destination)
+    shutil.copy2(REPO_ROOT / "requirements/lock-policy.toml", repo / "requirements")
+    shutil.copy2(REPO_ROOT / "requirements/image-lock.json", repo / "requirements")
+    (repo / "requirements/locks/compiler.txt").unlink()
+
+    findings = verify_repo._dependency_lock_findings(repo)
+
+    assert {finding.id for finding in findings} == {"D10.dependency_locks"}
+    assert findings[0].location == "requirements/locks/compiler.txt"
+
+
 def _assert_pull_request_checkouts_use_synthetic_merge_default(
     workflows: Mapping[str, dict],
 ) -> None:
@@ -369,6 +393,7 @@ def test_atlas_contract_direct_dependencies_match_documentation_pins():
     assert _parse_exact_direct_pins(requirements_path) == {
         "pytest": _documentation_pin("pytest"),
         "pyyaml": _documentation_pin("pyyaml"),
+        "uv": "0.11.19",
     }
 
 

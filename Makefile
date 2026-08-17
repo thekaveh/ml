@@ -73,7 +73,7 @@ SMOKE_OUT ?= /tmp/ml-smoke
 TIER_A_OUT ?= /tmp/ml-tier-a
 TIER_A_OUT_ABS := $(abspath $(TIER_A_OUT))
 
-.PHONY: help print-tier-a print-tier-b print-tier-c run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-torch-stack verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
+.PHONY: help print-tier-a print-tier-b print-tier-c run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-torch-stack verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-bootstrap install-compiler-lock lock-write lock-check image-lock-check verify-dependency-locks install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
 
 help:
 	@echo "Targets:"
@@ -97,6 +97,12 @@ help:
 	@echo "  docs-wiki         Generate the wiki Markdown (build_docs --wiki), then push_wiki --check (dry-run)."
 	@echo "  nlp-assets        Download spaCy en_core_web_sm + NLTK vader_lexicon (needed by the 2 NLP Tier-A notebooks)."
 	@echo "  verify            Run repo verifier (scripts/verify_repo.py --check all --fast)."
+	@echo "  install-bootstrap Install the hash-locked bootstrap toolchain."
+	@echo "  install-compiler-lock Install the hash-locked uv compiler."
+	@echo "  lock-write        Regenerate the complete supported dependency lock family."
+	@echo "  lock-check        Resolve independently and byte-check every dependency lock."
+	@echo "  image-lock-check  Verify pinned image indexes and native child digests."
+	@echo "  verify-dependency-locks Run the offline dependency-lock contract verifier."
 	@echo "  install-torch-stack Install pinned Torch core first, then PyG/runtime deps."
 	@echo "  codespace-setup   Full dep install + NLP assets. Invoked by .devcontainer/devcontainer.json's postCreateCommand."
 	@echo "  atlas-setup       Initialize Atlas and prepare machine-local environment files."
@@ -223,7 +229,25 @@ nlp-assets:
 	$(PYTHON) -m spacy download en_core_web_sm
 	$(PYTHON) -c "import nltk; nltk.download('vader_lexicon', quiet=True)"
 
-verify:
+install-bootstrap:
+	$(PYTHON) -m scripts.install_locked_requirements bootstrap
+
+install-compiler-lock:
+	$(PYTHON) -m scripts.install_locked_requirements compiler
+
+lock-write:
+	$(PYTHON) -m scripts.lock_dependencies write
+
+lock-check:
+	$(PYTHON) -m scripts.lock_dependencies check
+
+image-lock-check:
+	$(PYTHON) -m scripts.check_image_locks
+
+verify-dependency-locks:
+	$(PYTHON) -m scripts.verify_dependency_locks
+
+verify: verify-dependency-locks
 	$(PYTHON) scripts/verify_repo.py --check all --fast
 
 # Issue #62 canonical CPU stack: Torch 2.11, binary pyg-lib/scatter/sparse, NNx 0.2.0 last.

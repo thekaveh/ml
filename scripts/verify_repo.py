@@ -2064,8 +2064,26 @@ def _ordered_contains(required: tuple[str, ...], actual: list[str]) -> tuple[boo
     return (not missing, missing)
 
 
+def _dependency_lock_findings(repo: Path) -> list[Finding]:
+    if not (repo / "requirements" / "lock-policy.toml").is_file():
+        return []
+    from scripts.verify_dependency_locks import verify_dependency_locks
+
+    return [
+        Finding(
+            id="D10.dependency_locks",
+            check="docs",
+            severity="error",
+            location=finding.path,
+            message=f"dependency lock contract failed: {finding.category}: {finding.detail}",
+        )
+        for finding in verify_dependency_locks(repo)
+    ]
+
+
 def check_docs(repo: Path) -> CheckResult:
     result = CheckResult(name="docs")
+    result.findings.extend(_dependency_lock_findings(repo))
     canonical_doc_sources: set[str] = set()
 
     manifest_path = repo / "docs" / "manifest.yaml"

@@ -13,6 +13,7 @@ ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 RUN /opt/conda/bin/python -m venv "$VIRTUAL_ENV" \
   && make install-torch-stack \
   && make nlp-assets \
+  && make verify-nlp-assets \
   && python -m pip check \
   && python -m scripts.verify_torch_stack \
   && python -m scripts.verify_nnx_install

@@ -22,6 +22,7 @@ from scripts.dependency_locks import (
     parse_lock,
     project_for_target,
 )
+from scripts.nlp_assets import NLPAssetError, load_manifest as load_nlp_asset_manifest
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,8 @@ _MODEL_URL = (
     "en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
 )
 _MODEL_HASH = "1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85"
+_VADER_HASH = "8adba4294eef3964d820bf655e37e61bdc3a341994356af59b74fb3b4a36ce5c"
+_VADER_SIZE = 90486
 _FULL_SHA = re.compile(r"[0-9a-f]{40}")
 _DEPENDENCY_PATHS = frozenset(
     {
@@ -59,12 +62,14 @@ _DEPENDENCY_PATHS = frozenset(
         "torch-audit-requirements.txt",
         "pyg-extension-audit-requirements.txt",
         "requirements/lock-policy.toml",
+        "requirements/nlp-assets.toml",
         "Makefile",
         "scripts/dependency_locks.py",
         "scripts/lock_dependencies.py",
         "scripts/install_locked_requirements.py",
         "scripts/install_torch_stack.py",
         "scripts/verify_dependency_locks.py",
+        "scripts/nlp_assets.py",
         "scripts/advisory_baseline.py",
         "security/accepted-advisories.json",
     }
@@ -335,7 +340,23 @@ def _consumer_findings(repo: Path) -> list[LockFinding]:
         block = f"{target}:\n\t$(PYTHON) -m scripts.install_locked_requirements {role}"
         if make_source.count(block) != 1:
             findings.append(_finding("consumer", make_path, target))
-    if "spacy download" in make_source:
+    nlp_install = "nlp-assets:\n\t$(PYTHON) -m scripts.nlp_assets install"
+    nlp_verify = "verify-nlp-assets:\n\t$(PYTHON) -m scripts.nlp_assets verify"
+    codespace = (
+        "codespace-setup: install-torch-stack\n"
+        "\t$(MAKE) nlp-assets\n"
+        "\t$(MAKE) verify-nlp-assets\n"
+        "\t$(PYTHON) -m pip check\n"
+        "\t$(MAKE) verify-torch-stack\n"
+        "\t$(MAKE) verify-nnx-install"
+    )
+    if (
+        make_source.count(nlp_install) != 1
+        or make_source.count(nlp_verify) != 1
+        or make_source.count(codespace) != 1
+        or "spacy download" in make_source
+        or "nltk.download" in make_source
+    ):
         findings.append(_finding("consumer", make_path, "package-changing NLP assets"))
     workflow_paths = tuple(
         Path(".github/workflows") / name
@@ -461,6 +482,20 @@ def _consumer_findings(repo: Path) -> list[LockFinding]:
             or not docker_environment
         ):
             findings.append(_finding("consumer", docker_path, "native locked build"))
+        nlp_order = (
+            "make install-torch-stack",
+            "make nlp-assets",
+            "make verify-nlp-assets",
+            "python -m pip check",
+            "python -m scripts.verify_torch_stack",
+            "python -m scripts.verify_nnx_install",
+        )
+        if (
+            any(command not in docker_source for command in nlp_order)
+            or [docker_source.index(command) for command in nlp_order]
+            != sorted(docker_source.index(command) for command in nlp_order)
+        ):
+            findings.append(_finding("consumer", docker_path, "NLP asset order"))
     return findings
 
 
@@ -470,6 +505,28 @@ def verify_dependency_locks(repo: Path) -> tuple[LockFinding, ...]:
     except DependencyLockError:
         return (LockFinding("policy", "requirements/lock-policy.toml", "invalid"),)
     findings: list[LockFinding] = []
+    asset_path = Path("requirements/nlp-assets.toml")
+    try:
+        asset = load_nlp_asset_manifest(repo / asset_path)
+    except NLPAssetError:
+        findings.append(_finding("asset", asset_path, "invalid"))
+    else:
+        if (
+            asset.sha256 != _VADER_HASH
+            or asset.size != _VADER_SIZE
+            or str(asset.resource) != "sentiment/vader_lexicon.zip"
+            or str(asset.member) != "vader_lexicon/vader_lexicon.txt"
+        ):
+            findings.append(_finding("asset", asset_path, "identity"))
+    model_path = Path("nlp-model-requirements.txt")
+    try:
+        model_source = (repo / model_path).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        findings.append(_finding("source", model_path, "missing"))
+    else:
+        expected_model = f"en-core-web-sm @ {_MODEL_URL} --hash=sha256:{_MODEL_HASH}\n"
+        if model_source != expected_model:
+            findings.append(_finding("source", model_path, "NLP model"))
     parsed: dict[Path, tuple[LockedRequirement, ...]] = {}
     for relative in policy.outputs:
         path = repo / relative

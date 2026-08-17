@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
+import zipfile
+from pathlib import Path, PurePosixPath
 from types import ModuleType
 
 import pytest
@@ -13,6 +16,30 @@ from scripts.atlas_runtime_probe import (
     probe_exit_code,
     serialize_report,
 )
+from scripts.nlp_assets import VaderAsset
+
+
+def _write_vader_archive(
+    path: Path,
+    *,
+    member: str = "vader_lexicon/vader_lexicon.txt",
+    contents: str = "good\t2.0\t0.0\t[2]\nbad\t-2.0\t0.0\t[-2]",
+) -> VaderAsset:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(member, contents)
+    payload = path.read_bytes()
+    return VaderAsset(
+        url=(
+            "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/"
+            "packages/sentiment/vader_lexicon.zip"
+        ),
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size=len(payload),
+        resource=PurePosixPath("sentiment/vader_lexicon.zip"),
+        member=PurePosixPath(member),
+        license="MIT License",
+    )
 
 
 @pytest.mark.parametrize(
@@ -303,6 +330,198 @@ def test_active_notebook_discovery_keeps_all_local_sibling_contexts(tmp_path) ->
     _, local_contexts = probe._active_notebook_documents(repo)
 
     assert local_contexts[module_name] == tuple(contexts)
+
+
+def _configure_vader_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    asset: VaderAsset,
+    roots: list[Path],
+    pointer: Path,
+) -> None:
+    import nltk
+
+    monkeypatch.setattr(
+        probe,
+        "_module_evidence",
+        lambda module: {"module": module, "status": "ok"},
+    )
+    monkeypatch.setattr(probe, "load_nlp_asset_manifest", lambda _: asset)
+    monkeypatch.setattr(nltk.data, "path", [str(root) for root in roots])
+    original_find = nltk.data.find
+    monkeypatch.setattr(
+        nltk.data,
+        "find",
+        lambda resource: (
+            str(pointer) if str(resource) == str(asset.resource) else original_find(resource)
+        ),
+    )
+
+
+def test_vader_evidence_reports_verified_archive_identity(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "nltk-data"
+    archive = root / "sentiment/vader_lexicon.zip"
+    asset = _write_vader_archive(archive)
+    _configure_vader_probe(monkeypatch, asset=asset, roots=[root], pointer=archive)
+
+    evidence = probe._vader_evidence()
+
+    assert evidence == {
+        "asset": "vader_lexicon",
+        "status": "ok",
+        "expected_sha256": asset.sha256,
+        "observed_sha256": asset.sha256,
+        "expected_size": asset.size,
+        "observed_size": asset.size,
+        "member": "vader_lexicon/vader_lexicon.txt",
+        "import": {"module": "nltk.sentiment.vader", "status": "ok"},
+    }
+
+
+@pytest.mark.parametrize("mutation", ("wrong_hash", "wrong_size", "malformed", "smoke"))
+def test_vader_evidence_rejects_corrupt_archive_identity(
+    tmp_path, monkeypatch, mutation: str
+) -> None:
+    root = tmp_path / "nltk-data"
+    archive = root / "sentiment/vader_lexicon.zip"
+    if mutation == "malformed":
+        archive.parent.mkdir(parents=True)
+        archive.write_bytes(b"not-a-zip")
+        payload = archive.read_bytes()
+        asset = VaderAsset(
+            url="https://example.invalid/vader.zip",
+            sha256=hashlib.sha256(payload).hexdigest(),
+            size=len(payload),
+            resource=PurePosixPath("sentiment/vader_lexicon.zip"),
+            member=PurePosixPath("vader_lexicon/vader_lexicon.txt"),
+            license="MIT License",
+        )
+    else:
+        contents = "neutral\t0.0\t0.0\t[0]\n" if mutation == "smoke" else (
+            "good\t2.0\t0.0\t[2]\nbad\t-2.0\t0.0\t[-2]"
+        )
+        asset = _write_vader_archive(archive, contents=contents)
+    if mutation == "wrong_hash":
+        asset = VaderAsset(
+            asset.url,
+            "0" * 64,
+            asset.size,
+            asset.resource,
+            asset.member,
+            asset.license,
+        )
+    elif mutation == "wrong_size":
+        asset = VaderAsset(
+            asset.url,
+            asset.sha256,
+            asset.size + 1,
+            asset.resource,
+            asset.member,
+            asset.license,
+        )
+    _configure_vader_probe(monkeypatch, asset=asset, roots=[root], pointer=archive)
+
+    assert probe._vader_evidence()["status"] == "asset_identity_mismatch"
+
+
+@pytest.mark.parametrize("mutation", ("symlink", "directory", "escape", "duplicate"))
+def test_vader_evidence_rejects_unsafe_or_ambiguous_resource_paths(
+    tmp_path, monkeypatch, mutation: str
+) -> None:
+    first = tmp_path / "first"
+    archive = first / "sentiment/vader_lexicon.zip"
+    if mutation == "symlink":
+        target = tmp_path / "outside.zip"
+        asset = _write_vader_archive(target)
+        archive.parent.mkdir(parents=True)
+        archive.symlink_to(target)
+        roots = [first]
+        pointer = archive
+    elif mutation == "directory":
+        archive.mkdir(parents=True)
+        asset = VaderAsset(
+            "https://example.invalid/vader.zip",
+            "0" * 64,
+            1,
+            PurePosixPath("sentiment/vader_lexicon.zip"),
+            PurePosixPath("vader_lexicon/vader_lexicon.txt"),
+            "MIT License",
+        )
+        roots = [first]
+        pointer = archive
+    elif mutation == "escape":
+        pointer = tmp_path / "outside.zip"
+        asset = _write_vader_archive(pointer)
+        roots = [first]
+    else:
+        asset = _write_vader_archive(archive)
+        second = tmp_path / "second"
+        duplicate = second / "sentiment/vader_lexicon.zip"
+        duplicate.parent.mkdir(parents=True)
+        duplicate.write_bytes(b"different")
+        roots = [first, second]
+        pointer = archive
+    _configure_vader_probe(monkeypatch, asset=asset, roots=roots, pointer=pointer)
+
+    assert probe._vader_evidence()["status"] == "asset_identity_mismatch"
+
+
+def test_vader_projection_requires_exact_hash_size_and_member() -> None:
+    digest = "a" * 64
+    raw = {
+        "asset": "vader_lexicon",
+        "status": "ok",
+        "expected_sha256": digest,
+        "observed_sha256": digest,
+        "expected_size": 90486,
+        "observed_size": 90486,
+        "member": "vader_lexicon/vader_lexicon.txt",
+        "import": {"module": "nltk.sentiment.vader", "status": "ok"},
+    }
+    assert probe._project_asset(raw, "vader_lexicon")["status"] == "ok"
+    for key, value in (
+        ("observed_sha256", "b" * 64),
+        ("observed_size", 90485),
+        ("member", "vader_lexicon/other.txt"),
+    ):
+        mutated = dict(raw)
+        mutated[key] = value
+        assert (
+            probe._project_asset(mutated, "vader_lexicon")["status"]
+            == "asset_identity_mismatch"
+        )
+
+
+def test_vader_projection_preserves_a_missing_import_status() -> None:
+    projected = probe._project_asset(
+        {
+            "asset": "vader_lexicon",
+            "status": "missing_module",
+            "import": {"module": "nltk.sentiment.vader", "status": "missing_module"},
+        },
+        "vader_lexicon",
+    )
+    assert projected["status"] == "missing_module"
+
+
+def test_spacy_asset_requires_exact_version_and_load_success(monkeypatch) -> None:
+    model = ModuleType("en_core_web_sm")
+    model.load = lambda: object()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "en_core_web_sm", model)
+    monkeypatch.setattr(
+        probe,
+        "_module_evidence",
+        lambda module: {"module": module, "status": "ok"},
+    )
+    monkeypatch.setattr(probe.metadata, "version", lambda _: "3.8.0")
+    assert probe._spacy_model_evidence()["status"] == "ok"
+
+    monkeypatch.setattr(probe.metadata, "version", lambda _: "3.7.0")
+    assert probe._spacy_model_evidence()["status"] == "version_mismatch"
+
+    monkeypatch.setattr(probe.metadata, "version", lambda _: "3.8.0")
+    model.load = lambda: (_ for _ in ()).throw(RuntimeError("load failed"))  # type: ignore[attr-defined]
+    assert probe._spacy_model_evidence()["status"] == "import_error"
 
 
 def test_main_writes_json_when_module_version_access_raises(tmp_path, monkeypatch) -> None:

@@ -62,6 +62,132 @@ def test_dependency_advisory_lock_d10_integration_is_clean() -> None:
     assert verify_repo._dependency_advisory_lock_findings(REPO_ROOT) == []
 
 
+def _copy_nlp_asset_contract(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    paths = (
+        "requirements/nlp-assets.toml",
+        "nlp-model-requirements.txt",
+        "Makefile",
+        "Dockerfile",
+        ".github/workflows/ci.yml",
+        ".devcontainer/devcontainer.json",
+        "notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb",
+        "scripts/verify_dependency_locks.py",
+        "scripts/atlas_runtime_probe.py",
+    )
+    for relative in paths:
+        destination = repo / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / relative, destination)
+    return repo
+
+
+def _mutate_once(path: Path, old: str, new: str) -> None:
+    source = path.read_text(encoding="utf-8")
+    mutated = source.replace(old, new, 1)
+    assert mutated != source
+    path.write_text(mutated, encoding="utf-8")
+
+
+def _assert_one_nlp_asset_finding(repo: Path, location: str) -> None:
+    findings = verify_repo._nlp_asset_contract_findings(repo)
+    assert len(findings) == 1
+    assert findings[0].id == "D11.nlp_asset_contract"
+    assert findings[0].check == "assets"
+    assert findings[0].location == location
+
+
+def test_nlp_asset_d11_clean_control() -> None:
+    assert verify_repo._nlp_asset_contract_findings(REPO_ROOT) == []
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        ("raw.githubusercontent.com/nltk/nltk_data", "example.invalid/nltk/nltk_data"),
+        ("8adba4294eef3964", "0adba4294eef3964"),
+        ("size = 90486", "size = 90485"),
+        ("vader_lexicon/vader_lexicon.txt", "vader_lexicon/other.txt"),
+    ),
+)
+def test_nlp_asset_d11_rejects_manifest_identity_drift(
+    tmp_path: Path, old: str, new: str
+) -> None:
+    repo = _copy_nlp_asset_contract(tmp_path)
+    _mutate_once(repo / "requirements/nlp-assets.toml", old, new)
+
+    _assert_one_nlp_asset_finding(repo, "requirements/nlp-assets.toml")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "\nfrom nltk import download as fetch\nfetch('vader_lexicon')\n",
+        "\nnltk.download = lambda *args: None\n",
+        "\ngetattr(nltk, 'download')('vader_lexicon')\n",
+        "\n!python -m nltk.downloader vader_lexicon\n",
+    ),
+)
+def test_nlp_asset_d11_rejects_notebook_download_bypasses(
+    tmp_path: Path, mutation: str
+) -> None:
+    repo = _copy_nlp_asset_contract(tmp_path)
+    path = repo / "notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb"
+    notebook = json.loads(path.read_text(encoding="utf-8"))
+    setup = next(
+        cell
+        for cell in notebook["cells"]
+        if cell.get("cell_type") == "code"
+        and "sentiment/vader_lexicon.zip" in "".join(cell.get("source", []))
+    )
+    setup["source"].append(mutation)
+    path.write_text(json.dumps(notebook), encoding="utf-8")
+
+    _assert_one_nlp_asset_finding(
+        repo,
+        "notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb",
+    )
+
+
+@pytest.mark.parametrize(
+    ("relative", "old", "new"),
+    (
+        ("Makefile", "\nverify-nlp-assets:\n", "\nverify-assets:\n"),
+        ("Dockerfile", "  && make verify-nlp-assets \\\n", ""),
+        (
+            ".github/workflows/ci.yml",
+            "          make verify-nlp-assets\n",
+            "",
+        ),
+    ),
+)
+def test_nlp_asset_d11_rejects_missing_consumer_verification(
+    tmp_path: Path, relative: str, old: str, new: str
+) -> None:
+    repo = _copy_nlp_asset_contract(tmp_path)
+    _mutate_once(repo / relative, old, new)
+
+    _assert_one_nlp_asset_finding(repo, relative)
+
+
+def test_nlp_asset_d11_rejects_spacy_identity_drift(tmp_path: Path) -> None:
+    repo = _copy_nlp_asset_contract(tmp_path)
+    _mutate_once(
+        repo / "nlp-model-requirements.txt",
+        "en_core_web_sm-3.8.0",
+        "en_core_web_sm-3.7.0",
+    )
+
+    _assert_one_nlp_asset_finding(repo, "nlp-model-requirements.txt")
+
+
+def test_nlp_asset_d11_maps_malformed_workflow_to_stable_finding(tmp_path: Path) -> None:
+    repo = _copy_nlp_asset_contract(tmp_path)
+    (repo / ".github/workflows/ci.yml").write_text("jobs: []\n", encoding="utf-8")
+
+    _assert_one_nlp_asset_finding(repo, ".github/workflows/ci.yml")
+
+
 def test_dependency_advisory_lock_d10_fails_closed_on_projection_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -91,6 +217,8 @@ def test_dependency_lock_d10_reports_missing_output(tmp_path: Path) -> None:
         shutil.copy2(REPO_ROOT / relative, destination)
     shutil.copy2(REPO_ROOT / "requirements/lock-policy.toml", repo / "requirements")
     shutil.copy2(REPO_ROOT / "requirements/image-lock.json", repo / "requirements")
+    shutil.copy2(REPO_ROOT / "requirements/nlp-assets.toml", repo / "requirements")
+    shutil.copy2(REPO_ROOT / "nlp-model-requirements.txt", repo)
     (repo / "requirements/locks/compiler.txt").unlink()
 
     findings = verify_repo._dependency_lock_findings(repo)
@@ -4900,6 +5028,7 @@ def _ordered_install_fixture() -> tuple[str, ...]:
         "make install-torch-stack",
         "python -m pip install -r docs-requirements.txt",
         "make nlp-assets",
+        "make verify-nlp-assets",
         "python -m pip check",
         "make verify-torch-stack",
         "make verify-nnx-install",
@@ -6687,7 +6816,11 @@ def test_ci_tier_a_uses_temporary_outputs_and_preserves_sources():
 _TIER_NNX_CONTRACTS = {
     "tier-a-papermill": {
         "workload": {"name": "Run Tier-A notebooks (papermill)", "run": "make smoke-tier-a"},
-        "install": "make install-torch-stack\nmake nlp-assets\n",
+        "install": (
+            "make install-torch-stack\n"
+            "make nlp-assets\n"
+            "make verify-nlp-assets\n"
+        ),
     },
     "smoke-tier-b": {
         "workload": {"name": "Smoke-run Tier-B notebooks", "run": "make smoke-tier-b"},

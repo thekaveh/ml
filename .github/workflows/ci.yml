@@ -403,6 +403,7 @@ jobs:
         run: |
           make install-torch-stack
           make nlp-assets
+          make verify-nlp-assets
 
       - name: Check and verify canonical Torch and NNx stack
         run: |

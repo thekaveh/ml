@@ -135,8 +135,9 @@ opening the network, including in `--offline` mode. A missing archive with
 file in the target directory, bounds the response to the expected size, fsyncs,
 and verifies the full file and ZIP identity. It then uses a same-filesystem hard
 link to create the missing target atomically without overwriting a concurrent
-writer and unlinks the temporary name. If a target exists but is corrupt or has
-the wrong identity, the installer fails rather than overwriting operator data.
+writer, then unlinks the temporary name before the target smoke check so NLTK's
+hardlink security guard observes a single-link resource. If a target exists but
+is corrupt or has the wrong identity, the installer fails rather than overwriting operator data.
 A race-created target is independently verified before success. Temporary files
 are removed on every exit path.
 

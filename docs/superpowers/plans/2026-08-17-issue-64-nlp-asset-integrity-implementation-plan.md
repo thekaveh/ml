@@ -130,7 +130,7 @@ entries are allowed), and reads that member once to make CRC validation execute.
 `compound("good") > 0` and `compound("bad") < 0`, and restores the original
 path in `finally`.
 
-For online install: create the resource directory with mode `0o755`; reject a symlink at either repository-created child; stream at most `asset.size + 1` bytes into `tempfile.NamedTemporaryFile(dir=target.parent, delete=False)`; flush and `os.fsync`; close; verify; call `os.link(temp_path, target)` to atomically create without overwrite; if `FileExistsError`, verify the race winner; finally unlink the temporary name. Translate failures to the exact categories in §12.25.4 with `from None`.
+For online install: create the resource directory with mode `0o755`; reject a symlink at either repository-created child; stream at most `asset.size + 1` bytes into `tempfile.NamedTemporaryFile(dir=target.parent, delete=False)`; flush and `os.fsync`; close; verify; call `os.link(temp_path, target)` to atomically create without overwrite; after a successful link, unlink the temporary name before target smoke verification so current NLTK observes `st_nlink == 1`; if `FileExistsError`, verify the race winner; finally remove any remaining temporary name. Translate failures to the exact categories in §12.25.4 with `from None`.
 
 - [ ] **Step 6: Implement and test the CLI**
 

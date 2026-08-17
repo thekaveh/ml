@@ -249,6 +249,23 @@ def test_online_install_streams_verifies_and_atomically_creates_target(tmp_path:
     assert list(target.parent.glob(".vader_lexicon.*")) == []
 
 
+def test_online_install_unlinks_temporary_hardlink_before_smoke(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = _zip_bytes()
+    asset = _asset_for(data)
+    observed_link_counts: list[int] = []
+
+    def require_single_link(data_dir: Path) -> None:
+        observed_link_counts.append((data_dir / asset.resource).stat().st_nlink)
+
+    monkeypatch.setattr(nlp_assets, "_smoke", require_single_link)
+    nlp_assets.install_vader(
+        asset, tmp_path, offline=False, opener=lambda _: _response(data)
+    )
+    assert observed_link_counts == [1]
+
+
 @pytest.mark.parametrize("payload", [b"too short", _zip_bytes() + b"too long"])
 def test_online_install_rejects_wrong_stream_size_and_cleans_temp(
     tmp_path: Path, payload: bytes
@@ -345,6 +362,7 @@ REQUIRED_GUARDS = (
     ('or data_dir.is_symlink():', 1),
     ('if target.is_symlink()', 1),
     ('os.link(temporary, target)', 1),
+    ('os.link(temporary, target)\n            temporary.unlink()\n            temporary = None', 1),
     ('except FileExistsError:\n            return verify_vader(asset, data_dir)', 1),
     ('temporary.unlink(missing_ok=True)', 1),
     ('analyzer.polarity_scores("good")["compound"] <= 0', 1),

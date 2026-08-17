@@ -13,6 +13,15 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Immutable dependency locks (Issue #63):** added the canonical
+  `requirements/lock-policy.toml`, exact hash-required bootstrap/compiler/docs/audit/Atlas roles,
+  and Darwin arm64, Linux x86_64, and Linux aarch64 core/runtime/root locks. CI, Docker, and
+  Codespaces now consume only those locks; Docker and devcontainer bases use reviewed tag-plus-index
+  digests. `make verify-dependency-locks` is the offline coherence gate, while `make lock-check` and
+  `make image-lock-check` provide networked regeneration and registry proofs. The spaCy model is an
+  exact direct-URL/hash package in the root locks; VADER remains the sole post-lock NLP data
+  download. Reproducibility is scoped to each qualified platform lock, with Issues #64/#65/#66
+  retaining asset integrity, Atlas runtime, and full quantization-notebook ownership respectively.
 - Coordinated the supported CPU Torch stack at Torch 2.11/PyG 2.8.0.post1/torchao 0.18 with
   binary-only pyg-lib, torch-scatter, and torch-sparse wheels, NNx 0.2.0 verification, and
   manual-only Issue #66 quantization ownership.

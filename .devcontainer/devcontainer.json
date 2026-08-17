@@ -4,7 +4,7 @@
 // later you have browser-based VS Code, or JupyterLab if selected as the
 // Codespaces editor, with the 21 active task folders available and 28 of 29
 // active notebooks runnable under the pinned environment.
-// Issue #62 setup delegates to make codespace-setup; it starts no service.
+// Issue #63 setup delegates to the hash-locked make codespace-setup; it starts no service.
 // The image_classification-mnist-ffnn-numpy notebook (the one with sibling .py
 // imports) works because the repo auto-clones into /workspaces/ml-eng-lab and the
 // kernel sees those files natively (no bind-mount wrapper needed).
@@ -12,7 +12,7 @@
 // See README.md §3.4 for full motivation, scenarios, and limitations.
 {
   "name": "ml-eng-lab",
-  "image": "mcr.microsoft.com/devcontainers/python:3.11-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11-bookworm@sha256:8e95c16fbc98a4a6a8f11f5b5bd152d0ffcd4fd0f4b31bd03e95965c777d2577",
 
   // The Make target is the single source of truth for the Codespaces/venv
   // install recipe and final verification; Docker mirrors it in Dockerfile.

@@ -1,20 +1,27 @@
-"""Install the repository's exact, platform-qualified Torch stack."""
+"""Install the repository's exact platform-qualified stack from reviewed locks."""
 
 from __future__ import annotations
 
 import platform
 import subprocess
 import sys
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, Sequence
+from pathlib import Path
+from typing import Any
+
+from scripts.install_locked_requirements import LockedInstallError, run_install_argv
 
 
+PYPI_INDEX = "https://pypi.org/simple"
 CPU_INDEX = "https://download.pytorch.org/whl/cpu"
+PYG_FIND_LINKS = "https://data.pyg.org/whl/torch-2.11.0+cpu.html"
+TORCHAO_CPU_FIND_LINKS = "https://download.pytorch.org/whl/cpu/torchao"
 
 
 class InstallStage(StrEnum):
-    UPGRADE_PIP = "upgrade-pip"
+    BOOTSTRAP = "bootstrap"
     CORE = "core"
     RUNTIME = "runtime"
     ROOT = "root"
@@ -26,12 +33,7 @@ class InstallCommand:
     argv: tuple[str, ...]
 
 
-class CommandResult(Protocol):
-    returncode: int
-
-
-class CommandRunner(Protocol):
-    def __call__(self, argv: Sequence[str], *, check: bool) -> CommandResult: ...
+Runner = Callable[..., Any]
 
 
 class TorchStackInstallError(RuntimeError):
@@ -39,41 +41,96 @@ class TorchStackInstallError(RuntimeError):
 
 
 def build_install_commands(python: str, system: str, machine: str) -> tuple[InstallCommand, ...]:
-    """Return the immutable four-stage install plan for one supported host."""
-    if (system, machine) not in (("Linux", "x86_64"), ("Linux", "aarch64"), ("Darwin", "arm64")):
+    """Return the immutable four-stage lock install plan for one supported host."""
+    hosts = {
+        ("Darwin", "arm64"): ("darwin-arm64", PYPI_INDEX),
+        ("Linux", "x86_64"): ("linux-x86_64", CPU_INDEX),
+        ("Linux", "aarch64"): ("linux-aarch64", CPU_INDEX),
+    }
+    selected = hosts.get((system, machine))
+    if selected is None:
         raise TorchStackInstallError("unsupported Torch stack platform")
-
-    pip = (python, "-m", "pip", "install")
-    core = pip + (("--index-url", CPU_INDEX) if system == "Linux" else ()) + (
-        "-r",
-        "torch-core-requirements.txt",
+    target, core_index = selected
+    torchao_links = (
+        ()
+        if system == "Darwin"
+        else ("--find-links", TORCHAO_CPU_FIND_LINKS)
     )
+    pip = (
+        python,
+        "-m",
+        "pip",
+        "install",
+        "--isolated",
+        "--disable-pip-version-check",
+        "--no-input",
+        "--require-hashes",
+        "--no-deps",
+    )
+    lock_root = f"requirements/locks/{target}"
     return (
-        InstallCommand(InstallStage.UPGRADE_PIP, pip + ("--upgrade", "pip")),
-        InstallCommand(InstallStage.CORE, core),
+        InstallCommand(
+            InstallStage.BOOTSTRAP,
+            pip + ("--only-binary=:all:", "-r", "requirements/locks/bootstrap.txt"),
+        ),
+        InstallCommand(
+            InstallStage.CORE,
+            pip
+            + (
+                "--only-binary=:all:",
+                "--index-url",
+                core_index,
+                "-r",
+                f"{lock_root}/core.txt",
+            ),
+        ),
         InstallCommand(
             InstallStage.RUNTIME,
             pip
             + (
-                "--only-binary=pyg-lib,torch-scatter,torch-sparse",
+                "--only-binary=:all:",
+                "--index-url",
+                PYPI_INDEX,
+                "--find-links",
+                PYG_FIND_LINKS,
+                *torchao_links,
                 "-r",
-                "torch-requirements.txt",
+                f"{lock_root}/runtime.txt",
             ),
         ),
         InstallCommand(
             InstallStage.ROOT,
-            pip + ("--only-binary=thekaveh-nnx", "-r", "requirements.txt"),
+            pip
+            + (
+                "--only-binary=:all:",
+                "--no-binary=python-louvain",
+                "--no-build-isolation",
+                "--index-url",
+                PYPI_INDEX,
+                "--find-links",
+                PYG_FIND_LINKS,
+                *torchao_links,
+                "-r",
+                f"{lock_root}/root.txt",
+            ),
         ),
     )
 
 
 def install_torch_stack(
-    commands: Sequence[InstallCommand], runner: CommandRunner = subprocess.run
+    commands: Sequence[InstallCommand],
+    *,
+    repo: Path = Path.cwd(),
+    runner: Runner = subprocess.run,
 ) -> None:
-    """Execute an already-planned Torch installation without leaking subprocess output."""
+    """Execute the four-stage plan through the shared sanitized runner."""
     for command in commands:
-        if runner(command.argv, check=False).returncode != 0:
-            raise TorchStackInstallError(f"torch stack installation failed: {command.stage}")
+        try:
+            run_install_argv(repo, str(command.stage), command.argv, runner)
+        except LockedInstallError as exc:
+            raise TorchStackInstallError(
+                f"torch stack installation failed: {command.stage}"
+            ) from exc
 
 
 def main() -> int:

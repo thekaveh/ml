@@ -1,24 +1,31 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from scripts import verify_dependency_locks as verifier_module
 from scripts.advisory_baseline import (
     AUDIT_SURFACES,
     AcceptedAdvisory,
     AdvisoryBaselineError,
     AuditSurfaceError,
     Baseline,
+    NonPyPIRecord,
+    SURFACE_ORDER,
     compare_baseline,
+    derive_lock_audit_surfaces,
     load_baseline,
     main,
     normalize_pip_audit,
     run_audit_surfaces,
 )
+from scripts.dependency_locks import parse_lock
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -68,7 +75,7 @@ def _write_torch_requirements(repo: Path) -> tuple[Path, Path, Path]:
 
 @pytest.fixture(autouse=True)
 def _torch_audit_projection(tmp_path: Path) -> None:
-    _write_torch_requirements(tmp_path)
+    _copy_lock_audit_contract(tmp_path)
 
 
 def _canonical_document(*, entries: list[dict[str, object]] | None = None) -> dict[str, object]:
@@ -254,7 +261,7 @@ def test_real_baseline_contains_exact_reviewed_policy_quadruples() -> None:
         (item.package, item.advisory_id, item.accepted_version, item.surfaces)
         for item in baseline.accepted_advisories
     } == {
-        ("setuptools", "PYSEC-2026-3447", "81.0.0", ("combined-runtime", "torch")),
+        ("setuptools", "PYSEC-2026-3447", "81.0.0", SURFACE_ORDER),
         ("torch", "PYSEC-2025-194", "2.11.0", ("combined-runtime", "torch")),
     }
 
@@ -637,12 +644,14 @@ def _audit_runner(
         commands.append((tuple(command), kwargs))
         if write_output:
             output = Path(command[command.index("--output") + 1])
-            audit_payload = _payload() if payload is None else payload
-            if "pyg-extension-audit-requirements.txt" in command:
-                audit_payload = _payload(
-                    _dependency("torch-scatter", "2.1.2"),
-                    _dependency("torch-sparse", "0.6.18"),
-                )
+            projection = Path(command[command.index("-r") + 1])
+            dependencies = tuple(
+                _dependency(*line.split("==", 1))
+                for line in projection.read_text(encoding="utf-8").splitlines()
+            )
+            audit_payload = _payload(*dependencies) if payload is None else payload
+            if "pyg-extensions" in output.name:
+                audit_payload = _payload(*dependencies)
             output.write_text(
                 raw_output if raw_output is not None else json.dumps(audit_payload),
                 encoding="utf-8",
@@ -653,13 +662,13 @@ def _audit_runner(
 
 
 def _assert_exact_audit_commands(commands: list[tuple[tuple[str, ...], dict[str, object]]], repo: Path) -> None:
-    expected_inputs = (
-        ("combined-runtime-resolver.json", ("-r", "requirements.txt", "-r", "torch-audit-requirements.txt")),
-        ("combined-runtime-pyg-extensions.json", ("--disable-pip", "--no-deps", "-r", "pyg-extension-audit-requirements.txt")),
-        ("torch-resolver.json", ("-r", "torch-audit-requirements.txt")),
-        ("torch-pyg-extensions.json", ("--disable-pip", "--no-deps", "-r", "pyg-extension-audit-requirements.txt")),
-        ("documentation.json", ("--disable-pip", "-r", "docs-requirements.txt")),
-        ("atlas-contract.json", ("-r", "atlas-contract-requirements.txt")),
+    expected_outputs = (
+        "combined-runtime-resolver.json",
+        "combined-runtime-pyg-extensions.json",
+        "torch-resolver.json",
+        "torch-pyg-extensions.json",
+        "documentation.json",
+        "atlas-contract.json",
     )
     fixed_flags = (
         "--strict",
@@ -674,13 +683,27 @@ def _assert_exact_audit_commands(commands: list[tuple[tuple[str, ...], dict[str,
         "--progress-spinner",
         "off",
     )
-    assert len(commands) == len(expected_inputs)
+    assert len(commands) == len(expected_outputs)
     output_directories = set()
-    for (command, kwargs), (output_name, inputs) in zip(commands, expected_inputs, strict=True):
+    for (command, kwargs), output_name in zip(commands, expected_outputs, strict=True):
         output = Path(command[-1])
-        assert command == (sys.executable, "-m", "pip_audit", *inputs, *fixed_flags, "--output", str(output))
+        projection = Path(command[command.index("-r") + 1])
+        assert command == (
+            sys.executable,
+            "-m",
+            "pip_audit",
+            "--disable-pip",
+            "--no-deps",
+            "-r",
+            str(projection),
+            *fixed_flags,
+            "--output",
+            str(output),
+        )
         assert output.name == output_name
         assert output.parent != repo
+        assert projection.parent == output.parent / "projections"
+        assert projection.name == output_name.removesuffix(".json") + ".requirements.txt"
         output_directories.add(output.parent)
         assert kwargs == {"cwd": repo, "check": False, "capture_output": True, "text": True}
     assert len(output_directories) == 1
@@ -696,171 +719,16 @@ def test_audit_commands_match_the_complete_four_surface_contract(tmp_path: Path)
 
 def test_audit_surfaces_define_six_physical_commands_for_four_logical_observations() -> None:
     assert [
-        (
-            surface.name,
-            surface.requirements,
-            surface.disable_pip,
-            surface.no_deps,
-            surface.output_name,
-        )
+        (surface.name, surface.projection_kind, surface.output_name)
         for surface in AUDIT_SURFACES
     ] == [
-        (
-            "combined-runtime",
-            ("requirements.txt", "torch-audit-requirements.txt"),
-            False,
-            False,
-            "combined-runtime-resolver",
-        ),
-        (
-            "combined-runtime",
-            ("pyg-extension-audit-requirements.txt",),
-            True,
-            True,
-            "combined-runtime-pyg-extensions",
-        ),
-        (
-            "torch",
-            ("torch-audit-requirements.txt",),
-            False,
-            False,
-            "torch-resolver",
-        ),
-        (
-            "torch",
-            ("pyg-extension-audit-requirements.txt",),
-            True,
-            True,
-            "torch-pyg-extensions",
-        ),
-        ("documentation", ("docs-requirements.txt",), True, False, None),
-        ("atlas-contract", ("atlas-contract-requirements.txt",), False, False, None),
+        ("combined-runtime", "main", "combined-runtime-resolver"),
+        ("combined-runtime", "pyg-extensions", "combined-runtime-pyg-extensions"),
+        ("torch", "main", "torch-resolver"),
+        ("torch", "pyg-extensions", "torch-pyg-extensions"),
+        ("documentation", "main", "documentation"),
+        ("atlas-contract", "main", "atlas-contract"),
     ]
-
-
-def test_real_torch_audit_projection_is_the_selector_free_runtime_mirror() -> None:
-    text = (REPO_ROOT / "torch-audit-requirements.txt").read_text(encoding="utf-8")
-
-    assert tuple(line for line in text.splitlines() if line and not line.startswith("#")) == tuple(
-        TORCH_AUDIT_REQUIREMENTS.splitlines()
-    )
-    extension_text = (REPO_ROOT / "pyg-extension-audit-requirements.txt").read_text(encoding="utf-8")
-    assert tuple(line for line in extension_text.splitlines() if line and not line.startswith("#")) == tuple(
-        line for line in PYG_EXTENSION_AUDIT_REQUIREMENTS.splitlines() if line and not line.startswith("#")
-    )
-    assert (REPO_ROOT / "torch-core-requirements.txt").read_text(encoding="utf-8") == TORCH_CORE_REQUIREMENTS
-    assert (REPO_ROOT / "torch-ecosystem-requirements.txt").read_text(encoding="utf-8") == TORCH_ECOSYSTEM_REQUIREMENTS
-
-
-@pytest.mark.parametrize(
-    "mutation",
-    [
-        lambda runtime, audit: runtime.write_text(
-            runtime.read_text(encoding="utf-8").replace("pyg-lib==0.8.0\n", ""),
-            encoding="utf-8",
-        ),
-        lambda runtime, audit: audit.write_text(
-            audit.read_text(encoding="utf-8") + "rogue-package==1.0\n",
-            encoding="utf-8",
-        ),
-        lambda runtime, audit: runtime.write_text(
-            runtime.read_text(encoding="utf-8").replace("torch-sparse==0.6.18", "torch-sparse==9.9.9"),
-            encoding="utf-8",
-        ),
-        lambda runtime, audit: audit.write_text(
-            audit.read_text(encoding="utf-8") + "--index-url https://example.test/simple\n",
-            encoding="utf-8",
-        ),
-        lambda runtime, audit: audit.write_text(
-            audit.read_text(encoding="utf-8") + "torch-sparse==0.6.18\n",
-            encoding="utf-8",
-        ),
-        lambda runtime, audit: audit.write_text(
-            audit.read_text(encoding="utf-8") + "torch-sparse==9.9.9\n",
-            encoding="utf-8",
-        ),
-        lambda runtime, audit: runtime.write_text(
-            runtime.read_text(encoding="utf-8").replace(f"{PYG_FIND_LINKS}\n", ""),
-            encoding="utf-8",
-        ),
-        lambda runtime, audit: runtime.write_text(
-            runtime.read_text(encoding="utf-8").replace(
-                PYG_FIND_LINKS,
-                "--find-links https://example.test/torch.html",
-            ),
-            encoding="utf-8",
-        ),
-        lambda runtime, audit: runtime.write_text(
-            runtime.read_text(encoding="utf-8") + f"{PYG_FIND_LINKS}\n",
-            encoding="utf-8",
-        ),
-    ],
-    ids=(
-        "missing-pin",
-        "extra-pin",
-        "changed-pin",
-        "extra-option",
-        "duplicate-pin",
-        "ambiguous-pin",
-        "missing-selector",
-        "changed-selector",
-        "duplicate-selector",
-    ),
-)
-def test_audit_rejects_torch_projection_drift_before_running_audit(tmp_path: Path, mutation) -> None:
-    runtime, audit, _ = _write_torch_requirements(tmp_path)
-    mutation(runtime, audit)
-    _, runner = _audit_runner()
-
-    with pytest.raises(AdvisoryBaselineError, match="torch audit projection"):
-        run_audit_surfaces(tmp_path, runner=runner)
-
-
-def test_audit_rejects_synchronized_missing_ecosystem_include_before_running_audit(
-    tmp_path: Path,
-) -> None:
-    runtime, audit, _ = _write_torch_requirements(tmp_path)
-    original_runtime = runtime.read_text(encoding="utf-8")
-    original_audit = audit.read_text(encoding="utf-8")
-    mutated_runtime = original_runtime.replace("-r torch-ecosystem-requirements.txt\n", "", 1)
-    mutated_audit = original_audit.replace("-r torch-ecosystem-requirements.txt\n", "", 1)
-
-    assert mutated_runtime != original_runtime
-    assert mutated_audit != original_audit
-    runtime.write_text(mutated_runtime, encoding="utf-8")
-    audit.write_text(mutated_audit, encoding="utf-8")
-    _, runner = _audit_runner()
-
-    with pytest.raises(AdvisoryBaselineError, match="torch audit projection"):
-        run_audit_surfaces(tmp_path, runner=runner)
-
-
-def test_torch_projection_ignores_comments_but_preserves_semantic_parity(tmp_path: Path) -> None:
-    runtime, audit, _ = _write_torch_requirements(tmp_path)
-    runtime.write_text("# runtime comment\n" + runtime.read_text(encoding="utf-8"), encoding="utf-8")
-    audit.write_text(audit.read_text(encoding="utf-8") + "# audit comment\n", encoding="utf-8")
-    _, runner = _audit_runner()
-
-    assert len(run_audit_surfaces(tmp_path, runner=runner)) == 4
-
-
-@pytest.mark.parametrize("line", ("torch_geometric==2.8.0.post1\\\n", "torch_geometric==2.8.0.post1#hidden"))
-def test_torch_projection_rejects_continuations_and_tricky_comments(tmp_path: Path, line: str) -> None:
-    _, audit, _ = _write_torch_requirements(tmp_path)
-    audit.write_text(audit.read_text(encoding="utf-8").replace("torch_geometric==2.8.0.post1", line), encoding="utf-8")
-    _, runner = _audit_runner()
-
-    with pytest.raises(AdvisoryBaselineError, match="torch audit projection"):
-        run_audit_surfaces(tmp_path, runner=runner)
-
-
-def test_torch_projection_rejects_non_utf8_input(tmp_path: Path) -> None:
-    _, _, extensions = _write_torch_requirements(tmp_path)
-    extensions.write_bytes(b"\xff")
-    _, runner = _audit_runner()
-
-    with pytest.raises(AdvisoryBaselineError, match="torch audit projection"):
-        run_audit_surfaces(tmp_path, runner=runner)
 
 
 def test_audit_merges_nonempty_pyg_extension_supplements_into_logical_surfaces(tmp_path: Path) -> None:
@@ -869,36 +737,31 @@ def test_audit_merges_nonempty_pyg_extension_supplements_into_logical_surfaces(t
     def runner(command: list[str], **kwargs: object) -> SimpleNamespace:
         nonlocal calls
         output = Path(command[command.index("--output") + 1])
-        extension = "pyg-extension-audit-requirements.txt" in command
-        payload = (
-            _payload(
-                _dependency("torch-scatter", "2.1.2", "CVE-2099-0001"),
-                _dependency("torch-sparse", "0.6.18"),
-            )
-            if extension
-            else _payload()
+        projection = Path(command[command.index("-r") + 1])
+        extension = "pyg-extensions" in output.name
+        dependencies = tuple(
+            _dependency(name, version, "CVE-2099-0001")
+            if extension and name == "torch-scatter"
+            else _dependency(name, version)
+            for name, version in (line.split("==", 1) for line in projection.read_text().splitlines())
         )
-        output.write_text(json.dumps(payload), encoding="utf-8")
+        output.write_text(json.dumps(_payload(*dependencies)), encoding="utf-8")
         calls += 1
         return SimpleNamespace(returncode=1 if extension else 0, stdout="", stderr="")
 
     observations = run_audit_surfaces(tmp_path, runner=runner)
 
     assert calls == 6
-    assert [(item.surface, item.resolved_versions, item.advisories) for item in observations[:2]] == [
-        (
-            "combined-runtime",
-            (("torch-scatter", "2.1.2"), ("torch-sparse", "0.6.18")),
-            (("torch-scatter", "2.1.2", "CVE-2099-0001"),),
-        ),
-        (
-            "torch",
-            (("torch-scatter", "2.1.2"), ("torch-sparse", "0.6.18")),
-            (("torch-scatter", "2.1.2", "CVE-2099-0001"),),
-        ),
-    ]
-    assert observations[2].resolved_versions == ()
-    assert observations[3].resolved_versions == ()
+    assert [item.surface for item in observations] == list(SURFACE_ORDER)
+    assert all(
+        {("torch-scatter", "2.1.2"), ("torch-sparse", "0.6.18")} <= set(item.resolved_versions)
+        for item in observations[:2]
+    )
+    assert all(
+        item.advisories == (("torch-scatter", "2.1.2", "CVE-2099-0001"),)
+        for item in observations[:2]
+    )
+    assert all(("setuptools", "81.0.0") in item.resolved_versions for item in observations)
     assert all(
         package != "pyg-lib"
         for observation in observations
@@ -953,11 +816,10 @@ def test_audit_rejects_noncanonical_pyg_extension_supplement_identity(
         nonlocal target_calls
         output = Path(command[command.index("--output") + 1])
         selected = dependencies if output.name == target_output else expected
-        payload = (
-            _payload(*(_dependency(package, version) for package, version in selected))
-            if "pyg-extension-audit-requirements.txt" in command
-            else _payload()
-        )
+        projection = Path(command[command.index("-r") + 1])
+        if "pyg-extensions" not in output.name:
+            selected = tuple(line.split("==", 1) for line in projection.read_text().splitlines())
+        payload = _payload(*(_dependency(package, version) for package, version in selected))
         output.write_text(json.dumps(payload), encoding="utf-8")
         if output.name == target_output:
             target_calls += 1
@@ -972,14 +834,11 @@ def test_audit_rejects_noncanonical_pyg_extension_supplement_identity(
 def test_audit_rejects_overlapping_resolver_and_supplement_packages(tmp_path: Path) -> None:
     def runner(command: list[str], **kwargs: object) -> SimpleNamespace:
         output = Path(command[command.index("--output") + 1])
-        payload = (
-            _payload(
-                _dependency("torch-scatter", "2.1.2"),
-                _dependency("torch-sparse", "0.6.18"),
-            )
-            if "pyg-extension-audit-requirements.txt" in command
-            else _payload(_dependency("torch-scatter", "2.1.2", "CVE-2099-0001"))
-        )
+        projection = Path(command[command.index("-r") + 1])
+        selected = [line.split("==", 1) for line in projection.read_text().splitlines()]
+        if "pyg-extensions" not in output.name:
+            selected.append(["torch-scatter", "2.1.2"])
+        payload = _payload(*(_dependency(package, version) for package, version in selected))
         output.write_text(json.dumps(payload), encoding="utf-8")
         return SimpleNamespace(returncode=1, stdout="", stderr="")
 
@@ -991,8 +850,8 @@ def test_audit_rejects_overlapping_resolver_and_supplement_packages(tmp_path: Pa
     "command_index,mutation",
     [
         (0, lambda command: command.__setitem__(command.index("off", command.index("--progress-spinner")), "on")),
-        (2, lambda command: command.__setitem__(command.index("torch-audit-requirements.txt"), "requirements.txt")),
-        (5, lambda command: command.__setitem__(command.index("atlas-contract-requirements.txt"), "requirements.txt")),
+        (2, lambda command: command.__setitem__(command.index("-r") + 1, "requirements.txt")),
+        (5, lambda command: command.__setitem__(command.index("-r") + 1, "requirements.txt")),
         (0, lambda command: command.remove("--strict")),
         (0, lambda command: command.insert(command.index("--format"), "--ignore-vuln")),
         (
@@ -1033,14 +892,13 @@ def test_audit_commands_cover_exact_four_surfaces_and_flags(tmp_path: Path) -> N
         "atlas-contract",
     ]
     assert [command[:3] for command, _ in commands] == [(sys.executable, "-m", "pip_audit")] * 6
-    assert [("-r", "requirements.txt", "-r", "torch-audit-requirements.txt") == command[3:7] for command, _ in commands] == [
-        True, False, False, False, False, False,
-    ]
     for command, kwargs in commands:
         assert kwargs["cwd"] == tmp_path
         assert kwargs["check"] is False
         assert {"--strict", "--vulnerability-service", "pypi", "--format", "json"} <= set(command)
         assert {"--aliases", "on", "--desc", "off", "--progress-spinner"} <= set(command)
+        assert command[3:7] == ("--disable-pip", "--no-deps", "-r", command[6])
+        assert command.count("-r") == 1
         assert "--ignore-vuln" not in command
 
 
@@ -1050,30 +908,18 @@ def test_documentation_audit_uses_disable_pip(tmp_path: Path) -> None:
     run_audit_surfaces(tmp_path, runner=runner)
 
     documentation = commands[4][0]
-    assert documentation[3:6] == ("--disable-pip", "-r", "docs-requirements.txt")
+    assert documentation[3:7] == ("--disable-pip", "--no-deps", "-r", documentation[6])
+    assert Path(documentation[6]).name == "documentation.requirements.txt"
 
 
 @pytest.mark.parametrize("returncode", [0, 1])
 def test_audit_exit_zero_and_one_are_completed_observations(tmp_path: Path, returncode: int) -> None:
-    _, runner = _audit_runner(returncode=returncode, payload=_payload(_dependency("torch", "2.4.1")))
+    _, runner = _audit_runner(returncode=returncode)
 
     observations = run_audit_surfaces(tmp_path, runner=runner)
 
     assert len(observations) == 4
-    assert observations[0].resolved_versions == (
-        ("torch", "2.4.1"),
-        ("torch-scatter", "2.1.2"),
-        ("torch-sparse", "0.6.18"),
-    )
-    assert observations[1].resolved_versions == (
-        ("torch", "2.4.1"),
-        ("torch-scatter", "2.1.2"),
-        ("torch-sparse", "0.6.18"),
-    )
-    assert all(
-        observation.resolved_versions == (("torch", "2.4.1"),)
-        for observation in observations[2:]
-    )
+    assert all(("setuptools", "81.0.0") in observation.resolved_versions for observation in observations)
 
 
 @pytest.mark.parametrize(
@@ -1158,15 +1004,12 @@ def test_cli_reports_every_audit_failure_with_only_fixed_safe_output(
         elif index == failure_index and failure == "invalid-schema":
             output.write_text("[]", encoding="utf-8")
         else:
-            payload = (
-                _payload(
-                    _dependency("torch-scatter", "2.1.2"),
-                    _dependency("torch-sparse", "0.6.18"),
-                )
-                if "pyg-extension-audit-requirements.txt" in command
-                else _payload()
+            projection = Path(command[command.index("-r") + 1])
+            dependencies = (
+                _dependency(*line.split("==", 1))
+                for line in projection.read_text(encoding="utf-8").splitlines()
             )
-            output.write_text(json.dumps(payload), encoding="utf-8")
+            output.write_text(json.dumps(_payload(*dependencies)), encoding="utf-8")
         return SimpleNamespace(
             returncode=2 if index == failure_index and failure == "unexpected-exit" else 1,
             stdout=unsafe,
@@ -1275,3 +1118,238 @@ def test_cli_diagnostics_do_not_disclose_index_credentials_or_temp_paths(
     output = capsys.readouterr().err
     assert "secret" not in output
     assert "/private/tmp" not in output
+
+
+def _copy_lock_audit_contract(destination: Path) -> Path:
+    for relative in (
+        "requirements",
+        "requirements.txt",
+        "bootstrap-requirements.txt",
+        "compiler-requirements.txt",
+        "nlp-model-requirements.txt",
+        "torch-core-requirements.txt",
+        "torch-ecosystem-requirements.txt",
+        "torch-requirements.txt",
+        "torch-audit-requirements.txt",
+        "pyg-extension-audit-requirements.txt",
+        "vulnerability-audit-requirements.txt",
+        "atlas-contract-requirements.txt",
+        "docs-requirements.in",
+        "docs-requirements.txt",
+        "Makefile",
+        "Dockerfile",
+        ".devcontainer",
+        ".github/workflows",
+        "scripts",
+    ):
+        source = REPO_ROOT / relative
+        target = destination / relative
+        if source.is_dir():
+            shutil.copytree(source, target)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+    for relative in verifier_module._DOCUMENTATION_CONTRACT:
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / relative, target)
+    return destination
+
+
+def _refresh_lock_header_input_hash(repo: Path, relative: str, old_bytes: bytes) -> None:
+    old_hash = hashlib.sha256(old_bytes).hexdigest()
+    new_hash = hashlib.sha256((repo / relative).read_bytes()).hexdigest()
+    assert old_hash != new_hash
+    locks = tuple((repo / "requirements" / "locks").rglob("*.txt")) + (
+        repo / "docs-requirements.txt",
+    )
+    for lock in locks:
+        text = lock.read_text(encoding="utf-8")
+        assert f"{relative}={old_hash}" in text
+        lock.write_text(
+            text.replace(f"{relative}={old_hash}", f"{relative}={new_hash}"),
+            encoding="utf-8",
+        )
+
+
+def test_lock_audit_surfaces_are_exact_no_resolve_projections(tmp_path: Path) -> None:
+    repo = _copy_lock_audit_contract(tmp_path / "repo")
+    projection_root = tmp_path / "projections"
+
+    prepared = derive_lock_audit_surfaces(repo, projection_root)
+
+    assert [(item.surface.name, item.surface.output_name) for item in prepared] == [
+        ("combined-runtime", "combined-runtime-resolver"),
+        ("combined-runtime", "combined-runtime-pyg-extensions"),
+        ("torch", "torch-resolver"),
+        ("torch", "torch-pyg-extensions"),
+        ("documentation", "documentation"),
+        ("atlas-contract", "atlas-contract"),
+    ]
+    for item in prepared:
+        lines = item.projection.read_text(encoding="utf-8").splitlines()
+        assert lines == [f"{name}=={version}" for name, version in item.expected_versions]
+        assert all(" @ " not in line and ";" not in line for line in lines)
+    assert all(
+        "setuptools==81.0.0" in item.projection.read_text()
+        for item in prepared
+        if item.surface.projection_kind == "main"
+    )
+    bootstrap = {"packaging", "pip", "setuptools", "wheel"}
+    assert all(
+        bootstrap <= {name for name, _ in item.expected_versions}
+        for item in prepared
+        if item.surface.projection_kind == "main"
+    )
+    audit = {
+        (item.name, item.version.public)
+        for item in parse_lock(repo / "requirements" / "locks" / "audit.txt")
+    }
+    combined = next(item for item in prepared if item.surface.output_name == "combined-runtime-resolver")
+    assert audit <= set(combined.expected_versions)
+    assert all(
+        token not in item.projection.read_text()
+        for item in prepared
+        for token in ("en-core-web-sm", "pyg-lib")
+    )
+    assert [item for item in prepared if item.surface.output_name.endswith("pyg-extensions")]
+    assert all(
+        set(item.expected_versions) == {("torch-scatter", "2.1.2"), ("torch-sparse", "0.6.18")}
+        for item in prepared
+        if item.surface.output_name.endswith("pyg-extensions")
+    )
+
+
+def test_lock_audit_surfaces_record_lock_hashes_and_only_approved_non_pypi(tmp_path: Path) -> None:
+    repo = _copy_lock_audit_contract(tmp_path / "repo")
+
+    prepared = derive_lock_audit_surfaces(repo, tmp_path / "projections")
+    logical = {item.surface.name: item for item in prepared if not item.surface.output_name.endswith("pyg-extensions")}
+
+    assert {record.package for record in logical["combined-runtime"].non_pypi} == {
+        "en-core-web-sm",
+        "pyg-lib",
+    }
+    assert {record.package for record in logical["torch"].non_pypi} == {"pyg-lib"}
+    assert logical["documentation"].non_pypi == ()
+    assert logical["atlas-contract"].non_pypi == ()
+    assert {
+        name: tuple(lock.path for lock in item.lock_inputs)
+        for name, item in logical.items()
+    } == {
+        "combined-runtime": (
+            "requirements/locks/bootstrap.txt",
+            "requirements/locks/audit.txt",
+            "requirements/locks/darwin-arm64/root.txt",
+            "requirements/locks/linux-x86_64/root.txt",
+            "requirements/locks/linux-aarch64/root.txt",
+        ),
+        "torch": (
+            "requirements/locks/bootstrap.txt",
+            "requirements/locks/darwin-arm64/core.txt",
+            "requirements/locks/darwin-arm64/runtime.txt",
+            "requirements/locks/linux-x86_64/core.txt",
+            "requirements/locks/linux-x86_64/runtime.txt",
+            "requirements/locks/linux-aarch64/core.txt",
+            "requirements/locks/linux-aarch64/runtime.txt",
+        ),
+        "documentation": ("requirements/locks/bootstrap.txt", "docs-requirements.txt"),
+        "atlas-contract": (
+            "requirements/locks/bootstrap.txt",
+            "requirements/locks/atlas-contract.txt",
+        ),
+    }
+    for record in logical["combined-runtime"].non_pypi + logical["torch"].non_pypi:
+        assert isinstance(record, NonPyPIRecord)
+        assert record.audited is False
+        assert record.reason == "non-pypi"
+        assert record.source.startswith("https://")
+        assert record.hashes and all(len(value) == 64 for value in record.hashes)
+        assert record.public_version in {"0.8.0", "3.8.0"}
+    assert all(len(item.lock_inputs) >= 2 for item in logical.values())
+    assert all(len(lock.sha256) == 64 for item in logical.values() for lock in item.lock_inputs)
+
+
+def test_source_range_mutation_does_not_change_lock_audit_projection(tmp_path: Path) -> None:
+    repo = _copy_lock_audit_contract(tmp_path / "repo")
+    before = derive_lock_audit_surfaces(repo, tmp_path / "before")
+    source = repo / "requirements.txt"
+    original = source.read_bytes()
+    source.write_bytes(original + b"# source-only change\n")
+    _refresh_lock_header_input_hash(repo, "requirements.txt", original)
+
+    after = derive_lock_audit_surfaces(repo, tmp_path / "after")
+
+    assert [item.expected_versions for item in after] == [item.expected_versions for item in before]
+
+
+@pytest.mark.parametrize(
+    ("relative", "old", "new", "message"),
+    (
+        (
+            "torch-audit-requirements.txt",
+            "torch_geometric==2.8.0.post1",
+            "torch_geometric==2.8.1",
+            "human Torch audit projection",
+        ),
+        (
+            "pyg-extension-audit-requirements.txt",
+            "torch-sparse==0.6.18",
+            "torch-sparse==0.6.19",
+            "human PyG audit projection",
+        ),
+    ),
+)
+def test_human_audit_supplement_must_equal_lock_projection(
+    tmp_path: Path,
+    relative: str,
+    old: str,
+    new: str,
+    message: str,
+) -> None:
+    repo = _copy_lock_audit_contract(tmp_path / "repo")
+    source = repo / relative
+    original = source.read_bytes()
+    mutated = original.decode().replace(old, new, 1).encode()
+    assert mutated != original
+    source.write_bytes(mutated)
+    _refresh_lock_header_input_hash(repo, relative, original)
+
+    with pytest.raises(AdvisoryBaselineError, match=message):
+        derive_lock_audit_surfaces(repo, tmp_path / "projections")
+
+
+def test_lock_version_mutation_fails_before_any_audit_command(tmp_path: Path) -> None:
+    repo = _copy_lock_audit_contract(tmp_path / "repo")
+    lock = repo / "requirements" / "locks" / "bootstrap.txt"
+    original = lock.read_text(encoding="utf-8")
+    mutated = original.replace("setuptools==81.0.0", "setuptools==81.0.1", 1)
+    assert mutated != original
+    lock.write_text(mutated, encoding="utf-8")
+
+    with pytest.raises(AdvisoryBaselineError, match="dependency locks"):
+        derive_lock_audit_surfaces(repo, tmp_path / "projections")
+
+
+def test_live_policy_accepts_bootstrap_setuptools_on_all_four_surfaces() -> None:
+    baseline = load_baseline(REPO_ROOT / "security" / "accepted-advisories.json")
+    setuptools = next(item for item in baseline.accepted_advisories if item.package == "setuptools")
+
+    assert setuptools.accepted_version == "81.0.0"
+    assert setuptools.advisory_id == "PYSEC-2026-3447"
+    assert setuptools.surfaces == SURFACE_ORDER
+
+
+def test_observations_retain_exact_lock_and_non_pypi_evidence(tmp_path: Path) -> None:
+    _, runner = _audit_runner()
+
+    observations = run_audit_surfaces(tmp_path, runner=runner)
+
+    assert [item.surface for item in observations] == list(SURFACE_ORDER)
+    assert all(item.lock_inputs for item in observations)
+    assert {item.package for item in observations[0].non_pypi} == {
+        "en-core-web-sm",
+        "pyg-lib",
+    }
+    assert {item.package for item in observations[1].non_pypi} == {"pyg-lib"}
+    assert observations[2].non_pypi == observations[3].non_pypi == ()

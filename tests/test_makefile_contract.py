@@ -11,11 +11,20 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_SUBPROCESS_TIMEOUT = 30
-_DOCKER_INSTALL_BLOCK = """RUN make install-torch-stack \\
+_DOCKER_INSTALL_BLOCK = """RUN /opt/conda/bin/python -m venv "$VIRTUAL_ENV" \\
+  && make install-torch-stack \\
   && make nlp-assets \\
   && python -m pip check \\
   && python -m scripts.verify_torch_stack \\
   && python -m scripts.verify_nnx_install"""
+_DOCKER_IMAGE = (
+    "quay.io/jupyter/datascience-notebook:python-3.11@"
+    "sha256:14379f24c840f27375e3a4b29a9fa55e449633ac85c9cf3806ca62d11e5603ec"
+)
+_DEVCONTAINER_IMAGE = (
+    "mcr.microsoft.com/devcontainers/python:3.11-bookworm@"
+    "sha256:8e95c16fbc98a4a6a8f11f5b5bd152d0ffcd4fd0f4b31bd03e95965c777d2577"
+)
 
 
 def _target_recipe(makefile: str, target: str) -> tuple[str, ...]:
@@ -35,6 +44,26 @@ def _target_recipe(makefile: str, target: str) -> tuple[str, ...]:
         if line and not line.startswith((" ", "#")):
             break
     return tuple(recipes)
+
+
+def test_issue63_locked_install_targets_and_nlp_assets_are_exact() -> None:
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    expected = {
+        "install-bootstrap": "$(PYTHON) -m scripts.install_locked_requirements bootstrap",
+        "install-compiler-lock": "$(PYTHON) -m scripts.install_locked_requirements compiler",
+        "install-docs-lock": "$(PYTHON) -m scripts.install_locked_requirements docs",
+        "install-audit-lock": "$(PYTHON) -m scripts.install_locked_requirements audit",
+        "install-atlas-contract-lock": (
+            "$(PYTHON) -m scripts.install_locked_requirements atlas-contract"
+        ),
+        "install-torch-stack": "$(PYTHON) -m scripts.install_torch_stack",
+    }
+    for target, command in expected.items():
+        assert _target_recipe(makefile, target) == (command,)
+    nlp = _target_recipe(makefile, "nlp-assets")
+    assert nlp == ('$(PYTHON) -c "import nltk; nltk.download(\'vader_lexicon\', quiet=True)"',)
+    assert "spacy download" not in "\n".join(nlp)
+    assert "pip install" not in "\n".join(nlp)
 
 
 def _assert_tier_inventory_contract(makefile: Path, cwd: Path) -> None:
@@ -122,6 +151,11 @@ def _assert_docker_and_codespaces_contract(
 ) -> None:
     import json
 
+    assert docker.startswith(f"FROM {_DOCKER_IMAGE}\n")
+    assert "ENV VIRTUAL_ENV=/home/jovyan/.venvs/ml-eng-lab\n" in docker
+    assert "ENV CONDA_AUTO_ACTIVATE_BASE=false\n" in docker
+    assert 'ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"\n' in docker
+    assert "--platform" not in docker
     assert docker.count("RUN ") == 1
     assert docker[docker.index("RUN ") :].strip() == _DOCKER_INSTALL_BLOCK
     codespace_definitions = tuple(
@@ -143,6 +177,7 @@ def _assert_docker_and_codespaces_contract(
             if not line.lstrip().startswith("//")
         )
     )
+    assert payload["image"] == _DEVCONTAINER_IMAGE
     assert payload["postCreateCommand"] == "make codespace-setup"
 
 
@@ -328,7 +363,7 @@ def test_torch_installer_target_is_one_exact_command_and_codespace_has_no_late_p
     lines = result.stdout.splitlines()
 
     assert lines.count(f"{custom_python} -m scripts.install_torch_stack") == 1
-    assert f"{custom_python} -m spacy download en_core_web_sm" in lines
+    assert f"{custom_python} -m spacy download en_core_web_sm" not in lines
     assert any(line.startswith(f"{custom_python} -c ") for line in lines)
     assert not any(" -m pip install" in line for line in lines)
 

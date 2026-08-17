@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "images": [
+    {
+      "consumer": "docker",
+      "source": "quay.io/jupyter/datascience-notebook:python-3.11",
+      "index_digest": "sha256:14379f24c840f27375e3a4b29a9fa55e449633ac85c9cf3806ca62d11e5603ec",
+      "children": {
+        "linux/amd64": "sha256:63c427cff7bed88e2b65a82d3c152f3928bdcf589c7826ce4cacde0d29daf1fa",
+        "linux/arm64": "sha256:4a41f87a0bce3beddd9720ecbdbc2d3c7ef9cf662ffc3d42079d339b181dc081"
+      }
+    },
+    {
+      "consumer": "devcontainer",
+      "source": "mcr.microsoft.com/devcontainers/python:3.11-bookworm",
+      "index_digest": "sha256:8e95c16fbc98a4a6a8f11f5b5bd152d0ffcd4fd0f4b31bd03e95965c777d2577",
+      "children": {
+        "linux/amd64": "sha256:92f9b5088dd0cc59ce5ea9f68e074038a88abd0d4d0c68f524899db21c835a8d",
+        "linux/arm64": "sha256:0504278a9a9002620dafdc091091a1d887b900f727718b3f1363bc3637c54618"
+      }
+    }
+  ]
+}

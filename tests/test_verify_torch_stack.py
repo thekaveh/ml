@@ -60,7 +60,6 @@ CORE = "torch==2.11.0\ntorchvision==0.26.0\ntorchaudio==2.11.0\n"
 ECOSYSTEM = "pytorch-lightning==2.6.1\ntorchmetrics==1.9.0\ntorchao==0.18.0\n"
 RUNTIME = (
     "-r torch-ecosystem-requirements.txt\n"
-    "--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html\n"
     "pyg-lib==0.8.0\ntorch-scatter==2.1.2\ntorch-sparse==0.6.18\n"
     "torch_geometric==2.8.0.post1\n"
 )
@@ -272,7 +271,11 @@ def test_current_five_manifests_produce_the_canonical_contract() -> None:
         ("torch-requirements.txt", "-r torch-ecosystem-requirements.txt", "-r torch-core-requirements.txt"),
         ("torch-audit-requirements.txt", "-r torch-core-requirements.txt", "-r torch-requirements.txt"),
         ("torch-requirements.txt", "torch_geometric==2.8.0.post1", "torch_geometric~=2.8.0"),
-        ("torch-requirements.txt", "torch-2.11.0+cpu", "torch-2.10.0+cpu"),
+        (
+            "torch-requirements.txt",
+            "pyg-lib==0.8.0",
+            "--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html\npyg-lib==0.8.0",
+        ),
         ("pyg-extension-audit-requirements.txt", "torch-sparse==0.6.18", "torch-sparse==0.6.17"),
     ),
     ids=("missing", "duplicate", "range", "runtime-include", "audit-include", "runtime-range", "selector", "projection-drift"),
@@ -330,6 +333,28 @@ def test_incompatible_local_pyg_versions_fail_closed(fake_stack: FakeStack, loca
     with pytest.raises(
         TorchStackVerificationError,
         match=r"^torch stack verification failed: pyg-lib: abi$",
+    ):
+        verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
+
+
+def test_linux_accepts_exact_torchao_cpu_wheel_metadata(fake_stack: FakeStack) -> None:
+    fake_stack.version("torchao", "0.18.0+cpu")
+
+    evidence = verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
+
+    assert evidence.system == "Linux"
+
+
+@pytest.mark.parametrize("local", ("cu128", "arbitrary"))
+def test_linux_rejects_other_torchao_local_versions(
+    fake_stack: FakeStack,
+    local: str,
+) -> None:
+    fake_stack.version("torchao", f"0.18.0+{local}")
+
+    with pytest.raises(
+        TorchStackVerificationError,
+        match=r"^torch stack verification failed: torchao: metadata$",
     ):
         verify_torch_stack(repo=fake_stack.repo, hooks=fake_stack.hooks)
 

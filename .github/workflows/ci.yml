@@ -29,12 +29,30 @@ jobs:
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.11"
+          python-version: "3.11.15"
           cache: pip
-          cache-dependency-path: atlas-contract-requirements.txt
+          cache-dependency-path: |
+            requirements/lock-policy.toml
+            requirements/locks/bootstrap.txt
+            requirements/locks/atlas-contract.txt
+            requirements.txt
+            bootstrap-requirements.txt
+            compiler-requirements.txt
+            nlp-model-requirements.txt
+            torch-core-requirements.txt
+            torch-ecosystem-requirements.txt
+            torch-requirements.txt
+            torch-audit-requirements.txt
+            pyg-extension-audit-requirements.txt
+            vulnerability-audit-requirements.txt
+            atlas-contract-requirements.txt
+            docs-requirements.in
 
       - name: Install focused Atlas contract dependencies
-        run: pip install -r atlas-contract-requirements.txt
+        run: |
+          make install-bootstrap
+          make install-atlas-contract-lock
+          python -m pip check
 
       - name: ShellCheck parent-owned Atlas wrappers
         run: shellcheck scripts/atlas-up.sh scripts/atlas-down.sh scripts/atlas-connect.sh scripts/lib/atlas-dotenv.sh
@@ -51,28 +69,79 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.11"
+          python-version: "3.11.15"
           cache: pip
           cache-dependency-path: |
-            vulnerability-audit-requirements.txt
+            requirements/lock-policy.toml
+            requirements/locks/bootstrap.txt
+            requirements/locks/compiler.txt
+            requirements/locks/audit.txt
+            requirements/locks/atlas-contract.txt
+            requirements/locks/darwin-arm64/core.txt
+            requirements/locks/darwin-arm64/runtime.txt
+            requirements/locks/darwin-arm64/root.txt
+            requirements/locks/linux-x86_64/core.txt
+            requirements/locks/linux-x86_64/runtime.txt
+            requirements/locks/linux-x86_64/root.txt
+            requirements/locks/linux-aarch64/core.txt
+            requirements/locks/linux-aarch64/runtime.txt
+            requirements/locks/linux-aarch64/root.txt
             requirements.txt
+            bootstrap-requirements.txt
+            compiler-requirements.txt
+            nlp-model-requirements.txt
             torch-core-requirements.txt
             torch-ecosystem-requirements.txt
             torch-requirements.txt
             torch-audit-requirements.txt
             pyg-extension-audit-requirements.txt
-            docs-requirements.txt
+            vulnerability-audit-requirements.txt
             atlas-contract-requirements.txt
+            docs-requirements.in
+            docs-requirements.txt
 
-      - name: Install vulnerability audit tool
-        run: python -m pip install -r vulnerability-audit-requirements.txt
+      - name: Install locked audit environment
+        run: |
+          make install-bootstrap
+          make install-audit-lock
+          python -m pip check
+
+      - name: Verify committed dependency locks offline
+        run: make verify-dependency-locks
 
       - name: Compare dependency advisories with accepted baseline
         run: make audit-advisories
+
+      - name: Select networked dependency checks
+        id: dependency-scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python -m scripts.verify_dependency_locks \
+            --classify-event "${{ github.event_name }}" \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Install locked compiler
+        if: steps.dependency-scope.outputs.lock-check == 'true'
+        run: |
+          make install-compiler-lock
+          python -m pip check
+
+      - name: Regenerate and compare dependency locks
+        if: steps.dependency-scope.outputs.lock-check == 'true'
+        run: make lock-check
+
+      - name: Validate immutable image identities
+        if: steps.dependency-scope.outputs.image-check == 'true'
+        run: make image-lock-check
 
   pytest-repository:
     name: pytest-repository
@@ -90,22 +159,31 @@ jobs:
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.11"
+          python-version: "3.11.15"
           cache: pip
           cache-dependency-path: |
+            requirements/lock-policy.toml
+            requirements/locks/bootstrap.txt
+            requirements/locks/linux-x86_64/core.txt
+            requirements/locks/linux-x86_64/runtime.txt
+            requirements/locks/linux-x86_64/root.txt
+            bootstrap-requirements.txt
+            compiler-requirements.txt
+            nlp-model-requirements.txt
             requirements.txt
             torch-core-requirements.txt
             torch-ecosystem-requirements.txt
             torch-requirements.txt
             torch-audit-requirements.txt
             pyg-extension-audit-requirements.txt
+            vulnerability-audit-requirements.txt
+            atlas-contract-requirements.txt
+            docs-requirements.in
             docs-requirements.txt
 
       - name: Install dependencies
-        # Issue #62: final install, pip-check, Torch/NNx verification, then workload; no late package mutation.
-        run: |
-          make install-torch-stack
-          python -m pip install -r docs-requirements.txt
+        # Issue #63: the root lock already includes docs; no duplicate resolver pass.
+        run: make install-torch-stack
 
       - name: Check and verify canonical Torch and NNx stack
         run: |
@@ -128,15 +206,27 @@ jobs:
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.11"
+          python-version: "3.11.15"
           cache: pip
           cache-dependency-path: |
+            requirements/lock-policy.toml
+            requirements/locks/bootstrap.txt
+            requirements/locks/linux-x86_64/core.txt
+            requirements/locks/linux-x86_64/runtime.txt
+            requirements/locks/linux-x86_64/root.txt
+            bootstrap-requirements.txt
+            compiler-requirements.txt
+            nlp-model-requirements.txt
             requirements.txt
             torch-core-requirements.txt
             torch-ecosystem-requirements.txt
             torch-requirements.txt
             torch-audit-requirements.txt
             pyg-extension-audit-requirements.txt
+            vulnerability-audit-requirements.txt
+            atlas-contract-requirements.txt
+            docs-requirements.in
+            docs-requirements.txt
 
       - name: Install dependencies
         run: make install-torch-stack
@@ -169,15 +259,27 @@ jobs:
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.11"
+          python-version: "3.11.15"
           cache: pip
           cache-dependency-path: |
+            requirements/lock-policy.toml
+            requirements/locks/bootstrap.txt
+            requirements/locks/linux-x86_64/core.txt
+            requirements/locks/linux-x86_64/runtime.txt
+            requirements/locks/linux-x86_64/root.txt
+            bootstrap-requirements.txt
+            compiler-requirements.txt
+            nlp-model-requirements.txt
             requirements.txt
             torch-core-requirements.txt
             torch-ecosystem-requirements.txt
             torch-requirements.txt
             torch-audit-requirements.txt
             pyg-extension-audit-requirements.txt
+            vulnerability-audit-requirements.txt
+            atlas-contract-requirements.txt
+            docs-requirements.in
+            docs-requirements.txt
 
       - name: Install dependencies
         run: make install-torch-stack
@@ -211,12 +313,30 @@ jobs:
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.11"
+          python-version: "3.11.15"
           cache: pip
-          cache-dependency-path: docs-requirements.txt
+          cache-dependency-path: |
+            requirements/lock-policy.toml
+            requirements/locks/bootstrap.txt
+            docs-requirements.txt
+            requirements.txt
+            bootstrap-requirements.txt
+            compiler-requirements.txt
+            nlp-model-requirements.txt
+            torch-core-requirements.txt
+            torch-ecosystem-requirements.txt
+            torch-requirements.txt
+            torch-audit-requirements.txt
+            pyg-extension-audit-requirements.txt
+            vulnerability-audit-requirements.txt
+            atlas-contract-requirements.txt
+            docs-requirements.in
 
       - name: Install documentation dependencies
-        run: pip install -r docs-requirements.txt
+        run: |
+          make install-bootstrap
+          make install-docs-lock
+          python -m pip check
 
       - name: Build documentation site
         run: make docs-build
@@ -257,15 +377,27 @@ jobs:
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.11"
+          python-version: "3.11.15"
           cache: pip
           cache-dependency-path: |
+            requirements/lock-policy.toml
+            requirements/locks/bootstrap.txt
+            requirements/locks/linux-x86_64/core.txt
+            requirements/locks/linux-x86_64/runtime.txt
+            requirements/locks/linux-x86_64/root.txt
+            bootstrap-requirements.txt
+            compiler-requirements.txt
+            nlp-model-requirements.txt
             requirements.txt
             torch-core-requirements.txt
             torch-ecosystem-requirements.txt
             torch-requirements.txt
             torch-audit-requirements.txt
             pyg-extension-audit-requirements.txt
+            vulnerability-audit-requirements.txt
+            atlas-contract-requirements.txt
+            docs-requirements.in
+            docs-requirements.txt
 
       - name: Install dependencies
         run: |
@@ -334,15 +466,27 @@ jobs:
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.11"
+          python-version: "3.11.15"
           cache: pip
           cache-dependency-path: |
+            requirements/lock-policy.toml
+            requirements/locks/bootstrap.txt
+            requirements/locks/linux-x86_64/core.txt
+            requirements/locks/linux-x86_64/runtime.txt
+            requirements/locks/linux-x86_64/root.txt
+            bootstrap-requirements.txt
+            compiler-requirements.txt
+            nlp-model-requirements.txt
             requirements.txt
             torch-core-requirements.txt
             torch-ecosystem-requirements.txt
             torch-requirements.txt
             torch-audit-requirements.txt
             pyg-extension-audit-requirements.txt
+            vulnerability-audit-requirements.txt
+            atlas-contract-requirements.txt
+            docs-requirements.in
+            docs-requirements.txt
 
       - name: Install dependencies
         run: make install-torch-stack
@@ -372,15 +516,27 @@ jobs:
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.11"
+          python-version: "3.11.15"
           cache: pip
           cache-dependency-path: |
+            requirements/lock-policy.toml
+            requirements/locks/bootstrap.txt
+            requirements/locks/linux-x86_64/core.txt
+            requirements/locks/linux-x86_64/runtime.txt
+            requirements/locks/linux-x86_64/root.txt
+            bootstrap-requirements.txt
+            compiler-requirements.txt
+            nlp-model-requirements.txt
             requirements.txt
             torch-core-requirements.txt
             torch-ecosystem-requirements.txt
             torch-requirements.txt
             torch-audit-requirements.txt
             pyg-extension-audit-requirements.txt
+            vulnerability-audit-requirements.txt
+            atlas-contract-requirements.txt
+            docs-requirements.in
+            docs-requirements.txt
 
       - name: Install dependencies
         run: make install-torch-stack

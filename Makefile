@@ -73,7 +73,7 @@ SMOKE_OUT ?= /tmp/ml-smoke
 TIER_A_OUT ?= /tmp/ml-tier-a
 TIER_A_OUT_ABS := $(abspath $(TIER_A_OUT))
 
-.PHONY: help print-tier-a print-tier-b print-tier-c run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-torch-stack verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-bootstrap install-compiler-lock lock-write lock-check image-lock-check verify-dependency-locks install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
+.PHONY: help print-tier-a print-tier-b print-tier-c run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-torch-stack verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-bootstrap install-compiler-lock install-docs-lock install-audit-lock install-atlas-contract-lock lock-write lock-check image-lock-check verify-dependency-locks install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
 
 help:
 	@echo "Targets:"
@@ -99,6 +99,9 @@ help:
 	@echo "  verify            Run repo verifier (scripts/verify_repo.py --check all --fast)."
 	@echo "  install-bootstrap Install the hash-locked bootstrap toolchain."
 	@echo "  install-compiler-lock Install the hash-locked uv compiler."
+	@echo "  install-docs-lock Install the hash-locked documentation environment."
+	@echo "  install-audit-lock Install the hash-locked advisory tooling."
+	@echo "  install-atlas-contract-lock Install the hash-locked Atlas contract tools."
 	@echo "  lock-write        Regenerate the complete supported dependency lock family."
 	@echo "  lock-check        Resolve independently and byte-check every dependency lock."
 	@echo "  image-lock-check  Verify pinned image indexes and native child digests."
@@ -226,7 +229,6 @@ docs-wiki:
 	$(PYTHON) -m scripts.docs.push_wiki --check
 
 nlp-assets:
-	$(PYTHON) -m spacy download en_core_web_sm
 	$(PYTHON) -c "import nltk; nltk.download('vader_lexicon', quiet=True)"
 
 install-bootstrap:
@@ -234,6 +236,15 @@ install-bootstrap:
 
 install-compiler-lock:
 	$(PYTHON) -m scripts.install_locked_requirements compiler
+
+install-docs-lock:
+	$(PYTHON) -m scripts.install_locked_requirements docs
+
+install-audit-lock:
+	$(PYTHON) -m scripts.install_locked_requirements audit
+
+install-atlas-contract-lock:
+	$(PYTHON) -m scripts.install_locked_requirements atlas-contract
 
 lock-write:
 	$(PYTHON) -m scripts.lock_dependencies write

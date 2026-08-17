@@ -83,6 +83,54 @@ def _target_name(relative: Path) -> str:
     return "supported-matrix"
 
 
+def _consumer_findings(repo: Path) -> list[LockFinding]:
+    findings: list[LockFinding] = []
+    torch_path = Path("scripts/install_torch_stack.py")
+    helper_path = Path("scripts/install_locked_requirements.py")
+    make_path = Path("Makefile")
+    try:
+        torch_source = (repo / torch_path).read_text(encoding="utf-8")
+        helper_source = (repo / helper_path).read_text(encoding="utf-8")
+        make_source = (repo / make_path).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return [_finding("consumer", torch_path, "missing")]
+    torch_contract = (
+        torch_source.count('"--require-hashes",') == 1
+        and torch_source.count('"--only-binary=:all:",') == 4
+        and torch_source.count('"--no-binary=python-louvain",') == 1
+        and torch_source.count('"--no-build-isolation",') == 1
+        and "requirements/locks/bootstrap.txt" in torch_source
+        and "requirements/locks/{target}" in torch_source
+        and "torch-core-requirements.txt" not in torch_source
+        and '"requirements.txt"' not in torch_source
+    )
+    if not torch_contract:
+        findings.append(_finding("consumer", torch_path, "four-stage installer"))
+    role_paths = {
+        '"bootstrap": "requirements/locks/bootstrap.txt"',
+        '"compiler": "requirements/locks/compiler.txt"',
+        '"docs": "docs-requirements.txt"',
+        '"audit": "requirements/locks/audit.txt"',
+        '"atlas-contract": "requirements/locks/atlas-contract.txt"',
+    }
+    if any(helper_source.count(fragment) != 1 for fragment in role_paths):
+        findings.append(_finding("consumer", helper_path, "role map"))
+    make_contract = {
+        "install-bootstrap": "bootstrap",
+        "install-compiler-lock": "compiler",
+        "install-docs-lock": "docs",
+        "install-audit-lock": "audit",
+        "install-atlas-contract-lock": "atlas-contract",
+    }
+    for target, role in make_contract.items():
+        block = f"{target}:\n\t$(PYTHON) -m scripts.install_locked_requirements {role}"
+        if make_source.count(block) != 1:
+            findings.append(_finding("consumer", make_path, target))
+    if "spacy download" in make_source:
+        findings.append(_finding("consumer", make_path, "package-changing NLP assets"))
+    return findings
+
+
 def verify_dependency_locks(repo: Path) -> tuple[LockFinding, ...]:
     try:
         policy = load_policy(repo)
@@ -203,6 +251,7 @@ def verify_dependency_locks(repo: Path) -> tuple[LockFinding, ...]:
             findings.append(_finding("source", root_path, "NLP model"))
         if root.get("python-louvain") is None or root["python-louvain"].version != Version("0.16"):
             findings.append(_finding("pin", root_path, "python-louvain"))
+    findings.extend(_consumer_findings(repo))
     return tuple(findings)
 
 

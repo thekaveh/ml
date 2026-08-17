@@ -60,7 +60,6 @@ CORE = "torch==2.11.0\ntorchvision==0.26.0\ntorchaudio==2.11.0\n"
 ECOSYSTEM = "pytorch-lightning==2.6.1\ntorchmetrics==1.9.0\ntorchao==0.18.0\n"
 RUNTIME = (
     "-r torch-ecosystem-requirements.txt\n"
-    "--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html\n"
     "pyg-lib==0.8.0\ntorch-scatter==2.1.2\ntorch-sparse==0.6.18\n"
     "torch_geometric==2.8.0.post1\n"
 )
@@ -272,7 +271,11 @@ def test_current_five_manifests_produce_the_canonical_contract() -> None:
         ("torch-requirements.txt", "-r torch-ecosystem-requirements.txt", "-r torch-core-requirements.txt"),
         ("torch-audit-requirements.txt", "-r torch-core-requirements.txt", "-r torch-requirements.txt"),
         ("torch-requirements.txt", "torch_geometric==2.8.0.post1", "torch_geometric~=2.8.0"),
-        ("torch-requirements.txt", "torch-2.11.0+cpu", "torch-2.10.0+cpu"),
+        (
+            "torch-requirements.txt",
+            "pyg-lib==0.8.0",
+            "--find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html\npyg-lib==0.8.0",
+        ),
         ("pyg-extension-audit-requirements.txt", "torch-sparse==0.6.18", "torch-sparse==0.6.17"),
     ),
     ids=("missing", "duplicate", "range", "runtime-include", "audit-include", "runtime-range", "selector", "projection-drift"),

@@ -37,6 +37,26 @@ def _target_recipe(makefile: str, target: str) -> tuple[str, ...]:
     return tuple(recipes)
 
 
+def test_issue63_locked_install_targets_and_nlp_assets_are_exact() -> None:
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    expected = {
+        "install-bootstrap": "$(PYTHON) -m scripts.install_locked_requirements bootstrap",
+        "install-compiler-lock": "$(PYTHON) -m scripts.install_locked_requirements compiler",
+        "install-docs-lock": "$(PYTHON) -m scripts.install_locked_requirements docs",
+        "install-audit-lock": "$(PYTHON) -m scripts.install_locked_requirements audit",
+        "install-atlas-contract-lock": (
+            "$(PYTHON) -m scripts.install_locked_requirements atlas-contract"
+        ),
+        "install-torch-stack": "$(PYTHON) -m scripts.install_torch_stack",
+    }
+    for target, command in expected.items():
+        assert _target_recipe(makefile, target) == (command,)
+    nlp = _target_recipe(makefile, "nlp-assets")
+    assert nlp == ('$(PYTHON) -c "import nltk; nltk.download(\'vader_lexicon\', quiet=True)"',)
+    assert "spacy download" not in "\n".join(nlp)
+    assert "pip install" not in "\n".join(nlp)
+
+
 def _assert_tier_inventory_contract(makefile: Path, cwd: Path) -> None:
     source = makefile.read_text(encoding="utf-8")
     lines = source.splitlines()
@@ -328,7 +348,7 @@ def test_torch_installer_target_is_one_exact_command_and_codespace_has_no_late_p
     lines = result.stdout.splitlines()
 
     assert lines.count(f"{custom_python} -m scripts.install_torch_stack") == 1
-    assert f"{custom_python} -m spacy download en_core_web_sm" in lines
+    assert f"{custom_python} -m spacy download en_core_web_sm" not in lines
     assert any(line.startswith(f"{custom_python} -c ") for line in lines)
     assert not any(" -m pip install" in line for line in lines)
 

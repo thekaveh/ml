@@ -39,8 +39,19 @@ def command_for(repo: Path, role: str) -> InstallCommand:
     relative = _ROLE_LOCKS.get(role)
     if relative is None:
         raise LockedInstallError("locked requirements installation failed: role")
-    if not (repo / relative).is_file():
+    repo_root = repo.resolve()
+    candidate = repo / relative
+    if not candidate.is_file():
         raise LockedInstallError(f"locked requirements installation failed: {role}: missing")
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(repo_root)
+    except (OSError, ValueError) as exc:
+        raise LockedInstallError(
+            f"locked requirements installation failed: {role}: unsafe escape"
+        ) from exc
+    if candidate.is_symlink():
+        raise LockedInstallError(f"locked requirements installation failed: {role}: unsafe escape")
     return InstallCommand(
         role=role,
         argv=(
@@ -60,7 +71,7 @@ def command_for(repo: Path, role: str) -> InstallCommand:
     )
 
 
-def _sanitized_environment() -> dict[str, str]:
+def sanitized_environment() -> dict[str, str]:
     environment = {
         key: value
         for key, value in os.environ.items()
@@ -76,23 +87,29 @@ def _sanitized_environment() -> dict[str, str]:
     return environment
 
 
-def install_role(repo: Path, role: str, runner: Runner = subprocess.run) -> None:
-    command = command_for(repo, role)
+def run_install_argv(
+    repo: Path, stage: str, argv: tuple[str, ...], runner: Runner = subprocess.run
+) -> None:
     try:
         result = runner(
-            command.argv,
+            argv,
             cwd=repo,
-            env=_sanitized_environment(),
+            env=sanitized_environment(),
             check=False,
             capture_output=True,
             text=True,
         )
     except (OSError, UnicodeError) as exc:
         raise LockedInstallError(
-            f"locked requirements installation failed: {command.role}: execution"
+            f"locked requirements installation failed: {stage}: execution"
         ) from exc
     if result.returncode != 0:
-        raise LockedInstallError(f"locked requirements installation failed: {command.role}")
+        raise LockedInstallError(f"locked requirements installation failed: {stage}")
+
+
+def install_role(repo: Path, role: str, runner: Runner = subprocess.run) -> None:
+    command = command_for(repo, role)
+    run_install_argv(repo, command.role, command.argv, runner)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -22,6 +22,10 @@ def _copy_lock_contract(tmp_path: Path) -> Path:
         shutil.copy2(REPO_ROOT / relative, destination)
     shutil.copy2(REPO_ROOT / "requirements/lock-policy.toml", repo / "requirements")
     shutil.copy2(REPO_ROOT / "requirements/image-lock.json", repo / "requirements")
+    shutil.copy2(REPO_ROOT / "Makefile", repo)
+    (repo / "scripts").mkdir()
+    for name in ("install_torch_stack.py", "install_locked_requirements.py"):
+        shutil.copy2(REPO_ROOT / "scripts" / name, repo / "scripts")
     return repo
 
 
@@ -138,3 +142,27 @@ def test_cli_failure_is_stable_and_redacted(tmp_path: Path, capsys: pytest.Captu
     assert captured.out == ""
     assert "/private" not in captured.err
     assert "dependency lock verification failed:" in captured.err
+
+
+@pytest.mark.parametrize(
+    ("relative", "old", "new"),
+    (
+        ("scripts/install_torch_stack.py", '"--require-hashes",', ""),
+        ("scripts/install_torch_stack.py", '"--only-binary=:all:",', ""),
+        ("scripts/install_torch_stack.py", '"--no-build-isolation",', ""),
+        (
+            "Makefile",
+            "install-docs-lock:\n\t$(PYTHON) -m scripts.install_locked_requirements docs",
+            "install-docs-lock:\n\t$(PYTHON) -m pip install -r docs-requirements.in",
+        ),
+    ),
+)
+def test_offline_verifier_rejects_installer_and_make_consumer_drift(
+    tmp_path: Path, relative: str, old: str, new: str
+) -> None:
+    repo = _copy_lock_contract(tmp_path)
+    _replace_once(repo / relative, old, new)
+
+    findings = verify_dependency_locks(repo)
+
+    assert "consumer" in {finding.category for finding in findings}

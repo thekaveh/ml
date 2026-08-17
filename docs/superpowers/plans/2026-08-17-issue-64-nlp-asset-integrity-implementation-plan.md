@@ -166,7 +166,7 @@ git commit -m "build: integrity-lock the VADER lexicon"
 - Modify: `scripts/verify_dependency_locks.py`
 - Modify: `scripts/verify_repo.py`
 - Modify: `scripts/atlas_runtime_probe.py`
-- Modify: `notebooks/sentiment_classification-vader-mlp-pytorch/sentiment_classification-vader-mlp-pytorch.ipynb`
+- Modify: `notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb`
 - Modify: `notebooks/sentiment_classification-vader-mlp-pytorch/docs/spec.yaml`
 - Modify: `tests/test_makefile_contract.py`
 - Modify: `tests/test_verify_dependency_locks.py`

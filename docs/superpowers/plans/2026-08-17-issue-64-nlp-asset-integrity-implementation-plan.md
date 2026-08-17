@@ -200,7 +200,7 @@ Require Docker and Tier A to install then verify assets before pip/stack verific
 
 Parse active notebook code cells and require the VADER setup cell to contain `nltk.data.find("sentiment/vader_lexicon.zip")`, a `LookupError` message naming `make nlp-assets`, and no callable whose qualified name is `nltk.download`. Add mutations for an aliased import/call, attribute assignment, `getattr(nltk, "download")`, and shell/magic download commands.
 
-Add `D11.nlp_asset_contract` to `scripts/verify_repo.py`. Its clean control checks the real manifest, Make/Docker/CI/devcontainer/current notebook source, lock verifier, runtime probe, and Atlas consumer files. Malformed or missing files return one stable D11 finding rather than raising.
+Add `D11.nlp_asset_contract` to `scripts/verify_repo.py`. At this task boundary its clean control checks the real manifest, Make/Docker/CI/devcontainer/current notebook source, lock verifier, and runtime probe. Task 3 extends the same finding to the newly available Atlas projection and exact gitlink. Malformed or missing files return one stable D11 finding rather than raising.
 
 - [ ] **Step 3: Implement parent consumer changes**
 

@@ -1,0 +1,105 @@
+schema_version = 1
+compiler_input = "compiler-requirements.txt"
+python_floor = "3.11.0"
+macos_deployment_target = "13.0"
+inputs = [
+  "requirements.txt",
+  "bootstrap-requirements.txt",
+  "compiler-requirements.txt",
+  "nlp-model-requirements.txt",
+  "torch-core-requirements.txt",
+  "torch-ecosystem-requirements.txt",
+  "torch-requirements.txt",
+  "torch-audit-requirements.txt",
+  "pyg-extension-audit-requirements.txt",
+  "vulnerability-audit-requirements.txt",
+  "atlas-contract-requirements.txt",
+  "docs-requirements.in",
+]
+outputs = [
+  "requirements/locks/bootstrap.txt",
+  "requirements/locks/compiler.txt",
+  "requirements/locks/audit.txt",
+  "requirements/locks/atlas-contract.txt",
+  "requirements/locks/darwin-arm64/core.txt",
+  "requirements/locks/darwin-arm64/runtime.txt",
+  "requirements/locks/darwin-arm64/root.txt",
+  "requirements/locks/linux-x86_64/core.txt",
+  "requirements/locks/linux-x86_64/runtime.txt",
+  "requirements/locks/linux-x86_64/root.txt",
+  "requirements/locks/linux-aarch64/core.txt",
+  "requirements/locks/linux-aarch64/runtime.txt",
+  "requirements/locks/linux-aarch64/root.txt",
+  "docs-requirements.txt",
+]
+direct_url_packages = ["en-core-web-sm"]
+sdist_packages = ["python-louvain"]
+
+[sources]
+pypi = "https://pypi.org/simple"
+torch_cpu = "https://download.pytorch.org/whl/cpu"
+pyg = "https://data.pyg.org/whl/torch-2.11.0+cpu.html"
+nlp_model = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+
+[package_sources]
+default = "pypi"
+"pyg-lib" = "pyg"
+"torch-scatter" = "pyg"
+"torch-sparse" = "pyg"
+"en-core-web-sm" = "nlp_model"
+
+[package_sources.torch]
+darwin-arm64 = "pypi"
+linux-x86_64 = "torch_cpu"
+linux-aarch64 = "torch_cpu"
+
+[[platforms]]
+key = "darwin-arm64"
+uv_platform = "aarch64-apple-darwin"
+system = "Darwin"
+machine = "arm64"
+torch_index = "https://pypi.org/simple"
+pyg_find_links = "https://data.pyg.org/whl/torch-2.11.0+cpu.html"
+
+[platforms.marker_environment]
+implementation_name = "cpython"
+os_name = "posix"
+platform_machine = "arm64"
+platform_python_implementation = "CPython"
+platform_system = "Darwin"
+python_version = "3.11"
+sys_platform = "darwin"
+
+[[platforms]]
+key = "linux-x86_64"
+uv_platform = "x86_64-manylinux_2_28"
+system = "Linux"
+machine = "x86_64"
+torch_index = "https://download.pytorch.org/whl/cpu"
+pyg_find_links = "https://data.pyg.org/whl/torch-2.11.0+cpu.html"
+
+[platforms.marker_environment]
+implementation_name = "cpython"
+os_name = "posix"
+platform_machine = "x86_64"
+platform_python_implementation = "CPython"
+platform_system = "Linux"
+python_version = "3.11"
+sys_platform = "linux"
+
+[[platforms]]
+key = "linux-aarch64"
+uv_platform = "aarch64-manylinux_2_28"
+system = "Linux"
+machine = "aarch64"
+torch_index = "https://download.pytorch.org/whl/cpu"
+pyg_find_links = "https://data.pyg.org/whl/torch-2.11.0+cpu.html"
+
+[platforms.marker_environment]
+implementation_name = "cpython"
+os_name = "posix"
+platform_machine = "aarch64"
+platform_python_implementation = "CPython"
+platform_system = "Linux"
+python_version = "3.11"
+sys_platform = "linux"

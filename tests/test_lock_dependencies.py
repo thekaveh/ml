@@ -46,9 +46,37 @@ def test_compile_plan_has_exact_target_and_surface_order() -> None:
         assert "--only-binary" in item.argv
         assert ":all:" in item.argv
         assert "--python-version" in item.argv
+        assert item.argv.count("--exclude-newer") == 1
+        cutoff_index = item.argv.index("--exclude-newer")
+        assert item.argv[cutoff_index + 1] == "2026-08-17T02:21:18Z"
         assert item.env["UV_NO_CONFIG"] == "1"
         assert item.env["UV_PYTHON_DOWNLOADS"] == "never"
         assert item.env["PIP_CONFIG_FILE"] == "/dev/null"
+
+
+def test_compile_plan_pins_cutoff_for_every_target_and_surface() -> None:
+    policy = load_policy(REPO_ROOT)
+    plan = build_compile_plan(REPO_ROOT, policy, "check")
+
+    assert policy.exclude_newer == "2026-08-17T02:21:18Z"
+    assert len(plan) == 24
+    assert {
+        (item.target, item.surface, item.argv[item.argv.index("--exclude-newer") + 1])
+        for item in plan
+    } == {
+        (platform.key, surface, policy.exclude_newer)
+        for platform in policy.platforms
+        for surface in (
+            "bootstrap",
+            "compiler",
+            "docs",
+            "audit",
+            "atlas-contract",
+            "core",
+            "runtime",
+            "root",
+        )
+    }
 
 
 def test_darwin_compile_commands_pin_deployment_target() -> None:

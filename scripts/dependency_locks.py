@@ -44,6 +44,7 @@ class LockPolicy:
     compiler_input: Path
     python_floor: Version
     macos_deployment_target: str
+    exclude_newer: str
     platforms: tuple[PlatformPolicy, ...]
     inputs: tuple[Path, ...]
     outputs: tuple[Path, ...]
@@ -394,6 +395,7 @@ def load_policy(repo: Path) -> LockPolicy:
         "compiler_input",
         "python_floor",
         "macos_deployment_target",
+        "exclude_newer",
         "inputs",
         "outputs",
         "direct_url_packages",
@@ -413,6 +415,8 @@ def load_policy(repo: Path) -> LockPolicy:
         raise _error("lock policy Python floor is invalid") from exc
     if python_floor != Version("3.11.0") or raw["macos_deployment_target"] != "13.0":
         raise _error("lock policy interpreter or deployment floor is invalid")
+    if raw["exclude_newer"] != "2026-08-17T02:21:18Z":
+        raise _error("lock policy resolver cutoff is invalid")
     if tuple(raw["inputs"]) != _EXPECTED_INPUTS or tuple(raw["outputs"]) != _EXPECTED_OUTPUTS:
         raise _error("lock policy has an unknown or missing input/output inventory")
     if raw["direct_url_packages"] != ["en-core-web-sm"]:
@@ -540,6 +544,7 @@ def load_policy(repo: Path) -> LockPolicy:
         compiler_input=Path(raw["compiler_input"]),
         python_floor=python_floor,
         macos_deployment_target=raw["macos_deployment_target"],
+        exclude_newer=raw["exclude_newer"],
         platforms=tuple(platforms),
         inputs=inputs,
         outputs=tuple(Path(value) for value in raw["outputs"]),

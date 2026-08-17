@@ -39,6 +39,9 @@ MkDocs, papermill, and the exact Issue #62 Torch/PyG/NNx matrix.
   base must report CPython 3.11.10. Do not silently change the supported interpreter floor.
 - `compiler-requirements.txt` is the sole uv version authority. `requirements/lock-policy.toml`
   stores its path and shape, never another uv version. The Atlas input's uv pin must equal it.
+- The lock policy fixes the reviewed package-upload horizon at `2026-08-17T02:21:18Z`; every
+  compiler command passes it through exactly one `--exclude-newer`. A cutoff advance is an
+  intentional policy/lock update, never an ambient consequence of a newly published package.
 - Never use `--extra-index-url`, unsafe index strategies, editable/VCS/local requirements, an
   unapproved direct URL, or an unnamed sdist. The sole direct URL is the reviewed
   `en_core_web_sm-3.8.0` wheel. The sole sdist is `python-louvain==0.16`, built with the locked
@@ -311,7 +314,8 @@ which stable stage failed.
   lock exists. Add `install-bootstrap` and `install-compiler-lock` Make contracts in this task.
 - [ ] Test exact generation order and argv for all targets. Compiler invocations use uv 0.11.19,
   Python 3.11.0, exact platform triples, explicit source bindings, `--generate-hashes`, binary-only
-  policy plus only the python-louvain exception, and `MACOSX_DEPLOYMENT_TARGET=13.0` on Darwin.
+  policy plus only the python-louvain exception, the exact policy-owned
+  `--exclude-newer 2026-08-17T02:21:18Z`, and `MACOSX_DEPLOYMENT_TARGET=13.0` on Darwin.
   Bootstrap, compiler, docs, audit, and Atlas inputs are each compiled once per exact supported
   target into temporary files, then deterministically merged into one supported-matrix lock; do not
   use uv's unbounded `--universal` world. Equal name/version/marker branches union their approved
@@ -351,6 +355,9 @@ which stable stage failed.
 - [ ] Inspect the diff for unexpected upgrades, source changes, sdists, local tags, and unbounded
   requirements. Prove exactly one sdist and one direct URL.
 - [ ] Run write twice in independent temporary roots and byte-compare every output.
+- [ ] After the release-boundary stale-lock diagnostic, reproduce the drift from packages uploaded
+  after the original lock commit, add the fixed upload horizon test first, regenerate without
+  selecting those later releases, and prove a fresh networked `lock-check` is byte-stable.
 
 ### 12.24.5.3 RED/GREEN — offline and image verifiers
 

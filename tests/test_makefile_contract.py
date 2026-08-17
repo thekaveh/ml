@@ -11,11 +11,20 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_SUBPROCESS_TIMEOUT = 30
-_DOCKER_INSTALL_BLOCK = """RUN make install-torch-stack \\
+_DOCKER_INSTALL_BLOCK = """RUN /opt/conda/bin/python -m venv "$VIRTUAL_ENV" \\
+  && make install-torch-stack \\
   && make nlp-assets \\
   && python -m pip check \\
   && python -m scripts.verify_torch_stack \\
   && python -m scripts.verify_nnx_install"""
+_DOCKER_IMAGE = (
+    "quay.io/jupyter/datascience-notebook:python-3.11@"
+    "sha256:14379f24c840f27375e3a4b29a9fa55e449633ac85c9cf3806ca62d11e5603ec"
+)
+_DEVCONTAINER_IMAGE = (
+    "mcr.microsoft.com/devcontainers/python:3.11-bookworm@"
+    "sha256:8e95c16fbc98a4a6a8f11f5b5bd152d0ffcd4fd0f4b31bd03e95965c777d2577"
+)
 
 
 def _target_recipe(makefile: str, target: str) -> tuple[str, ...]:
@@ -142,6 +151,11 @@ def _assert_docker_and_codespaces_contract(
 ) -> None:
     import json
 
+    assert docker.startswith(f"FROM {_DOCKER_IMAGE}\n")
+    assert "ENV VIRTUAL_ENV=/home/jovyan/.venvs/ml-eng-lab\n" in docker
+    assert "ENV CONDA_AUTO_ACTIVATE_BASE=false\n" in docker
+    assert 'ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"\n' in docker
+    assert "--platform" not in docker
     assert docker.count("RUN ") == 1
     assert docker[docker.index("RUN ") :].strip() == _DOCKER_INSTALL_BLOCK
     codespace_definitions = tuple(
@@ -163,6 +177,7 @@ def _assert_docker_and_codespaces_contract(
             if not line.lstrip().startswith("//")
         )
     )
+    assert payload["image"] == _DEVCONTAINER_IMAGE
     assert payload["postCreateCommand"] == "make codespace-setup"
 
 

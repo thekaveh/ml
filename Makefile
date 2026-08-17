@@ -95,7 +95,7 @@ help:
 	@echo "  docs-check        Render diagrams, run the docs gate (check_docs), then mkdocs build --strict."
 	@echo "  docs-sync-notebook-infrastructure Render the canonical Atlas task-contract table explicitly."
 	@echo "  docs-wiki         Generate the wiki Markdown (build_docs --wiki), then push_wiki --check (dry-run)."
-	@echo "  nlp-assets        Download spaCy en_core_web_sm + NLTK vader_lexicon (needed by the 2 NLP Tier-A notebooks)."
+	@echo "  nlp-assets        Download the NLTK vader_lexicon data asset; spaCy model code is package-locked."
 	@echo "  verify            Run repo verifier (scripts/verify_repo.py --check all --fast)."
 	@echo "  install-bootstrap Install the hash-locked bootstrap toolchain."
 	@echo "  install-compiler-lock Install the hash-locked uv compiler."
@@ -267,8 +267,8 @@ install-torch-stack:
 
 # Full one-shot dep install for the GitHub Codespaces / "Reopen in Container"
 # path (README §3.4). Reuses the same canonical install order as CI and Docker.
-# Recursively invokes nlp-assets so the spaCy + NLTK download steps stay in
-# one place across the §3.2 (Docker), §3.3 (venv), and §3.4 (Codespaces) paths.
+# Recursively invokes nlp-assets so the post-lock NLTK data download stays in
+# one place across the Docker, venv, and Codespaces paths.
 codespace-setup: install-torch-stack
 	$(MAKE) nlp-assets
 	$(PYTHON) -m pip check

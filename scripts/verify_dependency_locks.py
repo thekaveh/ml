@@ -86,11 +86,13 @@ _DOCUMENTATION_CONTRACT: dict[Path, tuple[str, ...]] = {
     Path("README.md"): (
         "requirements/lock-policy.toml",
         "reproducible for the qualified platform lock",
+        "exact resolver cutoff",
         "make lock-check",
         "make image-lock-check",
     ),
     Path("CONTRIBUTING.md"): (
         "requirements/lock-policy.toml",
+        "exact resolver cutoff",
         "make lock-write",
         "make lock-check",
         "make image-lock-check",
@@ -115,6 +117,7 @@ _DOCUMENTATION_CONTRACT: dict[Path, tuple[str, ...]] = {
     Path("docs/dependency-contracts.md"): (
         "Current Issue #63 locked four-surface audit",
         "requirements/lock-policy.toml",
+        "exact resolver cutoff",
         "make lock-write",
         "make lock-check",
         "make image-lock-check",

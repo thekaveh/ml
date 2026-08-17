@@ -141,7 +141,9 @@ hash-required lock declared by `requirements/lock-policy.toml`; it does not reso
 manifests at install time. The result is reproducible for the qualified platform lock, not one
 cross-platform binary environment. Use `make verify-dependency-locks` for the offline
 policy/input/lock check, `make lock-check` for networked byte regeneration, and
-`make image-lock-check` for registry-backed image digest verification.
+`make image-lock-check` for registry-backed image digest verification. Lock regeneration uses the
+exact resolver cutoff in `requirements/lock-policy.toml`; advancing it is a reviewed dependency
+update rather than an ambient response to newly published packages.
 
 The supported CPU matrix is torch==2.11.0, torchvision==0.26.0,
 torch_geometric==2.8.0.post1, pyg-lib==0.8.0+pt211, torch-scatter==2.1.2+pt211,

@@ -140,6 +140,8 @@ def _build_plan(repo: Path, policy: LockPolicy, candidate_root: Path) -> tuple[C
                 str(policy.python_floor),
                 "--python-platform",
                 platform.uv_platform,
+                "--exclude-newer",
+                policy.exclude_newer,
                 "--default-index",
                 "https://pypi.org/simple",
                 "--only-binary",

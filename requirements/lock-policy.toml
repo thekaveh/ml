@@ -2,6 +2,7 @@ schema_version = 1
 compiler_input = "compiler-requirements.txt"
 python_floor = "3.11.0"
 macos_deployment_target = "13.0"
+exclude_newer = "2026-08-17T02:21:18Z"
 inputs = [
   "requirements.txt",
   "bootstrap-requirements.txt",

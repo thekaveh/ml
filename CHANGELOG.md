@@ -20,7 +20,9 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
   digests. `make verify-dependency-locks` is the offline coherence gate, while `make lock-check` and
   `make image-lock-check` provide networked regeneration and registry proofs. The spaCy model is an
   exact direct-URL/hash package in the root locks; VADER remains the sole post-lock NLP data
-  download. Reproducibility is scoped to each qualified platform lock, with Issues #64/#65/#66
+  download. Lock regeneration now uses the reviewed policy-owned resolver cutoff, preventing
+  packages published after the release snapshot from changing lock bytes implicitly.
+  Reproducibility is scoped to each qualified platform lock, with Issues #64/#65/#66
   retaining asset integrity, Atlas runtime, and full quantization-notebook ownership respectively.
 - Coordinated the supported CPU Torch stack at Torch 2.11/PyG 2.8.0.post1/torchao 0.18 with
   binary-only pyg-lib, torch-scatter, and torch-sparse wheels, NNx 0.2.0 verification, and

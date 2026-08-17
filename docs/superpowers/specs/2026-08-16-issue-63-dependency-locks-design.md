@@ -133,6 +133,14 @@ floor, platform key, source-manifest SHA-256 map, package-source-policy SHA-256,
 command identity. Absolute paths, cache paths, credentials, timestamps, and hostnames are forbidden
 so clean regeneration is byte-stable.
 
+The policy also fixes the resolver's package-upload horizon at
+`2026-08-17T02:21:18Z`, the timestamp of the originally reviewed generated-lock commit. Every uv
+compile receives that value through exactly one `--exclude-newer` argument. This cutoff is an
+authoritative policy input, not a generated-header timestamp: the header binds it through the
+policy SHA-256. A package uploaded later cannot silently make `lock-check` stale; advancing the
+cutoff is a deliberate policy and generated-lock change that receives the same review and clean
+installation controls as any dependency update.
+
 Generation order is fixed: bootstrap, compiler, docs, audit, Atlas, then core/runtime/root for each
 platform in policy order. A downstream compile reads only already-generated temporary outputs from
 that same transaction; no step reads a half-updated committed lock. All outputs validate before the
@@ -282,9 +290,10 @@ installed uv distribution is RECORD-owned and equals the sole version authority 
 `compiler-requirements.txt`:
 
 - `--write` runs exact `uv==0.11.19` compile commands, normalizes headers, validates the complete
-  temporary family, and transactionally replaces only the expected lock inventory; and
+  temporary family, applies the policy's exact `--exclude-newer` cutoff, and transactionally
+  replaces only the expected lock inventory; and
 - `--check` copies each committed output to a temporary directory, recompiles without `--upgrade`
-  so uv retains the committed versions, normalizes the header, and byte-compares every expected
+  and with the same fixed upload cutoff, normalizes the header, and byte-compares every expected
   output without modifying the checkout; and
 - `--update-compiler` is the only mode that permits the compiler manifest and installed old
   compiler to differ, and performs the two-pass transition below.

@@ -161,7 +161,7 @@ The input hashes enforced by D10 are:
 | `torch-requirements.txt` | `5ab5581cbaf6aefd0698b63e22279e799a1edd65ae003b52b65d6a3b5d64c5cb` |
 | `torch-audit-requirements.txt` | `6d544b226c6e96f296c5105a20ea00704c3e1db4bf91946392df8f3ec5236d2a` |
 | `pyg-extension-audit-requirements.txt` | `3bdf07aaf4dc3a02524d7f7e11f6127c68203403201dc32d36b356670bfff498` |
-| `docs-requirements.txt` | `8cf8df4156b6537310a9e6ad151a9d3280138f1c23178a75064ed93129d9538c` |
+| `docs-requirements.txt` | `4227937aedc4962b40b56fc9641cb5f5519ad8a4508c22b7e64e83236e20c326` |
 | `atlas-contract-requirements.txt` | `ca9faca3b1769495e70e9cb317fc66cbcf747981e0932f3c9df8a817fccdd768` |
 | `security/accepted-advisories.json` | `452ac2a787c5c13814bab63f54a97c742dd22fa8da6a6a550b8f4a416df18dbb` |
 
@@ -179,6 +179,9 @@ policy, consumer wiring, and committed image-ledger equality. It cannot prove th
 artifact still has the reviewed bytes. `make lock-check` independently regenerates every lock;
 `make image-lock-check` resolves each registry index and native child. A controlled update uses
 `make lock-write`, reviews the complete diff, then runs both networked checks and clean installs.
+Regeneration passes the exact resolver cutoff from `requirements/lock-policy.toml` to every compile,
+so packages uploaded after the reviewed horizon cannot create unreviewed lock drift. Advancing that
+cutoff is itself an explicit policy and generated-lock change.
 Rollback reverts the human inputs, policy, all generated locks, image ledger/references,
 installer/consumer wiring, advisory policy, and documentation as one coherent change.
 

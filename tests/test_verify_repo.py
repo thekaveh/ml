@@ -1666,7 +1666,7 @@ def _write_canonical_baseline(repo: Path, document: dict) -> None:
     )
 
 
-_ISSUE62_LEDGER_MARKER = "### 6.1.1.2 Current Issue #62 four-surface audit"
+_ISSUE63_LEDGER_MARKER = "### 6.1.1.2 Current Issue #63 locked four-surface audit"
 
 
 def _issue62_ledger_repo(tmp_path: Path) -> Path:
@@ -1689,10 +1689,10 @@ def _d10_ids(repo: Path) -> set[str]:
 
 
 def _issue62_section(text: str) -> str:
-    start = text.index(_ISSUE62_LEDGER_MARKER)
-    following = re.search(r"^#{1,3}[ \t]", text[start + len(_ISSUE62_LEDGER_MARKER):], re.MULTILINE)
+    start = text.index(_ISSUE63_LEDGER_MARKER)
+    following = re.search(r"^#{1,3}[ \t]", text[start + len(_ISSUE63_LEDGER_MARKER):], re.MULTILINE)
     end = (
-        start + len(_ISSUE62_LEDGER_MARKER) + following.start()
+        start + len(_ISSUE63_LEDGER_MARKER) + following.start()
         if following is not None
         else len(text)
     )
@@ -1713,7 +1713,7 @@ def test_dependency_ledger_rejects_missing_or_duplicate_current_issue62_section(
     ledger = repo / "docs/dependency-contracts.md"
     original = ledger.read_text(encoding="utf-8")
     ledger.write_text(
-        original.replace(_ISSUE62_LEDGER_MARKER, "### 6.1.1.2 Archived audit", 1),
+        original.replace(_ISSUE63_LEDGER_MARKER, "### 6.1.1.2 Archived audit", 1),
         encoding="utf-8",
     )
     assert "D10.dependency_ledger_count" in _d10_ids(repo)
@@ -1750,7 +1750,7 @@ def test_dependency_ledger_ignores_complete_historical_audit_tables(tmp_path):
     ledger = repo / "docs/dependency-contracts.md"
     original = ledger.read_text(encoding="utf-8")
     historical = _issue62_section(original).replace(
-        _ISSUE62_LEDGER_MARKER,
+        _ISSUE63_LEDGER_MARKER,
         "### 6.1.13.1 Archived Issue #61 audit",
         1,
     )
@@ -1883,7 +1883,7 @@ def test_dependency_ledger_requires_pyg_lib_external_index_limitation(tmp_path):
 @pytest.mark.parametrize("indent", ("", " ", "  ", "   "))
 def test_dependency_raw_html_type1_requires_matching_close(tag, indent):
     module = _load_verify_module()
-    hidden = _ISSUE62_LEDGER_MARKER
+    hidden = _ISSUE63_LEDGER_MARKER
     visible = "### 6.1.1.3 Visible current audit"
     source = f"{indent}<{tag}>\n{hidden}\n\n{hidden}\n</{tag}>\n{visible}\n"
     masked = module._mask_dependency_raw_html(source)
@@ -1907,7 +1907,7 @@ _COMMONMARK_TYPE6_TAGS = (
 @pytest.mark.parametrize("indent", ("", "   "))
 def test_dependency_raw_html_type6_uses_blank_termination_without_swallowing_visible(tag, indent):
     module = _load_verify_module()
-    hidden = _ISSUE62_LEDGER_MARKER
+    hidden = _ISSUE63_LEDGER_MARKER
     visible = "### 6.1.1.3 Visible current audit"
     source = f"{indent}<{tag}>\n</{tag}>\n{hidden}\n\n{visible}\n"
     masked = module._mask_dependency_raw_html(source)
@@ -1923,11 +1923,11 @@ def test_dependency_raw_html_hgroup_hides_decoy_but_visible_current_section_is_e
     repo = _issue62_ledger_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     original = ledger.read_text(encoding="utf-8")
-    hidden_decoy = f"{indent}<hgroup>\n{_ISSUE62_LEDGER_MARKER}\n</hgroup>\n\n"
+    hidden_decoy = f"{indent}<hgroup>\n{_ISSUE63_LEDGER_MARKER}\n</hgroup>\n\n"
     ledger.write_text(hidden_decoy + original, encoding="utf-8")
     assert _d10_ids(repo) == set()
     ledger.write_text(
-        hidden_decoy + original.replace(_ISSUE62_LEDGER_MARKER, "### 6.1.1.2 Removed visible audit", 1),
+        hidden_decoy + original.replace(_ISSUE63_LEDGER_MARKER, "### 6.1.1.2 Removed visible audit", 1),
         encoding="utf-8",
     )
     assert "D10.dependency_ledger_count" in _d10_ids(repo)
@@ -1935,7 +1935,7 @@ def test_dependency_raw_html_hgroup_hides_decoy_but_visible_current_section_is_e
 
 def test_dependency_raw_html_four_spaces_remains_markdown_code_not_html():
     module = _load_verify_module()
-    hidden = _ISSUE62_LEDGER_MARKER
+    hidden = _ISSUE63_LEDGER_MARKER
     source = f"    <div>\n    {hidden}\n\n{hidden}\n"
     published = module._mask_dependency_raw_html(
         module._strip_markdown_code(source, strip_inline=False)
@@ -2059,7 +2059,7 @@ def test_docs_d10_dependency_advisory_baseline_flags_invalid_current_heading(
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     text = ledger.read_text(encoding="utf-8")
-    marker = _ISSUE62_LEDGER_MARKER
+    marker = _ISSUE63_LEDGER_MARKER
     if heading == "missing":
         text = text.replace(marker, "### 6.1.1.2 Historical advisories", 1)
     else:
@@ -2337,7 +2337,7 @@ def test_docs_d10_unclosed_or_mismatched_fence_hides_advisory_snapshot(tmp_path,
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     text = ledger.read_text(encoding="utf-8")
-    marker = _ISSUE62_LEDGER_MARKER
+    marker = _ISSUE63_LEDGER_MARKER
     snapshot = marker + text.split(marker, 1)[1]
     ledger.write_text(fence.format(snapshot=snapshot), encoding="utf-8")
 
@@ -2347,7 +2347,7 @@ def test_docs_d10_unclosed_or_mismatched_fence_hides_advisory_snapshot(tmp_path,
 
 
 def _current_advisory_snapshot(text: str) -> str:
-    marker = _ISSUE62_LEDGER_MARKER
+    marker = _ISSUE63_LEDGER_MARKER
     return marker + text.split(marker, 1)[1]
 
 
@@ -2543,7 +2543,7 @@ def _dependency_snapshot(*, summary_count=2, advisory_rows=None):
     return (
         "# 6.1 Dependency Contracts\n\n"
         "## 6.1.1 Audit Snapshot\n\n"
-        "### 6.1.1.2 Current Issue #62 four-surface audit\n\n"
+        "### 6.1.1.2 Current Issue #63 locked four-surface audit\n\n"
         f"Result: {summary_count} known vulnerabilities across 1 resolved package.\n\n"
         "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
         "| --- | --- | ---: | ---: | --- |\n"
@@ -2583,7 +2583,7 @@ def test_docs_d10_ignores_parser_compatible_historical_rows(tmp_path):
 
 def test_docs_d10_flags_missing_current_advisory_section(tmp_path):
     text = _dependency_snapshot().replace(
-        "### 6.1.1.2 Current Issue #62 four-surface audit",
+        "### 6.1.1.2 Current Issue #63 locked four-surface audit",
         "### 6.1.1.2 Historical advisories",
     )
     findings = _d10_count_findings(tmp_path, text)
@@ -2673,7 +2673,7 @@ def test_docs_d10_flags_advisory_package_absent_from_summary(tmp_path):
 def test_docs_d10_flags_duplicate_exact_current_heading(tmp_path):
     text = (
         _dependency_snapshot()
-        + "\n### 6.1.1.2 Current Issue #62 four-surface audit\n\n"
+        + "\n### 6.1.1.2 Current Issue #63 locked four-surface audit\n\n"
         + "Duplicate current section.\n"
     )
     findings = _d10_count_findings(tmp_path, text)
@@ -2682,9 +2682,9 @@ def test_docs_d10_flags_duplicate_exact_current_heading(tmp_path):
 
 @pytest.mark.parametrize(
     "duplicate_heading",
-    [
-        "### 6.1.1.2 Current Issue #62 four-surface audit  \t",
-        "###\t6.1.1.2  Current\tIssue  #62\tfour-surface   audit",
+        [
+            "### 6.1.1.2 Current Issue #63 locked four-surface audit  \t",
+            "###\t6.1.1.2  Current\tIssue  #63\tlocked  four-surface   audit",
     ],
 )
 def test_docs_d10_flags_semantically_duplicate_current_heading(
@@ -2696,7 +2696,7 @@ def test_docs_d10_flags_semantically_duplicate_current_heading(
 
 
 def test_docs_d10_rejects_current_structures_inside_fenced_code(tmp_path):
-    heading = _ISSUE62_LEDGER_MARKER
+    heading = _ISSUE63_LEDGER_MARKER
     prefix, body = _dependency_snapshot().split(f"{heading}\n\n", maxsplit=1)
     text = f"{prefix}{heading}\n\n```markdown\n{body}```\n"
     findings = _d10_count_findings(tmp_path, text)
@@ -2709,7 +2709,7 @@ def test_docs_d10_ignores_current_heading_example_inside_fenced_code(tmp_path):
     text = (
         _dependency_snapshot()
         + "\n```markdown\n"
-        + "### 6.1.1.2 Current Issue #62 four-surface audit\n"
+        + "### 6.1.1.2 Current Issue #63 locked four-surface audit\n"
         + "```\n"
     )
     assert _d10_count_findings(tmp_path, text) == []
@@ -2777,7 +2777,7 @@ def test_docs_d10_flags_dependency_ledger_count_drift(tmp_path):
     (docs / "dependency-contracts.md").write_text(
         "# Dependency Contracts\n\n"
         "## 1. Audit Snapshot\n\n"
-        "### 6.1.1.2 Current Issue #62 four-surface audit\n\n"
+        "### 6.1.1.2 Current Issue #63 locked four-surface audit\n\n"
         "Result: 2 known vulnerabilities across one resolved package:\n\n"
         "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
         "| --- | --- | ---: | ---: | --- |\n"
@@ -6878,11 +6878,12 @@ def test_atlas_consumer_policy_docs_define_ci_boundaries():
             "intended to be a required gate",
             "`atlas-contract` remains a separate, path-scoped, non-required direct "
             "validator of the recursive `infra/` submodule",
-        ),
-        "docs/conventions.md": (
-            "five-step `atlas-consumer-policy` job",
-            "`atlas-contract-requirements.txt` contains exactly `pytest==9.0.3` and "
-            "`pyyaml==6.0.3`",
+            ),
+            "docs/conventions.md": (
+                "The `atlas-consumer-policy` job",
+                "sets up exact Python 3.11.15, installs the bootstrap lock and hash-required "
+                "Atlas contract lock",
+                "routine execution consumes `requirements/locks/atlas-contract.txt`",
             "`shellcheck scripts/atlas-up.sh scripts/atlas-down.sh "
             "scripts/atlas-connect.sh scripts/lib/atlas-dotenv.sh`",
             "`make test-atlas-consumer`",
@@ -6890,9 +6891,9 @@ def test_atlas_consumer_policy_docs_define_ci_boundaries():
             "Docker Compose, or unrelated containers",
             "complete `make test`",
         ),
-        "docs/jupyterhub-integration.md": (
-            "Changes to the parent wrapper, runtime probe, dotenv helper, Atlas policy "
-            "tests, or focused dependency manifest reach both checks",
+            "docs/jupyterhub-integration.md": (
+                "Changes to the parent wrapper, runtime probe, dotenv helper, Atlas policy "
+                "tests, or focused dependency input/lock reach both checks",
             "`atlas-consumer-policy` runs unconditionally on every pull request and is "
             "intended to be required",
             "path-scoped `atlas-contract` directly validates the recursive submodule and "

@@ -79,11 +79,15 @@ four-surface `make audit-advisories` comparison fails on new primary IDs and acc
 drift; a disappeared accepted ID is reconciliation evidence, not proof of remediation. Review a
 policy change together with its current ledger row and its risk/reconciliation context.
 
-The broader development dependency graph is not fully locked; Issue #63 owns complete dependency
-locks. Dependency pin changes require the tests appropriate to the affected local, CI, notebook,
-and Atlas surfaces rather than a version-only edit. The audit only evaluates the parent-owned
-Atlas contract and does not initialize Atlas or start a service; coordinated stack upgrades and
-Atlas-owned runtime changes retain their separate ownership boundaries.
+Issue #63 locks the complete supported package graph through `requirements/lock-policy.toml`,
+hash-required platform/role locks, and exact tag-plus-index image identities. Offline verification
+proves committed structure and internal coherence; `make lock-check` and `make image-lock-check`
+are the separate networked freshness proofs. Advisory reconciliation audits exact lock-derived,
+no-resolve projections, including the bootstrap packages shared by every surface, and records
+non-PyPI spaCy/PyG artifacts as explicit provenance limitations rather than silently dropping them.
+The audit only evaluates the parent-owned Atlas contract and does not initialize Atlas or start a
+service; coordinated stack upgrades and Atlas-owned runtime changes retain their separate ownership
+boundaries.
 
 ## 13.7 Notebook, model, data, and artifact safety
 

@@ -82,13 +82,21 @@ make verify-nnx-install
 jupyter lab
 ```
 
-Use Python 3.11 and make install-torch-stack; the installer ends with binary-only thekaveh-nnx[lm]==0.2.0. After the last asset install, package state is frozen through pip-check, Torch verification, NNx verification, and the workload. Linux is CPU-only; Darwin arm64, native Linux arm64 Docker, and Linux x86_64 PR-gate evidence remain pending and are required in Task 7.
+Use Python 3.11.15 for the qualified host flow. `make install-torch-stack` selects the exact
+hash-required target under `requirements/locks/` using `requirements/lock-policy.toml`; the
+installer ends with binary-only `thekaveh-nnx[lm]==0.2.0`. This is reproducible for that qualified
+platform lock, not a claim that Darwin and Linux share identical wheel bytes. The spaCy model is
+already locked as `en-core-web-sm==3.8.0`; `make nlp-assets` downloads only the VADER lexicon.
+After that last data download, package state is frozen through pip-check, Torch verification, NNx
+verification, and the workload.
 
 ## 4.1.4 GitHub Codespaces
 
 Create a codespace on `main` from GitHub. `.devcontainer/devcontainer.json` runs
 `make codespace-setup`, which installs the local/CI dependency contract and NLP assets in the
-auto-cloned `/workspaces/ml-eng-lab` checkout. Use browser VS Code or JupyterLab as appropriate.
+auto-cloned `/workspaces/ml-eng-lab` checkout. The exact Linux lock and tag-plus-index devcontainer
+identity are governed by `requirements/lock-policy.toml` and `requirements/image-lock.json`. Use
+browser VS Code or JupyterLab as appropriate.
 
 Codespaces is CPU-only and disposable: data/ and runs/ are lost when a codespace is deleted. The
 full quantization notebook remains manual-only under Issue #66; Issue #62 qualifies only the tiny

@@ -39,6 +39,10 @@ def _copy_lock_contract(tmp_path: Path) -> Path:
     (repo / "scripts").mkdir()
     for name in ("install_torch_stack.py", "install_locked_requirements.py"):
         shutil.copy2(REPO_ROOT / "scripts" / name, repo / "scripts")
+    for relative in verifier_module._DOCUMENTATION_CONTRACT:
+        destination = repo / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / relative, destination)
     return repo
 
 
@@ -52,6 +56,64 @@ def _replace_once(path: Path, old: str, new: str) -> None:
 def test_live_generated_lock_family_passes_offline_verification(capsys: object) -> None:
     assert verify_dependency_locks(REPO_ROOT) == ()
     assert main(["--repo-root", str(REPO_ROOT)]) == 0
+
+
+@pytest.mark.parametrize(
+    ("relative", "old", "new"),
+    (
+        ("README.md", "make lock-check", "pip install -r requirements.txt"),
+        ("CONTRIBUTING.md", "make lock-write", "uv pip compile"),
+        ("SECURITY.md", "requirements/lock-policy.toml", "requirements.txt"),
+        (
+            "docs/env-setup.md",
+            "reproducible for that qualified",
+            "perfectly reproducible across every platform",
+        ),
+        (
+            "docs/architecture.md",
+            "CONDA_AUTO_ACTIVATE_BASE=false",
+            "CONDA_AUTO_ACTIVATE_BASE=true",
+        ),
+        (
+            "docs/dependency-contracts.md",
+            "make image-lock-check",
+            "docker pull latest",
+        ),
+        (
+            "docs/conventions.md",
+            "hash-required Linux lock",
+            "requirements.txt with --only-binary=thekaveh-nnx",
+        ),
+        (
+            "docs/jupyterhub-integration.md",
+            "requirements/locks/atlas-contract.txt",
+            "focused dependency manifest",
+        ),
+        (
+            "docs/nnx-library.md",
+            "make install-torch-stack",
+            "pip install -r requirements.txt",
+        ),
+        (
+            "docs/notebooks/text_classification-agnews-spacy-mlp-pytorch.md",
+            "en-core-web-sm==3.8.0",
+            "python -m spacy download en_core_web_sm",
+        ),
+    ),
+)
+def test_offline_verifier_rejects_stale_current_documentation(
+    tmp_path: Path,
+    relative: str,
+    old: str,
+    new: str,
+) -> None:
+    repo = _copy_lock_contract(tmp_path)
+    _replace_once(repo / relative, old, new)
+
+    assert any(
+        finding.category == "documentation" and finding.path == relative
+        for finding in verify_dependency_locks(repo)
+    )
 
 
 @pytest.mark.parametrize(

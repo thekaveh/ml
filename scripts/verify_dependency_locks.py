@@ -82,6 +82,82 @@ _BOTH_PATHS = frozenset(
         ".github/workflows/ci.yml",
     }
 )
+_DOCUMENTATION_CONTRACT: dict[Path, tuple[str, ...]] = {
+    Path("README.md"): (
+        "requirements/lock-policy.toml",
+        "reproducible for the qualified platform lock",
+        "make lock-check",
+        "make image-lock-check",
+    ),
+    Path("CONTRIBUTING.md"): (
+        "requirements/lock-policy.toml",
+        "make lock-write",
+        "make lock-check",
+        "make image-lock-check",
+    ),
+    Path("SECURITY.md"): (
+        "requirements/lock-policy.toml",
+        "exact lock-derived",
+        "make lock-check",
+        "make image-lock-check",
+    ),
+    Path("CHANGELOG.md"): ("Issue #63", "requirements/lock-policy.toml"),
+    Path("docs/env-setup.md"): (
+        "requirements/lock-policy.toml",
+        "reproducible for that qualified",
+        "requirements/image-lock.json",
+    ),
+    Path("docs/architecture.md"): (
+        "requirements/lock-policy.toml",
+        "CONDA_AUTO_ACTIVATE_BASE=false",
+        "requirements/image-lock.json",
+    ),
+    Path("docs/dependency-contracts.md"): (
+        "Current Issue #63 locked four-surface audit",
+        "requirements/lock-policy.toml",
+        "make lock-write",
+        "make lock-check",
+        "make image-lock-check",
+        "Issue #64",
+        "Issue #65",
+        "Issue #66",
+    ),
+    Path("docs/notebook-infrastructure.md"): (
+        "requirements/lock-policy.toml",
+        "qualified platform lock",
+    ),
+    Path("docs/conventions.md"): (
+        "hash-required Linux lock",
+        "requirements/locks/atlas-contract.txt",
+        "exact lock-derived, no-resolve projections",
+    ),
+    Path("docs/jupyterhub-integration.md"): (
+        "exact Python 3.11.15",
+        "requirements/locks/atlas-contract.txt",
+    ),
+    Path("docs/nnx-library.md"): (
+        "make install-torch-stack",
+        "selected hash-required platform lock",
+    ),
+    Path("docs/notebooks/text_classification-agnews-spacy-mlp-pytorch.md"): (
+        "en-core-web-sm==3.8.0",
+        "requirements/lock-policy.toml",
+    ),
+    Path("notebooks/text_classification-agnews-spacy-mlp-pytorch/docs/spec.yaml"): (
+        "en-core-web-sm==3.8.0",
+        "requirements/lock-policy.toml",
+    ),
+}
+_FORBIDDEN_CURRENT_DOCUMENTATION = (
+    "python -m spacy download",
+    "pip install -r requirements.txt",
+    "uv pip compile",
+    "docker pull latest",
+    "CONDA_AUTO_ACTIVATE_BASE=true",
+    "perfectly reproducible across every platform",
+    "Issue #63 retains ownership of full dependency locks",
+    "remain Issue #63 work",
+)
 
 
 def classify_network_checks(
@@ -118,6 +194,23 @@ def classify_network_checks(
         if path in _IMAGE_PATHS:
             image_check = True
     return NetworkCheckScope(lock_check, image_check)
+
+
+def _documentation_findings(repo: Path) -> list[LockFinding]:
+    findings: list[LockFinding] = []
+    for path, required in _DOCUMENTATION_CONTRACT.items():
+        try:
+            source = (repo / path).read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            findings.append(_finding("documentation", path, "missing"))
+            continue
+        current = source.split("## [0.1.0]", 1)[0] if path == Path("CHANGELOG.md") else source
+        if any(fragment not in current for fragment in required):
+            findings.append(_finding("documentation", path, "required lock contract"))
+            continue
+        if any(fragment in current for fragment in _FORBIDDEN_CURRENT_DOCUMENTATION):
+            findings.append(_finding("documentation", path, "stale install contract"))
+    return findings
 
 
 def _changed_paths(repo: Path, base: str, head: str) -> tuple[str, ...] | None:
@@ -354,6 +447,7 @@ def _consumer_findings(repo: Path) -> list[LockFinding]:
             )
         docker_environment = (
             "ENV VIRTUAL_ENV=/home/jovyan/.venvs/ml-eng-lab\n" in docker_source
+            and "ENV CONDA_AUTO_ACTIVATE_BASE=false\n" in docker_source
             and 'ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"\n' in docker_source
             and 'RUN /opt/conda/bin/python -m venv "$VIRTUAL_ENV" \\\n'
             in docker_source
@@ -488,6 +582,7 @@ def verify_dependency_locks(repo: Path) -> tuple[LockFinding, ...]:
         if root.get("python-louvain") is None or root["python-louvain"].version != Version("0.16"):
             findings.append(_finding("pin", root_path, "python-louvain"))
     findings.extend(_consumer_findings(repo))
+    findings.extend(_documentation_findings(repo))
     return tuple(findings)
 
 

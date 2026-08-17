@@ -1042,8 +1042,8 @@ _ATLAS_INFRA_GITLINK_SHA_RE = re.compile(
     re.MULTILINE,
 )
 _DEPENDENCY_CURRENT_SNAPSHOT_RE = re.compile(
-    r"^###[ \t]+6[.]1[.]1[.]2[ \t]+Current[ \t]+Issue[ \t]+#62[ \t]+"
-    r"four-surface[ \t]+audit[ \t]*\r?$"
+    r"^###[ \t]+6[.]1[.]1[.]2[ \t]+Current[ \t]+Issue[ \t]+#63[ \t]+"
+    r"locked[ \t]+four-surface[ \t]+audit[ \t]*\r?$"
     r"(?P<body>.*?)(?=^#{1,3}[ \t]|\Z)",
     re.MULTILINE | re.DOTALL,
 )
@@ -1308,7 +1308,7 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
             check="docs",
             severity="error",
             location=location,
-            message="current Issue #62 input-hash table is missing or malformed",
+            message="current Issue #63 input-hash table is missing or malformed",
         )]
     rows = [_DEPENDENCY_HASH_ROW_RE.fullmatch(line) for line in lines]
     if not all(rows):
@@ -1317,7 +1317,7 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
             check="docs",
             severity="error",
             location=location,
-            message="current Issue #62 input-hash row is malformed",
+            message="current Issue #63 input-hash row is malformed",
         )]
     parsed = [(row["path"], row["sha256"]) for row in rows if row is not None]
     names = [name for name, _ in parsed]
@@ -1327,7 +1327,7 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
             check="docs",
             severity="error",
             location=location,
-            message="current Issue #62 input-hash table has duplicate paths",
+            message="current Issue #63 input-hash table has duplicate paths",
         )]
     if tuple(names) != _DEPENDENCY_HASH_INPUTS:
         return [Finding(
@@ -1335,7 +1335,7 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
             check="docs",
             severity="error",
             location=location,
-            message="current Issue #62 input-hash paths or order drifted",
+            message="current Issue #63 input-hash paths or order drifted",
             detail={"expected": list(_DEPENDENCY_HASH_INPUTS), "actual": names},
         )]
     findings: list[Finding] = []
@@ -1347,7 +1347,7 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
                 check="docs",
                 severity="error",
                 location=relative_path,
-                message="current Issue #62 hashed input is missing",
+                message="current Issue #63 hashed input is missing",
             ))
             continue
         actual = hashlib.sha256(source.read_bytes()).hexdigest()
@@ -1357,7 +1357,7 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
                 check="docs",
                 severity="error",
                 location=relative_path,
-                message="current Issue #62 recorded input hash is stale",
+                message="current Issue #63 recorded input hash is stale",
                 detail={"expected": recorded, "actual": actual},
             ))
     return findings

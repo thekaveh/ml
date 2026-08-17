@@ -118,29 +118,23 @@ when a manifest changes, the advisory feed changes, a fix becomes available, inp
 reachability expands, or Issue #62 qualifies a coordinated replacement stack. Any upgrade must
 validate Torch, PyG, torchao, notebook execution, and CI together rather than updating one pin.
 
-### 6.1.1.2 Current Issue #62 four-surface audit
+### 6.1.1.2 Current Issue #63 locked four-surface audit
 
-Last reviewed: 2026-08-14. The capture used repository commit
-`c9c17ae21b3343c67b9046cbd69819d2c08d0286`, Python 3.11.0 on Darwin arm64, and
-`pip-audit==2.10.0`. Six physical commands produced four logical observations in canonical order.
-The combined-runtime resolver returned 191 packages and its two-package supplement produced 193
-merged packages; the Torch resolver returned 37 and its supplement produced 39 merged packages.
-Documentation resolved 42 packages and Atlas contract resolved 5. The two supplement commands and
-the documentation and Atlas commands were clean. Both resolver commands returned advisory
-observations.
-
-The redacted command templates were:
+Last reviewed: 2026-08-16. `requirements/lock-policy.toml` defines the four logical surfaces and
+their exact lock inputs. `make audit-advisories` first passes the offline lock verifier, derives six
+temporary exact `package==version` projections from the validated locks, and invokes
+`pip-audit==2.10.0` with `--disable-pip --no-deps`. It does not re-resolve human source manifests.
+The projections contain 210 combined-runtime packages plus the two audited PyG extensions, 41
+Torch packages plus the two extensions, 45 documentation packages, and 10 Atlas-contract packages.
+The spaCy model and target-specific pyg-lib wheels are recorded as non-PyPI provenance evidence;
+they are never mislabeled as clean PyPI audit results.
 
 ```text
-python -m pip_audit -r requirements.txt -r torch-audit-requirements.txt --strict --vulnerability-service pypi --format json --aliases on --desc off --progress-spinner off --output <combined-runtime-resolver.json>
-python -m pip_audit --disable-pip --no-deps -r pyg-extension-audit-requirements.txt --strict --vulnerability-service pypi --format json --aliases on --desc off --progress-spinner off --output <combined-runtime-pyg-extensions.json>
-python -m pip_audit -r torch-audit-requirements.txt --strict --vulnerability-service pypi --format json --aliases on --desc off --progress-spinner off --output <torch-resolver.json>
-python -m pip_audit --disable-pip --no-deps -r pyg-extension-audit-requirements.txt --strict --vulnerability-service pypi --format json --aliases on --desc off --progress-spinner off --output <torch-pyg-extensions.json>
-python -m pip_audit --disable-pip -r docs-requirements.txt --strict --vulnerability-service pypi --format json --aliases on --desc off --progress-spinner off --output <documentation.json>
-python -m pip_audit -r atlas-contract-requirements.txt --strict --vulnerability-service pypi --format json --aliases on --desc off --progress-spinner off --output <atlas-contract.json>
+make verify-dependency-locks  # offline structure, hashes, sources, consumers, and image coherence
+make audit-advisories         # networked feed comparison over exact lock-derived projections
 ```
 
-Result: 3 known vulnerabilities across 193 resolved packages.
+Result: 3 known vulnerabilities across 212 resolved packages.
 
 | Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |
 | --- | --- | ---: | ---: | --- |
@@ -164,21 +158,34 @@ The input hashes enforced by D10 are:
 | `requirements.txt` | `6e86caa5a287e9566e15bdffbb6628249397307783dee3b6e98e728ef06275b9` |
 | `torch-core-requirements.txt` | `28b09abee07d1c3551b47f28938a546bf1dd712f18e34bea9b40e3d49410810b` |
 | `torch-ecosystem-requirements.txt` | `9e0083918fd410e30aea337ba281fbfe05f89846eff067cf4997d296e1ce1dff` |
-| `torch-requirements.txt` | `5ed88d08e84d39e345bffcda9c6adbe7f26886a6af52d04ac02bd90e44419527` |
+| `torch-requirements.txt` | `5ab5581cbaf6aefd0698b63e22279e799a1edd65ae003b52b65d6a3b5d64c5cb` |
 | `torch-audit-requirements.txt` | `6d544b226c6e96f296c5105a20ea00704c3e1db4bf91946392df8f3ec5236d2a` |
 | `pyg-extension-audit-requirements.txt` | `3bdf07aaf4dc3a02524d7f7e11f6127c68203403201dc32d36b356670bfff498` |
-| `docs-requirements.txt` | `9af475ff61cafc56f0edd75e28d9ca41463f87f0790523d5e077a1d71323b9cc` |
-| `atlas-contract-requirements.txt` | `e786c8e7d940a97ae41ce880d5f5bbc62dc4f90ff03fd8c7718849e1c11412b0` |
-| `security/accepted-advisories.json` | `53752e041f6b55a9da041d8bfe752d1753afc74ae83dba99c4c9c3a296c17cfd` |
+| `docs-requirements.txt` | `8cf8df4156b6537310a9e6ad151a9d3280138f1c23178a75064ed93129d9538c` |
+| `atlas-contract-requirements.txt` | `ca9faca3b1769495e70e9cb317fc66cbcf747981e0932f3c9df8a817fccdd768` |
+| `security/accepted-advisories.json` | `452ac2a787c5c13814bab63f54a97c742dd22fa8da6a6a550b8f4a416df18dbb` |
 
-Ignored output hashes are
-`793bfcf1ad33efba84ab2a61bc6b0b1c18413a4686288c50b8e457dd9453d6c6` for the
-combined-runtime resolver,
-`5e72e385b44bec267ec2bae003e3602caca4b48ae29bb6ff54d0eefe032b5586` for the
-Torch resolver, `5e6a9788ed081bd9cbee01b8cb4b44e1e99a3050526bc7860652844afc2891ca`
-for each identical supplement, `c7fb014d9d45092476134bc78fe7e3fd81df93c66733b932c734d5fe27672afe`
-for documentation, and `025906bb0be0ae036140e484f0dcc2845e25e11e36c18a7aa23af5e05fd55db9`
-for Atlas contract.
+The complete generated-lock inventory is the 14 outputs listed by
+`requirements/lock-policy.toml`: bootstrap, compiler, audit, Atlas contract, documentation, and
+core/runtime/root for Darwin arm64, Linux x86_64, and Linux aarch64. Every package-changing
+consumer installs the hash-required bootstrap lock first. The four-stage runtime installer then
+uses core, runtime, and root in order; `python-louvain==0.16` is the sole approved sdist and
+`en-core-web-sm==3.8.0` the sole approved direct URL. Linux Torch packages come from the exact CPU
+index, compiled PyG wheels from the exact Torch 2.11 flat page, and Linux torchao from its exact CPU
+project page. `uv==0.11.19` is regeneration tooling only and is not added to notebook runtime locks.
+
+Offline `make verify-dependency-locks` proves syntax, hash presence, cross-file coherence, source
+policy, consumer wiring, and committed image-ledger equality. It cannot prove that a remote tag or
+artifact still has the reviewed bytes. `make lock-check` independently regenerates every lock;
+`make image-lock-check` resolves each registry index and native child. A controlled update uses
+`make lock-write`, reviews the complete diff, then runs both networked checks and clean installs.
+Rollback reverts the human inputs, policy, all generated locks, image ledger/references,
+installer/consumer wiring, advisory policy, and documentation as one coherent change.
+
+Issue #64 retains external data/model content integrity beyond the locked spaCy wheel. Issue #65
+retains Atlas runtime ownership; this parent contract audits only the Atlas validation role. Issue
+#66 retains the complete quantization notebook, which remains manual-only despite the locked tiny
+QAT surface.
 
 The pre-resolved `pyg-extension-audit-requirements.txt` supplement contains exactly
 `torch-scatter==2.1.2` and `torch-sparse==0.6.18`; it contains neither `torch-cluster` nor
@@ -232,7 +239,7 @@ Aliases identify re-keyed records; an alias is not an additional vulnerability.
 ### 6.1.1.4 Enforcement boundary
 
 This manually reviewed ledger is the canonical record for the
-[current accepted-advisories snapshot](#6112-current-issue-62-four-surface-audit). The repository's
+[current accepted-advisories snapshot](#6112-current-issue-63-locked-four-surface-audit). The repository's
 [security policy](../SECURITY.md) describes how new advisory uncertainty is triaged.
 `security/accepted-advisories.json` is the policy artifact. `make audit-advisories` runs all four
 audit surfaces without suppression: combined runtime, Torch, documentation, and the parent-owned
@@ -245,17 +252,14 @@ the associated aliases, risk language, and historical reconciliation. Do not tre
 permission for an automatic removal: rerun all four surfaces, verify the resolved version and
 primary-ID/alias relationship, then make the reviewed JSON and current-ledger update together.
 The audit does not initialize Atlas or start a service. Issue #62 owns the coordinated Torch-stack
-upgrade, and Issue #63 owns complete dependency locks; the direct `pip-audit` tool pin is only the
-focused exception needed for this comparison.
+upgrade; Issue #63 adds complete dependency locks and derives this comparison from those exact
+locks. The direct `pip-audit` tool pin remains isolated in the audit-tool lock.
 
-`torch-audit-requirements.txt` and `pyg-extension-audit-requirements.txt` form the selector-free
-audit projection of the local/CI PyG runtime manifest. The resolver-safe projection contains the
-core include and `torch_geometric`; the pre-resolved supplement contains the four compiled PyG
-extension pins and runs with `--disable-pip --no-deps`. Before any audit subprocess runs, their
-canonical semantic partition must reconstruct `torch-requirements.txt` after removing exactly its
-approved PyG `--find-links` selector; this does not depend on physical file concatenation.
-Missing, extra, changed, duplicate, ambiguous, or option lines fail closed. Runtime installation
-continues to use `torch-requirements.txt` and its PyG wheel selector.
+The audit projections are generated from the committed locks and installed with no dependency
+resolution. Combined-runtime and Torch evidence includes explicit non-PyPI records for the PyG
+extension wheels selected from the approved flat source; missing, extra, changed, duplicate, or
+ambiguous records fail closed. Runtime installation continues to consume the complete selected
+platform lock rather than an audit projection.
 
 ### 6.1.1.5 Removal and reconciliation runbook
 
@@ -292,17 +296,18 @@ The temporary verifier-local import debts have literal keys Torch 2.11.0 with ou
 
 Separately, the immutable Torch 2.11.0 + torchao 0.18.0 + thekaveh-nnx 0.2.0 + qat_config="8da4w" QAT debt is asserted only around NNx model.train: exactly one identity-UserWarning must equal the complete Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead (e.g. TorchAODType.INT4 -> torch.int4) and originate from the selected torchao RECORD path torchao/quantization/quant_primitives.py. The three distribution versions are parsed fail-closed and compared by their PEP 440 public versions, so platform local tags such as Torch 2.11.0+cpu retain the 2.11.0 key while malformed versions fail validation. Pytest remains -W error; zero warnings or tuple drift stops qualification for debt retirement; Issue #66 or an earlier NNx/Atlas upgrade owns migration to the current torch.int4 API.
 
-make install-torch-stack has four stages: stage 0 upgrades pip only; stage 1 installs the Torch trio
-from the Linux CPU index or Darwin's native index; stage 2 installs torch-requirements.txt with
---only-binary=pyg-lib,torch-scatter,torch-sparse; stage 3 installs remaining root requirements and
-binary-only thekaveh-nnx[lm]==0.2.0 last. Acceptance requires pip-check, the ten-component stack
+`make install-torch-stack` selects one complete hash-required platform lock and installs it through
+the shared sanitized boundary; source provenance is retained in the lock policy for PyPI, the
+Linux CPU index, the PyG flat wheel source, and Darwin's native index. NNx remains binary-only.
+Acceptance requires pip-check, the ten-component stack
 verifier, the NNx verifier, four-surface advisory reconciliation from six commands, full repository
 tests, zero-skip focused graph/quantization tests, Tier A/B/C 18/6/4, Darwin arm64, native Linux
 arm64 Docker, Linux x86_64 PR gates, and three-surface documentation parity. Any failure rejects
 the matrix and rollback restores the complete prior contract in a fresh environment or rebuilt
 image.
 
-The dependency and focused runtime contracts are implemented; complete Tier A/B/C and container acceptance evidence is pending.
+Issue #62 completed the runtime matrix; Issue #63 preserves that matrix while replacing routine
+resolution with verified immutable locks.
 
 ## 6.1.3 Manual-Only Quantization Notebook
 
@@ -366,10 +371,10 @@ the distribution file inventory to own `WHEEL`, `RECORD`, and `nnx/__init__.py`,
 resolved `nnx` module is the same distribution-owned import origin outside this repository.
 Diagnostics are redacted to stable contract categories; local paths and direct URLs are not emitted.
 
-CI selects the NNx wheel with `--only-binary=thekaveh-nnx` in both `pytest-repository` and
+CI obtains the NNx wheel from the selected hash-required Linux lock in both `pytest-repository` and
 `pytest-nnx-surface`, then runs `make verify-nnx-install` after installation and immediately before
-tests. This binary-only selection is not a cryptographic hash lock and does not lock the whole
-dependency graph; Issue #63 owns future NNx wheel hash locking.
+tests. The lock records the wheel hash while the verifier separately proves canonical distribution
+ownership and rejects editable/direct-URL installs.
 
 Issue #61 reviewed the latest stable 0.2.2 wheel without changing this final contract. A fresh
 canonical trial passed `1,350` repository tests, Tier A `18/18`, Tier B `6/6`, and Tier C `4/4` on
@@ -464,13 +469,16 @@ Upgrade criteria:
 
 ## 6.1.11 Canonical Bootstrap Tooling
 
-The canonical installer upgrades pip alone in stage 0 and installs every selected graph extension as a compatible binary wheel in stage 2. Docker, Codespaces, CI, and local setup delegate to make install-torch-stack; none carries a second bootstrap or dependency algorithm. Exact pip/setuptools locks, full Python lockfiles, and base-image digest pinning remain Issue #63 and do not change the Issue #62 four-stage install contract.
+The canonical installer uses the hash-required bootstrap lock and then installs the complete
+platform lock selected by `requirements/lock-policy.toml`. Docker, Codespaces, CI, and local setup
+delegate to that shared boundary; none carries a second dependency algorithm. Compiler tooling is
+isolated in its own lock and is never part of the runtime environment.
 
-## 6.1.12 Deferred Reproducibility Hardening
+## 6.1.12 Qualified Reproducibility Boundary
 
-The current manifests still include floating and ranged Python dependencies, and
-the Docker/devcontainer bases are tag-pinned rather than digest-pinned. The
-implemented `pip-audit` comparison is intentionally separate from `make verify`
-so repository verification stays offline and network-independent. A full lockfile,
-CI install against that lock, and base-image digest pinning remain Issue #63 work
-because they can change every notebook runtime at once.
+Human-authored manifests may retain ranges, but routine installation consumes committed,
+hash-required locks for the qualified Darwin arm64, Linux x86_64, or Linux aarch64 target. Docker
+and devcontainer bases use exact tag-plus-index-digest references with verified child manifests.
+Offline verification proves policy, input, marker, hash-shape, and cross-file coherence; networked
+`make lock-check` and `make image-lock-check` prove byte regeneration and remote digest identity.
+This is reproducible for the qualified platform lock, not one cross-platform binary environment.

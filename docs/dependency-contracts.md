@@ -348,15 +348,29 @@ Upgrade criteria:
 
 ## 6.1.5 External Assets
 
-`make nlp-assets` downloads:
+The spaCy `en_core_web_sm` 3.8.0 wheel is an exact direct-URL/hash package in Issue #63's
+platform root locks. It is installed by `make install-torch-stack`; no post-install model
+downloader is supported.
 
-- spaCy `en_core_web_sm`
-- NLTK `vader_lexicon`
+VADER is the sole post-lock NLP data asset. `requirements/nlp-assets.toml` locks the official
+NLTK data URL
+`https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/sentiment/vader_lexicon.zip`,
+the exact size `90,486` bytes, SHA-256
+`8adba4294eef3964d820bf655e37e61bdc3a341994356af59b74fb3b4a36ce5c`, resource identity
+`sentiment/vader_lexicon.zip`, and sole member `vader_lexicon/vader_lexicon.txt`.
 
-These assets are consumed by the text-classification and sentiment notebooks.
-They are not locked by checksum today. If reproducibility becomes stricter than
-the current educational-notebook standard, add a lock/verification mechanism and
-update this section.
+`make nlp-assets` downloads that URL to a temporary file, validates the complete identity, and
+atomically installs the ZIP under the explicit `NLTK_DATA` root. `make verify-nlp-assets` performs
+the same identity and VADER sentiment smoke checks offline and rejects missing, corrupt,
+substituted, directory, symlink, extra-member, or path-escaping inputs. A valid installed ZIP
+needs no network; a clean installation needs the official URL. CI, Codespaces, the root image,
+and the pinned Atlas JupyterHub projection install before verification and workloads. Atlas is
+not started for installation.
+
+Update order is: review the official NLTK data index, update the authoritative manifest, copy the
+manifest/installer/model projections into the Atlas JupyterHub build, run clean parent and Atlas
+image installs plus offline verification, update current documentation, and then qualify all
+notebook tiers. The spaCy model remains governed by Issue #63's lock regeneration process.
 
 ## 6.1.6 NNx PyPI Pin and Editable Override Boundary
 

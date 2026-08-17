@@ -1,4 +1,4 @@
-"""Tests for scripts/verify_repo.py — the four-check oracle."""
+"""Tests for scripts/verify_repo.py — the five-check oracle."""
 from __future__ import annotations
 
 import json

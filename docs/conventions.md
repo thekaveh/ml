@@ -149,12 +149,14 @@ focused and publication signals so failures remain attributable.
 
 ### 5.3.1 Repo verifier — `make verify`
 
-`scripts/verify_repo.py --check all --fast` runs four checks (the `--fast`
+`scripts/verify_repo.py --check all --fast` runs five checks (the `--fast`
 flag only affects the execution check):
 
 - **Structure (`S`)** — task-folder naming, the absence of a `tasks/` subdir
   and of a re-introduced `common/` (`S7.forbidden_toplevel`), no tracked
   bloat (`S7.tracked_bloat`), expected top-level layout.
+- **Assets (`D11`)** — the exact VADER manifest and the install/verify ordering
+  shared by Make, Docker, CI, Codespaces, the sentiment notebook, and Atlas.
 - **Docs (`D`)** — `check_docs` validates the generated documentation tree
   for self-containment, completeness against `docs/manifest.yaml`, and the
   absence of placeholder text.

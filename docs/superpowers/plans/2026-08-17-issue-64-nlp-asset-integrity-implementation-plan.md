@@ -356,11 +356,18 @@ git commit -m "infra: pin Atlas verified NLP assets"
 **Files:**
 - Modify: `README.md`
 - Modify: `CHANGELOG.md`
+- Modify: `CONTRIBUTING.md`
+- Modify: `docs/conventions.md`
 - Modify: `docs/env-setup.md`
 - Modify: `docs/dependency-contracts.md`
 - Modify: `docs/notebook-infrastructure.md`
 - Modify: `docs/notebooks/sentiment_classification-vader-mlp-pytorch.md`
+- Modify: `notebooks/sentiment_classification-vader-mlp-pytorch/README.md`
+- Modify: `notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb` (Markdown only)
+- Modify: `notebooks/text_classification-agnews-spacy-mlp-pytorch/README.md`
+- Modify: `scripts/verify_repo.py` (five-check module description only)
 - Modify: `tests/test_check_docs.py`
+- Modify: `tests/test_verify_repo.py` (five-check module description only)
 - Modify: `tests/test_build_docs.py`
 - Modify: `tests/test_wiki.py`
 
@@ -370,7 +377,7 @@ git commit -m "infra: pin Atlas verified NLP assets"
 
 - [ ] **Step 1: Add current-section RED assertions**
 
-Scope assertions to current README, Unreleased changelog, current dependency ledger, env setup, notebook infrastructure, and canonical sentiment page. Require exact VADER URL/hash/size, `make nlp-assets`, `make verify-nlp-assets`, offline behavior, update steps, spaCy Issue #63 boundary, Atlas projection/gitlink, and absence of current legacy downloader claims. Do not inspect historical changelog/maintenance sections for removal tokens.
+Scope assertions to current README, contributor guide, conventions, Unreleased changelog, current dependency ledger, env setup, notebook infrastructure, canonical sentiment page, both affected notebook READMEs, and the sentiment notebook's live Markdown. Require the five-check verifier inventory, exact VADER URL/hash/size, `make nlp-assets`, `make verify-nlp-assets`, offline behavior, update steps, spaCy Issue #63 boundary, Atlas projection/gitlink, and absence of current legacy downloader claims. Do not inspect historical changelog/maintenance sections for removal tokens.
 
 - [ ] **Step 2: Update canonical documentation**
 
@@ -402,14 +409,18 @@ Require exact source-to-site and source-to-wiki parity for the design, plan, dep
 python scripts/verify_repo.py --check docs --fast
 python scripts/verify_repo.py --check assets --fast
 git diff --check
-git add README.md CHANGELOG.md docs/env-setup.md docs/dependency-contracts.md \
+git add README.md CHANGELOG.md CONTRIBUTING.md docs/conventions.md docs/env-setup.md docs/dependency-contracts.md \
   docs/notebook-infrastructure.md \
   docs/notebooks/sentiment_classification-vader-mlp-pytorch.md \
-  tests/test_check_docs.py tests/test_build_docs.py tests/test_wiki.py
+  notebooks/sentiment_classification-vader-mlp-pytorch/README.md \
+  notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb \
+  notebooks/text_classification-agnews-spacy-mlp-pytorch/README.md \
+  scripts/verify_repo.py tests/test_check_docs.py tests/test_verify_repo.py \
+  tests/test_build_docs.py tests/test_wiki.py
 git commit -m "docs: document verified NLP assets"
 ```
 
-The commit must not include generated site output, notebook outputs, lock files, policy files, image locks, or unrelated documentation.
+The commit must not include generated site output, notebook outputs/execution metadata/code-cell changes, lock files, policy files, image locks, or unrelated documentation.
 
 ---
 

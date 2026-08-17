@@ -76,6 +76,7 @@ for the GNN notebooks; serious GNN training may need 16–50 GiB.
 python3.11 -m venv .venv && source .venv/bin/activate
 make install-torch-stack
 make nlp-assets
+make verify-nlp-assets
 python -m pip check
 make verify-torch-stack
 make verify-nnx-install
@@ -87,8 +88,12 @@ hash-required target under `requirements/locks/` using `requirements/lock-policy
 installer ends with binary-only `thekaveh-nnx[lm]==0.2.0`. This is reproducible for that qualified
 platform lock, not a claim that Darwin and Linux share identical wheel bytes. The spaCy model is
 already locked as `en-core-web-sm==3.8.0`; `make nlp-assets` downloads only the VADER lexicon.
-After that last data download, package state is frozen through pip-check, Torch verification, NNx
-verification, and the workload.
+It accepts only the official NLTK data ZIP described by `requirements/nlp-assets.toml`, verifies
+its byte size, SHA-256, and sole member, and installs it under the explicit `NLTK_DATA` root.
+`make verify-nlp-assets` is offline and fails on a missing, corrupt, substituted, or symlinked
+asset. After that last data download, package and data state are frozen through pip-check, Torch,
+NNx, and NLP verification and the workload. A clean install needs network access to the official
+URL; verification of an already installed valid ZIP does not. Neither command starts Atlas.
 
 ## 4.1.4 GitHub Codespaces
 

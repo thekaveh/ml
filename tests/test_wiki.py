@@ -118,6 +118,20 @@ def test_real_manifest_projects_advisory_baseline_contract_to_wiki(tmp_path):
     assert "feature-to-`develop` pull request, then a `develop`-to-`main` pull request" in ledger
 
 
+def test_real_manifest_projects_verified_nlp_asset_contract_to_wiki(tmp_path):
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    out = tmp_path / "generated/wiki"
+    render_wiki(manifest, REPO_ROOT, out, trusted_output_root=tmp_path)
+
+    ledger = (out / "6-1-Dependency-ledger.md").read_text(encoding="utf-8")
+    sentiment = (
+        out / "8-18-sentiment-classification-vader-mlp-pytorch.md"
+    ).read_text(encoding="utf-8")
+    assert "8adba4294eef3964d820bf655e37e61bdc3a341994356af59b74fb3b4a36ce5c" in ledger
+    assert "make verify-nlp-assets" in ledger
+    assert "nltk.download" not in sentiment
+
+
 def test_render_wiki_removes_stale_generated_files(tmp_path):
     _seed(tmp_path)
     out = tmp_path / "generated/wiki"

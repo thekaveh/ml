@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Repo verification oracle.
 
-Runs four orthogonal checks (structure, execution, docs, comments) and emits
+Runs five orthogonal checks (structure, assets, execution, docs, comments) and emits
 machine-readable findings JSON + a human-readable report. Exit code 0 = no
 error-severity findings (warnings are allowed and reported but don't fail
 the run); 1 = at least one error finding (counts on stderr).

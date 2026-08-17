@@ -187,8 +187,9 @@ Repository verification rejects:
 - an `nlp-assets` recipe not equal to the canonical module command;
 - a consumer that installs assets after verification or workload execution;
 - a consumer that omits `verify-nlp-assets` where it installs the asset; and
-- any direct VADER URL/hash outside the authoritative manifest and the pinned
-  Atlas projection described below.
+- any direct VADER URL/hash outside the authoritative manifest, the pinned Atlas
+  projection described below, and the exact current documentation/test
+  assertions that derive from and cross-check those two surfaces.
 
 Historical documentation is not rewritten. Current documentation and active
 notebook guidance must not describe the legacy downloader as supported.

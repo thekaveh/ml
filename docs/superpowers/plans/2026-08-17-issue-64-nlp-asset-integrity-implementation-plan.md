@@ -274,6 +274,7 @@ git commit -m "build: route NLP consumers through verified assets"
 - Create: `services/jupyterhub/build/install_nlp_assets.py`
 - Create: `services/jupyterhub/build/nlp-model-requirements.txt`
 - Create: `bootstrapper/tests/test_jupyterhub_nlp_assets.py`
+- Modify: `bootstrapper/tests/test_security_dependency_floors.py`
 - Modify: `services/jupyterhub/build/Dockerfile`
 - Modify: `services/jupyterhub/build/requirements.txt`
 - Modify: `docs/CHANGELOG.md`

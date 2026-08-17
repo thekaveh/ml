@@ -412,7 +412,7 @@ canonical mode and rerun `make verify-nnx-install` before recording release comp
 
 `.gitmodules` consumes `https://github.com/thekaveh/atlas.git` as the active
 `infra` submodule.
-Current Atlas `infra` gitlink SHA: `61c7c5103660e2226bf107c115dae42bf46f8374`.
+Current Atlas `infra` gitlink SHA: `41ba856f7cd35f0b559d6875e08443eac3e98a98`.
 
 This reviewed superproject gitlink is the active Atlas dependency contract.
 Consumer configuration is deliberately outside `infra/`: `atlas.consumer.yml`,

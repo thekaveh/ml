@@ -1,5 +1,4 @@
 -r torch-ecosystem-requirements.txt
---find-links https://data.pyg.org/whl/torch-2.11.0+cpu.html
 pyg-lib==0.8.0
 torch-scatter==2.1.2
 torch-sparse==0.6.18

@@ -54,6 +54,51 @@ _ISSUE62_PULL_REQUEST_CHECKOUTS = {
 }
 
 
+def test_dependency_lock_d10_integration_is_clean() -> None:
+    assert verify_repo._dependency_lock_findings(REPO_ROOT) == []
+
+
+def test_dependency_advisory_lock_d10_integration_is_clean() -> None:
+    assert verify_repo._dependency_advisory_lock_findings(REPO_ROOT) == []
+
+
+def test_dependency_advisory_lock_d10_fails_closed_on_projection_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts import advisory_baseline
+
+    def fail_projection(repo: Path, projection_root: Path):
+        del repo, projection_root
+        raise advisory_baseline.AdvisoryBaselineError("injected lock projection drift")
+
+    monkeypatch.setattr(advisory_baseline, "derive_lock_audit_surfaces", fail_projection)
+
+    findings = verify_repo._dependency_advisory_lock_findings(REPO_ROOT)
+
+    assert [finding.id for finding in findings] == ["D10.dependency_advisory_locks"]
+    assert "injected lock projection drift" in findings[0].message
+
+
+def test_dependency_lock_d10_reports_missing_output(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "requirements").mkdir(parents=True)
+    from scripts.dependency_locks import load_policy
+
+    policy = load_policy(REPO_ROOT)
+    for relative in policy.inputs + policy.outputs:
+        destination = repo / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / relative, destination)
+    shutil.copy2(REPO_ROOT / "requirements/lock-policy.toml", repo / "requirements")
+    shutil.copy2(REPO_ROOT / "requirements/image-lock.json", repo / "requirements")
+    (repo / "requirements/locks/compiler.txt").unlink()
+
+    findings = verify_repo._dependency_lock_findings(repo)
+
+    assert {finding.id for finding in findings} == {"D10.dependency_locks"}
+    assert findings[0].location == "requirements/locks/compiler.txt"
+
+
 def _assert_pull_request_checkouts_use_synthetic_merge_default(
     workflows: Mapping[str, dict],
 ) -> None:
@@ -369,6 +414,7 @@ def test_atlas_contract_direct_dependencies_match_documentation_pins():
     assert _parse_exact_direct_pins(requirements_path) == {
         "pytest": _documentation_pin("pytest"),
         "pyyaml": _documentation_pin("pyyaml"),
+        "uv": "0.11.19",
     }
 
 
@@ -1620,7 +1666,7 @@ def _write_canonical_baseline(repo: Path, document: dict) -> None:
     )
 
 
-_ISSUE62_LEDGER_MARKER = "### 6.1.1.2 Current Issue #62 four-surface audit"
+_ISSUE63_LEDGER_MARKER = "### 6.1.1.2 Current Issue #63 locked four-surface audit"
 
 
 def _issue62_ledger_repo(tmp_path: Path) -> Path:
@@ -1643,10 +1689,10 @@ def _d10_ids(repo: Path) -> set[str]:
 
 
 def _issue62_section(text: str) -> str:
-    start = text.index(_ISSUE62_LEDGER_MARKER)
-    following = re.search(r"^#{1,3}[ \t]", text[start + len(_ISSUE62_LEDGER_MARKER):], re.MULTILINE)
+    start = text.index(_ISSUE63_LEDGER_MARKER)
+    following = re.search(r"^#{1,3}[ \t]", text[start + len(_ISSUE63_LEDGER_MARKER):], re.MULTILINE)
     end = (
-        start + len(_ISSUE62_LEDGER_MARKER) + following.start()
+        start + len(_ISSUE63_LEDGER_MARKER) + following.start()
         if following is not None
         else len(text)
     )
@@ -1667,7 +1713,7 @@ def test_dependency_ledger_rejects_missing_or_duplicate_current_issue62_section(
     ledger = repo / "docs/dependency-contracts.md"
     original = ledger.read_text(encoding="utf-8")
     ledger.write_text(
-        original.replace(_ISSUE62_LEDGER_MARKER, "### 6.1.1.2 Archived audit", 1),
+        original.replace(_ISSUE63_LEDGER_MARKER, "### 6.1.1.2 Archived audit", 1),
         encoding="utf-8",
     )
     assert "D10.dependency_ledger_count" in _d10_ids(repo)
@@ -1704,7 +1750,7 @@ def test_dependency_ledger_ignores_complete_historical_audit_tables(tmp_path):
     ledger = repo / "docs/dependency-contracts.md"
     original = ledger.read_text(encoding="utf-8")
     historical = _issue62_section(original).replace(
-        _ISSUE62_LEDGER_MARKER,
+        _ISSUE63_LEDGER_MARKER,
         "### 6.1.13.1 Archived Issue #61 audit",
         1,
     )
@@ -1776,9 +1822,8 @@ def test_dependency_ledger_couples_advisory_identity_version_and_surfaces_to_pol
                     1,
                 ),
                 "surfaces": row.replace(
-                    "| Combined runtime; Torch |",
-                    "| Documentation |",
-                    1,
+                    row.rsplit("|", 2)[-2].strip(),
+                    "Documentation",
                 ),
             }
             return section.replace(row, replacements_by_field[field], 1)
@@ -1838,7 +1883,7 @@ def test_dependency_ledger_requires_pyg_lib_external_index_limitation(tmp_path):
 @pytest.mark.parametrize("indent", ("", " ", "  ", "   "))
 def test_dependency_raw_html_type1_requires_matching_close(tag, indent):
     module = _load_verify_module()
-    hidden = _ISSUE62_LEDGER_MARKER
+    hidden = _ISSUE63_LEDGER_MARKER
     visible = "### 6.1.1.3 Visible current audit"
     source = f"{indent}<{tag}>\n{hidden}\n\n{hidden}\n</{tag}>\n{visible}\n"
     masked = module._mask_dependency_raw_html(source)
@@ -1862,7 +1907,7 @@ _COMMONMARK_TYPE6_TAGS = (
 @pytest.mark.parametrize("indent", ("", "   "))
 def test_dependency_raw_html_type6_uses_blank_termination_without_swallowing_visible(tag, indent):
     module = _load_verify_module()
-    hidden = _ISSUE62_LEDGER_MARKER
+    hidden = _ISSUE63_LEDGER_MARKER
     visible = "### 6.1.1.3 Visible current audit"
     source = f"{indent}<{tag}>\n</{tag}>\n{hidden}\n\n{visible}\n"
     masked = module._mask_dependency_raw_html(source)
@@ -1878,11 +1923,11 @@ def test_dependency_raw_html_hgroup_hides_decoy_but_visible_current_section_is_e
     repo = _issue62_ledger_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     original = ledger.read_text(encoding="utf-8")
-    hidden_decoy = f"{indent}<hgroup>\n{_ISSUE62_LEDGER_MARKER}\n</hgroup>\n\n"
+    hidden_decoy = f"{indent}<hgroup>\n{_ISSUE63_LEDGER_MARKER}\n</hgroup>\n\n"
     ledger.write_text(hidden_decoy + original, encoding="utf-8")
     assert _d10_ids(repo) == set()
     ledger.write_text(
-        hidden_decoy + original.replace(_ISSUE62_LEDGER_MARKER, "### 6.1.1.2 Removed visible audit", 1),
+        hidden_decoy + original.replace(_ISSUE63_LEDGER_MARKER, "### 6.1.1.2 Removed visible audit", 1),
         encoding="utf-8",
     )
     assert "D10.dependency_ledger_count" in _d10_ids(repo)
@@ -1890,7 +1935,7 @@ def test_dependency_raw_html_hgroup_hides_decoy_but_visible_current_section_is_e
 
 def test_dependency_raw_html_four_spaces_remains_markdown_code_not_html():
     module = _load_verify_module()
-    hidden = _ISSUE62_LEDGER_MARKER
+    hidden = _ISSUE63_LEDGER_MARKER
     source = f"    <div>\n    {hidden}\n\n{hidden}\n"
     published = module._mask_dependency_raw_html(
         module._strip_markdown_code(source, strip_inline=False)
@@ -2014,7 +2059,7 @@ def test_docs_d10_dependency_advisory_baseline_flags_invalid_current_heading(
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     text = ledger.read_text(encoding="utf-8")
-    marker = _ISSUE62_LEDGER_MARKER
+    marker = _ISSUE63_LEDGER_MARKER
     if heading == "missing":
         text = text.replace(marker, "### 6.1.1.2 Historical advisories", 1)
     else:
@@ -2034,9 +2079,11 @@ def test_docs_d10_flags_baseline_advisory_id_drift_dependency_advisory_baseline(
 
     assert [finding.message for finding in _d10_advisory_baseline_findings(repo)] == [
         "accepted advisory baseline identity is missing from the current Markdown ledger: "
-        "setuptools 81.0.0 PYSEC-2099-1 on [combined-runtime, torch]",
+        "setuptools 81.0.0 PYSEC-2099-1 on "
+        "[combined-runtime, torch, documentation, atlas-contract]",
         "current Markdown ledger identity is missing from accepted advisory baseline JSON: "
-        "setuptools 81.0.0 PYSEC-2026-3447 on [combined-runtime, torch]",
+        "setuptools 81.0.0 PYSEC-2026-3447 on "
+        "[combined-runtime, torch, documentation, atlas-contract]",
     ]
 
 
@@ -2290,7 +2337,7 @@ def test_docs_d10_unclosed_or_mismatched_fence_hides_advisory_snapshot(tmp_path,
     repo = _advisory_baseline_repo(tmp_path)
     ledger = repo / "docs/dependency-contracts.md"
     text = ledger.read_text(encoding="utf-8")
-    marker = _ISSUE62_LEDGER_MARKER
+    marker = _ISSUE63_LEDGER_MARKER
     snapshot = marker + text.split(marker, 1)[1]
     ledger.write_text(fence.format(snapshot=snapshot), encoding="utf-8")
 
@@ -2300,7 +2347,7 @@ def test_docs_d10_unclosed_or_mismatched_fence_hides_advisory_snapshot(tmp_path,
 
 
 def _current_advisory_snapshot(text: str) -> str:
-    marker = _ISSUE62_LEDGER_MARKER
+    marker = _ISSUE63_LEDGER_MARKER
     return marker + text.split(marker, 1)[1]
 
 
@@ -2496,7 +2543,7 @@ def _dependency_snapshot(*, summary_count=2, advisory_rows=None):
     return (
         "# 6.1 Dependency Contracts\n\n"
         "## 6.1.1 Audit Snapshot\n\n"
-        "### 6.1.1.2 Current Issue #62 four-surface audit\n\n"
+        "### 6.1.1.2 Current Issue #63 locked four-surface audit\n\n"
         f"Result: {summary_count} known vulnerabilities across 1 resolved package.\n\n"
         "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
         "| --- | --- | ---: | ---: | --- |\n"
@@ -2536,7 +2583,7 @@ def test_docs_d10_ignores_parser_compatible_historical_rows(tmp_path):
 
 def test_docs_d10_flags_missing_current_advisory_section(tmp_path):
     text = _dependency_snapshot().replace(
-        "### 6.1.1.2 Current Issue #62 four-surface audit",
+        "### 6.1.1.2 Current Issue #63 locked four-surface audit",
         "### 6.1.1.2 Historical advisories",
     )
     findings = _d10_count_findings(tmp_path, text)
@@ -2626,7 +2673,7 @@ def test_docs_d10_flags_advisory_package_absent_from_summary(tmp_path):
 def test_docs_d10_flags_duplicate_exact_current_heading(tmp_path):
     text = (
         _dependency_snapshot()
-        + "\n### 6.1.1.2 Current Issue #62 four-surface audit\n\n"
+        + "\n### 6.1.1.2 Current Issue #63 locked four-surface audit\n\n"
         + "Duplicate current section.\n"
     )
     findings = _d10_count_findings(tmp_path, text)
@@ -2635,9 +2682,9 @@ def test_docs_d10_flags_duplicate_exact_current_heading(tmp_path):
 
 @pytest.mark.parametrize(
     "duplicate_heading",
-    [
-        "### 6.1.1.2 Current Issue #62 four-surface audit  \t",
-        "###\t6.1.1.2  Current\tIssue  #62\tfour-surface   audit",
+        [
+            "### 6.1.1.2 Current Issue #63 locked four-surface audit  \t",
+            "###\t6.1.1.2  Current\tIssue  #63\tlocked  four-surface   audit",
     ],
 )
 def test_docs_d10_flags_semantically_duplicate_current_heading(
@@ -2649,7 +2696,7 @@ def test_docs_d10_flags_semantically_duplicate_current_heading(
 
 
 def test_docs_d10_rejects_current_structures_inside_fenced_code(tmp_path):
-    heading = _ISSUE62_LEDGER_MARKER
+    heading = _ISSUE63_LEDGER_MARKER
     prefix, body = _dependency_snapshot().split(f"{heading}\n\n", maxsplit=1)
     text = f"{prefix}{heading}\n\n```markdown\n{body}```\n"
     findings = _d10_count_findings(tmp_path, text)
@@ -2662,7 +2709,7 @@ def test_docs_d10_ignores_current_heading_example_inside_fenced_code(tmp_path):
     text = (
         _dependency_snapshot()
         + "\n```markdown\n"
-        + "### 6.1.1.2 Current Issue #62 four-surface audit\n"
+        + "### 6.1.1.2 Current Issue #63 locked four-surface audit\n"
         + "```\n"
     )
     assert _d10_count_findings(tmp_path, text) == []
@@ -2730,7 +2777,7 @@ def test_docs_d10_flags_dependency_ledger_count_drift(tmp_path):
     (docs / "dependency-contracts.md").write_text(
         "# Dependency Contracts\n\n"
         "## 1. Audit Snapshot\n\n"
-        "### 6.1.1.2 Current Issue #62 four-surface audit\n\n"
+        "### 6.1.1.2 Current Issue #63 locked four-surface audit\n\n"
         "Result: 2 known vulnerabilities across one resolved package:\n\n"
         "| Package | Manifest Constraint | Audited Resolved Version | Finding Count | Current Disposition |\n"
         "| --- | --- | ---: | ---: | --- |\n"
@@ -3238,8 +3285,12 @@ def _mutate_ci_run_command(repo: Path, command: str) -> None:
 def _mutate_docker_run_instruction(repo: Path, command: str) -> None:
     target = repo / "Dockerfile"
     source = target.read_text(encoding="utf-8")
-    anchor = "RUN make install-torch-stack \\\n"
-    mutated = source.replace(anchor, f"RUN {command} \\\n  && make install-torch-stack \\\n", 1)
+    anchor = 'RUN /opt/conda/bin/python -m venv "$VIRTUAL_ENV" \\\n'
+    mutated = source.replace(
+        anchor,
+        f"RUN {command} \\\n  && /opt/conda/bin/python -m venv \"$VIRTUAL_ENV\" \\\n",
+        1,
+    )
     assert mutated != source
     target.write_text(mutated, encoding="utf-8")
 
@@ -4069,14 +4120,74 @@ _MAKE_MUTATION_TARGETS = frozenset(
     ("install-torch-stack", "codespace-setup", "nlp-assets")
 )
 _SHELL_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.DOTALL)
+_LOCK_INPUT_MANIFESTS = (
+    "requirements.txt",
+    "bootstrap-requirements.txt",
+    "compiler-requirements.txt",
+    "nlp-model-requirements.txt",
+    "torch-core-requirements.txt",
+    "torch-ecosystem-requirements.txt",
+    "torch-requirements.txt",
+    "torch-audit-requirements.txt",
+    "pyg-extension-audit-requirements.txt",
+    "vulnerability-audit-requirements.txt",
+    "atlas-contract-requirements.txt",
+    "docs-requirements.in",
+)
 _STACK_CACHE_MANIFESTS = (
+    "requirements/lock-policy.toml",
+    "requirements/locks/bootstrap.txt",
+    "requirements/locks/linux-x86_64/core.txt",
+    "requirements/locks/linux-x86_64/runtime.txt",
+    "requirements/locks/linux-x86_64/root.txt",
+    "bootstrap-requirements.txt",
+    "compiler-requirements.txt",
+    "nlp-model-requirements.txt",
     "requirements.txt",
     "torch-core-requirements.txt",
     "torch-ecosystem-requirements.txt",
     "torch-requirements.txt",
     "torch-audit-requirements.txt",
     "pyg-extension-audit-requirements.txt",
+    "vulnerability-audit-requirements.txt",
+    "atlas-contract-requirements.txt",
+    "docs-requirements.in",
+    "docs-requirements.txt",
 )
+_ATLAS_CACHE_MANIFESTS = (
+    "requirements/lock-policy.toml",
+    "requirements/locks/bootstrap.txt",
+    "requirements/locks/atlas-contract.txt",
+    *_LOCK_INPUT_MANIFESTS,
+)
+_DOCS_CACHE_MANIFESTS = (
+    "requirements/lock-policy.toml",
+    "requirements/locks/bootstrap.txt",
+    "docs-requirements.txt",
+    *_LOCK_INPUT_MANIFESTS,
+)
+_AUDIT_CACHE_MANIFESTS = (
+    "requirements/lock-policy.toml",
+    "requirements/locks/bootstrap.txt",
+    "requirements/locks/compiler.txt",
+    "requirements/locks/audit.txt",
+    "requirements/locks/atlas-contract.txt",
+    "requirements/locks/darwin-arm64/core.txt",
+    "requirements/locks/darwin-arm64/runtime.txt",
+    "requirements/locks/darwin-arm64/root.txt",
+    "requirements/locks/linux-x86_64/core.txt",
+    "requirements/locks/linux-x86_64/runtime.txt",
+    "requirements/locks/linux-x86_64/root.txt",
+    "requirements/locks/linux-aarch64/core.txt",
+    "requirements/locks/linux-aarch64/runtime.txt",
+    "requirements/locks/linux-aarch64/root.txt",
+    *_LOCK_INPUT_MANIFESTS,
+    "docs-requirements.txt",
+)
+
+
+def _cache_text(paths: Sequence[str]) -> str:
+    return "\n".join(paths) + "\n"
 
 
 @dataclass(frozen=True)
@@ -4443,8 +4554,7 @@ def _assert_runtime_job_install_contract(workflow: dict, job_name: str) -> None:
     cache_paths = tuple(setup["with"]["cache-dependency-path"].splitlines())
     assert len(cache_paths) == len(set(cache_paths))
     assert set(_STACK_CACHE_MANIFESTS) <= set(cache_paths)
-    allowed_extras = {"docs-requirements.txt"} if job_name == "pytest-repository" else set()
-    assert set(cache_paths) - set(_STACK_CACHE_MANIFESTS) == allowed_extras
+    assert set(cache_paths) == set(_STACK_CACHE_MANIFESTS)
     commands = _job_run_commands(workflow, job_name)
     _assert_final_install_order(commands, _RUNTIME_JOB_WORKLOADS[job_name])
     all_commands = tuple(
@@ -5016,34 +5126,58 @@ _DEPENDENCY_AUDIT_JOB = {
         {
             "name": "Checkout",
             "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
-            "with": {"persist-credentials": "false"},
+            "with": {"persist-credentials": "false", "fetch-depth": "0"},
         },
         {
             "name": "Set up Python 3.11",
             "uses": "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
             "with": {
-                "python-version": "3.11",
+                "python-version": "3.11.15",
                 "cache": "pip",
-                "cache-dependency-path": (
-                    "vulnerability-audit-requirements.txt\n"
-                    "requirements.txt\n"
-                    "torch-core-requirements.txt\n"
-                    "torch-ecosystem-requirements.txt\n"
-                    "torch-requirements.txt\n"
-                    "torch-audit-requirements.txt\n"
-                    "pyg-extension-audit-requirements.txt\n"
-                    "docs-requirements.txt\n"
-                    "atlas-contract-requirements.txt\n"
-                ),
+                "cache-dependency-path": _cache_text(_AUDIT_CACHE_MANIFESTS),
             },
         },
         {
-            "name": "Install vulnerability audit tool",
-            "run": "python -m pip install -r vulnerability-audit-requirements.txt",
+            "name": "Install locked audit environment",
+            "run": "make install-bootstrap\nmake install-audit-lock\npython -m pip check\n",
+        },
+        {
+            "name": "Verify committed dependency locks offline",
+            "run": "make verify-dependency-locks",
         },
         {
             "name": "Compare dependency advisories with accepted baseline",
             "run": "make audit-advisories",
+        },
+        {
+            "name": "Select networked dependency checks",
+            "id": "dependency-scope",
+            "env": {
+                "BASE_SHA": "${{ github.event.pull_request.base.sha || github.event.before }}",
+                "HEAD_SHA": "${{ github.event.pull_request.head.sha || github.sha }}",
+            },
+            "run": (
+                "python -m scripts.verify_dependency_locks \\\n"
+                "  --classify-event \"${{ github.event_name }}\" \\\n"
+                "  --base \"$BASE_SHA\" \\\n"
+                "  --head \"$HEAD_SHA\" \\\n"
+                "  --github-output \"$GITHUB_OUTPUT\"\n"
+            ),
+        },
+        {
+            "name": "Install locked compiler",
+            "if": "steps.dependency-scope.outputs.lock-check == 'true'",
+            "run": "make install-compiler-lock\npython -m pip check\n",
+        },
+        {
+            "name": "Regenerate and compare dependency locks",
+            "if": "steps.dependency-scope.outputs.lock-check == 'true'",
+            "run": "make lock-check",
+        },
+        {
+            "name": "Validate immutable image identities",
+            "if": "steps.dependency-scope.outputs.image-check == 'true'",
+            "run": "make image-lock-check",
         },
     ],
 }
@@ -5198,20 +5332,7 @@ def test_ci_dependency_audit_job_contract_rejects_checkout_submodules():
         _assert_dependency_audit_job_contract(workflow)
 
 
-@pytest.mark.parametrize(
-    "manifest",
-    (
-        "vulnerability-audit-requirements.txt",
-        "requirements.txt",
-        "torch-core-requirements.txt",
-        "torch-ecosystem-requirements.txt",
-        "torch-requirements.txt",
-        "torch-audit-requirements.txt",
-        "pyg-extension-audit-requirements.txt",
-        "docs-requirements.txt",
-        "atlas-contract-requirements.txt",
-    ),
-)
+@pytest.mark.parametrize("manifest", _AUDIT_CACHE_MANIFESTS)
 def test_ci_dependency_audit_job_contract_rejects_missing_cache_manifest(manifest):
     workflow = {"jobs": {"dependency-audit": deepcopy(_DEPENDENCY_AUDIT_JOB)}}
     setup = workflow["jobs"]["dependency-audit"]["steps"][1]
@@ -5297,14 +5418,18 @@ _ATLAS_CONSUMER_POLICY_JOB = {
             "name": "Set up Python 3.11",
             "uses": "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
             "with": {
-                "python-version": "3.11",
+                "python-version": "3.11.15",
                 "cache": "pip",
-                "cache-dependency-path": "atlas-contract-requirements.txt",
+                "cache-dependency-path": _cache_text(_ATLAS_CACHE_MANIFESTS),
             },
         },
         {
             "name": "Install focused Atlas contract dependencies",
-            "run": "pip install -r atlas-contract-requirements.txt",
+            "run": (
+                "make install-bootstrap\n"
+                "make install-atlas-contract-lock\n"
+                "python -m pip check\n"
+            ),
         },
         {
             "name": "ShellCheck parent-owned Atlas wrappers",
@@ -5479,6 +5604,12 @@ _ATLAS_CONTRACT_PATHS = (
     "tests/test_atlas_*.py",
     "tests/test_makefile_contract.py",
     "atlas-contract-requirements.txt",
+    "bootstrap-requirements.txt",
+    "requirements/lock-policy.toml",
+    "requirements/locks/bootstrap.txt",
+    "requirements/locks/atlas-contract.txt",
+    "scripts/install_locked_requirements.py",
+    "scripts/verify_dependency_locks.py",
     "Makefile",
     ".github/workflows/atlas-contract.yml",
     ".github/workflows/ci.yml",
@@ -5497,11 +5628,19 @@ _ATLAS_CONTRACT_STEPS = [
     {
         "name": "Set up Python 3.11",
         "uses": "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
-        "with": {"python-version": "3.11"},
+        "with": {
+            "python-version": "3.11.15",
+            "cache": "pip",
+            "cache-dependency-path": _cache_text(_ATLAS_CACHE_MANIFESTS),
+        },
     },
     {
         "name": "Install pinned Atlas runner",
-        "run": "python -m pip install uv==0.11.19",
+        "run": (
+            "make install-bootstrap\n"
+            "make install-atlas-contract-lock\n"
+            "python -m pip check\n"
+        ),
     },
     {
         "name": "Validate the non-live Atlas consumer contract",
@@ -5892,22 +6031,14 @@ def _assert_complete_repository_test_contract(workflow: dict) -> None:
             "name": "Set up Python 3.11",
             "uses": "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
             "with": {
-                "python-version": "3.11",
+                "python-version": "3.11.15",
                 "cache": "pip",
-                "cache-dependency-path": (
-                    "requirements.txt\n"
-                    "torch-core-requirements.txt\n"
-                    "torch-ecosystem-requirements.txt\n"
-                    "torch-requirements.txt\n"
-                    "torch-audit-requirements.txt\n"
-                    "pyg-extension-audit-requirements.txt\n"
-                    "docs-requirements.txt\n"
-                ),
+                "cache-dependency-path": _cache_text(_STACK_CACHE_MANIFESTS),
             },
         },
         {
             "name": "Install dependencies",
-            "run": "make install-torch-stack\npython -m pip install -r docs-requirements.txt\n",
+            "run": "make install-torch-stack",
         },
         {
             "name": "Check and verify canonical Torch and NNx stack",
@@ -6064,16 +6195,9 @@ def _assert_nnx_surface_job_contract(workflow: dict) -> None:
             "name": "Set up Python 3.11",
             "uses": "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
             "with": {
-                "python-version": "3.11",
+                "python-version": "3.11.15",
                 "cache": "pip",
-                "cache-dependency-path": (
-                    "requirements.txt\n"
-                    "torch-core-requirements.txt\n"
-                    "torch-ecosystem-requirements.txt\n"
-                    "torch-requirements.txt\n"
-                    "torch-audit-requirements.txt\n"
-                    "pyg-extension-audit-requirements.txt\n"
-                ),
+                "cache-dependency-path": _cache_text(_STACK_CACHE_MANIFESTS),
             },
         },
         {"name": "Install dependencies", "run": "make install-torch-stack"},
@@ -6754,11 +6878,12 @@ def test_atlas_consumer_policy_docs_define_ci_boundaries():
             "intended to be a required gate",
             "`atlas-contract` remains a separate, path-scoped, non-required direct "
             "validator of the recursive `infra/` submodule",
-        ),
-        "docs/conventions.md": (
-            "five-step `atlas-consumer-policy` job",
-            "`atlas-contract-requirements.txt` contains exactly `pytest==9.0.3` and "
-            "`pyyaml==6.0.3`",
+            ),
+            "docs/conventions.md": (
+                "The `atlas-consumer-policy` job",
+                "sets up exact Python 3.11.15, installs the bootstrap lock and hash-required "
+                "Atlas contract lock",
+                "routine execution consumes `requirements/locks/atlas-contract.txt`",
             "`shellcheck scripts/atlas-up.sh scripts/atlas-down.sh "
             "scripts/atlas-connect.sh scripts/lib/atlas-dotenv.sh`",
             "`make test-atlas-consumer`",
@@ -6766,9 +6891,9 @@ def test_atlas_consumer_policy_docs_define_ci_boundaries():
             "Docker Compose, or unrelated containers",
             "complete `make test`",
         ),
-        "docs/jupyterhub-integration.md": (
-            "Changes to the parent wrapper, runtime probe, dotenv helper, Atlas policy "
-            "tests, or focused dependency manifest reach both checks",
+            "docs/jupyterhub-integration.md": (
+                "Changes to the parent wrapper, runtime probe, dotenv helper, Atlas policy "
+                "tests, or focused dependency input/lock reach both checks",
             "`atlas-consumer-policy` runs unconditionally on every pull request and is "
             "intended to be required",
             "path-scoped `atlas-contract` directly validates the recursive submodule and "
@@ -7241,3 +7366,128 @@ def test_s7_forbidden_toplevel_detects_resurrected_common(tmp_path):
     assert s7, "expected S7.forbidden_toplevel to flag resurrected common/"
     for f in s7:
         assert f["severity"] == "error"
+
+
+_ISSUE63_WORKFLOW_CACHE_ROLES = {
+    ("ci.yml", "atlas-consumer-policy"): _ATLAS_CACHE_MANIFESTS,
+    ("ci.yml", "dependency-audit"): _AUDIT_CACHE_MANIFESTS,
+    ("ci.yml", "pytest-repository"): _STACK_CACHE_MANIFESTS,
+    ("ci.yml", "pytest-nnx-surface"): _STACK_CACHE_MANIFESTS,
+    ("ci.yml", "verify-repo"): _STACK_CACHE_MANIFESTS,
+    ("ci.yml", "docs-build"): _DOCS_CACHE_MANIFESTS,
+    ("ci.yml", "tier-a-papermill"): _STACK_CACHE_MANIFESTS,
+    ("ci.yml", "smoke-tier-b"): _STACK_CACHE_MANIFESTS,
+    ("ci.yml", "smoke-tier-c"): _STACK_CACHE_MANIFESTS,
+    ("docs.yml", "check"): _DOCS_CACHE_MANIFESTS,
+    ("pages.yml", "build"): _DOCS_CACHE_MANIFESTS,
+    ("pages.yml", "wiki"): _DOCS_CACHE_MANIFESTS,
+    ("atlas-contract.yml", "atlas-contract"): _ATLAS_CACHE_MANIFESTS,
+}
+
+
+def _assert_issue63_locked_workflow_consumers(workflows: Mapping[str, dict]) -> None:
+    assert set(workflows) == {"ci.yml", "docs.yml", "pages.yml", "atlas-contract.yml"}
+    for (filename, job_name), cache_paths in _ISSUE63_WORKFLOW_CACHE_ROLES.items():
+        job = workflows[filename]["jobs"][job_name]
+        setup = next(
+            step
+            for step in job["steps"]
+            if str(step.get("uses", "")).startswith("actions/setup-python@")
+        )
+        assert setup["with"] == {
+            "python-version": "3.11.15",
+            "cache": "pip",
+            "cache-dependency-path": _cache_text(cache_paths),
+        }
+        commands = tuple(
+            command
+            for step in job["steps"]
+            for command in _shell_commands(step.get("run", ""))
+        )
+        assert not any(
+            Path(command.argv[0]).name in {"pip", "pip3"}
+            or (
+                command.argv[:3] == ("python", "-m", "pip")
+                and len(command.argv) > 3
+                and command.argv[3] == "install"
+            )
+            for command in commands
+        )
+
+    ci = workflows["ci.yml"]
+    for job_name in _RUNTIME_JOB_WORKLOADS:
+        commands = _job_run_commands(ci, job_name)
+        assert sum(
+            command.argv == ("make", "install-torch-stack")
+            for source in commands
+            for command in _shell_commands(source)
+        ) == 1
+    dedicated_roles = {
+        ("ci.yml", "atlas-consumer-policy"): "make install-atlas-contract-lock",
+        ("ci.yml", "dependency-audit"): "make install-audit-lock",
+        ("ci.yml", "docs-build"): "make install-docs-lock",
+        ("docs.yml", "check"): "make install-docs-lock",
+        ("pages.yml", "build"): "make install-docs-lock",
+        ("pages.yml", "wiki"): "make install-docs-lock",
+        ("atlas-contract.yml", "atlas-contract"): "make install-atlas-contract-lock",
+    }
+    for (filename, job_name), role_command in dedicated_roles.items():
+        source = "\n".join(
+            step.get("run", "") for step in workflows[filename]["jobs"][job_name]["steps"]
+        )
+        assert source.count("make install-bootstrap") == 1
+        assert source.count(role_command) == 1
+    _assert_dependency_audit_job_contract(ci)
+
+
+def test_issue63_workflows_consume_only_exact_locked_roles() -> None:
+    workflows = {
+        name: _load_workflow(REPO / ".github/workflows" / name)
+        for name in ("ci.yml", "docs.yml", "pages.yml", "atlas-contract.yml")
+    }
+
+    _assert_issue63_locked_workflow_consumers(workflows)
+
+
+@pytest.mark.parametrize(
+    ("filename", "job_name", "mutation"),
+    (
+        ("ci.yml", "pytest-repository", "python"),
+        ("ci.yml", "smoke-tier-b", "cache"),
+        ("docs.yml", "check", "source-install"),
+        ("atlas-contract.yml", "atlas-contract", "role"),
+    ),
+)
+def test_issue63_workflow_lock_contract_rejects_mutations(
+    filename: str, job_name: str, mutation: str
+) -> None:
+    workflows = {
+        name: _load_workflow(REPO / ".github/workflows" / name)
+        for name in ("ci.yml", "docs.yml", "pages.yml", "atlas-contract.yml")
+    }
+    job = workflows[filename]["jobs"][job_name]
+    setup = next(
+        step
+        for step in job["steps"]
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+    )
+    if mutation == "python":
+        setup["with"]["python-version"] = "3.11"
+    elif mutation == "cache":
+        source = setup["with"]["cache-dependency-path"]
+        mutated = source.replace("requirements/locks/bootstrap.txt\n", "", 1)
+        assert mutated != source
+        setup["with"]["cache-dependency-path"] = mutated
+    elif mutation == "source-install":
+        install = next(step for step in job["steps"] if "Install" in step.get("name", ""))
+        install["run"] = "pip install -r docs-requirements.txt"
+    else:
+        install = next(
+            step for step in job["steps"] if step.get("name") == "Install pinned Atlas runner"
+        )
+        install["run"] = install["run"].replace(
+            "make install-atlas-contract-lock", "make install-docs-lock"
+        )
+
+    with pytest.raises(AssertionError):
+        _assert_issue63_locked_workflow_consumers(workflows)

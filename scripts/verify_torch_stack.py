@@ -362,14 +362,11 @@ def load_stack_contract(repo: Path, system: str, machine: str) -> StackContract:
 
     _require_manifest_shape(_CORE_MANIFEST, core, pins=_CORE_NAMES)
     _require_manifest_shape(_ECOSYSTEM_MANIFEST, ecosystem, pins=_ECOSYSTEM_NAMES)
-    torch_version = core.pins["torch"]
-    selector = f"https://data.pyg.org/whl/torch-{torch_version.public}+cpu.html"
     _require_manifest_shape(
         _RUNTIME_MANIFEST,
         runtime,
         pins=_RUNTIME_NAMES,
         includes=(_ECOSYSTEM_MANIFEST,),
-        find_links=(selector,),
     )
     _require_manifest_shape(
         _AUDIT_MANIFEST,
@@ -457,7 +454,11 @@ def _verify_local_version(pin: StackPin, version: Version, contract: StackContra
         return
     if local is None:
         return
-    if pin.distribution in _CORE_NAMES and contract.system == "Linux" and local == "cpu":
+    if (
+        pin.distribution in (_CORE_NAMES | {"torchao"})
+        and contract.system == "Linux"
+        and local == "cpu"
+    ):
         return
     raise TorchStackVerificationError(pin.distribution, "metadata")
 

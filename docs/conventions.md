@@ -179,28 +179,27 @@ and NNx surface guards (`tests/nnx_surface/`). The pytest configuration's
 `testpaths = ["tests"]` plus its `infra`, `notebooks/archive`, and `.venv`
 exclusions define collection; no fixed test count is contractual.
 
-Both NNx-consuming pytest jobs install `requirements.txt` with
-`--only-binary=thekaveh-nnx`. After dependency installation and immediately before their test
-workload, both run `make verify-nnx-install`: the unconditional `pytest-repository` job then runs
-`make test`, while `pytest-nnx-surface` runs `make test-nnx-surface`. No package installation may
-intervene between verification and either workload.
+Both NNx-consuming pytest jobs install the exact hash-required Linux lock selected by
+`requirements/lock-policy.toml`; the NNx wheel is binary-only within that lock. After dependency
+installation and immediately before their test workload, both run `make verify-nnx-install`: the
+unconditional `pytest-repository` job then runs `make test`, while `pytest-nnx-surface` runs
+`make test-nnx-surface`. No package installation may intervene between verification and either
+workload.
 
 `pytest-repository` is the required merge-blocking complete-suite contract. Its setup installs
-`libcairo2`, the runtime dependencies, and the locked documentation dependencies, while its pip
-cache keys `requirements.txt`, `torch-core-requirements.txt`, `torch-requirements.txt`, and
-`docs-requirements.txt`. `pytest-nnx-surface` is the focused diagnostic NNx/PyPI compatibility and
-Ruff signal. Both jobs validate the canonical released wheel with `make verify-nnx-install`;
-editable results are development-surface evidence only (see
+`libcairo2`, the selected runtime lock, and the hash-required documentation lock; cache identity
+includes the lock policy, source inputs, and committed locks. `pytest-nnx-surface` is the focused
+diagnostic NNx/PyPI compatibility and Ruff signal. Both jobs validate the canonical released wheel
+with `make verify-nnx-install`; editable results are development-surface evidence only (see
 [dependency-contracts.md](dependency-contracts.md) §6).
 
 ### 5.3.3 Atlas consumer policy — `make test-atlas-consumer`
 
-The five-step `atlas-consumer-policy` job runs unconditionally on every pull request and is
-intended to be a required gate. It checks out the parent repository without recursively fetching
-the submodule, sets up Python 3.11, installs the focused dependency file, runs ShellCheck, and
-executes the focused Make target. `atlas-contract-requirements.txt` contains exactly
-`pytest==9.0.3` and `pyyaml==6.0.3`; this is the complete direct Python dependency boundary for
-the focused policy tests.
+The `atlas-consumer-policy` job runs unconditionally on every pull request and is intended to be a
+required gate. It checks out the parent repository without recursively fetching the submodule,
+sets up exact Python 3.11.15, installs the bootstrap lock and hash-required Atlas contract lock,
+runs ShellCheck, and executes the focused Make target. `atlas-contract-requirements.txt` remains
+the human-authored input; routine execution consumes `requirements/locks/atlas-contract.txt`.
 
 The fourth step runs
 `shellcheck scripts/atlas-up.sh scripts/atlas-down.sh scripts/atlas-connect.sh scripts/lib/atlas-dotenv.sh`.
@@ -222,15 +221,15 @@ accepted ID is a reconciliation notice, not proof of remediation. Update the JSO
 current Markdown ledger rows together through review. The focused audit does not initialize Atlas
 or start any service.
 
-The combined-runtime and Torch surfaces use a resolver-safe `torch-audit-requirements.txt`
-projection plus the pre-resolved `pyg-extension-audit-requirements.txt` supplement. The latter
-runs with `--disable-pip --no-deps`; both strict results merge into the same logical surface. The
-gate validates their canonical semantic partition against `torch-requirements.txt` before network.
+All four audit surfaces use exact lock-derived, no-resolve projections. The combined-runtime and
+Torch surfaces also carry explicit non-PyPI PyG-extension evidence instead of asking PyPI to
+re-resolve those platform wheels. The gate validates each projection against the selected locks
+before network access.
 
 The unconditional `dependency-audit` job is isolated from `pytest-repository` and
 `atlas-consumer-policy` for attribution and timeout isolation. The controller makes it the third
-required GitHub context alongside those two existing contexts after its live ruleset update; the
-job itself does not make a ruleset change. Issue #63 retains ownership of full dependency locks.
+required GitHub context alongside those two existing contexts; the job itself does not make a
+ruleset change. Issue #63 supplies and verifies the complete lock family consumed by this job.
 
 ### 5.3.5 Lint — `make lint`
 

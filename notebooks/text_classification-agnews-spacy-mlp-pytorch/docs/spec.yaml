@@ -29,7 +29,7 @@ results:
   - { metric: "train loss", value: "1.3738 -> 0.1120 (80 epochs)" }
 pitfalls:
   - "Vocab MUST be built from train split only; leaking test tokens inflates accuracy (silent)."
-  - "en_core_web_sm is a separate install (python -m spacy download); no in-notebook fallback."
+  - "en-core-web-sm==3.8.0 is direct-URL/hash locked by requirements/lock-policy.toml; no in-notebook fallback."
   - "val_loader=test_loader is visibility, not model selection (tiny corpus)."
   - "No baseline; MLP doesn't necessarily beat MultinomialNB/LogReg at this scale."
 extensions:

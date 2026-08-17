@@ -18,6 +18,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import tokenize
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, asdict
@@ -1041,8 +1042,8 @@ _ATLAS_INFRA_GITLINK_SHA_RE = re.compile(
     re.MULTILINE,
 )
 _DEPENDENCY_CURRENT_SNAPSHOT_RE = re.compile(
-    r"^###[ \t]+6[.]1[.]1[.]2[ \t]+Current[ \t]+Issue[ \t]+#62[ \t]+"
-    r"four-surface[ \t]+audit[ \t]*\r?$"
+    r"^###[ \t]+6[.]1[.]1[.]2[ \t]+Current[ \t]+Issue[ \t]+#63[ \t]+"
+    r"locked[ \t]+four-surface[ \t]+audit[ \t]*\r?$"
     r"(?P<body>.*?)(?=^#{1,3}[ \t]|\Z)",
     re.MULTILINE | re.DOTALL,
 )
@@ -1307,7 +1308,7 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
             check="docs",
             severity="error",
             location=location,
-            message="current Issue #62 input-hash table is missing or malformed",
+            message="current Issue #63 input-hash table is missing or malformed",
         )]
     rows = [_DEPENDENCY_HASH_ROW_RE.fullmatch(line) for line in lines]
     if not all(rows):
@@ -1316,7 +1317,7 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
             check="docs",
             severity="error",
             location=location,
-            message="current Issue #62 input-hash row is malformed",
+            message="current Issue #63 input-hash row is malformed",
         )]
     parsed = [(row["path"], row["sha256"]) for row in rows if row is not None]
     names = [name for name, _ in parsed]
@@ -1326,7 +1327,7 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
             check="docs",
             severity="error",
             location=location,
-            message="current Issue #62 input-hash table has duplicate paths",
+            message="current Issue #63 input-hash table has duplicate paths",
         )]
     if tuple(names) != _DEPENDENCY_HASH_INPUTS:
         return [Finding(
@@ -1334,7 +1335,7 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
             check="docs",
             severity="error",
             location=location,
-            message="current Issue #62 input-hash paths or order drifted",
+            message="current Issue #63 input-hash paths or order drifted",
             detail={"expected": list(_DEPENDENCY_HASH_INPUTS), "actual": names},
         )]
     findings: list[Finding] = []
@@ -1346,7 +1347,7 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
                 check="docs",
                 severity="error",
                 location=relative_path,
-                message="current Issue #62 hashed input is missing",
+                message="current Issue #63 hashed input is missing",
             ))
             continue
         actual = hashlib.sha256(source.read_bytes()).hexdigest()
@@ -1356,7 +1357,7 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
                 check="docs",
                 severity="error",
                 location=relative_path,
-                message="current Issue #62 recorded input hash is stale",
+                message="current Issue #63 recorded input hash is stale",
                 detail={"expected": recorded, "actual": actual},
             ))
     return findings
@@ -2064,8 +2065,68 @@ def _ordered_contains(required: tuple[str, ...], actual: list[str]) -> tuple[boo
     return (not missing, missing)
 
 
+def _dependency_lock_findings(repo: Path) -> list[Finding]:
+    if not (repo / "requirements" / "lock-policy.toml").is_file():
+        return []
+    from scripts.verify_dependency_locks import verify_dependency_locks
+
+    return [
+        Finding(
+            id="D10.dependency_locks",
+            check="docs",
+            severity="error",
+            location=finding.path,
+            message=f"dependency lock contract failed: {finding.category}: {finding.detail}",
+        )
+        for finding in verify_dependency_locks(repo)
+    ]
+
+
+def _dependency_advisory_lock_findings(repo: Path) -> list[Finding]:
+    if not (repo / "requirements" / "lock-policy.toml").is_file():
+        return []
+    location = "scripts/advisory_baseline.py"
+    try:
+        from scripts.advisory_baseline import AdvisoryBaselineError, derive_lock_audit_surfaces
+
+        with tempfile.TemporaryDirectory(prefix="verify-advisory-locks-") as temporary:
+            prepared = derive_lock_audit_surfaces(repo, Path(temporary))
+        identity = tuple(
+            (item.surface.name, item.surface.projection_kind, item.surface.output_name)
+            for item in prepared
+        )
+        expected = (
+            ("combined-runtime", "main", "combined-runtime-resolver"),
+            ("combined-runtime", "pyg-extensions", "combined-runtime-pyg-extensions"),
+            ("torch", "main", "torch-resolver"),
+            ("torch", "pyg-extensions", "torch-pyg-extensions"),
+            ("documentation", "main", "documentation"),
+            ("atlas-contract", "main", "atlas-contract"),
+        )
+        if identity != expected:
+            raise AdvisoryBaselineError("audit projection inventory is invalid")
+        if any(
+            not item.expected_versions
+            or not item.lock_inputs
+            or any(record.audited or record.reason != "non-pypi" for record in item.non_pypi)
+            for item in prepared
+        ):
+            raise AdvisoryBaselineError("audit projection evidence is invalid")
+    except (ImportError, OSError, ValueError, RuntimeError) as error:
+        return [Finding(
+            id="D10.dependency_advisory_locks",
+            check="docs",
+            severity="error",
+            location=location,
+            message=f"lock-derived advisory contract failed: {error}",
+        )]
+    return []
+
+
 def check_docs(repo: Path) -> CheckResult:
     result = CheckResult(name="docs")
+    result.findings.extend(_dependency_lock_findings(repo))
+    result.findings.extend(_dependency_advisory_lock_findings(repo))
     canonical_doc_sources: set[str] = set()
 
     manifest_path = repo / "docs" / "manifest.yaml"

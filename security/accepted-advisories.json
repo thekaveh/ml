@@ -13,7 +13,9 @@
       "accepted_version": "81.0.0",
       "surfaces": [
         "combined-runtime",
-        "torch"
+        "torch",
+        "documentation",
+        "atlas-contract"
       ]
     },
     {

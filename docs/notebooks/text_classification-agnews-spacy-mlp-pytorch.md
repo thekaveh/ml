@@ -277,11 +277,10 @@ Three observations:
   featurizer then "knows" about test-only tokens at vocabulary-construction time — a subtle leak
   that inflates accuracy by a few points. The notebook loops `for i in train_idx` and flags the
   choice in a code comment. If you copy this recipe, audit this loop first.
-- **`en_core_web_sm` is a separate install.** `pip install spacy` does not pull the English model.
-  CI runs `python -m spacy download en_core_web_sm` as a dedicated step
-  (`.github/workflows/ci.yml`, `tier-a-papermill` job); local contributors must run it once after
-  `pip install -r requirements.txt` or `spacy.load(...)` raises `OSError`. The notebook has no
-  in-notebook download fallback — it fails loudly if the model is missing.
+- **`en_core_web_sm` is part of the immutable root lock.** `requirements/lock-policy.toml` admits
+  only the exact `en-core-web-sm==3.8.0` direct URL and SHA-256, so `make install-torch-stack`
+  installs the model without an unreviewed secondary solve. The notebook has no in-notebook
+  download fallback and fails loudly if a noncanonical environment omits the model.
 - **`val_loader=test_loader` is visibility, not model selection.** On a 64-doc test split there is
   no val set to carve off, so the test loss is surfaced per-epoch for convergence visibility but
   is *not* used for early-stopping. This is defensible at this scale; it is *not* the pattern to

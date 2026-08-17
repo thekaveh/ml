@@ -136,6 +136,13 @@ make verify-nnx-install
 jupyter lab
 ```
 
+`make install-torch-stack` selects the exact Darwin arm64, Linux x86_64, or Linux aarch64
+hash-required lock declared by `requirements/lock-policy.toml`; it does not resolve the human input
+manifests at install time. The result is reproducible for the qualified platform lock, not one
+cross-platform binary environment. Use `make verify-dependency-locks` for the offline
+policy/input/lock check, `make lock-check` for networked byte regeneration, and
+`make image-lock-check` for registry-backed image digest verification.
+
 The supported CPU matrix is torch==2.11.0, torchvision==0.26.0,
 torch_geometric==2.8.0.post1, pyg-lib==0.8.0+pt211, torch-scatter==2.1.2+pt211,
 torch-sparse==0.6.18+pt211, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0; Linux wheels use the
@@ -151,9 +158,9 @@ Click **Code → Codespaces → Create codespace on main** on [github.com/thekav
 **Why this path was added.** The §3.1 / §3.2 / §3.3 paths each require local services or
 dependency setup. Codespaces avoids that setup: the `.devcontainer/devcontainer.json`
 declaratively bakes the install recipe (so the dep set is synchronized to `requirements.txt`,
-`torch-core-requirements.txt`, and `torch-requirements.txt` during Codespace creation via
+`requirements/lock-policy.toml`, and the committed Linux lock set during Codespace creation via
 `postCreateCommand`), and the repo is auto-cloned into `/workspaces/ml-eng-lab` inside the
-container.
+container. Its base image is pinned as an exact tag plus multi-platform index digest.
 
 **Scenarios this supports**:
 - Onboarding a new contributor — they click "Create codespace" and have a working env in ~2-3 minutes, no local install at all.

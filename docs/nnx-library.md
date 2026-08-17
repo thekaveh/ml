@@ -179,8 +179,9 @@ The two non-negotiables, both learned the hard way:
   `thekaveh-nnx==0.2.0` wheel. A clean local re-execution therefore does not
   prove CI-compatibility. The dev-vs-PyPI drift case is real and recurs
   (`reference-nnx-dev-vs-pypi-drift`). Reinstall the exact manifest requirement with
-  `python -m pip install --force-reinstall --only-binary=thekaveh-nnx -r requirements.txt`, then
-  run `make verify-nnx-install` before treating tests as released-wheel evidence.
+  create a clean supported Python 3.11 environment and run `make install-torch-stack`, then run
+  `make verify-nnx-install` before treating tests as released-wheel evidence. The canonical
+  installer consumes the selected hash-required platform lock and enforces binary-only NNx.
 - **Expect caller-side fixups when the upstream window is wide.** Local pytest +
   import smoke + `verify_repo.py` are insufficient when more than a single PR
   lands upstream between bumps; Tier-A papermill re-execution surfaces

@@ -575,8 +575,8 @@ def test_real_user_docs_publish_advisory_baseline_contract():
     assert "does not claim an automated vulnerability-baseline gate" not in docs["SECURITY.md"]
     assert "`security/accepted-advisories.json` is the policy artifact" in ledger
     assert "`make audit-advisories` runs all four audit surfaces without suppression" in ledger
-    assert "`torch-audit-requirements.txt` and `pyg-extension-audit-requirements.txt` form the selector-free" in ledger
-    assert "canonical semantic partition must reconstruct `torch-requirements.txt`" in ledger
+    assert "The audit projections are generated from the committed locks" in ledger
+    assert "explicit non-PyPI records for the PyG extension wheels" in ledger
     assert "The commands below are historical capture evidence" in ledger
     assert "New primary advisory IDs and accepted-version drift fail the gate." in ledger
     assert "reconciliation evidence, not proof of remediation" in ledger
@@ -585,13 +585,13 @@ def test_real_user_docs_publish_advisory_baseline_contract():
     assert "Run focused comparator tests, full `make test`, `make verify`, `make lint`" in ledger
     assert "`make docs-check`, `make docs-wiki`, and live `make audit-advisories`" in ledger
     assert "feature-to-`develop` pull request, then a `develop`-to-`main` pull request" in ledger
-    assert "Issue #63 owns complete dependency locks" in ledger
+    assert "Issue #63 adds complete dependency locks" in ledger
     assert "does not initialize Atlas or start a service" in ledger
     assert "`dependency-audit`" in docs["docs/conventions.md"]
-    assert "pre-resolved `pyg-extension-audit-requirements.txt` supplement" in " ".join(
+    assert "exact lock-derived, no-resolve projections" in " ".join(
         docs["docs/conventions.md"].split()
     )
-    assert "canonical semantic partition" in ledger
+    assert "selected platform lock rather than an audit projection" in ledger
     assert "pyg-extension-audit-requirements.txt" in docs["README.md"]
     assert "isolated `dependency-audit` signal" in docs["docs/architecture.md"]
     assert "| OM-047 |" in docs["docs/maintenance/overnight-2026-07-04.md"]
@@ -609,12 +609,11 @@ def test_current_runtime_surface_comments_describe_the_selected_torch_contract()
             "NNx 0.2.0 last."
         ),
         ".github/workflows/ci.yml": (
-            "# Issue #62: final install, pip-check, Torch/NNx verification, then workload; "
-            "no late package mutation."
+            "# Issue #63: the root lock already includes docs; no duplicate resolver pass."
         ),
-        "Dockerfile": "# Issue #62 CPU image: no service startup and no source-built PyG extension.",
+        "Dockerfile": "# Issue #63 locked CPU image: no service startup and no source-built PyG extension.",
         ".devcontainer/devcontainer.json": (
-            "// Issue #62 setup delegates to make codespace-setup; it starts no service."
+            "// Issue #63 setup delegates to the hash-locked make codespace-setup; it starts no service."
         ),
     }
 
@@ -629,7 +628,7 @@ def test_real_user_docs_publish_current_vulnerability_snapshot():
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
     assert "### 6.1.1.1 Reproducible four-surface audit" in ledger
-    assert "### 6.1.1.2 Current Issue #62 four-surface audit" in ledger
+    assert "### 6.1.1.2 Current Issue #63 locked four-surface audit" in ledger
     assert "### 6.1.1.3 Alias-aware historical reconciliation" in ledger
     assert "2026-08-12" in ledger
     assert "--disable-pip -r docs-requirements.txt" in ledger
@@ -666,12 +665,12 @@ def test_nnx_wheel_contract_is_consistent_across_canonical_user_docs():
     assert "development-surface evidence, never released-wheel evidence" in docs["CONTRIBUTING.md"]
 
     conventions = docs["docs/conventions.md"]
-    assert "`--only-binary=thekaveh-nnx`" in conventions
+    assert "NNx wheel is binary-only within that lock" in conventions
     assert "`pytest-repository`" in conventions
     assert "`pytest-nnx-surface`" in conventions
     assert conventions.count("`make verify-nnx-install`") >= 2
     assert "required merge-blocking" in conventions
-    assert "focused diagnostic" in conventions
+    assert "focused diagnostic" in " ".join(conventions.split())
 
     dependency_contract = docs["docs/dependency-contracts.md"]
     for evidence in (
@@ -684,7 +683,7 @@ def test_nnx_wheel_contract_is_consistent_across_canonical_user_docs():
         "Issue #63",
     ):
         assert evidence in dependency_contract
-    assert "binary-only selection is not a cryptographic hash lock" in dependency_contract
+    assert "The lock records the wheel hash" in dependency_contract
     assert "dist._path" not in combined
     assert '{"editable": true}' not in combined
 
@@ -1220,10 +1219,8 @@ _ISSUE62_REQUIRED_CURRENT_FACTS = (
     "python -m pip check",
     "make verify-torch-stack",
     "make verify-nnx-install",
-    "--only-binary=pyg-lib,torch-scatter,torch-sparse",
-    "Linux is CPU-only",
+    "complete hash-required platform lock",
     "Darwin arm64",
-    "native Linux arm64 Docker",
     "Linux x86_64",
     "Issue #65",
     "Issue #66",
@@ -1242,8 +1239,8 @@ _ISSUE62_REQUIRED_CURRENT_FACTS = (
     "no global filter is allowed",
     "fresh environment or rebuilt image",
     "Feed disappearance is reconciliation evidence, never proof of remediation.",
-    "The dependency and focused runtime contracts are implemented; complete Tier A/B/C and "
-    "container acceptance evidence is pending.",
+    "Issue #62 completed the runtime matrix",
+    "verified immutable locks",
 )
 
 _ISSUE62_FORBIDDEN_CURRENT_FACTS = (
@@ -1292,7 +1289,7 @@ def _issue62_current_documents() -> dict[str, str]:
             (
                 _between(
                     ledger,
-                    "### 6.1.1.2 Current Issue #62 four-surface audit\n",
+                    "### 6.1.1.2 Current Issue #63 locked four-surface audit\n",
                     "### 6.1.1.3 Alias-aware historical reconciliation\n",
                 ),
                 _same_level_section(ledger, "6.1.2 Torch Stack Pin"),
@@ -1360,30 +1357,29 @@ def test_issue62_current_contract_rejects_obsolete_fact(forbidden: str) -> None:
         _assert_issue62_current_contract(documents)
 
 
-def _assert_issue62_platform_qualification_is_pending(section: str) -> None:
-    assert _ISSUE62_PENDING_PLATFORM_SENTENCE in section
-    lowered = section.lower()
-    for verdict in _ISSUE62_PREMATURE_PLATFORM_VERDICTS:
-        assert verdict not in lowered
+def _assert_issue62_platform_qualification_is_complete_and_locked(section: str) -> None:
+    normalized = " ".join(section.split())
+    assert "requirements/lock-policy.toml" in section
+    assert "reproducible for that qualified platform lock" in normalized
+    assert _ISSUE62_PENDING_PLATFORM_SENTENCE not in section
 
 
-def test_issue62_platform_qualification_remains_pending_before_task7() -> None:
+def test_issue62_platform_qualification_is_complete_and_lock_preserved() -> None:
     text = (REPO_ROOT / "docs/env-setup.md").read_text(encoding="utf-8")
     local_venv = _same_level_section(text, "4.1.3 Local Python venv")
 
-    _assert_issue62_platform_qualification_is_pending(local_venv)
+    _assert_issue62_platform_qualification_is_complete_and_locked(local_venv)
 
 
-@pytest.mark.parametrize("verdict", _ISSUE62_PREMATURE_PLATFORM_VERDICTS)
-def test_issue62_platform_pending_contract_rejects_premature_verdict(verdict: str) -> None:
+def test_issue62_platform_contract_rejects_restored_pending_claim() -> None:
     text = (REPO_ROOT / "docs/env-setup.md").read_text(encoding="utf-8")
     local_venv = _same_level_section(text, "4.1.3 Local Python venv")
-    mutated = f"{local_venv}\n\nThe three platform gates are {verdict}."
+    mutated = f"{local_venv}\n\n{_ISSUE62_PENDING_PLATFORM_SENTENCE}"
     assert mutated != local_venv
-    assert verdict in mutated
+    assert _ISSUE62_PENDING_PLATFORM_SENTENCE in mutated
 
     with pytest.raises(AssertionError):
-        _assert_issue62_platform_qualification_is_pending(mutated)
+        _assert_issue62_platform_qualification_is_complete_and_locked(mutated)
 
 
 def test_issue62_manual_quantization_guidance_uses_fresh_canonical_environment() -> None:
@@ -1455,8 +1451,8 @@ def test_issue62_dependency_sections_replace_complete_old_contracts():
         "torch==2.11.0",
         "pytorch-lightning==2.6.1",
         "torch-geometric==2.8.0.post1",
-        "--only-binary=pyg-lib,torch-scatter,torch-sparse",
-        "stage 0 upgrades pip only",
+        "complete hash-required platform lock",
+        "shared sanitized boundary",
         "four-surface advisory reconciliation from six commands",
         "Tier A/B/C 18/6/4",
     ):
@@ -1467,12 +1463,12 @@ def test_issue62_dependency_sections_replace_complete_old_contracts():
     ):
         assert obsolete not in torch_section
     bootstrap = _same_level_section(text, "6.1.11 Canonical Bootstrap Tooling")
-    assert bootstrap == (
-        "The canonical installer upgrades pip alone in stage 0 and installs every selected "
-        "graph extension as a compatible binary wheel in stage 2. Docker, Codespaces, CI, and "
-        "local setup delegate to make install-torch-stack; none carries a second bootstrap or "
-        "dependency algorithm. Exact pip/setuptools locks, full Python lockfiles, and base-image "
-        "digest pinning remain Issue #63 and do not change the Issue #62 four-stage install contract."
+    assert " ".join(bootstrap.split()) == (
+        "The canonical installer uses the hash-required bootstrap lock and then installs the "
+        "complete platform lock selected by `requirements/lock-policy.toml`. Docker, Codespaces, "
+        "CI, and local setup delegate to that shared boundary; none carries a second dependency "
+        "algorithm. Compiler tooling is isolated in its own lock and is never part of the runtime "
+        "environment."
     )
 
 
@@ -1631,17 +1627,17 @@ def test_nnx_retain_decision_docs_reject_mutations(path, old, new):
         _assert_nnx_retain_decision_docs(documents)
 
 
-def test_nnx_current_pin_and_issue62_advisory_snapshot_match_restored_manifest():
+def test_nnx_current_pin_and_issue63_advisory_snapshot_match_restored_manifest():
     requirements = (REPO_ROOT / "requirements.txt").read_bytes()
     ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")
-    audit = ledger.split("### 6.1.1.2 Current Issue #62 four-surface audit", 1)[1].split(
+    audit = ledger.split("### 6.1.1.2 Current Issue #63 locked four-surface audit", 1)[1].split(
         "### 6.1.1.3 Alias-aware historical reconciliation", 1
     )[0]
 
     assert hashlib.sha256(requirements).hexdigest() == (
         "6e86caa5a287e9566e15bdffbb6628249397307783dee3b6e98e728ef06275b9"
     )
-    assert "Last reviewed: 2026-08-14" in audit
+    assert "Last reviewed: 2026-08-16" in audit
     assert "`requirements.txt` | `6e86caa5a287e9566e15bdffbb6628249397307783dee3b6e98e728ef06275b9`" in audit
     assert "thekaveh-nnx==0.2.2" not in audit
 
@@ -1684,3 +1680,121 @@ def test_nnx_historical_output_notices_do_not_claim_current_022_source():
         assert "temporary artifacts" in text, path
         assert "0.2.0" in text, path
         assert "current NNx 0.2.2" not in text, path
+
+
+_ISSUE63_CURRENT_DOC_PATHS = (
+    "README.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "docs/env-setup.md",
+    "docs/architecture.md",
+    "docs/dependency-contracts.md",
+    "docs/notebook-infrastructure.md",
+    "docs/conventions.md",
+    "docs/jupyterhub-integration.md",
+    "docs/nnx-library.md",
+    "docs/notebooks/text_classification-agnews-spacy-mlp-pytorch.md",
+    "notebooks/text_classification-agnews-spacy-mlp-pytorch/docs/spec.yaml",
+)
+
+
+def _assert_issue63_current_docs(documents):
+    for path in (
+        "README.md",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "docs/env-setup.md",
+        "docs/architecture.md",
+        "docs/dependency-contracts.md",
+        "docs/notebook-infrastructure.md",
+    ):
+        assert "requirements/lock-policy.toml" in documents[path]
+    assert "reproducible for the qualified platform lock" in documents["README.md"]
+    assert "make lock-check" in documents["README.md"]
+    assert "make lock-write" in documents["CONTRIBUTING.md"]
+    assert "make lock-check" in documents["CONTRIBUTING.md"]
+    assert "make image-lock-check" in documents["CONTRIBUTING.md"]
+    assert "Issue #63" in documents["CHANGELOG.md"].split("## [0.1.0]", 1)[0]
+    assert "### 6.1.1.2 Current Issue #63 locked four-surface audit" in documents[
+        "docs/dependency-contracts.md"
+    ]
+    for issue in ("Issue #64", "Issue #65", "Issue #66"):
+        assert issue in documents["docs/dependency-contracts.md"]
+    assert "make image-lock-check" in documents["docs/dependency-contracts.md"]
+    assert "reproducible for that qualified platform lock" in " ".join(
+        documents["docs/env-setup.md"].split()
+    )
+    assert "CONDA_AUTO_ACTIVATE_BASE=false" in documents["docs/architecture.md"]
+    assert "hash-required Linux lock" in documents["docs/conventions.md"]
+    assert "requirements/locks/atlas-contract.txt" in documents[
+        "docs/jupyterhub-integration.md"
+    ]
+    assert "selected hash-required platform lock" in documents["docs/nnx-library.md"]
+    assert "python -m spacy download" not in documents["CONTRIBUTING.md"]
+    assert "python -m spacy download" not in documents[
+        "docs/notebooks/text_classification-agnews-spacy-mlp-pytorch.md"
+    ]
+    assert "python -m spacy download" not in documents[
+        "notebooks/text_classification-agnews-spacy-mlp-pytorch/docs/spec.yaml"
+    ]
+    assert "en-core-web-sm" in documents[
+        "docs/notebooks/text_classification-agnews-spacy-mlp-pytorch.md"
+    ]
+
+
+def _issue63_current_documents():
+    return {
+        path: (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in _ISSUE63_CURRENT_DOC_PATHS
+    }
+
+
+def test_issue63_current_docs_describe_the_immutable_lock_contract():
+    _assert_issue63_current_docs(_issue63_current_documents())
+
+
+@pytest.mark.parametrize(
+    ("path", "old", "new"),
+    (
+        ("README.md", "make lock-check", "pip install -r requirements.txt"),
+        ("CONTRIBUTING.md", "make lock-write", "uv pip compile"),
+        ("SECURITY.md", "requirements/lock-policy.toml", "requirements.txt"),
+        (
+            "docs/env-setup.md",
+            "reproducible for that qualified",
+            "perfectly reproducible across every platform",
+        ),
+        (
+            "docs/architecture.md",
+            "CONDA_AUTO_ACTIVATE_BASE=false",
+            "CONDA_AUTO_ACTIVATE_BASE=true",
+        ),
+        (
+            "docs/dependency-contracts.md",
+            "Current Issue #63 locked four-surface audit",
+            "docker pull latest",
+        ),
+        (
+            "docs/conventions.md",
+            "hash-required Linux lock",
+            "requirements.txt with --only-binary=thekaveh-nnx",
+        ),
+        (
+            "docs/jupyterhub-integration.md",
+            "requirements/locks/atlas-contract.txt",
+            "focused dependency manifest",
+        ),
+        (
+            "docs/nnx-library.md",
+            "selected hash-required platform lock",
+            "pip install -r requirements.txt",
+        ),
+    ),
+)
+def test_issue63_current_docs_reject_stale_claim_mutations(path, old, new):
+    documents = _issue63_current_documents()
+    assert old in documents[path]
+    documents[path] = documents[path].replace(old, new, 1)
+    with pytest.raises(AssertionError):
+        _assert_issue63_current_docs(documents)

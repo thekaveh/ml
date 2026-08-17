@@ -74,13 +74,12 @@ Primary runtime: the `ml-eng` Atlas track, accessed from local VS Code through t
 
 ### 5.1. One-time NLP-task setup
 
-Two Tier-A tasks need a model + a lexicon that `pip install -r requirements.txt` doesn't pull on its own. Run these once after the venv is set up (CI runs them automatically in `.github/workflows/ci.yml`'s `tier-a-papermill` job):
+The `en-core-web-sm==3.8.0` wheel is an exact direct-URL/hash requirement in the platform root
+locks generated from `requirements/lock-policy.toml`; do not install or upgrade it separately.
+Only the VADER lexicon remains a post-lock data download (CI runs the same command in the
+`tier-a-papermill` job):
 
 ```bash
-# spaCy English model — needed by text_classification-agnews-spacy-mlp-pytorch
-# and sentiment_classification-vader-mlp-pytorch
-python -m spacy download en_core_web_sm
-
 # NLTK VADER lexicon — needed by sentiment_classification-vader-mlp-pytorch
 # (the notebook also has a lazy fallback download, but pre-downloading avoids
 # the per-run delay)
@@ -110,6 +109,26 @@ policy/ledger, and documentation atomically in a fresh environment or rebuilt im
 - `scripts/edit_notebook_markdown.py` — Tier-C-safe markdown-cell editor (changes a single markdown cell's source in-place).
 - `scripts/inject_smoke_test_cell.py` — adds a papermill `parameters`-tagged cell (`SMOKE_TEST = 0`) to a notebook. Use when promoting a notebook to Tier-B / Tier-C so `make smoke-tier-b/c` can truncate via `-p SMOKE_TEST 1`.
 - `scripts/rewrite_imports.py` — applies the `common/* → nnx/*` module-path rewrite plus the per-net-Params consolidation (`{FeedFwdNN, GraphAtt, GraphConv, GraphSage}Params → NNParams`). Idempotent; safe to re-run.
+
+### 6.2. Dependency lock updates
+
+Human-authored dependency inputs, exact sources, supported targets, direct-URL and sdist exceptions,
+and generated outputs are declared by `requirements/lock-policy.toml`. Routine installs consume
+only committed hash-required locks. For a deliberate dependency change:
+
+```bash
+make install-bootstrap
+make install-compiler-lock
+make lock-write
+make verify-dependency-locks
+make lock-check
+make image-lock-check
+```
+
+Review the complete generated diff, source bindings, wheel tags, hashes, and advisory result. Never
+hand-edit a generated lock or replace these commands with an ad hoc `pip install`. Rollback is one
+coherent revert of the human input, generated locks, image ledger/reference, installer/consumer
+wiring, policy, and documentation.
 
 ## 7. One concern per PR
 

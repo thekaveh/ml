@@ -87,6 +87,15 @@ performs its last asset install, then freezes package state across pip-check, To
 NNx verification, and workload. No repository container starts Jupyter, Atlas, Ollama, or ComfyUI
 as part of Issue #62.
 
+`requirements/lock-policy.toml` is the machine-readable authority for human inputs, exact package
+sources, three supported targets, allowed direct-URL/sdist exceptions, and generated locks. CI and
+Codespaces select the matching hash-required lock; the Docker image creates
+`/home/jovyan/.venvs/ml-eng-lab`, puts it first on `PATH`, and sets
+`CONDA_AUTO_ACTIVATE_BASE=false` so the Jupyter startup hook cannot replace the reviewed runtime
+with ambient conda packages. Image source references are exact tag-plus-index digests from
+`requirements/image-lock.json`. Offline verification proves committed coherence; networked lock
+and image checks prove external freshness.
+
 ## 2.1.4 Boundary decisions
 
 - `notebooks/archive/` is preserved as read-only historical material and excluded from active
@@ -103,6 +112,7 @@ as part of Issue #62.
   pinned submodule directly. Neither check starts or contacts Atlas, JupyterHub, Ollama, ComfyUI,
   Docker Compose, or unrelated containers.
 - Dependency audit preserves the same boundary: its parent-owned Atlas contract does not initialize
-  Atlas or start services, and Issue #63 retains ownership of complete locks.
+  Atlas or start services. Issue #63 owns `requirements/lock-policy.toml` and the committed locks;
+  Issue #65 still owns the Atlas runtime itself.
 - The manifest-declared canonical source set under `docs/` and at approved root governance paths
   is the documentation source of truth; the generated site and wiki are never edited by hand.

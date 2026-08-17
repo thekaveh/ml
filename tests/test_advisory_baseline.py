@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from scripts import verify_dependency_locks as verifier_module
 from scripts.advisory_baseline import (
     AUDIT_SURFACES,
     AcceptedAdvisory,
@@ -1136,6 +1137,9 @@ def _copy_lock_audit_contract(destination: Path) -> Path:
         "docs-requirements.in",
         "docs-requirements.txt",
         "Makefile",
+        "Dockerfile",
+        ".devcontainer",
+        ".github/workflows",
         "scripts",
     ):
         source = REPO_ROOT / relative
@@ -1145,6 +1149,10 @@ def _copy_lock_audit_contract(destination: Path) -> Path:
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+    for relative in verifier_module._DOCUMENTATION_CONTRACT:
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / relative, target)
     return destination
 
 

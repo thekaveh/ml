@@ -335,6 +335,7 @@ def _validate_direct_manifests(repo: Path, compiler_version: Version) -> None:
     if _read_lines(repo / "bootstrap-requirements.txt") != _EXPECTED_BOOTSTRAP:
         raise _error("bootstrap manifest does not match the exact locked toolchain")
     if _read_lines(repo / "atlas-contract-requirements.txt") != (
+        "nltk==3.10.3",
         "pytest==9.0.3",
         "pyyaml==6.0.3",
         f"uv=={compiler_version}",

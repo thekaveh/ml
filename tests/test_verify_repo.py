@@ -540,6 +540,7 @@ def test_atlas_contract_direct_dependencies_match_documentation_pins():
 
     assert requirements_path.is_file(), "atlas-contract-requirements.txt is missing"
     assert _parse_exact_direct_pins(requirements_path) == {
+        "nltk": "3.10.3",
         "pytest": _documentation_pin("pytest"),
         "pyyaml": _documentation_pin("pyyaml"),
         "uv": "0.11.19",
@@ -4845,6 +4846,46 @@ def test_ci_verify_repo_submodule_contract_initializes_recursive_checkout():
     _assert_runtime_job_install_contract(workflow, "verify-repo")
 
 
+def _assert_ci_atlas_consumer_policy_recursive_checkout(workflow: dict) -> None:
+    checkout = next(
+        step
+        for step in workflow["jobs"]["atlas-consumer-policy"]["steps"]
+        if step.get("name") == "Checkout"
+    )
+
+    assert checkout["with"] == {
+        "persist-credentials": "false",
+        "submodules": "recursive",
+    }
+
+
+def test_ci_atlas_consumer_policy_initializes_recursive_checkout():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    _assert_ci_atlas_consumer_policy_recursive_checkout(workflow)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (None, False, True, "false", "true", "recursive "),
+    ids=("omitted", "false-bool", "true-bool", "false-string", "true-string", "spaced"),
+)
+def test_ci_atlas_consumer_policy_rejects_nonrecursive_checkout(mutation):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    checkout = next(
+        step
+        for step in workflow["jobs"]["atlas-consumer-policy"]["steps"]
+        if step.get("name") == "Checkout"
+    )
+    checkout["with"]["submodules"] = "recursive"
+
+    if mutation is None:
+        checkout["with"].pop("submodules")
+    else:
+        checkout["with"]["submodules"] = mutation
+    with pytest.raises(AssertionError):
+        _assert_ci_atlas_consumer_policy_recursive_checkout(workflow)
+
+
 @pytest.mark.parametrize(
     "mutation",
     (None, False, True, "false", "true", "recursive "),
@@ -5541,7 +5582,10 @@ _ATLAS_CONSUMER_POLICY_JOB = {
         {
             "name": "Checkout",
             "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
-            "with": {"persist-credentials": "false"},
+            "with": {
+                "persist-credentials": "false",
+                "submodules": "recursive",
+            },
         },
         {
             "name": "Set up Python 3.11",
@@ -5681,10 +5725,10 @@ def test_atlas_consumer_policy_contract_rejects_changed_step_inventory(mutation)
         _assert_atlas_consumer_policy_contract(workflow)
 
 
-def test_atlas_consumer_policy_contract_rejects_checkout_submodules():
+def test_atlas_consumer_policy_contract_rejects_nonrecursive_checkout():
     workflow = _valid_atlas_consumer_policy_workflow()
     checkout = workflow["jobs"]["atlas-consumer-policy"]["steps"][0]
-    checkout["with"]["submodules"] = "recursive"
+    checkout["with"]["submodules"] = "false"
 
     with pytest.raises(AssertionError):
         _assert_atlas_consumer_policy_contract(workflow)

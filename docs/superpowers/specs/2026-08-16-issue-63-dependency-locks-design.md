@@ -363,9 +363,10 @@ their platform `root.txt` and must not invoke `install-docs-lock` afterward.
 `requirements/locks/audit.txt` is the complete hashed closure of
 `vulnerability-audit-requirements.txt`; `requirements/locks/atlas-contract.txt` is the complete
 hashed closure of `atlas-contract-requirements.txt`, including `uv==0.11.19`, `pytest==9.0.3`, and
-`pyyaml==6.0.3`. The corresponding CI jobs install bootstrap followed only by those locks. Advisory input surfaces remain
-the human-authored manifests established by Issues #59–#62; the audit policy does not mistake
-generated lock duplication for a new logical surface.
+`pyyaml==6.0.3`, plus exact `nltk==3.10.3` required by the VADER runtime-probe tests. The
+corresponding CI jobs install bootstrap followed only by those locks. Advisory input surfaces
+remain the human-authored manifests established by Issues #59–#62; the audit policy does not
+mistake generated lock duplication for a new logical surface.
 
 Advisory execution, however, never gives those source manifests back to pip. The advisory tool
 parses validated locks into temporary exact `name==public-version` projections and invokes

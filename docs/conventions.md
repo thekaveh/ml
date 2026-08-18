@@ -198,10 +198,12 @@ with `make verify-nnx-install`; editable results are development-surface evidenc
 ### 5.3.3 Atlas consumer policy — `make test-atlas-consumer`
 
 The `atlas-consumer-policy` job runs unconditionally on every pull request and is intended to be a
-required gate. It checks out the parent repository without recursively fetching the submodule,
-sets up exact Python 3.11.15, installs the bootstrap lock and hash-required Atlas contract lock,
-runs ShellCheck, and executes the focused Make target. `atlas-contract-requirements.txt` remains
-the human-authored input; routine execution consumes `requirements/locks/atlas-contract.txt`.
+required gate. It recursively checks out the exact `infra/` gitlink so projection tests inspect the
+real pinned Atlas files, sets up exact Python 3.11.15, installs the bootstrap lock and hash-required
+Atlas contract lock, runs ShellCheck, and executes the focused Make target.
+`atlas-contract-requirements.txt` remains the human-authored input and includes exact
+`nltk==3.10.3` for the VADER runtime-probe tests; routine execution consumes
+`requirements/locks/atlas-contract.txt`.
 
 The fourth step runs
 `shellcheck scripts/atlas-up.sh scripts/atlas-down.sh scripts/atlas-connect.sh scripts/lib/atlas-dotenv.sh`.

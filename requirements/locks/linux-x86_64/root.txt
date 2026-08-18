@@ -11,7 +11,7 @@
 # input-sha256: torch-audit-requirements.txt=6d544b226c6e96f296c5105a20ea00704c3e1db4bf91946392df8f3ec5236d2a
 # input-sha256: pyg-extension-audit-requirements.txt=3bdf07aaf4dc3a02524d7f7e11f6127c68203403201dc32d36b356670bfff498
 # input-sha256: vulnerability-audit-requirements.txt=889b9ef59073551e13c18fcb421ae6f35491db95081941eb7e05ae44af7a5918
-# input-sha256: atlas-contract-requirements.txt=ca9faca3b1769495e70e9cb317fc66cbcf747981e0932f3c9df8a817fccdd768
+# input-sha256: atlas-contract-requirements.txt=48591ac7488d50ef8e27ca57614f977f83cc7f6231afda63de2451c5d71d8148
 # input-sha256: docs-requirements.in=0f44a1550ade700f120face76f6117ff3eb6b9d5342ac19110a158ae91c56cc3
 aiohappyeyeballs==2.7.1 \
     --hash=sha256:065665c041c42a5938ed220bdcd7230f22527fbec085e1853d2402c8a3615d9d \

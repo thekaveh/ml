@@ -125,7 +125,7 @@ their exact lock inputs. `make audit-advisories` first passes the offline lock v
 temporary exact `package==version` projections from the validated locks, and invokes
 `pip-audit==2.10.0` with `--disable-pip --no-deps`. It does not re-resolve human source manifests.
 The projections contain 210 combined-runtime packages plus the two audited PyG extensions, 41
-Torch packages plus the two extensions, 45 documentation packages, and 10 Atlas-contract packages.
+Torch packages plus the two extensions, 45 documentation packages, and 16 Atlas-contract packages.
 The spaCy model and target-specific pyg-lib wheels are recorded as non-PyPI provenance evidence;
 they are never mislabeled as clean PyPI audit results.
 
@@ -161,8 +161,8 @@ The input hashes enforced by D10 are:
 | `torch-requirements.txt` | `5ab5581cbaf6aefd0698b63e22279e799a1edd65ae003b52b65d6a3b5d64c5cb` |
 | `torch-audit-requirements.txt` | `6d544b226c6e96f296c5105a20ea00704c3e1db4bf91946392df8f3ec5236d2a` |
 | `pyg-extension-audit-requirements.txt` | `3bdf07aaf4dc3a02524d7f7e11f6127c68203403201dc32d36b356670bfff498` |
-| `docs-requirements.txt` | `4227937aedc4962b40b56fc9641cb5f5519ad8a4508c22b7e64e83236e20c326` |
-| `atlas-contract-requirements.txt` | `ca9faca3b1769495e70e9cb317fc66cbcf747981e0932f3c9df8a817fccdd768` |
+| `docs-requirements.txt` | `3604c844c5a99c05632acb516953305c73d8ff49c78e2fa6e86900fcc7ed825a` |
+| `atlas-contract-requirements.txt` | `48591ac7488d50ef8e27ca57614f977f83cc7f6231afda63de2451c5d71d8148` |
 | `security/accepted-advisories.json` | `452ac2a787c5c13814bab63f54a97c742dd22fa8da6a6a550b8f4a416df18dbb` |
 
 The complete generated-lock inventory is the 14 outputs listed by

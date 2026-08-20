@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
+          submodules: recursive
 
       - name: Set up Python 3.11
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -152,6 +153,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
+          submodules: recursive
 
       - name: Install system dependencies for cairosvg
         run: sudo apt-get update && sudo apt-get install -y libcairo2
@@ -403,6 +405,7 @@ jobs:
         run: |
           make install-torch-stack
           make nlp-assets
+          make verify-nlp-assets
 
       - name: Check and verify canonical Torch and NNx stack
         run: |

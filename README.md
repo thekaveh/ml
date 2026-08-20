@@ -130,6 +130,7 @@ docker run -p 8888:8888 -v "$(pwd):/home/jovyan/work" --shm-size=4g ml-eng-lab
 python3.11 -m venv .venv && source .venv/bin/activate
 make install-torch-stack
 make nlp-assets
+make verify-nlp-assets
 python -m pip check
 make verify-torch-stack
 make verify-nnx-install
@@ -144,6 +145,11 @@ policy/input/lock check, `make lock-check` for networked byte regeneration, and
 `make image-lock-check` for registry-backed image digest verification. Lock regeneration uses the
 exact resolver cutoff in `requirements/lock-policy.toml`; advancing it is a reviewed dependency
 update rather than an ambient response to newly published packages.
+
+The root lock already installs the exact hash-required spaCy model wheel. `make nlp-assets`
+downloads only NLTK's official VADER ZIP, verifies its URL, byte size, SHA-256, and sole archive
+member, then installs it under `NLTK_DATA`. `make verify-nlp-assets` repeats those checks offline;
+it never downloads or starts Atlas.
 
 The supported CPU matrix is torch==2.11.0, torchvision==0.26.0,
 torch_geometric==2.8.0.post1, pyg-lib==0.8.0+pt211, torch-scatter==2.1.2+pt211,

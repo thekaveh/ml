@@ -135,6 +135,20 @@ def test_real_manifest_projects_advisory_baseline_contract_to_site(tmp_path):
     assert "feature-to-`develop` pull request, then a `develop`-to-`main` pull request" in ledger
 
 
+def test_real_manifest_projects_verified_nlp_asset_contract_to_site(tmp_path):
+    manifest = load_manifest(REPO_ROOT / "docs/manifest.yaml", REPO_ROOT)
+    out = tmp_path / "generated/site"
+    render_site(manifest, REPO_ROOT, out, trusted_output_root=tmp_path)
+
+    ledger = (out / "dependency-contracts.md").read_text(encoding="utf-8")
+    sentiment = (
+        out / "notebooks/sentiment_classification-vader-mlp-pytorch.md"
+    ).read_text(encoding="utf-8")
+    assert "8adba4294eef3964d820bf655e37e61bdc3a341994356af59b74fb3b4a36ce5c" in ledger
+    assert "make verify-nlp-assets" in ledger
+    assert "nltk.download" not in sentiment
+
+
 def test_nav_preserves_a_section_source_and_children():
     manifest = parse_manifest(
         MANIFEST_YAML.replace(

@@ -125,7 +125,7 @@ their exact lock inputs. `make audit-advisories` first passes the offline lock v
 temporary exact `package==version` projections from the validated locks, and invokes
 `pip-audit==2.10.0` with `--disable-pip --no-deps`. It does not re-resolve human source manifests.
 The projections contain 210 combined-runtime packages plus the two audited PyG extensions, 41
-Torch packages plus the two extensions, 45 documentation packages, and 10 Atlas-contract packages.
+Torch packages plus the two extensions, 45 documentation packages, and 16 Atlas-contract packages.
 The spaCy model and target-specific pyg-lib wheels are recorded as non-PyPI provenance evidence;
 they are never mislabeled as clean PyPI audit results.
 
@@ -161,8 +161,8 @@ The input hashes enforced by D10 are:
 | `torch-requirements.txt` | `5ab5581cbaf6aefd0698b63e22279e799a1edd65ae003b52b65d6a3b5d64c5cb` |
 | `torch-audit-requirements.txt` | `6d544b226c6e96f296c5105a20ea00704c3e1db4bf91946392df8f3ec5236d2a` |
 | `pyg-extension-audit-requirements.txt` | `3bdf07aaf4dc3a02524d7f7e11f6127c68203403201dc32d36b356670bfff498` |
-| `docs-requirements.txt` | `4227937aedc4962b40b56fc9641cb5f5519ad8a4508c22b7e64e83236e20c326` |
-| `atlas-contract-requirements.txt` | `ca9faca3b1769495e70e9cb317fc66cbcf747981e0932f3c9df8a817fccdd768` |
+| `docs-requirements.txt` | `3604c844c5a99c05632acb516953305c73d8ff49c78e2fa6e86900fcc7ed825a` |
+| `atlas-contract-requirements.txt` | `48591ac7488d50ef8e27ca57614f977f83cc7f6231afda63de2451c5d71d8148` |
 | `security/accepted-advisories.json` | `452ac2a787c5c13814bab63f54a97c742dd22fa8da6a6a550b8f4a416df18dbb` |
 
 The complete generated-lock inventory is the 14 outputs listed by
@@ -348,15 +348,29 @@ Upgrade criteria:
 
 ## 6.1.5 External Assets
 
-`make nlp-assets` downloads:
+The spaCy `en_core_web_sm` 3.8.0 wheel is an exact direct-URL/hash package in Issue #63's
+platform root locks. It is installed by `make install-torch-stack`; no post-install model
+downloader is supported.
 
-- spaCy `en_core_web_sm`
-- NLTK `vader_lexicon`
+VADER is the sole post-lock NLP data asset. `requirements/nlp-assets.toml` locks the official
+NLTK data URL
+`https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/sentiment/vader_lexicon.zip`,
+the exact size `90,486` bytes, SHA-256
+`8adba4294eef3964d820bf655e37e61bdc3a341994356af59b74fb3b4a36ce5c`, resource identity
+`sentiment/vader_lexicon.zip`, and sole member `vader_lexicon/vader_lexicon.txt`.
 
-These assets are consumed by the text-classification and sentiment notebooks.
-They are not locked by checksum today. If reproducibility becomes stricter than
-the current educational-notebook standard, add a lock/verification mechanism and
-update this section.
+`make nlp-assets` downloads that URL to a temporary file, validates the complete identity, and
+atomically installs the ZIP under the explicit `NLTK_DATA` root. `make verify-nlp-assets` performs
+the same identity and VADER sentiment smoke checks offline and rejects missing, corrupt,
+substituted, directory, symlink, extra-member, or path-escaping inputs. A valid installed ZIP
+needs no network; a clean installation needs the official URL. CI, Codespaces, the root image,
+and the pinned Atlas JupyterHub projection install before verification and workloads. Atlas is
+not started for installation.
+
+Update order is: review the official NLTK data index, update the authoritative manifest, copy the
+manifest/installer/model projections into the Atlas JupyterHub build, run clean parent and Atlas
+image installs plus offline verification, update current documentation, and then qualify all
+notebook tiers. The spaCy model remains governed by Issue #63's lock regeneration process.
 
 ## 6.1.6 NNx PyPI Pin and Editable Override Boundary
 
@@ -412,7 +426,7 @@ canonical mode and rerun `make verify-nnx-install` before recording release comp
 
 `.gitmodules` consumes `https://github.com/thekaveh/atlas.git` as the active
 `infra` submodule.
-Current Atlas `infra` gitlink SHA: `61c7c5103660e2226bf107c115dae42bf46f8374`.
+Current Atlas `infra` gitlink SHA: `41ba856f7cd35f0b559d6875e08443eac3e98a98`.
 
 This reviewed superproject gitlink is the active Atlas dependency contract.
 Consumer configuration is deliberately outside `infra/`: `atlas.consumer.yml`,

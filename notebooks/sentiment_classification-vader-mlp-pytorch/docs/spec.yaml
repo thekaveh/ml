@@ -20,7 +20,7 @@ math:
     label: "Softmax + cross-entropy (MLP)"
     latex: "\\mathcal{L} = -\\log \\hat{y}_c,\\ \\hat{y}_i = \\frac{e^{z_i}}{\\sum_j e^{z_j}}"
 code_walkthrough:
-  - { anchor: "SentimentIntensityAnalyzer()", note: "lazy vader_lexicon download on LookupError" }
+  - { anchor: 'nltk.data.find("sentiment/vader_lexicon.zip")', note: "requires the hash-verified asset installed by make nlp-assets" }
   - { anchor: "vader_predict(text)", note: "compound > +0.05 -> pos, < -0.05 -> neg, else neu (paper defaults)" }
   - { anchor: "NNModel + NNParams(hidden_dims=[32])", note: "100 -> 32 -> 3 MLP (same recipe as 8.17)" }
 results:
@@ -28,7 +28,7 @@ results:
   - { metric: "neural MLP accuracy", value: "79.17% (38/48)" }
   - { metric: "neural final train loss", value: "0.1313 (60 epochs)" }
 pitfalls:
-  - "vader_lexicon is a separate nltk download (CI pre-fetches; lazy try/except fallback)."
+  - "vader_lexicon is a separate integrity-locked NLTK asset; run make nlp-assets before offline notebook execution."
   - "Neutral is the weak spot for both: factual text has no polarity words."
   - "BoW destroys negation scope (VADER's grammar rules capture minimal syntax BoW flattens)."
   - "+/-0.05 thresholds are paper defaults, not domain-optimal; sweep them on a val split."

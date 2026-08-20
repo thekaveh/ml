@@ -13,6 +13,12 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Verified NLP assets (Issue #64):** replaced every active VADER downloader with the shared
+  `make nlp-assets` installer and offline `make verify-nlp-assets` gate. The official NLTK data
+  ZIP is locked at 90,486 bytes and SHA-256
+  `8adba4294eef3964d820bf655e37e61bdc3a341994356af59b74fb3b4a36ce5c`; the exact spaCy model
+  wheel remains owned by Issue #63's package locks. CI, Codespaces, the root image, and the pinned
+  Atlas JupyterHub image now install then verify the same contract before workloads.
 - **Immutable dependency locks (Issue #63):** added the canonical
   `requirements/lock-policy.toml`, exact hash-required bootstrap/compiler/docs/audit/Atlas roles,
   and Darwin arm64, Linux x86_64, and Linux aarch64 core/runtime/root locks. CI, Docker, and

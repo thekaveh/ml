@@ -20,9 +20,10 @@ Three-class sentiment classification (negative / neutral / positive) is the cano
 text-classification teaching task. Sentiment has two famously-good recipes, and this notebook runs
 both on the same corpus:
 
-1. **VADER** (Hutto & Gilbert, 2014) — a hand-tuned lexicon plus grammar rules. No training. Ships
-   with NLTK. A strong, domain-robust baseline; in many production settings it beats supervised
-   neural models on out-of-distribution text.
+1. **VADER** (Hutto & Gilbert, 2014) — a hand-tuned lexicon plus grammar rules. No training. The
+   separately installed lexicon is integrity-locked by the repository. A strong, domain-robust
+   baseline; in many production settings it beats supervised neural models on out-of-distribution
+   text.
 2. **Supervised neural** — spaCy lemmatize → 100-token BoW → 32-hidden MLP, trained on labeled
    examples. Wins on in-distribution text; loses on domain shift.
 
@@ -32,10 +33,10 @@ The notebook exists for three reasons:
    between a zero-training lexicon and a learned neural model is smallest and most
    production-relevant. The recorded head-to-head on the embedded corpus (VADER 81.25% vs neural
    MLP 79.17%) makes the point on real numbers, not hand-waving.
-2. **Land the VADER contract end-to-end.** The `SentimentIntensityAnalyzer` API, the compound-score
-   threshold mapping (`±0.05` per the original paper), the lazy `nltk.download('vader_lexicon')`
-   fallback — these are all first-class and reproducible. A reader who copies this half of the
-   notebook has a production-ready sentiment baseline in ten lines.
+2. **Land the VADER contract end-to-end.** The `SentimentIntensityAnalyzer` API, compound-score
+   threshold mapping (`±0.05` per the original paper), and fail-closed preflight for the
+   repository-installed lexicon are first-class and reproducible. A reader who copies this half
+   of the notebook has a production-ready sentiment baseline without hidden network mutation.
 3. **Reuse the §8.17 recipe on a different task.** The spaCy BoW + `FeedFwdNN` MLP half is
    identical in shape to the AG-News notebook (same train-only vocab, same L2-normalized BoW,
    same `NNModel` factory). The contrast — same learned recipe, different baseline — isolates
@@ -57,7 +58,7 @@ baseline" advice is load-bearing at this scale, not a courtesy.
 | MLP classifier | `nnx.FeedFwdNN`, `hidden_dims=[32]`, ReLU, dropout 0 |
 | Softmax + cross-entropy | The neural training objective over the three logits |
 | Stratified train/test split | `train_test_split(..., stratify=labels_np)` keeps classes balanced |
-| Lazy NLTK resource download | `try / except LookupError → nltk.download('vader_lexicon')` |
+| Verified NLTK resource preflight | `nltk.data.find('sentiment/vader_lexicon.zip')` after `make verify-nlp-assets` |
 
 The `nnx` surface consumed is the same tabular/text-classification surface as §8.17 (`NNModel`,
 `NNParams`, `NNModelParams`, `NNTrainParams`, `NNOptimParams`, the enums). The VADER half sits
@@ -144,21 +145,22 @@ opening hours) are the neutral class and the weak spot for both recipes.
 
 ## 8.18.5 Code walkthrough
 
-### 8.18.5.1 VADER setup with lazy lexicon download
+### 8.18.5.1 VADER setup with verified lexicon preflight
 
 ```python
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+
 try:
-    from nltk.sentiment.vader import SentimentIntensityAnalyzer
-    _sia_probe = SentimentIntensityAnalyzer()        # forces lexicon lookup
-except LookupError:
-    nltk.download('vader_lexicon', quiet=True)
-    from nltk.sentiment.vader import SentimentIntensityAnalyzer
+    nltk.data.find("sentiment/vader_lexicon.zip")
+except LookupError as exc:
+    raise RuntimeError(
+        "VADER lexicon is missing; run `make nlp-assets` before this notebook"
+    ) from exc
 ```
 
-The throwaway `_sia_probe = SentimentIntensityAnalyzer()` construction forces the lexicon lookup
-*inside* the `try` block, so a missing lexicon raises `LookupError` and triggers the download
-rather than failing later at predict time. CI pre-downloads the lexicon (~125 KB) in the
-`tier-a-papermill` job; this block is the fresh-local-install fallback.
+The notebook never downloads data. `make nlp-assets` installs the official 90,486-byte ZIP after
+checking its SHA-256 and member identity; `make verify-nlp-assets` repeats the contract offline.
+The preflight turns a missing asset into an actionable error before model work begins.
 
 ### 8.18.5.2 VADER prediction
 
@@ -262,10 +264,10 @@ Three observations:
 
 ## 8.18.7 Pitfalls & edge cases
 
-- **`vader_lexicon` is a separate download.** `pip install nltk` does not pull the lexicon — it
-  ships separately and is fetched via `nltk.download('vader_lexicon')`. CI pre-downloads it in
-  the `tier-a-papermill` job; the notebook's `try / except LookupError` block is the fresh-local
-  fallback. Without it, the first `SentimentIntensityAnalyzer()` call raises `LookupError`.
+- **`vader_lexicon` is a separate integrity-locked asset.** `pip install nltk` does not include
+  it. Run `make nlp-assets` once for a clean environment and `make verify-nlp-assets` for offline
+  validation. The notebook deliberately fails if the verified asset is absent instead of
+  downloading during execution.
 - **The `±0.05` thresholds are paper defaults, not optimal.** Domain-specific tuning helps on
   noisy real-world text. Social-media sentiment typically wants `> 0.2 / < -0.2` to avoid
   over-predicting polarity; product reviews sometimes want the opposite. The notebook keeps the

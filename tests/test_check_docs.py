@@ -1622,7 +1622,7 @@ def test_nnx_current_docs_record_completed_trial_and_retained_default_runtime():
 def test_nnx_retain_decision_docs_reject_mutations(path, old, new):
     documents = _nnx_current_documents()
     assert old in documents[path]
-    documents[path] = documents[path].replace(old, new, 1)
+    documents[path] = documents[path].replace(old, new)
     with pytest.raises(AssertionError):
         _assert_nnx_retain_decision_docs(documents)
 
@@ -1685,13 +1685,13 @@ def test_nnx_historical_output_notices_do_not_claim_current_022_source():
 _ISSUE63_CURRENT_DOC_PATHS = (
     "README.md",
     "CONTRIBUTING.md",
+    "docs/conventions.md",
     "SECURITY.md",
     "CHANGELOG.md",
     "docs/env-setup.md",
     "docs/architecture.md",
     "docs/dependency-contracts.md",
     "docs/notebook-infrastructure.md",
-    "docs/conventions.md",
     "docs/jupyterhub-integration.md",
     "docs/nnx-library.md",
     "docs/notebooks/text_classification-agnews-spacy-mlp-pytorch.md",
@@ -1798,3 +1798,126 @@ def test_issue63_current_docs_reject_stale_claim_mutations(path, old, new):
     documents[path] = documents[path].replace(old, new, 1)
     with pytest.raises(AssertionError):
         _assert_issue63_current_docs(documents)
+
+
+_ISSUE64_CURRENT_DOC_PATHS = (
+    "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "docs/conventions.md",
+    "docs/env-setup.md",
+    "docs/dependency-contracts.md",
+    "docs/notebook-infrastructure.md",
+    "docs/notebooks/sentiment_classification-vader-mlp-pytorch.md",
+    "notebooks/sentiment_classification-vader-mlp-pytorch/README.md",
+    "notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb",
+    "notebooks/text_classification-agnews-spacy-mlp-pytorch/README.md",
+)
+_VADER_URL = (
+    "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/"
+    "sentiment/vader_lexicon.zip"
+)
+_VADER_SHA256 = "8adba4294eef3964d820bf655e37e61bdc3a341994356af59b74fb3b4a36ce5c"
+
+
+def _issue64_current_documents():
+    return {
+        path: (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in _ISSUE64_CURRENT_DOC_PATHS
+    }
+
+
+def _assert_issue64_current_docs(documents):
+    current_changelog = documents["CHANGELOG.md"].split("## [0.1.0]", 1)[0]
+    ledger = documents["docs/dependency-contracts.md"]
+    sentiment = documents[
+        "docs/notebooks/sentiment_classification-vader-mlp-pytorch.md"
+    ]
+    current = "\n".join(
+        current_changelog if path == "CHANGELOG.md" else text
+        for path, text in documents.items()
+    )
+
+    assert _VADER_URL in ledger
+    assert _VADER_SHA256 in ledger
+    assert "90,486" in ledger
+    assert "make nlp-assets" in documents["README.md"]
+    assert "make verify-nlp-assets" in documents["README.md"]
+    assert "make verify-nlp-assets" in documents["docs/env-setup.md"]
+    assert "offline" in documents["docs/env-setup.md"].lower()
+    assert "make nlp-assets" in documents["docs/notebook-infrastructure.md"]
+    assert "make verify-nlp-assets" in documents["docs/notebook-infrastructure.md"]
+    assert "nltk.download" not in documents["docs/notebook-infrastructure.md"]
+    assert "make verify-nlp-assets" in documents["CONTRIBUTING.md"]
+    assert "nltk.download" not in documents["CONTRIBUTING.md"]
+    assert "five-check oracle" in documents["CONTRIBUTING.md"]
+    assert "runs five checks" in documents["docs/conventions.md"]
+    assert "Assets (`D11`)" in documents["docs/conventions.md"]
+    sentiment_readme = documents[
+        "notebooks/sentiment_classification-vader-mlp-pytorch/README.md"
+    ]
+    sentiment_notebook = documents[
+        "notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb"
+    ]
+    agnews_readme = documents[
+        "notebooks/text_classification-agnews-spacy-mlp-pytorch/README.md"
+    ]
+    assert "make verify-nlp-assets" in sentiment_readme
+    assert "nltk.download" not in sentiment_readme
+    assert "make verify-nlp-assets" in sentiment_notebook
+    assert "lazily downloaded above" not in sentiment_notebook
+    assert "en-core-web-sm==3.8.0" in agnews_readme
+    assert "spacy download" not in agnews_readme
+    assert "make nlp-assets" in current
+    assert "make verify-nlp-assets" in current
+    assert "offline" in current.lower()
+    assert "Issue #63" in current_changelog
+    assert "Atlas" in ledger and "projection" in ledger
+    assert "integrity" in sentiment.lower()
+    assert "nltk.download" not in sentiment
+    assert "lazy lexicon download" not in sentiment.lower()
+
+
+def test_issue64_current_docs_describe_verified_nlp_assets():
+    _assert_issue64_current_docs(_issue64_current_documents())
+
+
+@pytest.mark.parametrize(
+    ("path", "old", "new"),
+    (
+        ("docs/dependency-contracts.md", _VADER_URL, "https://example.invalid/vader.zip"),
+        ("docs/dependency-contracts.md", _VADER_SHA256, "0" * 64),
+        ("README.md", "make verify-nlp-assets", "python -m nltk.downloader vader_lexicon"),
+        ("docs/env-setup.md", "offline", "downloads on every verification"),
+        ("docs/notebook-infrastructure.md", "make nlp-assets", "nltk.download"),
+        ("CONTRIBUTING.md", "make verify-nlp-assets", "nltk.download"),
+        ("CONTRIBUTING.md", "five-check oracle", "four-check oracle"),
+        ("docs/conventions.md", "Assets (`D11`)", "Assets (`D12`)"),
+        (
+            "notebooks/sentiment_classification-vader-mlp-pytorch/README.md",
+            "make verify-nlp-assets",
+            "nltk.download",
+        ),
+        (
+            "notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb",
+            "make verify-nlp-assets",
+            "lazily downloaded above",
+        ),
+        (
+            "notebooks/text_classification-agnews-spacy-mlp-pytorch/README.md",
+            "en-core-web-sm==3.8.0",
+            "spacy download",
+        ),
+        (
+            "docs/notebooks/sentiment_classification-vader-mlp-pytorch.md",
+            "integrity",
+            "lazy lexicon download",
+        ),
+    ),
+)
+def test_issue64_current_docs_reject_asset_contract_mutations(path, old, new):
+    documents = _issue64_current_documents()
+    assert old in documents[path]
+    documents[path] = documents[path].replace(old, new)
+    with pytest.raises(AssertionError):
+        _assert_issue64_current_docs(documents)

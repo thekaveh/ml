@@ -149,12 +149,14 @@ focused and publication signals so failures remain attributable.
 
 ### 5.3.1 Repo verifier — `make verify`
 
-`scripts/verify_repo.py --check all --fast` runs four checks (the `--fast`
+`scripts/verify_repo.py --check all --fast` runs five checks (the `--fast`
 flag only affects the execution check):
 
 - **Structure (`S`)** — task-folder naming, the absence of a `tasks/` subdir
   and of a re-introduced `common/` (`S7.forbidden_toplevel`), no tracked
   bloat (`S7.tracked_bloat`), expected top-level layout.
+- **Assets (`D11`)** — the exact VADER manifest and the install/verify ordering
+  shared by Make, Docker, CI, Codespaces, the sentiment notebook, and Atlas.
 - **Docs (`D`)** — `check_docs` validates the generated documentation tree
   for self-containment, completeness against `docs/manifest.yaml`, and the
   absence of placeholder text.
@@ -196,10 +198,12 @@ with `make verify-nnx-install`; editable results are development-surface evidenc
 ### 5.3.3 Atlas consumer policy — `make test-atlas-consumer`
 
 The `atlas-consumer-policy` job runs unconditionally on every pull request and is intended to be a
-required gate. It checks out the parent repository without recursively fetching the submodule,
-sets up exact Python 3.11.15, installs the bootstrap lock and hash-required Atlas contract lock,
-runs ShellCheck, and executes the focused Make target. `atlas-contract-requirements.txt` remains
-the human-authored input; routine execution consumes `requirements/locks/atlas-contract.txt`.
+required gate. It recursively checks out the exact `infra/` gitlink so projection tests inspect the
+real pinned Atlas files, sets up exact Python 3.11.15, installs the bootstrap lock and hash-required
+Atlas contract lock, runs ShellCheck, and executes the focused Make target.
+`atlas-contract-requirements.txt` remains the human-authored input and includes exact
+`nltk==3.10.3` for the VADER runtime-probe tests; routine execution consumes
+`requirements/locks/atlas-contract.txt`.
 
 The fourth step runs
 `shellcheck scripts/atlas-up.sh scripts/atlas-down.sh scripts/atlas-connect.sh scripts/lib/atlas-dotenv.sh`.

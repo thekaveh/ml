@@ -151,7 +151,7 @@ def test_live_direct_inputs_have_one_compiler_authority_and_exact_exceptions() -
         f"en-core-web-sm @ {MODEL_URL} --hash=sha256:{MODEL_SHA256}\n"
     )
     assert (REPO_ROOT / "atlas-contract-requirements.txt").read_text(encoding="utf-8") == (
-        "pytest==9.0.3\npyyaml==6.0.3\nuv==0.11.19\n"
+        "nltk==3.10.3\npytest==9.0.3\npyyaml==6.0.3\nuv==0.11.19\n"
     )
     assert "--find-links" not in (REPO_ROOT / "torch-requirements.txt").read_text(encoding="utf-8")
     policy = tomllib.loads(
@@ -333,6 +333,18 @@ def test_policy_rejects_atlas_compiler_version_drift(tmp_path: Path) -> None:
     atlas.write_text(mutated, encoding="utf-8")
 
     with pytest.raises(DependencyLockError, match="compiler|uv"):
+        load_policy(repo)
+
+
+def test_policy_rejects_missing_atlas_runtime_probe_dependency(tmp_path: Path) -> None:
+    repo = _copy_policy_inputs(tmp_path)
+    atlas = repo / "atlas-contract-requirements.txt"
+    source = atlas.read_text(encoding="utf-8")
+    mutated = source.replace("nltk==3.10.3\n", "", 1)
+    assert mutated != source
+    atlas.write_text(mutated, encoding="utf-8")
+
+    with pytest.raises(DependencyLockError, match="Atlas"):
         load_policy(repo)
 
 

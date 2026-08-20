@@ -14,6 +14,7 @@ TEST_SUBPROCESS_TIMEOUT = 30
 _DOCKER_INSTALL_BLOCK = """RUN /opt/conda/bin/python -m venv "$VIRTUAL_ENV" \\
   && make install-torch-stack \\
   && make nlp-assets \\
+  && make verify-nlp-assets \\
   && python -m pip check \\
   && python -m scripts.verify_torch_stack \\
   && python -m scripts.verify_nnx_install"""
@@ -61,7 +62,10 @@ def test_issue63_locked_install_targets_and_nlp_assets_are_exact() -> None:
     for target, command in expected.items():
         assert _target_recipe(makefile, target) == (command,)
     nlp = _target_recipe(makefile, "nlp-assets")
-    assert nlp == ('$(PYTHON) -c "import nltk; nltk.download(\'vader_lexicon\', quiet=True)"',)
+    assert nlp == ("$(PYTHON) -m scripts.nlp_assets install",)
+    assert _target_recipe(makefile, "verify-nlp-assets") == (
+        "$(PYTHON) -m scripts.nlp_assets verify",
+    )
     assert "spacy download" not in "\n".join(nlp)
     assert "pip install" not in "\n".join(nlp)
 
@@ -166,6 +170,7 @@ def _assert_docker_and_codespaces_contract(
     assert codespace_definitions == ("codespace-setup: install-torch-stack",)
     assert _target_recipe(makefile, "codespace-setup") == (
         "$(MAKE) nlp-assets",
+        "$(MAKE) verify-nlp-assets",
         "$(PYTHON) -m pip check",
         "$(MAKE) verify-torch-stack",
         "$(MAKE) verify-nnx-install",
@@ -364,7 +369,8 @@ def test_torch_installer_target_is_one_exact_command_and_codespace_has_no_late_p
 
     assert lines.count(f"{custom_python} -m scripts.install_torch_stack") == 1
     assert f"{custom_python} -m spacy download en_core_web_sm" not in lines
-    assert any(line.startswith(f"{custom_python} -c ") for line in lines)
+    assert lines.count(f"{custom_python} -m scripts.nlp_assets install") == 2
+    assert lines.count(f"{custom_python} -m scripts.nlp_assets verify") == 1
     assert not any(" -m pip install" in line for line in lines)
 
 
@@ -474,6 +480,7 @@ def test_codespace_contract_rejects_duplicate_target_definition():
     duplicate = (
         "\ncodespace-setup: install-torch-stack\n"
         "\t$(MAKE) nlp-assets\n"
+        "\t$(MAKE) verify-nlp-assets\n"
         "\t$(PYTHON) -m pip check\n"
         "\t$(MAKE) verify-torch-stack\n"
         "\t$(MAKE) verify-nnx-install\n"

@@ -14,7 +14,22 @@ import yaml
 REPO = Path(__file__).resolve().parents[1]
 MANIFEST_NAME = "atlas.consumer.yml"
 OVERLAY_NAME = "compose/ml-eng-lab-atlas.yml"
-PINNED_ATLAS_REVISION = "61c7c5103660e2226bf107c115dae42bf46f8374"
+PINNED_ATLAS_REVISION = "41ba856f7cd35f0b559d6875e08443eac3e98a98"
+ATLAS_BUILD = Path("services/jupyterhub/build")
+NLP_PROJECTIONS = {
+    "requirements/nlp-assets.toml": ATLAS_BUILD / "nlp-assets.toml",
+    "scripts/nlp_assets.py": ATLAS_BUILD / "install_nlp_assets.py",
+    "nlp-model-requirements.txt": ATLAS_BUILD / "nlp-model-requirements.txt",
+}
+EXPECTED_NLP_DOCKER_BLOCK = """COPY --chown=${NB_UID}:${NB_GID} nlp-model-requirements.txt /tmp/nlp-model-requirements.txt
+COPY --chown=${NB_UID}:${NB_GID} nlp-assets.toml /tmp/nlp-assets.toml
+COPY --chown=${NB_UID}:${NB_GID} install_nlp_assets.py /tmp/install_nlp_assets.py
+RUN python -m pip install --no-cache-dir --no-deps --require-hashes -r /tmp/nlp-model-requirements.txt \\
+ && python /tmp/install_nlp_assets.py install --manifest /tmp/nlp-assets.toml --data-dir /home/jovyan/nltk_data \\
+ && python /tmp/install_nlp_assets.py verify --manifest /tmp/nlp-assets.toml --data-dir /home/jovyan/nltk_data \\
+ && rm -f /tmp/nlp-model-requirements.txt /tmp/nlp-assets.toml /tmp/install_nlp_assets.py
+
+ENV NLTK_DATA=/home/jovyan/nltk_data"""
 
 EXPECTED_MANIFEST = {
     "name": "ml-eng-lab",
@@ -173,6 +188,19 @@ def validate_atlas_submodule(gitmodules_path: Path) -> None:
     assert dict(section) == {"path": "infra", "url": "https://github.com/thekaveh/atlas.git"}
 
 
+def validate_atlas_nlp_projection(
+    *, atlas_root: Path, actual_revision: str, ledger: str
+) -> None:
+    assert actual_revision == PINNED_ATLAS_REVISION
+    assert f"Current Atlas `infra` gitlink SHA: `{PINNED_ATLAS_REVISION}`." in ledger
+    for parent_relative, atlas_relative in NLP_PROJECTIONS.items():
+        assert (atlas_root / atlas_relative).read_bytes() == (
+            REPO / parent_relative
+        ).read_bytes()
+    dockerfile = (atlas_root / ATLAS_BUILD / "Dockerfile").read_text(encoding="utf-8")
+    assert dockerfile.count(EXPECTED_NLP_DOCKER_BLOCK) == 1
+
+
 def test_atlas_submodule_is_detached_at_the_required_revision(tmp_path):
     gitmodules = tmp_path / ".gitmodules"
     shutil.copy(REPO / ".gitmodules", gitmodules)
@@ -183,6 +211,62 @@ def test_atlas_submodule_is_detached_at_the_required_revision(tmp_path):
         ).stdout.strip()
         == PINNED_ATLAS_REVISION
     )
+
+
+def test_atlas_nlp_projection_is_byte_exact_and_ordered() -> None:
+    validate_atlas_nlp_projection(
+        atlas_root=REPO / "infra",
+        actual_revision=subprocess.run(
+            ["git", "rev-parse", ":infra"],
+            cwd=REPO,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip(),
+        ledger=(REPO / "docs/dependency-contracts.md").read_text(encoding="utf-8"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("relative", "old", "new"),
+    (
+        (ATLAS_BUILD / "nlp-assets.toml", b"raw.githubusercontent.com", b"example.invalid"),
+        (ATLAS_BUILD / "install_nlp_assets.py", b"sha256", b"sha265"),
+        (ATLAS_BUILD / "nlp-model-requirements.txt", b"en_core_web_sm-3.8.0", b"en_core_web_sm-3.7.0"),
+        (ATLAS_BUILD / "Dockerfile", b" --chown=${NB_UID}:${NB_GID}", b""),
+        (ATLAS_BUILD / "Dockerfile", b"install_nlp_assets.py verify", b"install_nlp_assets.py verify-later"),
+    ),
+)
+def test_atlas_nlp_projection_rejects_independent_mutations(
+    tmp_path: Path, relative: Path, old: bytes, new: bytes
+) -> None:
+    atlas = tmp_path / "infra"
+    shutil.copytree(REPO / "infra" / ATLAS_BUILD, atlas / ATLAS_BUILD)
+    target = atlas / relative
+    source = target.read_bytes()
+    assert old in source
+    target.write_bytes(source.replace(old, new, 1))
+
+    with pytest.raises(AssertionError):
+        validate_atlas_nlp_projection(
+            atlas_root=atlas,
+            actual_revision=PINNED_ATLAS_REVISION,
+            ledger=f"Current Atlas `infra` gitlink SHA: `{PINNED_ATLAS_REVISION}`.",
+        )
+
+
+def test_atlas_nlp_projection_rejects_gitlink_and_ledger_drift() -> None:
+    ledger = (REPO / "docs/dependency-contracts.md").read_text(encoding="utf-8")
+    with pytest.raises(AssertionError):
+        validate_atlas_nlp_projection(
+            atlas_root=REPO / "infra", actual_revision="0" * 40, ledger=ledger
+        )
+    with pytest.raises(AssertionError):
+        validate_atlas_nlp_projection(
+            atlas_root=REPO / "infra",
+            actual_revision=PINNED_ATLAS_REVISION,
+            ledger=ledger.replace(PINNED_ATLAS_REVISION, "0" * 40),
+        )
 
 
 def test_atlas_submodule_rejects_a_moving_branch(tmp_path):

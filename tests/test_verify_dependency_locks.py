@@ -37,8 +37,16 @@ def _copy_lock_contract(tmp_path: Path) -> Path:
             repo / ".github/workflows" / name,
         )
     (repo / "scripts").mkdir()
-    for name in ("install_torch_stack.py", "install_locked_requirements.py"):
+    for name in (
+        "install_torch_stack.py",
+        "install_locked_requirements.py",
+        "nlp_assets.py",
+    ):
         shutil.copy2(REPO_ROOT / "scripts" / name, repo / "scripts")
+    shutil.copy2(
+        REPO_ROOT / "requirements/nlp-assets.toml",
+        repo / "requirements/nlp-assets.toml",
+    )
     for relative in verifier_module._DOCUMENTATION_CONTRACT:
         destination = repo / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -56,6 +64,49 @@ def _replace_once(path: Path, old: str, new: str) -> None:
 def test_live_generated_lock_family_passes_offline_verification(capsys: object) -> None:
     assert verify_dependency_locks(REPO_ROOT) == ()
     assert main(["--repo-root", str(REPO_ROOT)]) == 0
+
+
+@pytest.mark.parametrize(
+    ("relative", "old", "new", "category", "finding_path"),
+    (
+        (
+            "requirements/nlp-assets.toml",
+            "8adba4294eef3964",
+            "0adba4294eef3964",
+            "asset",
+            "requirements/nlp-assets.toml",
+        ),
+        (
+            "requirements/nlp-assets.toml",
+            "size = 90486",
+            "size = 90485",
+            "asset",
+            "requirements/nlp-assets.toml",
+        ),
+        (
+            "nlp-model-requirements.txt",
+            "en_core_web_sm-3.8.0",
+            "en_core_web_sm-3.7.0",
+            "policy",
+            "requirements/lock-policy.toml",
+        ),
+    ),
+)
+def test_offline_verifier_rejects_nlp_asset_identity_drift(
+    tmp_path: Path,
+    relative: str,
+    old: str,
+    new: str,
+    category: str,
+    finding_path: str,
+) -> None:
+    repo = _copy_lock_contract(tmp_path)
+    _replace_once(repo / relative, old, new)
+
+    assert any(
+        finding.category == category and finding.path == finding_path
+        for finding in verify_dependency_locks(repo)
+    )
 
 
 @pytest.mark.parametrize(

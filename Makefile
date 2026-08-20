@@ -73,7 +73,7 @@ SMOKE_OUT ?= /tmp/ml-smoke
 TIER_A_OUT ?= /tmp/ml-tier-a
 TIER_A_OUT_ABS := $(abspath $(TIER_A_OUT))
 
-.PHONY: help print-tier-a print-tier-b print-tier-c run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-torch-stack verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify install-bootstrap install-compiler-lock install-docs-lock install-audit-lock install-atlas-contract-lock lock-write lock-check image-lock-check verify-dependency-locks install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
+.PHONY: help print-tier-a print-tier-b print-tier-c run-tier-a smoke-tier-a check-tier-a-artifacts check-tier-a-clean smoke-tier-b smoke-tier-c test verify-torch-stack verify-nnx-install test-nnx-surface test-atlas-consumer audit-advisories lint docs-build docs-serve docs-check docs-wiki docs-sync-notebook-infrastructure nlp-assets verify-nlp-assets verify install-bootstrap install-compiler-lock install-docs-lock install-audit-lock install-atlas-contract-lock lock-write lock-check image-lock-check verify-dependency-locks install-torch-stack codespace-setup atlas-setup atlas-up atlas-down atlas-connect atlas-contract
 
 help:
 	@echo "Targets:"
@@ -95,7 +95,8 @@ help:
 	@echo "  docs-check        Render diagrams, run the docs gate (check_docs), then mkdocs build --strict."
 	@echo "  docs-sync-notebook-infrastructure Render the canonical Atlas task-contract table explicitly."
 	@echo "  docs-wiki         Generate the wiki Markdown (build_docs --wiki), then push_wiki --check (dry-run)."
-	@echo "  nlp-assets        Download the NLTK vader_lexicon data asset; spaCy model code is package-locked."
+	@echo "  nlp-assets        Install the integrity-locked NLTK VADER lexicon; spaCy is package-locked."
+	@echo "  verify-nlp-assets Verify the installed VADER lexicon offline."
 	@echo "  verify            Run repo verifier (scripts/verify_repo.py --check all --fast)."
 	@echo "  install-bootstrap Install the hash-locked bootstrap toolchain."
 	@echo "  install-compiler-lock Install the hash-locked uv compiler."
@@ -229,7 +230,10 @@ docs-wiki:
 	$(PYTHON) -m scripts.docs.push_wiki --check
 
 nlp-assets:
-	$(PYTHON) -c "import nltk; nltk.download('vader_lexicon', quiet=True)"
+	$(PYTHON) -m scripts.nlp_assets install
+
+verify-nlp-assets:
+	$(PYTHON) -m scripts.nlp_assets verify
 
 install-bootstrap:
 	$(PYTHON) -m scripts.install_locked_requirements bootstrap
@@ -271,6 +275,7 @@ install-torch-stack:
 # one place across the Docker, venv, and Codespaces paths.
 codespace-setup: install-torch-stack
 	$(MAKE) nlp-assets
+	$(MAKE) verify-nlp-assets
 	$(PYTHON) -m pip check
 	$(MAKE) verify-torch-stack
 	$(MAKE) verify-nnx-install

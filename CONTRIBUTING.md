@@ -76,19 +76,17 @@ Primary runtime: the `ml-eng` Atlas track, accessed from local VS Code through t
 
 The `en-core-web-sm==3.8.0` wheel is an exact direct-URL/hash requirement in the platform root
 locks generated from `requirements/lock-policy.toml`; do not install or upgrade it separately.
-Only the VADER lexicon remains a post-lock data download (CI runs the same command in the
-`tier-a-papermill` job):
+Install the VADER archive through the repository's exact URL/size/SHA-256 manifest, then verify
+it offline before running either NLP notebook:
 
 ```bash
-# NLTK VADER lexicon — needed by sentiment_classification-vader-mlp-pytorch
-# (the notebook also has a lazy fallback download, but pre-downloading avoids
-# the per-run delay)
-python -c "import nltk; nltk.download('vader_lexicon', quiet=True)"
+make nlp-assets
+make verify-nlp-assets
 ```
 
 ## 6. Verification
 
-`scripts/verify_repo.py` is the repo's four-check oracle. Run before commits / PRs:
+`scripts/verify_repo.py` is the repo's five-check oracle. Run before commits / PRs:
 
 - `python scripts/verify_repo.py --check all --fast` — structure, docs, comments, env-limited execution. Fast (<30s).
 - `python scripts/verify_repo.py --check all` — adds the full Tier-A/B/C papermill smoke. Requires the Atlas JupyterHub runtime or an equivalent fully-provisioned environment.
@@ -105,7 +103,7 @@ policy/ledger, and documentation atomically in a fresh environment or rebuilt im
 
 ### 6.1. Helper scripts
 
-- `scripts/verify_repo.py` — the four-check oracle described above.
+- `scripts/verify_repo.py` — the five-check oracle described above.
 - `scripts/edit_notebook_markdown.py` — Tier-C-safe markdown-cell editor (changes a single markdown cell's source in-place).
 - `scripts/inject_smoke_test_cell.py` — adds a papermill `parameters`-tagged cell (`SMOKE_TEST = 0`) to a notebook. Use when promoting a notebook to Tier-B / Tier-C so `make smoke-tier-b/c` can truncate via `-p SMOKE_TEST 1`.
 - `scripts/rewrite_imports.py` — applies the `common/* → nnx/*` module-path rewrite plus the per-net-Params consolidation (`{FeedFwdNN, GraphAtt, GraphConv, GraphSage}Params → NNParams`). Idempotent; safe to re-run.

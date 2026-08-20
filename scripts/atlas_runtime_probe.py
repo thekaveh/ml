@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import importlib
 import importlib.metadata as metadata
 import json
@@ -13,6 +14,12 @@ import re
 import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+
+from scripts.nlp_assets import (
+    NLPAssetError,
+    load_manifest as load_nlp_asset_manifest,
+    verify_vader,
+)
 
 
 SCHEMA_VERSION = 1
@@ -43,10 +50,11 @@ ASSET_BY_NAME = {
 IMPORT_STATUSES = frozenset({"ok", "missing_module", "import_error"})
 DISTRIBUTION_STATUSES = frozenset({"ok", "missing_distribution", "metadata_error"})
 DEPENDENCY_STATUSES = IMPORT_STATUSES | DISTRIBUTION_STATUSES | {"version_mismatch"}
-ASSET_STATUSES = DEPENDENCY_STATUSES | {"missing_asset"}
+ASSET_STATUSES = DEPENDENCY_STATUSES | {"missing_asset", "asset_identity_mismatch"}
 NOTEBOOK_IMPORT_STATUSES = frozenset({"ok", "failed", "scan_error"})
 SUMMARY_STATUSES = frozenset({"ok", "failed"})
 SAFE_VERSION_RE = re.compile(r"^[0-9][A-Za-z0-9.!+_-]{0,127}$")
+SAFE_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SAFE_MODULE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
 SAFE_PYTHON_IMPLEMENTATIONS = frozenset(
     {"CPython", "PyPy", "Jython", "IronPython", "GraalPy"}
@@ -177,6 +185,33 @@ def _project_asset(raw: Mapping[str, object], asset_name: str) -> dict[str, obje
     }
     if distribution_name is not None:
         result["distribution"] = _project_distribution(raw.get("distribution"), distribution_name)
+    if asset_name == "vader_lexicon":
+        expected_sha = raw.get("expected_sha256")
+        observed_sha = raw.get("observed_sha256")
+        expected_size = _safe_count(raw.get("expected_size"))
+        observed_size = _safe_count(raw.get("observed_size"))
+        member = raw.get("member")
+        identity_ok = (
+            isinstance(expected_sha, str)
+            and SAFE_SHA256_RE.fullmatch(expected_sha) is not None
+            and isinstance(observed_sha, str)
+            and SAFE_SHA256_RE.fullmatch(observed_sha) is not None
+            and expected_sha == observed_sha
+            and expected_size is not None
+            and observed_size is not None
+            and expected_size == observed_size
+            and member == "vader_lexicon/vader_lexicon.txt"
+        )
+        if result["status"] == "ok" and identity_ok:
+            result.update({
+                "expected_sha256": expected_sha,
+                "observed_sha256": observed_sha,
+                "expected_size": expected_size,
+                "observed_size": observed_size,
+                "member": member,
+            })
+        elif result["status"] == "ok":
+            result["status"] = "asset_identity_mismatch"
     return result
 
 
@@ -517,9 +552,22 @@ def _spacy_model_evidence() -> dict[str, object]:
             "status": "metadata_error",
         }
     available = module["status"] == "ok" and distribution["status"] == "ok"
+    capability = evaluate_capability(
+        kind="asset",
+        available=available,
+        observed_version=distribution.get("version"),
+        expected_version="3.8.0",
+    )
+    if capability["status"] == "ok":
+        try:
+            import en_core_web_sm
+
+            en_core_web_sm.load()
+        except Exception:
+            capability = {"status": "import_error"}
     return {
         "asset": "en_core_web_sm",
-        **evaluate_capability(kind="asset", available=available),
+        **capability,
         "distribution": distribution,
         "import": module,
     }
@@ -536,17 +584,44 @@ def _vader_evidence() -> dict[str, object]:
     try:
         import nltk
 
-        try:
-            nltk.data.find("sentiment/vader_lexicon.zip")
-        except LookupError:
-            nltk.data.find("sentiment/vader_lexicon")
+        asset = load_nlp_asset_manifest(
+            Path(__file__).resolve().parents[1] / "requirements/nlp-assets.toml"
+        )
+        pointer = nltk.data.find(str(asset.resource))
+        resolved = Path(str(pointer))
+        matching_roots = [
+            Path(root)
+            for root in nltk.data.path
+            if Path(root).is_absolute() and Path(root) / Path(*asset.resource.parts) == resolved
+        ]
+        if len(matching_roots) != 1 or resolved.is_symlink() or not resolved.is_file():
+            raise NLPAssetError("destination")
+        for root in nltk.data.path:
+            candidate = Path(root) / Path(*asset.resource.parts)
+            if candidate.exists() or candidate.is_symlink():
+                if candidate.is_symlink() or not candidate.is_file():
+                    raise NLPAssetError("destination")
+                if hashlib.sha256(candidate.read_bytes()).hexdigest() != asset.sha256:
+                    raise NLPAssetError("hash")
+        verified = verify_vader(asset, matching_roots[0])
+        observed_size = verified.stat().st_size
+        observed_sha = hashlib.sha256(verified.read_bytes()).hexdigest()
     except Exception:
         return {
             "asset": "vader_lexicon",
-            **evaluate_capability(kind="asset", available=False),
+            "status": "asset_identity_mismatch",
             "import": module,
         }
-    return {"asset": "vader_lexicon", "status": "ok", "import": module}
+    return {
+        "asset": "vader_lexicon",
+        "status": "ok",
+        "expected_sha256": asset.sha256,
+        "observed_sha256": observed_sha,
+        "expected_size": asset.size,
+        "observed_size": observed_size,
+        "member": str(asset.member),
+        "import": module,
+    }
 
 
 def _failed_dependency_evidence(

@@ -3,9 +3,11 @@
 Every notebook environment is installed from the target selected by
 `requirements/lock-policy.toml`: Darwin arm64, Linux x86_64, or Linux aarch64. The committed
 hash-required root lock includes notebook tooling and the exact spaCy model wheel; `make nlp-assets`
-adds only the VADER data asset. These locks make a run reproducible for the qualified platform lock,
-while dataset/model content integrity remains Issue #64, Atlas runtime ownership remains Issue #65,
-and the complete quantization notebook remains manual-only under Issue #66.
+adds only the official size- and SHA-256-verified VADER ZIP, and `make verify-nlp-assets` verifies
+the installed asset offline before a workload. These locks make a run reproducible for the
+qualified platform lock. Issue #64 owns the completed VADER integrity contract, Atlas runtime
+ownership remains Issue #65, and the complete quantization notebook remains manual-only under
+Issue #66.
 
 Atlas tasks use a remote JupyterHub kernel from VS Code by default. Open the
 repository in VS Code, connect to the Atlas JupyterHub server, and select the

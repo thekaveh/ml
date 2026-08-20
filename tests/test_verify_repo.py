@@ -1,4 +1,4 @@
-"""Tests for scripts/verify_repo.py — the four-check oracle."""
+"""Tests for scripts/verify_repo.py — the five-check oracle."""
 from __future__ import annotations
 
 import json
@@ -62,6 +62,132 @@ def test_dependency_advisory_lock_d10_integration_is_clean() -> None:
     assert verify_repo._dependency_advisory_lock_findings(REPO_ROOT) == []
 
 
+def _copy_nlp_asset_contract(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    paths = (
+        "requirements/nlp-assets.toml",
+        "nlp-model-requirements.txt",
+        "Makefile",
+        "Dockerfile",
+        ".github/workflows/ci.yml",
+        ".devcontainer/devcontainer.json",
+        "notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb",
+        "scripts/verify_dependency_locks.py",
+        "scripts/atlas_runtime_probe.py",
+    )
+    for relative in paths:
+        destination = repo / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / relative, destination)
+    return repo
+
+
+def _mutate_once(path: Path, old: str, new: str) -> None:
+    source = path.read_text(encoding="utf-8")
+    mutated = source.replace(old, new, 1)
+    assert mutated != source
+    path.write_text(mutated, encoding="utf-8")
+
+
+def _assert_one_nlp_asset_finding(repo: Path, location: str) -> None:
+    findings = verify_repo._nlp_asset_contract_findings(repo)
+    assert len(findings) == 1
+    assert findings[0].id == "D11.nlp_asset_contract"
+    assert findings[0].check == "assets"
+    assert findings[0].location == location
+
+
+def test_nlp_asset_d11_clean_control() -> None:
+    assert verify_repo._nlp_asset_contract_findings(REPO_ROOT) == []
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        ("raw.githubusercontent.com/nltk/nltk_data", "example.invalid/nltk/nltk_data"),
+        ("8adba4294eef3964", "0adba4294eef3964"),
+        ("size = 90486", "size = 90485"),
+        ("vader_lexicon/vader_lexicon.txt", "vader_lexicon/other.txt"),
+    ),
+)
+def test_nlp_asset_d11_rejects_manifest_identity_drift(
+    tmp_path: Path, old: str, new: str
+) -> None:
+    repo = _copy_nlp_asset_contract(tmp_path)
+    _mutate_once(repo / "requirements/nlp-assets.toml", old, new)
+
+    _assert_one_nlp_asset_finding(repo, "requirements/nlp-assets.toml")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "\nfrom nltk import download as fetch\nfetch('vader_lexicon')\n",
+        "\nnltk.download = lambda *args: None\n",
+        "\ngetattr(nltk, 'download')('vader_lexicon')\n",
+        "\n!python -m nltk.downloader vader_lexicon\n",
+    ),
+)
+def test_nlp_asset_d11_rejects_notebook_download_bypasses(
+    tmp_path: Path, mutation: str
+) -> None:
+    repo = _copy_nlp_asset_contract(tmp_path)
+    path = repo / "notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb"
+    notebook = json.loads(path.read_text(encoding="utf-8"))
+    setup = next(
+        cell
+        for cell in notebook["cells"]
+        if cell.get("cell_type") == "code"
+        and "sentiment/vader_lexicon.zip" in "".join(cell.get("source", []))
+    )
+    setup["source"].append(mutation)
+    path.write_text(json.dumps(notebook), encoding="utf-8")
+
+    _assert_one_nlp_asset_finding(
+        repo,
+        "notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb",
+    )
+
+
+@pytest.mark.parametrize(
+    ("relative", "old", "new"),
+    (
+        ("Makefile", "\nverify-nlp-assets:\n", "\nverify-assets:\n"),
+        ("Dockerfile", "  && make verify-nlp-assets \\\n", ""),
+        (
+            ".github/workflows/ci.yml",
+            "          make verify-nlp-assets\n",
+            "",
+        ),
+    ),
+)
+def test_nlp_asset_d11_rejects_missing_consumer_verification(
+    tmp_path: Path, relative: str, old: str, new: str
+) -> None:
+    repo = _copy_nlp_asset_contract(tmp_path)
+    _mutate_once(repo / relative, old, new)
+
+    _assert_one_nlp_asset_finding(repo, relative)
+
+
+def test_nlp_asset_d11_rejects_spacy_identity_drift(tmp_path: Path) -> None:
+    repo = _copy_nlp_asset_contract(tmp_path)
+    _mutate_once(
+        repo / "nlp-model-requirements.txt",
+        "en_core_web_sm-3.8.0",
+        "en_core_web_sm-3.7.0",
+    )
+
+    _assert_one_nlp_asset_finding(repo, "nlp-model-requirements.txt")
+
+
+def test_nlp_asset_d11_maps_malformed_workflow_to_stable_finding(tmp_path: Path) -> None:
+    repo = _copy_nlp_asset_contract(tmp_path)
+    (repo / ".github/workflows/ci.yml").write_text("jobs: []\n", encoding="utf-8")
+
+    _assert_one_nlp_asset_finding(repo, ".github/workflows/ci.yml")
+
+
 def test_dependency_advisory_lock_d10_fails_closed_on_projection_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -91,6 +217,8 @@ def test_dependency_lock_d10_reports_missing_output(tmp_path: Path) -> None:
         shutil.copy2(REPO_ROOT / relative, destination)
     shutil.copy2(REPO_ROOT / "requirements/lock-policy.toml", repo / "requirements")
     shutil.copy2(REPO_ROOT / "requirements/image-lock.json", repo / "requirements")
+    shutil.copy2(REPO_ROOT / "requirements/nlp-assets.toml", repo / "requirements")
+    shutil.copy2(REPO_ROOT / "nlp-model-requirements.txt", repo)
     (repo / "requirements/locks/compiler.txt").unlink()
 
     findings = verify_repo._dependency_lock_findings(repo)
@@ -412,6 +540,7 @@ def test_atlas_contract_direct_dependencies_match_documentation_pins():
 
     assert requirements_path.is_file(), "atlas-contract-requirements.txt is missing"
     assert _parse_exact_direct_pins(requirements_path) == {
+        "nltk": "3.10.3",
         "pytest": _documentation_pin("pytest"),
         "pyyaml": _documentation_pin("pyyaml"),
         "uv": "0.11.19",
@@ -4597,6 +4726,11 @@ def _assert_runtime_job_install_contract(workflow: dict, job_name: str) -> None:
             "fetch-depth": "0",
             "submodules": "recursive",
         }
+    elif job_name == "pytest-repository":
+        assert checkout.get("with") == {
+            "persist-credentials": "false",
+            "submodules": "recursive",
+        }
     else:
         assert "submodules" not in checkout.get("with", {})
 
@@ -4717,6 +4851,61 @@ def test_ci_verify_repo_submodule_contract_initializes_recursive_checkout():
     _assert_runtime_job_install_contract(workflow, "verify-repo")
 
 
+def test_ci_repository_suite_initializes_recursive_checkout_for_atlas_projection_tests():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    checkout = next(
+        step
+        for step in workflow["jobs"]["pytest-repository"]["steps"]
+        if step.get("name") == "Checkout"
+    )
+
+    assert checkout["with"] == {
+        "persist-credentials": "false",
+        "submodules": "recursive",
+    }
+    _assert_runtime_job_install_contract(workflow, "pytest-repository")
+
+
+def _assert_ci_atlas_consumer_policy_recursive_checkout(workflow: dict) -> None:
+    checkout = next(
+        step
+        for step in workflow["jobs"]["atlas-consumer-policy"]["steps"]
+        if step.get("name") == "Checkout"
+    )
+
+    assert checkout["with"] == {
+        "persist-credentials": "false",
+        "submodules": "recursive",
+    }
+
+
+def test_ci_atlas_consumer_policy_initializes_recursive_checkout():
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    _assert_ci_atlas_consumer_policy_recursive_checkout(workflow)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (None, False, True, "false", "true", "recursive "),
+    ids=("omitted", "false-bool", "true-bool", "false-string", "true-string", "spaced"),
+)
+def test_ci_atlas_consumer_policy_rejects_nonrecursive_checkout(mutation):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    checkout = next(
+        step
+        for step in workflow["jobs"]["atlas-consumer-policy"]["steps"]
+        if step.get("name") == "Checkout"
+    )
+    checkout["with"]["submodules"] = "recursive"
+
+    if mutation is None:
+        checkout["with"].pop("submodules")
+    else:
+        checkout["with"]["submodules"] = mutation
+    with pytest.raises(AssertionError):
+        _assert_ci_atlas_consumer_policy_recursive_checkout(workflow)
+
+
 @pytest.mark.parametrize(
     "mutation",
     (None, False, True, "false", "true", "recursive "),
@@ -4741,8 +4930,35 @@ def test_ci_verify_repo_submodule_contract_rejects_nonrecursive_mutations(mutati
 
 
 @pytest.mark.parametrize(
+    "mutation",
+    (None, False, True, "false", "true", "recursive "),
+    ids=("omitted", "false-bool", "true-bool", "false-string", "true-string", "spaced"),
+)
+def test_ci_repository_suite_rejects_nonrecursive_checkout_mutations(mutation):
+    workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
+    checkout = next(
+        step
+        for step in workflow["jobs"]["pytest-repository"]["steps"]
+        if step.get("name") == "Checkout"
+    )
+    checkout["with"]["submodules"] = "recursive"
+    _assert_runtime_job_install_contract(workflow, "pytest-repository")
+
+    if mutation is None:
+        checkout["with"].pop("submodules")
+    else:
+        checkout["with"]["submodules"] = mutation
+    with pytest.raises(AssertionError):
+        _assert_runtime_job_install_contract(workflow, "pytest-repository")
+
+
+@pytest.mark.parametrize(
     "job_name",
-    tuple(name for name in _RUNTIME_JOB_WORKLOADS if name != "verify-repo"),
+    tuple(
+        name
+        for name in _RUNTIME_JOB_WORKLOADS
+        if name not in {"pytest-repository", "verify-repo"}
+    ),
 )
 def test_ci_verify_repo_submodule_contract_preserves_other_runtime_checkouts(job_name):
     workflow = _load_workflow(REPO / ".github/workflows/ci.yml")
@@ -4900,6 +5116,7 @@ def _ordered_install_fixture() -> tuple[str, ...]:
         "make install-torch-stack",
         "python -m pip install -r docs-requirements.txt",
         "make nlp-assets",
+        "make verify-nlp-assets",
         "python -m pip check",
         "make verify-torch-stack",
         "make verify-nnx-install",
@@ -5412,7 +5629,10 @@ _ATLAS_CONSUMER_POLICY_JOB = {
         {
             "name": "Checkout",
             "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
-            "with": {"persist-credentials": "false"},
+            "with": {
+                "persist-credentials": "false",
+                "submodules": "recursive",
+            },
         },
         {
             "name": "Set up Python 3.11",
@@ -5552,10 +5772,10 @@ def test_atlas_consumer_policy_contract_rejects_changed_step_inventory(mutation)
         _assert_atlas_consumer_policy_contract(workflow)
 
 
-def test_atlas_consumer_policy_contract_rejects_checkout_submodules():
+def test_atlas_consumer_policy_contract_rejects_nonrecursive_checkout():
     workflow = _valid_atlas_consumer_policy_workflow()
     checkout = workflow["jobs"]["atlas-consumer-policy"]["steps"][0]
-    checkout["with"]["submodules"] = "recursive"
+    checkout["with"]["submodules"] = "false"
 
     with pytest.raises(AssertionError):
         _assert_atlas_consumer_policy_contract(workflow)
@@ -6021,7 +6241,10 @@ def _assert_complete_repository_test_contract(workflow: dict) -> None:
         {
             "name": "Checkout",
             "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
-            "with": {"persist-credentials": "false"},
+            "with": {
+                "persist-credentials": "false",
+                "submodules": "recursive",
+            },
         },
         {
             "name": "Install system dependencies for cairosvg",
@@ -6687,7 +6910,11 @@ def test_ci_tier_a_uses_temporary_outputs_and_preserves_sources():
 _TIER_NNX_CONTRACTS = {
     "tier-a-papermill": {
         "workload": {"name": "Run Tier-A notebooks (papermill)", "run": "make smoke-tier-a"},
-        "install": "make install-torch-stack\nmake nlp-assets\n",
+        "install": (
+            "make install-torch-stack\n"
+            "make nlp-assets\n"
+            "make verify-nlp-assets\n"
+        ),
     },
     "smoke-tier-b": {
         "workload": {"name": "Smoke-run Tier-B notebooks", "run": "make smoke-tier-b"},

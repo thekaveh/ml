@@ -21,7 +21,7 @@ This notebook runs both on the same embedded review corpus and reports the head-
 > **Tip:** GitHub may show "Unable to render code block" on output cells with large matplotlib PNGs. [View this notebook on nbviewer](https://nbviewer.org/github/thekaveh/ml-eng-lab/blob/main/notebooks/sentiment_classification-vader-mlp-pytorch/notebook.ipynb) for full rendering.
 
 - §1 Overview — both recipes, dataset, libraries.
-- §2 Environment & Setup — imports (lazy `nltk.download('vader_lexicon')`), hyperparameters (`VOCAB_SIZE=100`, `HIDDEN_DIMS=[32]`, `N_EPOCHS=60`, `COMPOUND_POS_THRESHOLD=0.05` / `_NEG=-0.05` per VADER paper), `nnx.set_seed(0)`.
+- §2 Environment & Setup — imports, a fail-closed check for the integrity-verified VADER asset, hyperparameters (`VOCAB_SIZE=100`, `HIDDEN_DIMS=[32]`, `N_EPOCHS=60`, `COMPOUND_POS_THRESHOLD=0.05` / `_NEG=-0.05` per VADER paper), `nnx.set_seed(0)`.
 - §3 Data — embedded 60-review corpus tiled 4×, 80/20 stratified split, spaCy tokenize + train-only BoW vocabulary + L2-normalized featurizer (same recipe as the sibling AG-News notebook).
 - §4 Model — VADER contract + small `FeedFwdNN` classifier.
 - §5 Training — VADER predicts in one call (no training); neural MLP trained for 60 epochs.
@@ -47,17 +47,17 @@ make run-tier-a
 
 - `torch` — autograd + tensors.
 - `nnx` (PyPI: `thekaveh-nnx`) — `FeedFwdNN`, `NNModel`, `NNTrainParams`, `set_seed`.
-- `nltk` — `SentimentIntensityAnalyzer`. The `vader_lexicon` is downloaded lazily by §2.1 if not already present (cached after first run).
+- `nltk` — `SentimentIntensityAnalyzer`. Install and verify the exact `vader_lexicon` archive with `make nlp-assets && make verify-nlp-assets` before running §2.1.
 - `spacy` — tokenizer + lemmatizer (`en_core_web_sm`, same as `notebooks/text_classification-agnews-spacy-mlp-pytorch/`).
 - `scikit-learn` — split + accuracy + classification_report + confusion_matrix.
 - `numpy`, `matplotlib`, `prettytable`.
 
-`nltk` is in the root `requirements.txt`. The `vader_lexicon` itself is a separate download — CI pre-downloads it via `python -c "import nltk; nltk.download('vader_lexicon', quiet=True)"` in `.github/workflows/ci.yml`; the notebook also has a lazy fallback in §2.1 for fresh local installs.
+`nltk` is in the selected platform lock. The VADER archive is a separate integrity-locked data asset: `make nlp-assets` installs it from the canonical manifest, and `make verify-nlp-assets` checks it offline. The notebook never downloads data.
 
 ## 6. Known issues
 
 - **Embedded corpus is tiny (60 unique reviews, 240 after tiling).** Real sentiment benchmarks (IMDB 50k, Amazon Reviews) are much larger. Absolute accuracy numbers are not directly comparable. The *relative* ordering (VADER ≈ neural at this scale) is the pedagogical point.
-- **`vader_lexicon` lazy download fallback.** CI pre-downloads the lexicon in the `tier-a-papermill` job. For fresh local installs, the notebook's `try / except LookupError → nltk.download('vader_lexicon', quiet=True)` in §2.1 handles the first run (~125 KB, cached after).
+- **`vader_lexicon` must be installed before execution.** CI and supported local setup run `make nlp-assets` followed by `make verify-nlp-assets`; §2.1 fails with an actionable message if the verified archive is absent.
 - **VADER's compound thresholds (±0.05) are the original-paper defaults.** Domain-specific tuning (e.g., compound > 0.2 for more conservative positive classification) helps on noisy real-world text; we use defaults for reproducibility.
 - **Neutral detection is the weak spot for both recipes.** Embedded "neutral" reviews are factual statements with no polarity words (release dates, store hours, package weights). VADER calls these neutral by default — good. The neural MLP can learn this if the train split contains enough factual-statement vocabulary; with 16 neutral train samples, it sometimes overfits to specific neutral keywords.
-- **`vader_lexicon` is a separate download.** `pip install nltk` doesn't pull the lexicon — it ships separately and is fetched via `nltk.download('vader_lexicon')` (lazy in §2.1; pre-downloaded in CI).
+- **`vader_lexicon` is a separate data asset.** Installing `nltk` does not supply it. Use only the repository's manifest-backed installer and offline verifier; do not call NLTK's downloader directly.

@@ -2,7 +2,9 @@
 
 This runbook governs the `infra/` Atlas submodule and the consumer boundary around it. Atlas is
 the successor to the old infrastructure seam; this repository consumes it rather than maintaining
-a fork. The current reviewed pin is `61c7c5103660e2226bf107c115dae42bf46f8374`.
+a fork.
+
+Current reviewed Atlas pin: `41ba856f7cd35f0b559d6875e08443eac3e98a98`.
 
 ## 6.2.1 Ownership and invariants
 

@@ -13,6 +13,13 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Atlas pin review (Issue #65):** retained the exact reviewed `infra/` gitlink
+  `41ba856f7cd35f0b559d6875e08443eac3e98a98` after a fresh fetch proved Atlas
+  `origin/main` was identical. The historical 30-first-parent/43-total-commit
+  migration from `61c7c510...` was classified across JupyterHub, FastMCP,
+  track synthesis, managed host processes, host-native Ollama, and disabled
+  ComfyUI boundaries; live runtime evidence is recorded separately after the
+  consumer lifecycle validation.
 - **Verified NLP assets (Issue #64):** replaced every active VADER downloader with the shared
   `make nlp-assets` installer and offline `make verify-nlp-assets` gate. The official NLTK data
   ZIP is locked at 90,486 bytes and SHA-256

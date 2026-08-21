@@ -428,10 +428,31 @@ canonical mode and rerun `make verify-nnx-install` before recording release comp
 `infra` submodule.
 Current Atlas `infra` gitlink SHA: `41ba856f7cd35f0b559d6875e08443eac3e98a98`.
 
+### 6.1.7.1 Issue #65 Atlas pin review
+
+The 2026-08-21 review found an empty current-to-main range: the consumed gitlink
+and freshly fetched Atlas `origin/main` both resolved to
+`41ba856f7cd35f0b559d6875e08443eac3e98a98`. The repository therefore retained
+that exact pin; it did not manufacture a no-op bump or roll back to the previous
+reviewed SHA `61c7c5103660e2226bf107c115dae42bf46f8374`.
+
+The historical migration reviewed was
+`61c7c5103660e2226bf107c115dae42bf46f8374..41ba856f7cd35f0b559d6875e08443eac3e98a98`:
+30 first-parent commits and 43 total commits.
+
+| Migration area | Reviewed change | Consumer consequence |
+| --- | --- | --- |
+| JupyterHub, Torch, PyG, and NLP | Atlas moves its independent notebook image to Torch 2.13.0, torchvision 0.28.0, `pyg_lib==0.8.0`, `torch-geometric==2.7.0`, locked runtime constraints, and the exact Issue #64 NLP assets. | Live JupyterHub validation is required; Atlas versions do not alter the repository's local/CI Torch 2.11 locks. |
+| FastMCP and MCP | The image adds `fastmcp==3.4.4` and the reviewed MCP notebook/runtime surface. | The live probe must import FastMCP from the mounted repository runtime. |
+| Track synthesis | Track membership, registry checks, and explicit consumer source overrides were tightened. | `ml-eng` remains the selected track and the parent manifest's native-source policy must survive synthesis. |
+| Host processes and Ollama | Atlas adds the generic `managed-host-process` framework plus host-native Ollama parallel/residency doctor checks. | Ollama remains host-native and loopback-only; the consumer must not start a Docker Ollama service. |
+| ComfyUI | Atlas adds consumer custom-node and managed-localhost-MPS support. | ComfyUI remains disabled for this repository and no ComfyUI container or managed process is admitted. |
+
 This reviewed superproject gitlink is the active Atlas dependency contract.
-Consumer configuration is deliberately outside `infra/`: `atlas.consumer.yml`,
-`atlas.env.user.example`, and `compose/ml-eng-lab-atlas.yml` define the track,
-native-source policy, and mount. Pin changes follow
+Consumer configuration remains deliberately outside `infra/`:
+`atlas.consumer.yml`, `atlas.env.user.example`, and
+`compose/ml-eng-lab-atlas.yml` define the track, native-source policy, and
+mount. Pin changes follow
 [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
 
 ## 6.1.8 Atlas Jupyter Runtime Evidence

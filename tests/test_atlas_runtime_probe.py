@@ -533,7 +533,10 @@ def test_vader_evidence_rejects_corrupt_archive_identity(
     assert probe._vader_evidence()["status"] == "asset_identity_mismatch"
 
 
-@pytest.mark.parametrize("mutation", ("symlink", "directory", "escape", "duplicate"))
+@pytest.mark.parametrize(
+    "mutation",
+    ("symlink", "directory", "escape", "duplicate", "duplicate_identical"),
+)
 def test_vader_evidence_rejects_unsafe_or_ambiguous_resource_paths(
     tmp_path, monkeypatch, mutation: str
 ) -> None:
@@ -567,7 +570,9 @@ def test_vader_evidence_rejects_unsafe_or_ambiguous_resource_paths(
         second = tmp_path / "second"
         duplicate = second / "sentiment/vader_lexicon.zip"
         duplicate.parent.mkdir(parents=True)
-        duplicate.write_bytes(b"different")
+        duplicate.write_bytes(
+            archive.read_bytes() if mutation == "duplicate_identical" else b"different"
+        )
         roots = [first, second]
         pointer = archive
     _configure_vader_probe(monkeypatch, asset=asset, roots=roots, pointer=pointer)

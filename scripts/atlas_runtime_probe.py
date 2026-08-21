@@ -667,21 +667,28 @@ def _vader_evidence() -> dict[str, object]:
         )
         pointer = nltk.data.find(str(asset.resource))
         resolved = Path(str(pointer))
-        matching_roots = list(dict.fromkeys(
-            Path(root)
-            for root in nltk.data.path
-            if Path(root).is_absolute() and Path(root) / Path(*asset.resource.parts) == resolved
-        ))
-        if len(matching_roots) != 1 or resolved.is_symlink() or not resolved.is_file():
-            raise NLPAssetError("destination")
+        resource_by_identity: dict[Path, Path] = {}
         for root in nltk.data.path:
-            candidate = Path(root) / Path(*asset.resource.parts)
-            if candidate.exists() or candidate.is_symlink():
-                if candidate.is_symlink() or not candidate.is_file():
-                    raise NLPAssetError("destination")
-                if hashlib.sha256(candidate.read_bytes()).hexdigest() != asset.sha256:
-                    raise NLPAssetError("hash")
-        verified = verify_vader(asset, matching_roots[0])
+            root_path = Path(root)
+            if not root_path.is_absolute():
+                continue
+            candidate = root_path / Path(*asset.resource.parts)
+            if not candidate.exists() and not candidate.is_symlink():
+                continue
+            if candidate.is_symlink() or not candidate.is_file():
+                raise NLPAssetError("destination")
+            resource_by_identity.setdefault(candidate.resolve(strict=True), root_path)
+        if (
+            len(resource_by_identity) != 1
+            or resolved.is_symlink()
+            or not resolved.is_file()
+            or resolved.resolve(strict=True) not in resource_by_identity
+        ):
+            raise NLPAssetError("destination")
+        resource, data_root = next(iter(resource_by_identity.items()))
+        if hashlib.sha256(resource.read_bytes()).hexdigest() != asset.sha256:
+            raise NLPAssetError("hash")
+        verified = verify_vader(asset, data_root)
         observed_size = verified.stat().st_size
         observed_sha = hashlib.sha256(verified.read_bytes()).hexdigest()
     except Exception:

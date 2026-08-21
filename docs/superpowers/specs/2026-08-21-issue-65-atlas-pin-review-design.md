@@ -183,8 +183,9 @@ validation:
 4. From the running JupyterHub container, execute
    `scripts/atlas_runtime_probe.py` against the mounted checkout and require
    every mandatory capability to pass.
-5. Execute one cheap Python/import cell through the running Jupyter server
-   without logging its token-bearing URL.
+5. Execute one cheap Python/import cell through the Jupyter kernel registered
+   inside the running JupyterHub container, without logging its token-bearing
+   URL.
 6. Stop with ordinary `make atlas-down`, preserving volumes. Prove the project
    is stopped, the host-native Ollama process was not lifecycle-owned, and the
    parent/submodule remain clean.

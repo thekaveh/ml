@@ -68,7 +68,8 @@ The historical range contains these material consumer changes:
 ### 12.27.4.1 JupyterHub runtime
 
 - Torch moves from 2.11.0/torchvision 0.26.0/torchaudio 2.11.0 to Atlas's
-  independently owned Torch 2.13.0/torchvision 0.28.0 runtime.
+  independently owned Torch 2.13.0/torchvision 0.28.0 runtime. Atlas omits
+  Torchaudio because no executable notebook imports it.
 - PyG moves from the Torch 2.11 legacy extension set to the Torch 2.13 CPU
   index with `pyg_lib==0.8.0` and `torch_geometric==2.7.0`; Atlas no longer
   installs the unavailable legacy scatter/sparse/cluster wheels for 2.13.
@@ -85,6 +86,15 @@ local/CI Torch 2.11 lock. Compatibility is proved by the runtime probe and
 notebook imports, not by requiring both environments to have identical
 versions. Atlas still carries `thekaveh-nnx[lm]==0.2.0`, preserving the default
 notebook API boundary established by Issue #61.
+
+The four immutable Reddit Phase-3 notebooks retain a historical
+`from torch_sparse import SparseTensor` statement whose binding is never
+loaded. Their August-2023 code/output contract forbids rewriting or
+re-execution. The runtime probe may exclude `torch_sparse` only when those
+four exact notebooks are the complete import context and every binding remains
+unused. A new import, a fifth context, or any `SparseTensor` load restores the
+mandatory fail-closed import. This is a bounded historical-source exception,
+not evidence that `torch_sparse` exists in Atlas.
 
 ### 12.27.4.2 Track and source synthesis
 
@@ -181,8 +191,10 @@ validation:
 3. Prove the resolved project contains JupyterHub but no Ollama or ComfyUI
    container.
 4. From the running JupyterHub container, execute
-   `scripts/atlas_runtime_probe.py` against the mounted checkout and require
-   every mandatory capability to pass.
+   `scripts/atlas_runtime_probe.py --json /tmp/issue65-runtime.json` against
+   the mounted checkout and require every mandatory capability to pass. The
+   probe deduplicates repeated NLTK search-path entries only when they resolve
+   to the same exact VADER archive; distinct duplicates remain failures.
 5. Execute one cheap Python/import cell through the Jupyter kernel registered
    inside the running JupyterHub container, without logging its token-bearing
    URL.

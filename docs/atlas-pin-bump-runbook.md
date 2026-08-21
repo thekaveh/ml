@@ -74,7 +74,8 @@ Current reviewed Atlas pin: `41ba856f7cd35f0b559d6875e08443eac3e98a98`.
 
    ```bash
    docker exec <project>-jupyterhub sh -lc \
-     'cd /home/jovyan/work/ml-eng-lab && python scripts/atlas_runtime_probe.py'
+     'cd /home/jovyan/work/ml-eng-lab && \
+      python scripts/atlas_runtime_probe.py --json /tmp/atlas-runtime-probe.json'
    ```
 
 4. Run `make atlas-connect` from an interactive terminal and use its token-bearing URL to execute a

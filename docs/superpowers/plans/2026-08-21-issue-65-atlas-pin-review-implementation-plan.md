@@ -390,6 +390,9 @@ commit and rerun the affected gates before live validation.
 ### 12.28.1.4 Task 4: Run live Atlas JupyterHub validation and record current evidence
 
 **Files:**
+- Modify: `scripts/atlas_runtime_probe.py`
+- Modify: `tests/test_atlas_runtime_probe.py`
+- Modify: `docs/atlas-pin-bump-runbook.md`
 - Modify: `docs/dependency-contracts.md`
 - Modify: `tests/test_check_docs.py`
 - Create ignored evidence: `.superpowers/sdd/issue65-evidence/live-atlas.json`
@@ -425,7 +428,7 @@ Inside the exact JupyterHub container, run:
 
 ```bash
 cd /home/jovyan/work/ml-eng-lab
-python scripts/atlas_runtime_probe.py
+python scripts/atlas_runtime_probe.py --json /tmp/issue65-runtime.json
 python -m jupyter nbconvert --execute --to notebook \
   --ExecutePreprocessor.kernel_name=python3 \
   --output /tmp/issue65-cell-output.ipynb \
@@ -441,6 +444,16 @@ print("atlas-cell-ok")`. Capture Python, Torch, torchvision, PyG, FastMCP,
 spaCy, and NLTK versions. The executed notebook must contain exactly one stream
 line, `atlas-cell-ok`; remove both temporary notebooks afterward and do not
 print a token-bearing Jupyter URL.
+
+The probe contract follows actual executable consumers. It does not require
+Torchaudio because no executable notebook imports it. It excludes
+`torch_sparse` only for the exact four immutable Reddit Phase-3 notebooks when
+their preserved `SparseTensor` binding remains unused; any other context or
+use makes the module mandatory again. Repeated identical NLTK data-root entries
+refer to one VADER archive and are deduplicated, while distinct duplicate,
+symlinked, corrupt, or wrong-identity resources remain failures. Add RED/GREEN
+tests for direct script execution, all three boundaries, and their killing
+mutations before accepting the live probe.
 
 - [ ] **Step 4: Stop without data loss**
 
@@ -473,7 +486,9 @@ make docs-check
 make docs-wiki
 make verify
 git diff --check
-git add -- docs/dependency-contracts.md tests/test_check_docs.py
+git add -- scripts/atlas_runtime_probe.py tests/test_atlas_runtime_probe.py \
+  docs/atlas-pin-bump-runbook.md docs/dependency-contracts.md \
+  tests/test_check_docs.py
 git commit -m "docs: record current Atlas runtime evidence"
 ```
 

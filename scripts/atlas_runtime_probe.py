@@ -15,11 +15,20 @@ import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from scripts.nlp_assets import (
-    NLPAssetError,
-    load_manifest as load_nlp_asset_manifest,
-    verify_vader,
-)
+try:
+    from scripts.nlp_assets import (
+        NLPAssetError,
+        load_manifest as load_nlp_asset_manifest,
+        verify_vader,
+    )
+except ModuleNotFoundError as exc:
+    if exc.name != "scripts":
+        raise
+    from nlp_assets import (  # type: ignore[no-redef]
+        NLPAssetError,
+        load_manifest as load_nlp_asset_manifest,
+        verify_vader,
+    )
 
 
 SCHEMA_VERSION = 1
@@ -31,12 +40,16 @@ DEPENDENCIES = (
     ("nnx", "thekaveh-nnx", "nnx"),
     ("Torch", "torch", "torch"),
     ("TorchVision", "torchvision", "torchvision"),
-    ("TorchAudio", "torchaudio", "torchaudio"),
     ("TorchAO", "torchao", "torchao"),
     ("PyTorch Geometric", "torch-geometric", "torch_geometric"),
     ("python-louvain", "python-louvain", "community"),
     ("spaCy", "spacy", "spacy"),
     ("NLTK", "nltk", "nltk"),
+)
+PRESERVED_PHASE3_NOTEBOOKS = frozenset(
+    f"notebooks/node_classification-reddit-gnn-pyg/"
+    f"phase3-main-model-training-and-eval-notebook{suffix}.ipynb"
+    for suffix in ("", "2", "3", "4")
 )
 EXTRA_IMPORTS = {"thekaveh-nnx[lm]": ("datasets", "tokenizers")}
 DEPENDENCY_BY_LABEL = {
@@ -369,6 +382,71 @@ def _active_notebook_documents(
     return documents, {module: tuple(contexts) for module, contexts in local_contexts.items()}
 
 
+def _has_unused_sparse_tensor_import(document: Mapping[str, object]) -> bool:
+    exact_import_count = 0
+    other_sparse_import = False
+    loaded = False
+    cells = document.get("cells", [])
+    if not isinstance(cells, list):
+        return False
+    for cell in cells:
+        if not isinstance(cell, Mapping) or cell.get("cell_type") != "code":
+            continue
+        source = _python_cell_source(_cell_source(cell))
+        if not source:
+            continue
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "torch_sparse":
+                if len(node.names) == 1 and node.names[0].name == "SparseTensor" and node.names[0].asname is None:
+                    exact_import_count += 1
+                else:
+                    other_sparse_import = True
+            elif isinstance(node, ast.Import) and any(
+                alias.name == "torch_sparse" for alias in node.names
+            ):
+                other_sparse_import = True
+            elif (
+                isinstance(node, ast.Name)
+                and isinstance(node.ctx, ast.Load)
+                and node.id == "SparseTensor"
+            ):
+                loaded = True
+    return exact_import_count == 1 and not other_sparse_import and not loaded
+
+
+def _runtime_notebook_imports(
+    repo_root: Path,
+    documents: Iterable[Mapping[str, object]],
+) -> tuple[str, ...]:
+    """Return mandatory imports, excluding one exact immutable unused binding."""
+    modules = set(extract_notebook_imports(documents))
+    if "torch_sparse" not in modules:
+        return tuple(sorted(modules))
+
+    sparse_paths: set[str] = set()
+    preserved_are_unused = True
+    for notebook_path in sorted((repo_root / "notebooks").glob("*/*.ipynb")):
+        if "archive" in notebook_path.relative_to(repo_root / "notebooks").parts:
+            continue
+        document = json.loads(notebook_path.read_text(encoding="utf-8"))
+        if not isinstance(document, Mapping):
+            preserved_are_unused = False
+            continue
+        if "torch_sparse" not in extract_notebook_imports((document,)):
+            continue
+        relative = notebook_path.relative_to(repo_root).as_posix()
+        sparse_paths.add(relative)
+        if relative not in PRESERVED_PHASE3_NOTEBOOKS or not _has_unused_sparse_tensor_import(
+            document
+        ):
+            preserved_are_unused = False
+
+    if sparse_paths == PRESERVED_PHASE3_NOTEBOOKS and preserved_are_unused:
+        modules.remove("torch_sparse")
+    return tuple(sorted(modules))
+
+
 def _failure_evidence(module_name: str, status: str) -> dict[str, str]:
     return {"module": module_name, "status": status}
 
@@ -589,11 +667,11 @@ def _vader_evidence() -> dict[str, object]:
         )
         pointer = nltk.data.find(str(asset.resource))
         resolved = Path(str(pointer))
-        matching_roots = [
+        matching_roots = list(dict.fromkeys(
             Path(root)
             for root in nltk.data.path
             if Path(root).is_absolute() and Path(root) / Path(*asset.resource.parts) == resolved
-        ]
+        ))
         if len(matching_roots) != 1 or resolved.is_symlink() or not resolved.is_file():
             raise NLPAssetError("destination")
         for root in nltk.data.path:
@@ -679,7 +757,7 @@ def build_report(repo_root: Path) -> dict[str, object]:
 
     try:
         documents, local_contexts = _active_notebook_documents(repo_root)
-        modules = extract_notebook_imports(documents)
+        modules = _runtime_notebook_imports(repo_root, documents)
         imports = [
             _module_evidence(module, local_contexts.get(module)) for module in modules
         ]

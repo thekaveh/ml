@@ -457,7 +457,7 @@ mount. Pin changes follow
 
 ## 6.1.8 Atlas Jupyter Runtime Evidence
 
-Last verified: 2026-07-30 against the pinned `ml-eng` Atlas track. The live
+Last verified: 2026-08-21 against the pinned `ml-eng` Atlas track. The live
 runtime probe ran inside the JupyterHub container after the consumer mounted
 this checkout and reported zero failed checks. The host-native Ollama probe
 also succeeded; no Ollama or ComfyUI container was running for the consumer.
@@ -465,11 +465,18 @@ also succeeded; no Ollama or ComfyUI container was running for the consumer.
 | Surface | Observed in Atlas JupyterHub | Contract meaning |
 | --- | --- | --- |
 | Python | CPython 3.11.10 | Remote notebook interpreter |
-| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; `tokenizers` 0.22.2 | Atlas-owned image evidence; matches notebook imports and the `[lm]` extra at the observed version |
-| Torch | `torch` 2.11.0+cpu; `torchvision` 0.26.0+cpu; `torchaudio` 2.11.0+cpu | Atlas runtime is newer than local/CI; do not infer a local pin bump |
-| Torch extensions | `torchao` 0.17.0; `torch-geometric` 2.6.1; `python-louvain` 0.16 | Required import surfaces are present |
-| NLP | spaCy 3.8.14, `en_core_web_sm` 3.8.0; NLTK 3.10.0 with VADER | Both task assets resolve |
-| Notebook imports | 62 imports across active notebooks; zero failures | Import-level compatibility evidence |
+| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.1; `tokenizers` 0.22.2 | Atlas-owned image evidence; matches notebook imports and the `[lm]` extra at the observed version |
+| Torch | `torch` 2.13.0+cpu; `torchvision` 0.28.0+cpu | Atlas runtime is newer than local/CI; do not infer a local pin bump. Atlas intentionally omits Torchaudio, and no executable notebook imports `torchaudio`. |
+| Torch extensions | `torchao` 0.17.0; `torch-geometric` 2.7.0; `python-louvain` 0.16 | Required executable import surfaces are present. |
+| NLP | spaCy 3.8.14, `en_core_web_sm` 3.8.0; NLTK 3.10.1 with the exact VADER archive identity | Both task assets resolve; repeated entries for the same NLTK data root are one resource, while distinct duplicate resources remain rejected. |
+| Notebook imports | 61 mandatory imports across executable notebook surfaces; zero failures | Import-level compatibility evidence |
+
+The four immutable Phase-3 Reddit notebooks contain one historical unused `SparseTensor` import
+each. Their preserved code cells cannot be rewritten and
+are explicitly not re-executed; the probe excludes `torch_sparse` only when all
+four exact imports remain present and the binding remains unused. Any use in
+those notebooks or import from another executable notebook makes
+`torch_sparse` mandatory and fail-closed again.
 
 The same live check imported the NumPy MNIST sibling modules from the mounted
 checkout. This validates the consumer mount separately from package metadata.

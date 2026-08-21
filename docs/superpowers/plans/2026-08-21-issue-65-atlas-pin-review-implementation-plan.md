@@ -357,7 +357,7 @@ make verify
 make lint
 make docs-check
 make docs-wiki
-shellcheck scripts/atlas-up.sh scripts/atlas-down.sh scripts/atlas-connect.sh scripts/atlas-dotenv.sh
+shellcheck scripts/atlas-up.sh scripts/atlas-down.sh scripts/atlas-connect.sh scripts/lib/atlas-dotenv.sh
 ```
 
 Expected: every command exits 0; pytest has zero failures/errors and only

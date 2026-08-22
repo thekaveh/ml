@@ -209,8 +209,9 @@ and the suggested upstream fixes:
 
 - **§9.1.1.1 — `NNDataset` default `batch_size` packs the whole train set into one
   batch.** Surprising for diffusion / MoE / transformer / JEPA tasks; the
-  upstream `batch_sizes=` constructor arg (partial fix landed) gives a cleaner
-  workaround than bypassing the wrapper with `DataLoader(...dataset, batch_size=N)`.
+  upstream `batch_sizes=` constructor argument now owns diffusion, MoE, and JEPA
+  mini-batching locally. TinyShakespeare intentionally retains its custom
+  sequence-window dataset; the whole-split default remains an upstream caveat.
 - **§9.1.1.2 — `nnx.deepen` is function-preserving only for `Activations.RELU`.**
   Identity-init insertion only preserves the forward for ReLU; the construction-
   time `ValueError` is clear, the constraint just isn't a one-liner to discover.

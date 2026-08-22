@@ -7,9 +7,10 @@ triage record. Each finding must identify its upstream issue or an explicit
 evidence-backed disposition, the local workaround and affected notebooks, the
 released NNx status, and any remaining ml-eng-lab work.
 
-This issue changes ml-eng-lab documentation and issue metadata only. It does
-not modify the NNx repository, change the pinned NNx wheel, or execute
-notebooks.
+This issue changes ml-eng-lab documentation, documentation/verifier contract
+tests, the narrow E13 path guard, and one inaccurate notebook source comment.
+It does not modify the NNx repository, change the pinned NNx wheel, alter
+notebook behavior, or execute notebooks.
 
 ## 12.37.2 Evidence boundary
 
@@ -57,7 +58,7 @@ without manufacturing duplicate or misleading work.
 | `nnx.deepen` is ReLU-only | Explicit disposition: accepted, documented Net2DeeperNet constraint. `v0.2.0` and later explain the identity/ReLU equation, reject other activations, and document the error. Do not open a false enhancement suggesting a bias can make arbitrary non-idempotent activations exactly equivalent. | The model-surgery notebook deliberately uses ReLU and documents the contract. No local follow-up. |
 | `NNTabularDataset` lacked regression targets | Link closed upstream issue `thekaveh/NNx#81`; NNx `v0.2.2` added `target_dtype` with release and test evidence. | Still unresolved under ml-eng-lab's Atlas-compatible `0.2.0` pin. Keep the manual float-target loader and create one local follow-up for a coordinated Atlas/root NNx upgrade and subsequent loader migration. |
 | `EarlyStopping` defaults to `val_edp.error` | Open a focused upstream issue. `v0.2.3` and `main` still use the classification default; an absent monitored field silently disables stopping. The issue should ask for an explicit auto/fallback contract rather than construction-time loss guessing. | The diabetes notebook does not instantiate `EarlyStopping`; its README documents `monitor="val_edp.loss"` for future regression use. No immediate local code remains. |
-| training prints an absolute run path | Open one upstream issue covering both `NNModel.train` and `Trainer.train`. All releases through `v0.2.3` and `main` build the message from `os.getcwd()`. | Keep verifier rule `E13.stale_active_notebook_path`; committed notebook output remains normalized. No new local follow-up until an upstream release changes the message. |
+| training prints an absolute run path | Open one upstream issue covering both `NNModel.train` and `Trainer.train`. All releases through `v0.2.3` and `main` build the message from `os.getcwd()`. | Extend verifier rule `E13.stale_active_notebook_path` to reject the generic absolute saved-run signature on Unix and Windows while allowing relative output. No new local follow-up until an upstream release changes the message. |
 
 ## 12.37.5 Upstream issue contract
 
@@ -117,6 +118,11 @@ Add a focused documentation contract test that fails if:
 - the portable-path row attributes the print to `NNRun.save()` rather than the
   two training entry points.
 
+Parse the F1–F5 table rows and detailed sections independently so a link or
+disposition moved to the wrong finding fails. Require the five standard labels
+inside every detailed section. Add E13 regression cases for Unix and Windows
+absolute saved-run output plus allowed relative forms.
+
 Then run:
 
 - the focused documentation tests;
@@ -126,8 +132,8 @@ Then run:
 - `scripts/verify_repo.py --check all --fast`;
 - Ruff and the full repository test suite.
 
-No Atlas service or notebook execution is required because no runtime code or
-notebook is changed.
+No Atlas service or notebook execution is required because runtime behavior and
+notebook outputs are unchanged; the notebook edit corrects a source comment.
 
 ## 12.37.9 Rollback
 

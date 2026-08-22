@@ -230,8 +230,8 @@ and remaining work:
   `target_dtype=torch.float32` in `v0.2.2`. ml-eng-lab keeps the manual loader
   until the coordinated root/Atlas upgrade in
   [Issue #146](https://github.com/thekaveh/ml-eng-lab/issues/146).
-- **§9.1.1.4 — `EarlyStopping(monitor=...)` default is `"val_edp.error"`, which does
-  not exist for regression EDPs.** Regression callers must pass
+- **§9.1.1.4 — `EarlyStopping(monitor=...)` default is `"val_edp.error"`, which is
+  unset (`None`) for regression EDPs.** Regression callers must pass
   `monitor="val_edp.loss"` explicitly; the default silently skips updates when
   error is absent. The upstream callback contract is tracked by
   [`thekaveh/NNx#189`](https://github.com/thekaveh/NNx/issues/189).

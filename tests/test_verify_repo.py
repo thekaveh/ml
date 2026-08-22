@@ -4053,6 +4053,54 @@ def test_e13_flags_removed_nnx_source_tree_and_host_python_paths(tmp_path, monke
     ]
 
 
+@pytest.mark.parametrize(
+    "saved_path",
+    (
+        "/private/tmp/worktree/runs/2026-08-22_12-00-00",
+        r"C:\Users\alice\worktree\runs\2026-08-22_12-00-00",
+    ),
+)
+def test_e13_flags_absolute_nnx_run_saved_paths(tmp_path, monkeypatch, saved_path):
+    """NNx completion output must not preserve an execution-host run path."""
+    verify_repo = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    active_dir = repo / "notebooks" / "active-task"
+    active_dir.mkdir(parents=True)
+    (active_dir / "notebook.ipynb").write_text(
+        json.dumps({"outputs": [{"text": [f"Run saved to {saved_path}"]}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(verify_repo, "ACTIVE_TASK_DIRS", ("active-task",))
+
+    result = verify_repo.check_execution(repo, fast=True)
+
+    hits = [f for f in result.findings if f.id == "E13.stale_active_notebook_path"]
+    assert [f.message for f in hits] == [
+        "stale active-notebook path artifact: absolute NNx saved-run output",
+    ]
+
+
+@pytest.mark.parametrize(
+    "saved_path",
+    ("runs/2026-08-22_12-00-00", "./runs/2026-08-22_12-00-00"),
+)
+def test_e13_allows_portable_nnx_run_saved_paths(tmp_path, monkeypatch, saved_path):
+    verify_repo = _load_verify_module()
+    repo = _temp_repo(tmp_path)
+    active_dir = repo / "notebooks" / "active-task"
+    active_dir.mkdir(parents=True)
+    (active_dir / "notebook.ipynb").write_text(
+        json.dumps({"outputs": [{"text": [f"Run saved to {saved_path}"]}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(verify_repo, "ACTIVE_TASK_DIRS", ("active-task",))
+
+    result = verify_repo.check_execution(repo, fast=True)
+
+    hits = [f for f in result.findings if f.id == "E13.stale_active_notebook_path"]
+    assert hits == []
+
+
 def test_e14_flags_tmp_papermill_output_path(tmp_path, monkeypatch):
     verify_repo = _load_verify_module()
     import nbformat

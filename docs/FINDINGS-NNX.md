@@ -2,9 +2,10 @@
 
 > **Note (2026-06-14)**: ml-eng-lab switched from a git submodule at `./nnx` to the `thekaveh-nnx` PyPI distribution. Source paths cited below (e.g. `nnx/src/nnx/nn/dataset/nn_dataset.py:24`) refer to the upstream [`thekaveh/NNx`](https://github.com/thekaveh/NNx) repo, not a local submodule.
 
-Issues found by the verify_repo.py loop in the `nnx` (PyPI: `thekaveh-nnx`) library. These are
-NOT fixed by this loop (per spec §1.3); they are surfaced here for an upstream
-PR follow-up to [thekaveh/NNx](https://github.com/thekaveh/NNx).
+Findings surfaced by the verify_repo.py loop in the `nnx` (PyPI:
+`thekaveh-nnx`) library. This is the durable triage ledger: actionable gaps
+link to upstream issues, released fixes retain release evidence, and documented
+non-bugs record their explicit disposition.
 
 ## 9.1.1 Findings
 
@@ -19,7 +20,7 @@ released NNx wheel; it does not imply availability under ml-eng-lab's retained
 | F1 | `NNDataset` uses one full-split batch for each omitted batch size | Open documentation/API-default issue [NNx #188](https://github.com/thekaveh/NNx/issues/188); unchanged through `v0.2.3` | `diffusion-mnist-ddpm-pytorch`, `moe-fmnist-mixture-of-experts-pytorch`, `self_supervised-fmnist-jepa-pytorch` | Resolved locally by Issue #69 with explicit public `batch_sizes=` values; no follow-up |
 | F2 | `nnx.deepen` is function-preserving only for ReLU | Released, enforced, documented design constraint; this is not an open upstream bug | `model_surgery-mnist-ffnn-pytorch` | Notebook deliberately uses ReLU and documents the constraint; no follow-up |
 | F3 | NNx 0.2.0 `NNTabularDataset` is classification-only | Resolved by [NNx #81](https://github.com/thekaveh/NNx/issues/81) in `v0.2.2` with `target_dtype` | `tabular_regression-diabetes-mlp-pytorch` | Manual float-target loader remains under 0.2.0; coordinated upgrade/migration tracked by [ml-eng-lab #146](https://github.com/thekaveh/ml-eng-lab/issues/146) |
-| F4 | `EarlyStopping()` defaults to a classification-only validation field | Open callback-contract issue [NNx #189](https://github.com/thekaveh/NNx/issues/189); unchanged through `v0.2.3` | `tabular_regression-diabetes-mlp-pytorch` guidance | Use `monitor="val_edp.loss"`; the notebook does not instantiate the callback, so no local code follow-up |
+| F4 | `EarlyStopping()` defaults to a classification-only validation field that is unset (`None`) for regression EDPs | Open callback-contract issue [NNx #189](https://github.com/thekaveh/NNx/issues/189); unchanged through `v0.2.3` | `tabular_regression-diabetes-mlp-pytorch` guidance | Use `monitor="val_edp.loss"`; the notebook does not instantiate the callback, so no local code follow-up |
 | F5 | Training completion output embeds an absolute run path | Open portability issue [NNx #190](https://github.com/thekaveh/NNx/issues/190); unchanged through `v0.2.3` | Any notebook that captures NNx training output | Verifier rule `E13.stale_active_notebook_path` rejects leaked paths; no local follow-up before an upstream release |
 
 ### 9.1.1.1 `NNDataset` default `batch_size` packs the whole train set into one batch
@@ -128,7 +129,7 @@ owns a coordinated root/Atlas NNx upgrade and the subsequent migration to
 `target_dtype=torch.float32`. Do not remove the workaround before that runtime
 qualification passes.
 
-### 9.1.1.4 `EarlyStopping(monitor=...)` default is `"val_edp.error"`, doesn't exist for regression EDPs
+### 9.1.1.4 `EarlyStopping(monitor=...)` default is `"val_edp.error"`, which is unset (`None`) for regression EDPs
 
 **Upstream disposition:** [NNx #189](https://github.com/thekaveh/NNx/issues/189)
 tracks an explicit regression-safe default/fallback contract.
@@ -171,8 +172,11 @@ The finding was surfaced by historical active notebook outputs carrying baked-in
 such as maintainer worktrees, JupyterHub mounts, removed in-repo source trees,
 and host-local Python environments. The 2026-07-04 maintenance pass normalized
 the remaining active-notebook artifacts and added verifier rule
-`E13.stale_active_notebook_path`, so `python scripts/verify_repo.py --check
-execution --fast` now rejects stale path artifacts in active notebooks.
+`E13.stale_active_notebook_path`; Issue #72 extends that rule to reject the
+generic `Run saved to <absolute-path>/runs/<id>` signature on Unix and Windows.
+`python scripts/verify_repo.py --check execution --fast` therefore rejects
+these stale path artifacts in active notebooks while allowing portable relative
+run paths.
 
 The two training entry points emit a confirmation string with the absolute
 filesystem path of the saved run directory. Two related issues follow:

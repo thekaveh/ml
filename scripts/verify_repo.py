@@ -924,6 +924,13 @@ _STALE_ACTIVE_NOTEBOOK_PATHS: tuple[tuple[str, re.Pattern], ...] = (
         "host-local Python environment path",
         re.compile(r"/Users/[^/\s]+/\.pyenv\b"),
     ),
+    (
+        "absolute NNx saved-run output",
+        re.compile(
+            r"Run saved to (?:/[^\r\n\"]*?/runs/|"
+            r"[A-Za-z]:[\\/]+[^\r\n\"]*?[\\/]+runs[\\/]+)[^\\/\s\"]+"
+        ),
+    ),
 )
 
 

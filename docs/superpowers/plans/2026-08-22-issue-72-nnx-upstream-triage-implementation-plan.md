@@ -15,7 +15,7 @@
 - Search both open and closed upstream issues before creating a record; link duplicates instead of recreating them.
 - Treat released NNx tags and changelog entries as release evidence, not current `main` alone.
 - Create exactly one ml-eng-lab follow-up, for the coordinated NNx/Atlas upgrade and diabetes-loader migration.
-- Do not start Atlas, Ollama, ComfyUI, or notebook execution; no runtime code or notebook changes are in scope.
+- Do not start Atlas, Ollama, ComfyUI, or notebook execution; no runtime or notebook-output changes are in scope. A source-comment correction and targeted verifier guard are permitted when required to keep the triage claims accurate.
 - Keep upstream-triage documentation separately rollbackable from future NNx implementation work.
 
 ---
@@ -174,8 +174,13 @@ Expected: FAIL because the status table and new upstream/local URLs do not yet e
 **Files:**
 - Modify: `docs/FINDINGS-NNX.md`
 - Modify: `docs/nnx-library.md`
+- Modify: `docs/notebooks/model_surgery-mnist-ffnn-pytorch.md`
+- Modify: `notebooks/model_surgery-mnist-ffnn-pytorch/README.md`
+- Modify: `notebooks/model_surgery-mnist-ffnn-pytorch/notebook.ipynb` (comment only)
+- Modify: `scripts/verify_repo.py`
 - Modify: `docs/manifest.yaml`
 - Test: `tests/test_check_docs.py`
+- Test: `tests/test_verify_repo.py`
 
 **Interfaces:**
 - Consumes: Task 1's issue URLs and Task 2's documentation contract.
@@ -215,7 +220,15 @@ Append the Issue #72 design and implementation plan to the manifest's
 `design-records` children as entries `12.37` and `12.38`, preserving the
 existing order and making both records available to the generated site/wiki.
 
-- [ ] **Step 5: Run the focused green tests**
+- [ ] **Step 5: Close review gaps in the local contracts**
+
+Parse and validate each summary row and detailed finding section independently.
+Correct the model-surgery wording so it does not suggest another constant
+initialization can preserve non-ReLU deepening. Extend E13 to reject absolute
+NNx saved-run output on Unix and Windows while allowing portable relative
+paths, with focused regression coverage.
+
+- [ ] **Step 6: Run the focused green tests**
 
 Run:
 
@@ -227,7 +240,7 @@ Run:
 
 Expected: all focused triage tests pass.
 
-- [ ] **Step 6: Commit the triage documentation and guard**
+- [ ] **Step 7: Commit the triage documentation and guard**
 
 ```bash
 git add docs/FINDINGS-NNX.md docs/nnx-library.md docs/manifest.yaml tests/test_check_docs.py \

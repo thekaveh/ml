@@ -235,6 +235,10 @@ sections:
         number: "12.34"
         title: Issue 68 NNx public-facade notebook migration implementation plan
         source: docs/superpowers/plans/2026-08-22-issue-68-nnx-public-facade-implementation-plan.md
+      - id: issue-71-notebook-freshness-hashes-design
+        number: "12.35"
+        title: Issue 71 notebook source/output freshness hashes design
+        source: docs/superpowers/specs/2026-08-22-issue-71-notebook-freshness-hashes-design.md
   - id: security
     number: "13"
     title: Security policy

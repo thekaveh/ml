@@ -227,6 +227,14 @@ sections:
         number: "12.32"
         title: Issue 67 Atlas required-environment contract implementation plan
         source: docs/superpowers/plans/2026-08-22-issue-67-atlas-required-env-implementation-plan.md
+      - id: issue-68-nnx-public-facade-design
+        number: "12.33"
+        title: Issue 68 NNx public-facade notebook migration design
+        source: docs/superpowers/specs/2026-08-22-issue-68-nnx-public-facade-design.md
+      - id: issue-68-nnx-public-facade-implementation
+        number: "12.34"
+        title: Issue 68 NNx public-facade notebook migration implementation plan
+        source: docs/superpowers/plans/2026-08-22-issue-68-nnx-public-facade-implementation-plan.md
   - id: security
     number: "13"
     title: Security policy

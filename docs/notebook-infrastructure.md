@@ -24,11 +24,22 @@ mounted checkout. Its `default_mode` is `mounted-workspace`; run it from
 Browser JupyterLab or VS Code attached to the JupyterHub container at
 `/home/jovyan/work/ml-eng-lab`; its task-local ignored paths hold its artifacts.
 
-Every contract currently authorizes JupyterHub alone. Atlas track defaults are not notebook authorization:
-other services may be running as part of the selected track, but a notebook must not depend on one until
-its task contract declares it and its package and service validation has passed. Do not copy artifacts from Atlas volumes into
-the repository unless a task explicitly documents that policy. The full
-admission sequence is [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
+Every contract explicitly declares `required_env`. Each entry has exactly a
+`name` and `service`: the uppercase environment-variable name and the required
+service that injects it. The current JupyterHub-only tasks use
+`required_env: []`. A future non-JupyterHub service is invalid without at least
+one binding, and a binding cannot reference a service absent from
+`required_services`. The contract must not contain environment values,
+endpoints, credentials, tokens, or host paths; those remain runtime-owned and
+the matrix renders names only.
+
+Atlas track defaults are not notebook authorization: availability does not
+authorize notebook use. A task must declare the service and its environment bindings, but an injected variable alone does
+not prove that the service is enabled or healthy. Admission also requires a
+central consumer source, successful doctor validation, and a targeted Atlas
+JupyterHub smoke. Do not copy artifacts from Atlas volumes into the repository
+unless a task explicitly documents that policy. The full admission sequence is
+[atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
 
 ## 4.4.1 Active task contracts
 

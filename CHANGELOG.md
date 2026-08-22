@@ -13,6 +13,12 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Machine-readable Atlas environment admission (Issue #67):** every active task now declares
+  an explicit `required_env` list. The fail-closed schema links each uppercase variable name to a
+  declared supplying service, rejects missing/malformed/duplicate/unexpected entries and services
+  without bindings, and renders names without values across the canonical matrix. This change
+  does not admit a new Atlas service; availability, injection, doctor validation, and targeted
+  JupyterHub smoke remain separate admission evidence.
 - **Quantization execution and Tier B restoration (Issue #66):** the active MNIST notebook now
   completes FP32, PTQ, and QAT on the canonical Torch 2.11/torchao 0.18/NNx 0.2 stack; proves
   final torchao conversion; reloads the supported pre-conversion QAT shadow checkpoint with exact

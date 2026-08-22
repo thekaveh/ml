@@ -22,11 +22,13 @@ import pytest
 from nnx import (
     Devices,
     Losses,
+    NNGraphDataset,
     NNModel,
     NNModelParams,
     NNParams,
     NNTrainParams,
     Nets,
+    set_seed,
 )
 
 
@@ -82,6 +84,42 @@ def test_canonical_sampler_backends_and_batch_are_executable(tiny_graph_data):
     assert torch_sparse is not None
     assert int(batch.batch_size) > 0
     assert int(batch.edge_index.numel()) > 0
+
+
+def test_public_seed_boundary_reproduces_first_graph_dataset_batch(tiny_graph_data):
+    """The released NNx 0.2 sampler consumes the global RNG, not a seed kwarg."""
+    data = tiny_graph_data.data
+
+    class TinyGraphDataset:
+        num_features = tiny_graph_data.num_features
+        num_classes = tiny_graph_data.num_classes
+
+        def __init__(self, root, transform=None):
+            del root
+            self._data = data.clone()
+            if transform is not None:
+                self._data = transform(self._data)
+
+        def __getitem__(self, index):
+            assert index == 0
+            return self._data
+
+    def first_batch_state():
+        set_seed(0)
+        dataset = NNGraphDataset(
+            ds_class=TinyGraphDataset,
+            n_neighbors=[2, 2],
+            n_workers=0,
+            batch_sizes=(2, 1, 1),
+        )
+        batch = next(iter(dataset.train_loader))
+        return batch.n_id.clone(), batch.edge_index.clone()
+
+    first_node_ids, first_edges = first_batch_state()
+    second_node_ids, second_edges = first_batch_state()
+
+    assert first_node_ids.equal(second_node_ids)
+    assert first_edges.equal(second_edges)
 
 
 @pytest.mark.parametrize("net_enum", [Nets.GRAPH_SAGE, Nets.GRAPH_CONV])

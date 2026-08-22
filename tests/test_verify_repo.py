@@ -3391,9 +3391,9 @@ def test_execution_e5_uses_versioned_public_facade_baseline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    expected_tag = "tier-c-public-facade-baseline-2026-08-22"
+    expected_tag = "tier-c-deterministic-seeding-atlas-baseline-2026-08-22"
     expected_ref = f"refs/tags/{expected_tag}"
-    expected_commit = "296a7227bb2bfbb595e99aa4dbee760e867b83c7"
+    expected_commit = "35e7903afe45f60e5e30bf8fbd49f7d6463caa6a"
     assert verify_repo.TIER_C_CODE_BASELINE_TAG == expected_tag
     assert verify_repo.TIER_C_CODE_BASELINE_COMMIT == expected_commit
 
@@ -3466,7 +3466,7 @@ def test_execution_e5_missing_baseline_fails_closed(
 @pytest.mark.parametrize(
     ("object_type", "peeled_commit", "finding_id"),
     [
-        ("commit", "296a7227bb2bfbb595e99aa4dbee760e867b83c7", "E5.baseline_not_annotated"),
+        ("commit", "35e7903afe45f60e5e30bf8fbd49f7d6463caa6a", "E5.baseline_not_annotated"),
         ("tag", "0" * 40, "E5.baseline_target_changed"),
     ],
 )

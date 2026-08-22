@@ -349,69 +349,12 @@ def test_active_notebook_discovery_keeps_all_local_sibling_contexts(tmp_path) ->
     assert local_contexts[module_name] == tuple(contexts)
 
 
-def _write_preserved_phase3_notebooks(repo: Path, *, use_sparse_tensor: bool = False) -> None:
-    task = repo / "notebooks" / "node_classification-reddit-gnn-pyg"
-    task.mkdir(parents=True, exist_ok=True)
-    suffixes = ("", "2", "3", "4")
-    for suffix in suffixes:
-        source = "from torch_sparse import SparseTensor\n"
-        if use_sparse_tensor and suffix == "4":
-            source += "adj = SparseTensor(row=[0], col=[0])\n"
-        (task / f"phase3-main-model-training-and-eval-notebook{suffix}.ipynb").write_text(
-            json.dumps({"cells": [{"cell_type": "code", "source": source}]}),
-            encoding="utf-8",
-        )
-
-
-def test_runtime_imports_exclude_only_the_exact_preserved_unused_sparse_imports(
-    tmp_path,
-) -> None:
+def test_runtime_imports_require_sparse_when_a_notebook_imports_it(tmp_path) -> None:
     repo = tmp_path / "repo"
-    _write_preserved_phase3_notebooks(repo)
-    documents, _ = probe._active_notebook_documents(repo)
-
-    assert "torch_sparse" not in probe._runtime_notebook_imports(repo, documents)
-
-    _write_preserved_phase3_notebooks(repo, use_sparse_tensor=True)
-    documents, _ = probe._active_notebook_documents(repo)
-    assert "torch_sparse" in probe._runtime_notebook_imports(repo, documents)
-
-
-def test_runtime_imports_require_sparse_when_any_other_notebook_imports_it(tmp_path) -> None:
-    repo = tmp_path / "repo"
-    _write_preserved_phase3_notebooks(repo)
     other = repo / "notebooks" / "other"
     other.mkdir(parents=True)
     (other / "notebook.ipynb").write_text(
         json.dumps({"cells": [{"cell_type": "code", "source": "import torch_sparse\n"}]}),
-        encoding="utf-8",
-    )
-    documents, _ = probe._active_notebook_documents(repo)
-
-    assert "torch_sparse" in probe._runtime_notebook_imports(repo, documents)
-
-
-@pytest.mark.parametrize(
-    "source",
-    (
-        "from torch_sparse import SparseTensor as ST\n",
-        "from torch_sparse import SparseTensor, matmul\n",
-        "import torch_sparse\n",
-    ),
-)
-def test_runtime_imports_reject_modified_historical_sparse_imports(
-    tmp_path,
-    source: str,
-) -> None:
-    repo = tmp_path / "repo"
-    _write_preserved_phase3_notebooks(repo)
-    notebook = (
-        repo
-        / "notebooks/node_classification-reddit-gnn-pyg/"
-        "phase3-main-model-training-and-eval-notebook4.ipynb"
-    )
-    notebook.write_text(
-        json.dumps({"cells": [{"cell_type": "code", "source": source}]}),
         encoding="utf-8",
     )
     documents, _ = probe._active_notebook_documents(repo)
@@ -425,6 +368,13 @@ def test_dependency_contract_omits_unconsumed_torchaudio() -> None:
 
     assert "TorchAudio" not in labels
     assert "torchaudio" not in extract_notebook_imports(documents)
+
+
+def test_active_notebooks_do_not_import_unavailable_atlas_sparse_extension() -> None:
+    documents, _ = probe._active_notebook_documents(REPO_ROOT)
+
+    assert "torch_sparse" not in extract_notebook_imports(documents)
+    assert "torch_sparse" not in probe._runtime_notebook_imports(REPO_ROOT, documents)
 
 
 def _configure_vader_probe(

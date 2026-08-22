@@ -13,6 +13,17 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Deterministic Reddit graph seeding (Issue #70):** all eight Phase-2/Phase-3
+  construction paths now define `SEED = 0` and invoke public `set_seed(SEED)`
+  immediately before `NNGraphDataset(...)`. Released `thekaveh-nnx==0.2.0`
+  exposes no constructor `seed=` keyword, so static AST guards pin the supported
+  global-RNG boundary and an executable tiny-graph regression proves identical
+  first sampled batches. The four Phase-3 notebooks also dropped their unused direct
+  `torch_sparse.SparseTensor` imports, allowing the retained Atlas Torch 2.13/PyG
+  runtime to execute through its supported `pyg_lib` sampler without pretending the
+  legacy extension is installed. Tier-C source locking advanced to the immutable
+  annotated `tier-c-deterministic-seeding-atlas-baseline-2026-08-22` tag at commit
+  `35e7903afe45f60e5e30bf8fbd49f7d6463caa6a`; prior baseline tags remain unchanged.
 - **Public `NNDataset` batching migration (Issue #69):** diffusion and MoE now pass
   `batch_sizes=(128, None, None)` to `NNDataset`; JEPA passes
   `batch_sizes=(128, 128, None)` to preserve both train and validation mini-batches.

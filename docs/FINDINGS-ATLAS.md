@@ -19,10 +19,11 @@ native behavior with a different explicit source.
 Status: documented with live probe evidence on 2026-07-30.
 
 Atlas JupyterHub is a distinct runtime and is not Issue #62 acceptance evidence. Issue #62
-qualifies the repository Torch 2.11 CPU stack; Atlas runtime ownership remains Issue #65, and the
-full quantization notebook remains manual-only under Issue #66. See
+qualifies the repository Torch 2.11 CPU stack; Issue #65 completed the retained Atlas runtime
+review, and Issue #66 separately requires full quantization execution in both environments. See
 [dependency-contracts.md](dependency-contracts.md) and
 [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md) before changing either side of that boundary.
 
-Issue #62 does not upgrade Atlas: Atlas runtime ownership remains Issue #65. The host-native Ollama
-boundary is unchanged, and no containerized Ollama service is added.
+Issue #62 did not upgrade Atlas. The host-native Ollama boundary is unchanged, and no
+containerized Ollama service is added.
+There is no containerized Ollama source in the Issue #66 quantization workflow.

@@ -1253,7 +1253,7 @@ _ISSUE62_FORBIDDEN_CURRENT_FACTS = (
     "five canaries",
     "twelve components",
     "graph backends are unavailable on Darwin",
-    "quantization notebook is tier-covered",
+    "Issue #62 alone qualifies the complete quantization notebook",
     "Issue #62 upgrades Atlas",
     "complete final acceptance is proven",
 )
@@ -1293,7 +1293,7 @@ def _issue62_current_documents() -> dict[str, str]:
                     "### 6.1.1.3 Alias-aware historical reconciliation\n",
                 ),
                 _same_level_section(ledger, "6.1.2 Torch Stack Pin"),
-                _same_level_section(ledger, "6.1.3 Manual-Only Quantization Notebook"),
+                _same_level_section(ledger, "6.1.3 Automated Quantization Notebook"),
                 _same_level_section(ledger, "6.1.9 Atlas Versus Local/CI Dependency Boundaries"),
                 _same_level_section(ledger, "6.1.11 Canonical Bootstrap Tooling"),
             )
@@ -1382,9 +1382,20 @@ def test_issue62_platform_contract_rejects_restored_pending_claim() -> None:
         _assert_issue62_platform_qualification_is_complete_and_locked(mutated)
 
 
-def test_issue62_manual_quantization_guidance_uses_fresh_canonical_environment() -> None:
+def test_issue66_quantization_guidance_uses_tier_b_contract() -> None:
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     contributing = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    nnx_overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
+    design = (
+        REPO_ROOT
+        / "docs/superpowers/specs/2026-08-22-issue-66-quantization-ci-design.md"
+    ).read_text(encoding="utf-8")
+    task_spec = (
+        REPO_ROOT / "notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml"
+    ).read_text(encoding="utf-8")
+    generated_task_doc = (
+        REPO_ROOT / "docs/notebooks/quantization-mnist-ffnn-pytorch.md"
+    ).read_text(encoding="utf-8")
     task_readme = (
         REPO_ROOT / "notebooks/quantization-mnist-ffnn-pytorch/README.md"
     ).read_text(encoding="utf-8")
@@ -1397,51 +1408,61 @@ def test_issue62_manual_quantization_guidance_uses_fresh_canonical_environment()
     }
 
     for path, current in surfaces.items():
-        assert "manual" in current, path
-        assert "fresh canonical environment" in current, path
-        assert "make install-torch-stack" in current, path
-        assert "outside Tier A/B/C" in current, path
-        assert "Issue #66" in current, path
-        assert "side environment" not in current, path
-        assert "side pair" not in current, path
+        assert (
+            "Tier B" in current
+            or "Tier-B" in current
+            or "smoke-tier-b" in current
+        ), path
+        assert "manual-only" not in current.lower(), path
+        assert "outside Tier A/B/C" not in current, path
+    assert "make smoke-tier-b" in surfaces["README.md"]
+    assert "make install-torch-stack" in surfaces[
+        "notebooks/quantization-mnist-ffnn-pytorch/README.md"
+    ]
+    unsupported = _between(
+        readme, "**Scenarios this does NOT support**:\n", "**How to use**:\n"
+    )
+    assert "quantization-mnist-ffnn-pytorch" not in unsupported
+    extending_nnx = _same_level_section(nnx_overview, "7.4 Extending NNx")
+    assert "Manual quantization validation" not in extending_nnx
+    assert "Tier B quantization validation" in extending_nnx
+    assert "artifact upload" not in design
+    for current in (task_spec, generated_task_doc):
+        assert "torch.load(qat_checkpoint_path, weights_only=False)" in current
+        assert "NNCheckpoint.load" not in current
 
 
-_ISSUE62_FOCUSED_MANUAL_PROBE = (
-    "the focused manual quantization probe in a fresh canonical environment installed by "
-    "`make install-torch-stack`"
+_ISSUE66_TIER_MATRIX_GUIDANCE = (
+    "Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix in a "
+    "fresh canonical environment installed by `make install-torch-stack`"
 )
 
-_ISSUE62_FULL_QUANTIZATION_EXECUTION_CLAIMS = (
-    "execute the quantization notebook manually",
-    "complete notebook execution",
-    "full notebook execution",
-)
+def _assert_issue66_nnx_review_uses_tier_matrix(section: str) -> None:
+    assert _ISSUE66_TIER_MATRIX_GUIDANCE in section
+    assert "Tier B includes the full PTQ/QAT lifecycle" in section
+    assert "focused manual quantization probe" not in section
+    assert "outside Tier A/B/C" not in section
 
 
-def _assert_issue62_nnx_review_uses_only_focused_quantization_probe(section: str) -> None:
-    assert _ISSUE62_FOCUSED_MANUAL_PROBE in section
-    for claim in _ISSUE62_FULL_QUANTIZATION_EXECUTION_CLAIMS:
-        assert claim not in section
-
-
-def test_issue62_nnx_review_requires_only_the_focused_manual_quantization_probe() -> None:
+def test_issue66_nnx_review_requires_the_quantization_tier_matrix() -> None:
     text = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     shared_code = _same_level_section(text, "4. Modifying shared code")
 
-    _assert_issue62_nnx_review_uses_only_focused_quantization_probe(shared_code)
+    _assert_issue66_nnx_review_uses_tier_matrix(shared_code)
 
 
-@pytest.mark.parametrize("claim", _ISSUE62_FULL_QUANTIZATION_EXECUTION_CLAIMS)
-def test_issue62_nnx_review_rejects_full_quantization_execution_requirement(claim: str) -> None:
+def test_issue66_nnx_review_rejects_restored_manual_probe() -> None:
     text = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     shared_code = _same_level_section(text, "4. Modifying shared code")
-    replacement = f"{claim} in a fresh canonical environment installed by `make install-torch-stack`"
-    mutated = shared_code.replace(_ISSUE62_FOCUSED_MANUAL_PROBE, replacement, 1)
+    replacement = (
+        "Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix plus "
+        "the focused manual quantization probe"
+    )
+    mutated = shared_code.replace(_ISSUE66_TIER_MATRIX_GUIDANCE, replacement, 1)
     assert mutated != shared_code
-    assert claim in mutated
 
     with pytest.raises(AssertionError):
-        _assert_issue62_nnx_review_uses_only_focused_quantization_probe(mutated)
+        _assert_issue66_nnx_review_uses_tier_matrix(mutated)
 
 
 def test_issue62_dependency_sections_replace_complete_old_contracts():
@@ -1454,7 +1475,7 @@ def test_issue62_dependency_sections_replace_complete_old_contracts():
         "complete hash-required platform lock",
         "shared sanitized boundary",
         "four-surface advisory reconciliation from six commands",
-        "Tier A/B/C 18/6/4",
+        "Tier A/B/C 18/7/4",
     ):
         assert exact in torch_section
     for obsolete in (
@@ -1484,8 +1505,9 @@ def test_issue62_notebook_specs_drive_exact_generated_rows():
         "repository Torch 2.11 CPU stack; the remote runtime uses the completed retained Atlas pin."
     ]
     assert quant["atlas"]["constraints"] == [
-        "Manual-only under Issue #66; Issue #62 qualifies only the tiny Torch 2.11.0 + "
-        "torchao 0.18.0 PTQ/QAT dependency surface."
+        "Tier-B smoke is deterministic and bounded to one epoch for FP32 plus one epoch for QAT.",
+        "QAT acceptance reconstructs the saved FP-shadow checkpoint with exact state/metadata "
+        "parity and separately proves final torchao conversion.",
     ]
     generated = (
         REPO_ROOT / "docs/notebook-infrastructure.md"
@@ -1496,15 +1518,19 @@ def test_issue62_notebook_specs_drive_exact_generated_rows():
         token in graph_row
         for token in ("pyg-lib", "torch-sparse", "completed retained Atlas pin")
     )
-    assert all(token in quant_row for token in ("Torch 2.11.0", "torchao 0.18.0", "Issue #66"))
+    assert all(
+        token in quant_row
+        for token in ("| B |", "one epoch", "state/metadata parity", "torchao conversion")
+    )
 
 
-def test_issue62_manual_tier_uses_actual_environment_heading():
+def test_issue66_tier_b_uses_actual_environment_heading():
     text = (REPO_ROOT / "docs/env-setup.md").read_text(encoding="utf-8")
     tier_mapping = _same_level_section(text, "4.1.6 Tier mapping")
-    manual = next(line for line in tier_mapping.splitlines() if line.startswith("- **Manual-only:**"))
-    assert "Issue #66" in manual
-    assert "Torch 2.11.0 + torchao 0.18.0" in manual
+    tier_b = next(line for line in tier_mapping.splitlines() if line.startswith("- **Tier B:**"))
+    assert "one FP32 epoch plus one QAT epoch" in tier_mapping
+    assert "exactly" in tier_mapping
+    assert "manual-only" not in tier_b.lower()
 
 
 def test_issue62_graph_canonical_page_has_current_release_guidance():

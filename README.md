@@ -164,7 +164,7 @@ See [docs/env-setup.md](docs/env-setup.md) for environment details.
 
 ### 3.4. GitHub Codespaces (zero-click cloud dev)
 
-Click **Code → Codespaces → Create codespace on main** on [github.com/thekaveh/ml-eng-lab](https://github.com/thekaveh/ml-eng-lab). After ~2-3 minutes of one-time dep install you have a browser-based VS Code (or JupyterLab — see below) with the 21 active task folders available and 28 of 29 active notebooks runnable under the pinned environment.
+Click **Code → Codespaces → Create codespace on main** on [github.com/thekaveh/ml-eng-lab](https://github.com/thekaveh/ml-eng-lab). After ~2-3 minutes of one-time dep install you have a browser-based VS Code (or JupyterLab — see below) with the 21 active task folders available and all 29 active notebooks runnable under the pinned environment.
 
 **Why this path was added.** The §3.1 / §3.2 / §3.3 paths each require local services or
 dependency setup. Codespaces avoids that setup: the `.devcontainer/devcontainer.json`
@@ -178,18 +178,17 @@ container. Its base image is pinned as an exact tag plus multi-platform index di
 - Running a notebook on a larger host without local install (the smallest Codespace machine is 2-core / 8 GB RAM — comparable to a low-end laptop, sufficient for every Tier-A notebook; bump to 4-core / 16 GB if any Tier-B sweep feels slow).
 - Short exploratory run without polluting the local Python env.
 - The `notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb` edge case (it imports sibling `.py` modules from its own folder) works natively because Codespaces clones the repo into `/workspaces/ml-eng-lab`.
+- The `quantization-mnist-ffnn-pytorch` notebook is Tier B. Its one-epoch smoke proves PTQ, QAT conversion, exact QAT checkpoint reconstruction, and a machine-readable output contract; its full path retains three epochs.
 
 **Scenarios this does NOT support**:
 - GPU workloads — GitHub deprecated GPU Codespaces 2025-08-29 (Azure NCv3 retirement). The few GPU-benefiting notebooks (heaviest is `self_supervised-fmnist-jepa-pytorch`) still run on CPU here, just slowly; for real GPU you want a separate path (Modal `function.spawn`, a self-hosted GPU box behind Jupyter Enterprise Gateway, or Vertex AI Workbench / Colab Enterprise).
 - Data persistence across Codespace deletions — anything written to `./data/` or `./runs/` is gone when the Codespace is deleted (Codespaces are intended to be cheap and disposable). Commit any results you want to keep, or use Codespaces' "prebuild" feature if dep install time becomes a bottleneck.
-- The quantization-mnist-ffnn-pytorch notebook remains manual-only under Issue #66. Issue #62 qualifies only its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; the full notebook remains outside Tier A/B/C and is not Atlas evidence.
-
 **How to use**:
 
 1. On [github.com/thekaveh/ml-eng-lab](https://github.com/thekaveh/ml-eng-lab) → green **Code** button → **Codespaces** tab → **Create codespace on main**.
 2. Wait ~2-3 min for `postCreateCommand` to run `make codespace-setup` (= Torch-first dependency install + `make nlp-assets`). Progress is visible in the terminal panel.
 3. Open any notebook. You can either:
-   - **Stay in VS Code (browser)** — the Jupyter / Python extensions are preinstalled per the devcontainer config; works for the 28 tier-covered active notebooks. Execute the quantization notebook manually in a fresh canonical environment installed by `make install-torch-stack`; the notebook remains outside Tier A/B/C under Issue #66.
+   - **Stay in VS Code (browser)** — the Jupyter / Python extensions are preinstalled per the devcontainer config and work for all 29 active notebooks. Use `make smoke-tier-b` for the bounded quantization execution contract.
    - **Switch to JupyterLab** — click the dropdown next to "Open" on github.com → choose JupyterLab. To make JupyterLab the single-click default for all your codespaces, go to [github.com/settings/codespaces → Editor preference → JupyterLab](https://github.com/settings/codespaces).
 
 See [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) for the exact image + extension set, and [`Makefile`](Makefile) `codespace-setup` target for the Codespaces/venv install recipe. The §3.2 Docker path bakes the same Torch-first dependency order into [`Dockerfile`](Dockerfile). GitHub currently includes 120 Codespaces compute hours per month for Free accounts and 180 for Pro; on the default two-core machine, that corresponds to 60 or 90 machine-hours.
@@ -264,7 +263,7 @@ To extend `nnx` for a new task:
 
 1. Open a PR against [`thekaveh/NNx`](https://github.com/thekaveh/NNx) with the new feature + a smoke test.
 2. After merge, wait for the next NNx release cut (or, for editable iteration during the design phase: clone `thekaveh/NNx` outside the ml-eng-lab tree, `pip install -e <path-to-clone>[lm]` into your venv, then run `NNX_ALLOW_EDITABLE=1 make test-nnx-surface`).
-3. After the release exists, update the exact pin in `requirements.txt` and open a PR. Tier-A papermill CI re-runs the Tier-A list against the new version; run `make smoke-tier-b`, `make smoke-tier-c`, and manual quantization validation when the NNx change touches those surfaces — same validation discipline as the prior submodule-pointer-bump workflow.
+3. After the release exists, update the exact pin in `requirements.txt` and open a PR. Tier-A papermill CI re-runs the Tier-A list against the new version; run `make smoke-tier-b` and `make smoke-tier-c` for the remaining execution surfaces — same validation discipline as the prior submodule-pointer-bump workflow.
 
 ## 7. Repository conventions
 
@@ -316,7 +315,7 @@ The README is the entry point; the items below are the hub's index of secondary 
 - [docs/jupyterhub-integration.md](docs/jupyterhub-integration.md) — Atlas JupyterHub lifecycle and ownership boundary.
 - [docs/vscode-remote-access.md](docs/vscode-remote-access.md) — local VS Code remote-kernel path and browser fallback.
 - [docs/atlas-pin-bump-runbook.md](docs/atlas-pin-bump-runbook.md) — reviewed Atlas pin-bump and future-service admission runbook.
-- [docs/dependency-contracts.md](docs/dependency-contracts.md) — dependency audit ledger, local/CI Torch contract, Atlas runtime evidence, and manual-only quantization contract.
+- [docs/dependency-contracts.md](docs/dependency-contracts.md) — dependency audit ledger, local/CI Torch contract, Atlas runtime evidence, and automated quantization contract.
 - [docs/architecture.md](docs/architecture.md) — system/context view for the notebook lab, verifier, CI, runtime environments, and documentation delivery.
 - [docs/diagrams/README.md](docs/diagrams/README.md) — provenance and regeneration contract for embedded architecture diagrams.
 - [docs/maintenance/overnight-2026-07-04.md](docs/maintenance/overnight-2026-07-04.md) — current overnight maintenance pass log and issue tracker.

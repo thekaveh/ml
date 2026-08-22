@@ -13,6 +13,24 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "verify_smoke_outputs.py"
+QUANTIZATION_SOURCE = "notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb"
+QUANTIZATION_OUTPUT_NAME = "quantization-mnist-ffnn-pytorch.ipynb"
+QUANTIZATION_MARKER_PREFIX = "ISSUE66_QUANTIZATION_CONTRACT="
+QUANTIZATION_SMOKE_CONTRACT = {
+    "artifacts_nonempty": True,
+    "checkpoint_evaluation_finite": True,
+    "checkpoint_metadata_parity": True,
+    "checkpoint_reloaded": True,
+    "checkpoint_state_parity": True,
+    "epochs": 1,
+    "ptq_validated": True,
+    "qat_converted": True,
+    "qat_prepared": True,
+    "qat_quantized_module": True,
+    "schema_version": 1,
+    "seed": 0,
+    "smoke_test": True,
+}
 
 
 def _module() -> ModuleType:
@@ -20,9 +38,14 @@ def _module() -> ModuleType:
 
 
 def _sources(tier: str) -> tuple[str, ...]:
-    counts = {"a": 18, "b": 6, "c": 4}
+    counts = {"a": 18, "b": 7, "c": 4}
     if tier == "a":
         return tuple(f"notebooks/task-{index:02d}/notebook.ipynb" for index in range(counts[tier]))
+    if tier == "b":
+        return (QUANTIZATION_SOURCE,) + tuple(
+            f"notebooks/task-{index:02d}/notebook-{index:02d}.ipynb"
+            for index in range(counts[tier] - 1)
+        )
     return tuple(
         f"notebooks/task-{index:02d}/notebook-{index:02d}.ipynb"
         for index in range(counts[tier])
@@ -30,10 +53,16 @@ def _sources(tier: str) -> tuple[str, ...]:
 
 
 def _output_path(root: Path, tier: str, source: str) -> Path:
-    return root / (source if tier == "a" else Path(source).name)
+    if tier == "a":
+        return root / source
+    if tier == "b" and source == QUANTIZATION_SOURCE:
+        return root / QUANTIZATION_OUTPUT_NAME
+    return root / Path(source).name
 
 
-def write_executed_notebook(path: Path, *, code_cells: int = 1) -> None:
+def write_executed_notebook(
+    path: Path, *, code_cells: int = 1, output_text: str = "ok\n"
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
@@ -44,7 +73,11 @@ def write_executed_notebook(path: Path, *, code_cells: int = 1) -> None:
                         "execution_count": index + 1,
                         "metadata": {},
                         "outputs": [
-                            {"output_type": "stream", "name": "stdout", "text": ["ok\n"]}
+                            {
+                                "output_type": "stream",
+                                "name": "stdout",
+                                "text": [output_text],
+                            }
                         ],
                         "source": ["print('ok')\n"],
                     }
@@ -61,14 +94,23 @@ def write_executed_notebook(path: Path, *, code_cells: int = 1) -> None:
 
 def _write_valid_outputs(root: Path, tier: str, sources: tuple[str, ...]) -> None:
     for source in sources:
-        write_executed_notebook(_output_path(root, tier, source))
+        output_text = "ok\n"
+        if source == QUANTIZATION_SOURCE:
+            output_text = (
+                QUANTIZATION_MARKER_PREFIX
+                + json.dumps(QUANTIZATION_SMOKE_CONTRACT, sort_keys=True)
+                + "\n"
+            )
+        write_executed_notebook(
+            _output_path(root, tier, source), output_text=output_text
+        )
 
 
 def _assert_category(error: Exception, tier: str, category: str) -> None:
     assert str(error) == f"smoke output verification failed: {tier}: {category}"
 
 
-@pytest.mark.parametrize(("tier", "count"), (("a", 18), ("b", 6), ("c", 4)))
+@pytest.mark.parametrize(("tier", "count"), (("a", 18), ("b", 7), ("c", 4)))
 def test_valid_inventory_returns_every_executed_artifact(
     tmp_path: Path, tier: str, count: int
 ) -> None:
@@ -85,6 +127,66 @@ def test_valid_inventory_returns_every_executed_artifact(
         _output_path(root, tier, source) for source in sources
     )
     assert all(artifact.code_cells == 1 for artifact in artifacts)
+
+
+def test_real_tier_b_inventory_maps_quantization_to_a_unique_output(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    sources = tuple(module.load_make_inventory("b"))
+    _write_valid_outputs(tmp_path, "b", sources)
+
+    artifacts = module.verify_smoke_outputs("b", tmp_path)
+
+    output_names = tuple(artifact.output.name for artifact in artifacts)
+    assert "notebook.ipynb" in output_names
+    assert "quantization-mnist-ffnn-pytorch.ipynb" in output_names
+    assert len(output_names) == len(set(output_names)) == 7
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing",
+        "false-field",
+        "duplicate",
+        "malformed",
+        "extra-field",
+        "boolean-as-integer",
+        "integer-as-boolean",
+    ),
+)
+def test_quantization_output_contract_is_fail_closed(
+    tmp_path: Path, mutation: str
+) -> None:
+    module = _module()
+    sources = _sources("b")
+    _write_valid_outputs(tmp_path, "b", sources)
+    target = _output_path(tmp_path, "b", QUANTIZATION_SOURCE)
+    document = json.loads(target.read_text(encoding="utf-8"))
+    if mutation == "missing":
+        text = "ok\n"
+    elif mutation == "malformed":
+        text = QUANTIZATION_MARKER_PREFIX + "{\n"
+    else:
+        payload = dict(QUANTIZATION_SMOKE_CONTRACT)
+        if mutation == "false-field":
+            payload["checkpoint_reloaded"] = False
+        elif mutation == "extra-field":
+            payload["unreviewed"] = True
+        elif mutation == "boolean-as-integer":
+            payload["epochs"] = True
+        elif mutation == "integer-as-boolean":
+            payload["qat_converted"] = 1
+        marker = QUANTIZATION_MARKER_PREFIX + json.dumps(payload, sort_keys=True) + "\n"
+        text = marker * (2 if mutation == "duplicate" else 1)
+    document["cells"][0]["outputs"][0]["text"] = [text]
+    target.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(module.SmokeOutputError) as caught:
+        module.verify_smoke_outputs("b", tmp_path, lambda selected: sources)
+
+    _assert_category(caught.value, "b", "semantic")
 
 
 @pytest.mark.parametrize("delta", (-1, 1), ids=("missing-item", "extra-item"))
@@ -116,7 +218,7 @@ def test_inventory_rejects_duplicate_sources(tmp_path: Path) -> None:
 def test_inventory_rejects_duplicate_mapped_outputs(tmp_path: Path) -> None:
     module = _module()
     sources = list(_sources("b"))
-    sources[1] = "notebooks/other/notebook-00.ipynb"
+    sources[2] = "notebooks/other/notebook-00.ipynb"
 
     with pytest.raises(module.SmokeOutputError) as caught:
         module.verify_smoke_outputs("b", tmp_path, lambda selected: tuple(sources))

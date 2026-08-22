@@ -185,10 +185,10 @@ cutoff is itself an explicit policy and generated-lock change.
 Rollback reverts the human inputs, policy, all generated locks, image ledger/references,
 installer/consumer wiring, advisory policy, and documentation as one coherent change.
 
-Issue #64 retains external data/model content integrity beyond the locked spaCy wheel. Issue #65
-retains Atlas runtime ownership; this parent contract audits only the Atlas validation role. Issue
-#66 retains the complete quantization notebook, which remains manual-only despite the locked tiny
-QAT surface.
+Issue #64 completed external data/model content integrity beyond the locked spaCy wheel. Issue #65
+completed the retained Atlas runtime review; this parent contract audits only the Atlas validation
+role. Issue #66 completes the quantization execution contract through Tier B and full Atlas
+qualification without changing dependency pins.
 
 The pre-resolved `pyg-extension-audit-requirements.txt` supplement contains exactly
 `torch-scatter==2.1.2` and `torch-sparse==0.6.18`; it contains neither `torch-cluster` nor
@@ -297,14 +297,14 @@ import, and sampler gates.
 
 The temporary verifier-local import debts have literal keys Torch 2.11.0 with outer torch-geometric 2.8.0.post1 and Torch 2.11.0 with outer torch-sparse 0.6.18. Every record in a nonempty captured group must have category identity DeprecationWarning, message `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`., and exact selected-Torch RECORD origin torch/jit/_script.py. Count and line number are not pinned. Pytest remains -W error, no global filter is allowed, and a warning-free fresh-interpreter probe retires the exception.
 
-Separately, the immutable Torch 2.11.0 + torchao 0.18.0 + thekaveh-nnx 0.2.0 + qat_config="8da4w" QAT debt is asserted only around NNx model.train: exactly one identity-UserWarning must equal the complete Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead (e.g. TorchAODType.INT4 -> torch.int4) and originate from the selected torchao RECORD path torchao/quantization/quant_primitives.py. The three distribution versions are parsed fail-closed and compared by their PEP 440 public versions, so platform local tags such as Torch 2.11.0+cpu retain the 2.11.0 key while malformed versions fail validation. Pytest remains -W error; zero warnings or tuple drift stops qualification for debt retirement; Issue #66 or an earlier NNx/Atlas upgrade owns migration to the current torch.int4 API.
+Separately, the immutable Torch 2.11.0 + torchao 0.18.0 + thekaveh-nnx 0.2.0 + qat_config="8da4w" QAT debt is asserted only around NNx model.train: exactly one identity-UserWarning must equal the complete Deprecation: TorchAODType is deprecated, please use the torch.intN dtype instead (e.g. TorchAODType.INT4 -> torch.int4) and originate from the selected torchao RECORD path torchao/quantization/quant_primitives.py. The three distribution versions are parsed fail-closed and compared by their PEP 440 public versions, so platform local tags such as Torch 2.11.0+cpu retain the 2.11.0 key while malformed versions fail validation. Pytest remains -W error; zero warnings or tuple drift stops qualification for debt retirement. Issue #66 accepts this exact debt for Tier B; a later Torch/torchao/NNx upgrade owns migration to the current torch.int4 API.
 
 `make install-torch-stack` selects one complete hash-required platform lock and installs it through
 the shared sanitized boundary; source provenance is retained in the lock policy for PyPI, the
 Linux CPU index, the PyG flat wheel source, and Darwin's native index. NNx remains binary-only.
 Acceptance requires pip-check, the ten-component stack
 verifier, the NNx verifier, four-surface advisory reconciliation from six commands, full repository
-tests, zero-skip focused graph/quantization tests, Tier A/B/C 18/6/4, Darwin arm64, native Linux
+tests, zero-skip focused graph/quantization tests, Tier A/B/C 18/7/4, Darwin arm64, native Linux
 arm64 Docker, Linux x86_64 PR gates, and three-surface documentation parity. Any failure rejects
 the matrix and rollback restores the complete prior contract in a fresh environment or rebuilt
 image.
@@ -312,12 +312,16 @@ image.
 Issue #62 completed the runtime matrix; Issue #63 preserves that matrix while replacing routine
 resolution with verified immutable locks.
 
-## 6.1.3 Manual-Only Quantization Notebook
+## 6.1.3 Automated Quantization Notebook
 
-notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb remains manual-only under Issue #66.
-Issue #62 qualifies only the tiny PTQ/QAT dependency surface on torch==2.11.0,
-torchvision==0.26.0, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0. Do not add the complete notebook
-to Tier A/B/C without Issue #66 acceptance; Atlas remains Issue #65 and is not a substitute.
+Issue #66 places notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb in Tier B on the
+unchanged torch==2.11.0, torchvision==0.26.0, torchao==0.18.0, and
+thekaveh-nnx[lm]==0.2.0 contract. Its deterministic one-epoch smoke executes FP32, PTQ, and QAT;
+proves final torchao conversion; reconstructs the pre-conversion QAT shadow checkpoint with exact
+state and metadata parity plus finite evaluation; and emits a fail-closed semantic marker. The
+full three-epoch path is separately qualified locally and through Atlas JupyterHub. Its Tier B
+artifact is `/tmp/ml-smoke/quantization-mnist-ffnn-pytorch.ipynb`, so it cannot collide with the
+existing image-classification `notebook.ipynb` output.
 
 ## 6.1.4 Papermill CLI Contract
 
@@ -403,10 +407,9 @@ keywords are unsupported there, the repository retained 0.2.0 and removed the tr
 
 Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix. Platform
 assumptions do not waive a tier: the Issue #61 Darwin arm64 run disproved the former claim that
-`torch_sparse` made Tier B/C impossible on macOS. Quantization remains a separate manual-only
-probe until Issue #66 defines tiering; torchao 0.18 requires Torch >=2.11, so the accepted side
-environment is the proven Torch 2.11.0 / torchvision 0.26.0 / torchao 0.18.0 combination rather
-than a looser, unverified version floor.
+`torch_sparse` made Tier B/C impossible on macOS. Issue #66 now includes quantization in Tier B;
+torchao 0.18 requires Torch >=2.11, so the accepted environment is the proven Torch 2.11.0 /
+torchvision 0.26.0 / torchao 0.18.0 combination rather than a looser, unverified version floor.
 
 Editable installs are allowed only for intentional upstream NNx development. After installing an
 external checkout editable, run:
@@ -485,11 +488,11 @@ smoke.
 
 ## 6.1.9 Atlas Versus Local/CI Dependency Boundaries
 
-Atlas is Atlas-owned infrastructure and remains Issue #65. The checked-in Torch 2.11 CPU manifests
-are authoritative for make test, papermill CI, Dockerfile, and Codespaces; no Atlas package
-observation changes that contract. The complete quantization notebook remains manual-only under
-Issue #66 even though Issue #62 qualifies its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency
-surface.
+Atlas is Atlas-owned infrastructure and was retained by Issue #65. The checked-in Torch 2.11 CPU
+manifests are authoritative for make test, papermill CI, Dockerfile, and Codespaces; no Atlas
+package observation changes that contract. Issue #66 qualifies the complete quantization notebook
+in both boundaries: Tier B uses the repository locks, while full Atlas execution is independent
+runtime evidence rather than dependency identity parity.
 
 ## 6.1.10 GitHub Actions Pins
 

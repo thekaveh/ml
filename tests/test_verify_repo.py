@@ -3387,8 +3387,61 @@ def test_execution_fast_mode_skips_e1_e2_e3():
         assert f["id"] not in forbidden_ids, f"slow check ran in --fast mode: {f}"
 
 
+def test_execution_e5_uses_versioned_public_facade_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    expected_tag = "tier-c-public-facade-baseline-2026-08-22"
+    assert verify_repo.TIER_C_CODE_BASELINE_TAG == expected_tag
+
+    repo = tmp_path / "repo"
+    notebook = (
+        repo
+        / "notebooks"
+        / "node_classification-reddit-gnn-pyg"
+        / "phase3-example.ipynb"
+    )
+    notebook.parent.mkdir(parents=True)
+    notebook_text = json.dumps({
+        "cells": [{
+            "cell_type": "code",
+            "execution_count": None,
+            "id": "public-facade-baseline",
+            "metadata": {},
+            "outputs": [],
+            "source": ["from nnx import NNModel\n"],
+        }],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    })
+    notebook.write_text(notebook_text, encoding="utf-8")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, cwd, timeout=None):
+        del cwd, timeout
+        calls.append(cmd)
+        if cmd[:3] == ["git", "rev-parse", "--verify"]:
+            return 0, f"{expected_tag}\n", ""
+        if cmd[:2] == ["git", "show"]:
+            return 0, notebook_text, ""
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(verify_repo, "_run", fake_run)
+
+    assert verify_repo._phase3_code_cells_unchanged(repo) == []
+    assert calls == [
+        ["git", "rev-parse", "--verify", expected_tag],
+        [
+            "git",
+            "show",
+            f"{expected_tag}:notebooks/node_classification-reddit-gnn-pyg/phase3-example.ipynb",
+        ],
+    ]
+
+
 def test_execution_e5_baseline_missing_warns_not_errors():
-    """Before pre-cleanup-baseline tag exists, E5 should warn (not error)."""
+    """Before the current Tier-C baseline exists, E5 warns rather than errors."""
     r = run_verify("--check", "execution", "--fast")
     data = json.loads(r.stdout) if r.stdout else {"findings": []}
     e5 = [f for f in data["findings"] if f["id"] == "E5.no_baseline"]
@@ -7449,22 +7502,6 @@ def test_iter_notebooks_reads_active_tasks_under_notebooks(tmp_path, monkeypatch
     found = [str(p.relative_to(tmp_path)) for p in verify_repo._iter_notebooks(tmp_path)]
 
     assert found == ["notebooks/task-a/notebook.ipynb"]
-
-
-def test_baseline_notebook_rel_removes_notebooks_prefix():
-    verify_repo = _load_verify_module()
-    baseline_rel = "/".join([
-        "node_classification-reddit-gnn-pyg",
-        "phase3-main-model-training-and-eval-notebook.ipynb",
-    ])
-
-    assert (
-        verify_repo._baseline_notebook_rel(
-            "notebooks/node_classification-reddit-gnn-pyg/phase3-main-model-training-and-eval-notebook.ipynb"
-        )
-        == baseline_rel
-    )
-    assert verify_repo._baseline_notebook_rel("legacy/notebook.ipynb") == "legacy/notebook.ipynb"
 
 
 def test_assignment_names_ignore_comments_and_strings():

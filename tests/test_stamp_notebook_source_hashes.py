@@ -15,6 +15,8 @@ import pytest
 from scripts.stamp_notebook_source_hashes import (
     NotebookStampError,
     active_notebook_paths,
+    clear_document,
+    clear_path,
     compute_source_hash,
     logical_source,
     stamp_document,
@@ -48,6 +50,15 @@ def _document(*cells: dict) -> dict:
 
 def _stream_output(text: str = "ok\n") -> dict:
     return {"name": "stdout", "output_type": "stream", "text": text}
+
+
+def _error_output() -> dict:
+    return {
+        "ename": "RuntimeError",
+        "evalue": "boom",
+        "output_type": "error",
+        "traceback": ["Traceback (most recent call last):", "RuntimeError: boom"],
+    }
 
 
 def _write_json(path: Path, document: dict) -> bytes:
@@ -112,6 +123,82 @@ def test_outputless_code_without_metadata_is_left_untouched() -> None:
 
     assert stamp_document(document) == 0
     assert document["cells"][0]["metadata"] == {}
+
+
+def test_clear_document_removes_hashes_from_all_code_cells_in_failed_artifact() -> None:
+    failed = _code(
+        "raise RuntimeError('boom')",
+        outputs=[_error_output()],
+        metadata={"source_hash": "a" * 64, "keep": {"nested": True}},
+    )
+    outputless = _code("x = 1", metadata={"source_hash": "b" * 64, "keep": 3})
+    markdown = {"cell_type": "markdown", "metadata": {"source_hash": "leave"}, "source": "# hi"}
+    document = _document(failed, outputless, markdown)
+    error_output = json.loads(json.dumps(failed["outputs"][0]))
+
+    assert clear_document(document) == 2
+    assert "source_hash" not in failed["metadata"]
+    assert failed["metadata"]["keep"] == {"nested": True}
+    assert failed["outputs"][0] == error_output
+    assert "source_hash" not in outputless["metadata"]
+    assert outputless["metadata"]["keep"] == 3
+    assert markdown["metadata"]["source_hash"] == "leave"
+
+
+def test_clear_document_accepts_output_bearing_code_cell_with_null_execution_count() -> None:
+    cell = _code("x = 1", outputs=[_stream_output()], metadata={"source_hash": "a" * 64})
+    cell["execution_count"] = None
+    document = _document(cell)
+
+    assert clear_document(document) == 1
+    assert "source_hash" not in cell["metadata"]
+
+
+def test_clear_path_preserves_unrelated_fields_permissions_and_is_byte_idempotent(tmp_path: Path) -> None:
+    cell = _code(
+        "raise RuntimeError('boom')",
+        outputs=[_error_output()],
+        metadata={"source_hash": "a" * 64, "custom": [1, {"two": 2}]},
+    )
+    cell["execution_count"] = None
+    document = _document(
+        cell,
+        {"cell_type": "raw", "id": "raw-cell", "metadata": {"custom": "raw"}, "source": ["raw\n"]},
+    )
+    path = tmp_path / "failed.ipynb"
+    _write_json(path, document)
+    os.chmod(path, 0o640)
+    expected = json.loads(json.dumps(document))
+    del expected["cells"][0]["metadata"]["source_hash"]
+
+    assert clear_path(path) == 1
+    cleared = path.read_bytes()
+    assert json.loads(cleared) == expected
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+    assert clear_path(path) == 0
+    assert path.read_bytes() == cleared
+
+
+@pytest.mark.parametrize(
+    ("document", "message"),
+    (
+        ([], "root"),
+        (_document(None), "cell"),
+        (_document(_code("x", outputs=[{"output_type": "error", "ename": "Error", "evalue": "x"}])), "error"),
+        (_document(_code("x", outputs=[{"output_type": "stream", "name": "stdout", "text": 3}])), "output"),
+    ),
+    ids=("malformed-root", "malformed-cell", "malformed-error", "malformed-output"),
+)
+def test_clear_path_rejects_malformed_notebook_without_changing_bytes(
+    tmp_path: Path, document: object, message: str
+) -> None:
+    path = tmp_path / "bad.ipynb"
+    original = _write_json(path, document)
+
+    with pytest.raises(NotebookStampError, match=message):
+        clear_path(path)
+
+    assert path.read_bytes() == original
 
 
 def test_stamp_path_preserves_unrelated_fields_and_is_byte_stable_on_repeat(tmp_path: Path) -> None:
@@ -364,6 +451,34 @@ def test_cli_requires_exactly_one_of_paths_or_all_active(tmp_path: Path) -> None
         result = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=30)
         assert result.returncode != 0
         assert "path" in (result.stderr + result.stdout).lower()
+
+
+def test_cli_clear_requires_explicit_paths_and_rejects_all_active() -> None:
+    commands = (
+        [sys.executable, str(SCRIPT), "--clear"],
+        [sys.executable, str(SCRIPT), "--clear", "--all-active"],
+    )
+    for command in commands:
+        result = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=30)
+        assert result.returncode != 0
+        message = (result.stderr + result.stdout).lower()
+        assert "clear" in message
+        assert "path" in message
+
+
+def test_cli_clears_explicit_failed_notebook_path(tmp_path: Path) -> None:
+    path = tmp_path / "failed.ipynb"
+    _write_json(
+        path,
+        _document(_code("raise RuntimeError", outputs=[_error_output()], metadata={"source_hash": "a" * 64})),
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--clear", str(path)], capture_output=True, text=True, timeout=30
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "source_hash" not in json.loads(path.read_text(encoding="utf-8"))["cells"][0]["metadata"]
 
 
 def test_cli_stamps_explicit_path(tmp_path: Path) -> None:

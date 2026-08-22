@@ -12,7 +12,7 @@ import stat
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 class NotebookStampError(ValueError):
@@ -37,12 +37,21 @@ def _is_integer(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _validate_output(output: object, index: int, output_index: int) -> None:
+def _validate_output(
+    output: object, index: int, output_index: int, *, allow_failed_execution: bool = False
+) -> None:
     if not isinstance(output, dict):
         raise NotebookStampError(f"notebook code cell {index} output {output_index} must be an object")
     output_type = output.get("output_type")
     if output_type == "error":
-        raise NotebookStampError(f"notebook code cell {index} contains an error output")
+        if not isinstance(output.get("ename"), str) or not isinstance(output.get("evalue"), str):
+            raise NotebookStampError(f"notebook code cell {index} error output names must be strings")
+        traceback = output.get("traceback")
+        if not isinstance(traceback, list) or not all(isinstance(line, str) for line in traceback):
+            raise NotebookStampError(f"notebook code cell {index} error output traceback must be a list of strings")
+        if not allow_failed_execution:
+            raise NotebookStampError(f"notebook code cell {index} contains an error output")
+        return
     if output_type == "stream":
         if output.get("name") not in {"stdout", "stderr"}:
             raise NotebookStampError(f"notebook code cell {index} stream output has invalid name")
@@ -57,8 +66,13 @@ def _validate_output(output: object, index: int, output_index: int) -> None:
             raise NotebookStampError(f"notebook code cell {index} output data must be an object")
         if not isinstance(output.get("metadata"), dict):
             raise NotebookStampError(f"notebook code cell {index} output metadata must be an object")
-        if output_type == "execute_result" and not _is_integer(output.get("execution_count")):
-            raise NotebookStampError(f"notebook code cell {index} execute_result execution_count must be an integer")
+        if output_type == "execute_result" and not (
+            _is_integer(output.get("execution_count"))
+            or (allow_failed_execution and output.get("execution_count") is None)
+        ):
+            raise NotebookStampError(
+                f"notebook code cell {index} execute_result execution_count must be an integer"
+            )
         return
     raise NotebookStampError(f"notebook code cell {index} has invalid output type {output_type!r}")
 
@@ -95,7 +109,9 @@ def _validate_attachments(attachments: object, index: int) -> None:
                 raise NotebookStampError(f"notebook markdown cell {index} attachment value must be a string or list")
 
 
-def _validate_document(document: object) -> dict[str, Any]:
+def _validate_document(
+    document: object, *, allow_failed_execution: bool = False
+) -> dict[str, Any]:
     if not isinstance(document, dict):
         raise NotebookStampError("notebook JSON root must be an object")
     if "nbformat" not in document or not _is_integer(document["nbformat"]) or document["nbformat"] != 4:
@@ -133,10 +149,15 @@ def _validate_document(document: object) -> dict[str, Any]:
             outputs = cell.get("outputs")
             if not isinstance(outputs, list):
                 raise NotebookStampError(f"notebook code cell {index} outputs must be a list")
-            if outputs and cell["execution_count"] is None:
+            if outputs and cell["execution_count"] is None and not allow_failed_execution:
                 raise NotebookStampError(f"notebook code cell {index} output-bearing execution_count must be an integer")
             for output_index, output in enumerate(outputs):
-                _validate_output(output, index, output_index)
+                _validate_output(
+                    output,
+                    index,
+                    output_index,
+                    allow_failed_execution=allow_failed_execution,
+                )
         if "id" in cell and not isinstance(cell["id"], str):
             raise NotebookStampError(f"notebook cell {index} id must be a string")
     return document
@@ -164,14 +185,27 @@ def stamp_document(document: dict[str, object]) -> int:
     return changed
 
 
-def _parse_notebook(raw: bytes, notebook: Path) -> dict[str, object]:
+def clear_document(document: dict[str, object]) -> int:
+    """Remove source markers from every code cell in a validated notebook mapping."""
+    validated = _validate_document(document, allow_failed_execution=True)
+    changed = 0
+    for cell in validated["cells"]:
+        if cell["cell_type"] == "code" and "source_hash" in cell["metadata"]:
+            del cell["metadata"]["source_hash"]
+            changed += 1
+    return changed
+
+
+def _parse_notebook(
+    raw: bytes, notebook: Path, *, allow_failed_execution: bool = False
+) -> dict[str, object]:
     try:
         text = raw.decode("utf-8")
         document = json.loads(text, parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise NotebookStampError(f"invalid notebook JSON in {notebook}: {exc}") from exc
     try:
-        return _validate_document(document)
+        return _validate_document(document, allow_failed_execution=allow_failed_execution)
     except NotebookStampError as exc:
         raise NotebookStampError(f"invalid notebook structure in {notebook}: {exc}") from exc
 
@@ -183,8 +217,12 @@ def _serialize(document: dict[str, object]) -> bytes:
         raise NotebookStampError(f"cannot serialize notebook: {exc}") from exc
 
 
-def stamp_path(notebook: Path) -> int:
-    """Atomically stamp one notebook, returning the number of marker changes."""
+def _update_path(
+    notebook: Path,
+    update_document: Callable[[dict[str, object]], int],
+    *,
+    allow_failed_execution: bool = False,
+) -> int:
     notebook = Path(notebook)
     try:
         original = notebook.read_bytes()
@@ -192,8 +230,12 @@ def stamp_path(notebook: Path) -> int:
     except OSError as exc:
         raise NotebookStampError(f"cannot read notebook {notebook}: {exc}") from exc
 
-    document = _parse_notebook(original, notebook)
-    changed = stamp_document(document)
+    document = _parse_notebook(
+        original, notebook, allow_failed_execution=allow_failed_execution
+    )
+    changed = update_document(document)
+    if changed == 0:
+        return 0
     serialized = _serialize(document)
     if serialized == original:
         return changed
@@ -219,6 +261,16 @@ def stamp_path(notebook: Path) -> int:
                 pass
         raise NotebookStampError(f"atomic notebook replacement failed for {notebook}: {exc}") from exc
     return changed
+
+
+def stamp_path(notebook: Path) -> int:
+    """Atomically stamp one notebook, returning the number of marker changes."""
+    return _update_path(notebook, stamp_document)
+
+
+def clear_path(notebook: Path) -> int:
+    """Atomically clear one notebook, returning the number of markers removed."""
+    return _update_path(notebook, clear_document, allow_failed_execution=True)
 
 
 def active_notebook_paths(repo: Path) -> tuple[Path, ...]:
@@ -251,14 +303,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", type=Path, help="notebook paths to stamp")
     parser.add_argument("--all-active", action="store_true", help="stamp notebooks in active_task_dirs")
+    parser.add_argument("--clear", action="store_true", help="clear source hashes from explicit notebook paths")
     args = parser.parse_args(argv)
-    if bool(args.paths) == args.all_active:
+    if args.clear and (args.all_active or not args.paths):
+        parser.error("--clear requires one or more explicit notebook paths and cannot use --all-active")
+    if not args.clear and bool(args.paths) == args.all_active:
         parser.error("provide one or more paths or --all-active (but not both)")
 
     notebooks = active_notebook_paths(Path(__file__).resolve().parent.parent) if args.all_active else args.paths
+    update_path = clear_path if args.clear else stamp_path
     try:
         for notebook in notebooks:
-            stamp_path(notebook)
+            update_path(notebook)
     except NotebookStampError as exc:
         parser.error(str(exc))
     return 0

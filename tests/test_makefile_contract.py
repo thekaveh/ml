@@ -91,7 +91,27 @@ def _assert_source_hash_stamp(path: Path) -> None:
 
 
 def _write_failing_papermill(path: Path) -> None:
-    path.write_text("#!/usr/bin/env bash\nexit 19\n", encoding="utf-8")
+    error_output = {
+        "ename": "RuntimeError",
+        "evalue": "simulated Papermill failure",
+        "output_type": "error",
+        "traceback": ["RuntimeError: simulated Papermill failure"],
+    }
+    path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "source = Path(sys.argv[-2])\n"
+        "output = Path(sys.argv[-1])\n"
+        "document = json.loads(source.read_text(encoding='utf-8'))\n"
+        "document['cells'][0]['execution_count'] = None\n"
+        f"document['cells'][0]['outputs'] = [{error_output!r}]\n"
+        "output.parent.mkdir(parents=True, exist_ok=True)\n"
+        "output.write_text(json.dumps(document, indent=1) + '\\n', encoding='utf-8')\n"
+        "raise SystemExit(19)\n",
+        encoding="utf-8",
+    )
     path.chmod(0o755)
 
 
@@ -103,6 +123,40 @@ def _write_stamper_sentinel(path: Path) -> None:
         encoding="utf-8",
     )
     path.chmod(0o755)
+
+
+def _write_clearer_sentinel(path: Path) -> None:
+    command = [sys.executable, str(REPO_ROOT / "scripts" / "stamp_notebook_source_hashes.py"), "--clear"]
+    path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import subprocess\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "Path('.source-hash-clearer-ran').touch()\n"
+        f"command = {command!r}\n"
+        "raise SystemExit(subprocess.run([*command, *sys.argv[1:]]).returncode)\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def _write_hashed_input_notebook(path: Path) -> None:
+    document = {
+        "cells": [
+            {
+                "cell_type": "code",
+                "execution_count": 1,
+                "id": "executed-cell",
+                "metadata": {"source_hash": _EXECUTED_NOTEBOOK_SOURCE_HASH},
+                "outputs": [{"name": "stdout", "output_type": "stream", "text": "executed\n"}],
+                "source": _EXECUTED_NOTEBOOK_SOURCE,
+            }
+        ],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    path.write_text(json.dumps(document, indent=1) + "\n", encoding="utf-8")
 
 
 def _stamper_command() -> str:
@@ -829,6 +883,7 @@ def test_run_tier_a_stamps_successful_in_place_execution(tmp_path: Path) -> None
 def test_execution_targets_configure_and_order_source_hash_stamping() -> None:
     makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
     assert "SOURCE_HASH_STAMPER ?= $(PYTHON) scripts/stamp_notebook_source_hashes.py" in makefile
+    assert "SOURCE_HASH_CLEARER ?= $(PYTHON) scripts/stamp_notebook_source_hashes.py --clear" in makefile
 
     expected_paths = {
         "run-tier-a": "$$nb",
@@ -839,8 +894,14 @@ def test_execution_targets_configure_and_order_source_hash_stamping() -> None:
     for target, path in expected_paths.items():
         recipe = "\n".join(_target_recipe(makefile, target))
         stamp = f'$(SOURCE_HASH_STAMPER) "{path}"'
+        clear = f'$(SOURCE_HASH_CLEARER) "{path}"'
         assert recipe.count(stamp) == 1
+        assert recipe.count(clear) == 1
         assert recipe.index("$(PAPERMILL)") < recipe.index(stamp)
+        assert recipe.index("$(PAPERMILL)") < recipe.index(clear) < recipe.index(stamp)
+        assert f'if [ -f "{path}" ]' in recipe
+        assert "papermill_status=$$?" in recipe
+        assert "exit $$papermill_status" in recipe
         assert f"{stamp} || exit 1;" in recipe
 
 
@@ -852,16 +913,19 @@ def test_execution_targets_configure_and_order_source_hash_stamping() -> None:
     ),
     ids=("in-place-tier-a", "temporary-output-smoke"),
 )
-def test_failed_papermill_never_invokes_source_hash_stamper(
+def test_failed_papermill_clears_inherited_hashes_without_invoking_source_hash_stamper(
     tmp_path: Path, target: str, tier_assignment: str
 ) -> None:
     notebook = tmp_path / "notebooks" / "tier-a" / "notebook.ipynb"
     notebook.parent.mkdir(parents=True)
-    notebook.write_text("source notebook\n", encoding="utf-8")
+    _write_hashed_input_notebook(notebook)
     fake_papermill = tmp_path / "papermill"
     _write_failing_papermill(fake_papermill)
     stamper_sentinel = tmp_path / "stamper-sentinel"
     _write_stamper_sentinel(stamper_sentinel)
+    clearer_sentinel = tmp_path / "clearer-sentinel"
+    _write_clearer_sentinel(clearer_sentinel)
+    output_root = tmp_path / "tier-a-output"
 
     result = subprocess.run(
         [
@@ -870,8 +934,10 @@ def test_failed_papermill_never_invokes_source_hash_stamper(
             str(REPO_ROOT / "Makefile"),
             target,
             tier_assignment,
+            f"TIER_A_OUT={output_root}",
             f"PAPERMILL={fake_papermill}",
             f"SOURCE_HASH_STAMPER={stamper_sentinel}",
+            f"SOURCE_HASH_CLEARER={clearer_sentinel}",
         ],
         cwd=tmp_path,
         capture_output=True,
@@ -881,6 +947,57 @@ def test_failed_papermill_never_invokes_source_hash_stamper(
 
     assert result.returncode != 0
     assert not (tmp_path / ".source-hash-stamper-ran").exists()
+    assert (tmp_path / ".source-hash-clearer-ran").is_file()
+    artifact = notebook if target == "run-tier-a" else output_root / notebook.relative_to(tmp_path)
+    failed_document = json.loads(artifact.read_text(encoding="utf-8"))
+    assert sum(
+        "source_hash" in cell["metadata"]
+        for cell in failed_document["cells"]
+        if cell["cell_type"] == "code"
+    ) == 0
+    assert sum(
+        output["output_type"] == "error"
+        for cell in failed_document["cells"]
+        if cell["cell_type"] == "code"
+        for output in cell["outputs"]
+    ) == 1
+
+
+@pytest.mark.parametrize(
+    ("target", "tier_assignment"),
+    (
+        ("run-tier-a", "TIER_A=notebooks/tier-a/notebook.ipynb"),
+        ("smoke-tier-a", "TIER_A=notebooks/tier-a/notebook.ipynb"),
+    ),
+    ids=("in-place-tier-a", "temporary-output-smoke"),
+)
+def test_failure_clearer_error_cannot_turn_failed_execution_green(
+    tmp_path: Path, target: str, tier_assignment: str
+) -> None:
+    notebook = tmp_path / "notebooks" / "tier-a" / "notebook.ipynb"
+    notebook.parent.mkdir(parents=True)
+    _write_hashed_input_notebook(notebook)
+    fake_papermill = tmp_path / "papermill"
+    _write_failing_papermill(fake_papermill)
+
+    result = subprocess.run(
+        [
+            "make",
+            "-f",
+            str(REPO_ROOT / "Makefile"),
+            target,
+            tier_assignment,
+            f"TIER_A_OUT={tmp_path / 'tier-a-output'}",
+            f"PAPERMILL={fake_papermill}",
+            "SOURCE_HASH_CLEARER=false",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=TEST_SUBPROCESS_TIMEOUT,
+    )
+
+    assert result.returncode != 0
 
 
 @pytest.mark.parametrize(

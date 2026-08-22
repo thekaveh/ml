@@ -357,8 +357,10 @@ Four observations:
 - **Do not re-execute Phase-3 in place.** The four Tier-C notebooks carry preserved August-2023
   outputs (training curves, tqdm bars, test-accuracy prints) that are part of the experimental
   record. `make smoke-tier-c` writes to `/tmp/`; `papermill phase3-*.ipynb phase3-*.ipynb` in
-  place destroys them. The `pre-cleanup-baseline` git tag enforces code-cell source equality
-  (markdown and outputs are not compared, so markdown edits are safe).
+  place destroys them. The immutable `tier-c-public-facade-baseline-2026-08-22`
+  git tag enforces code-cell source equality (markdown and outputs are not compared,
+  so markdown edits are safe). The historical `pre-cleanup-baseline` remains an
+  unchanged rollback anchor.
 - **Run both graph tiers during release review.** Issue #62 requires mandatory zero-skip graph tests plus Tier B and Tier C execution on the supported Torch 2.11 CPU stack. Sampling must prove preferred pyg-lib selection and forced torch-sparse fallback; install with make install-torch-stack and prove with make verify-torch-stack.
 - **Use a small enough learning rate for GraphSAGE.** Phase-2 pilots at `lr=1e-2` diverged for the
   deeper SAGE stacks; all Phase-3 SAGE runs use `1e-4`. GAT tolerates `1e-2` because its attention

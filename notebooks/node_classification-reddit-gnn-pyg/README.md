@@ -86,7 +86,7 @@ Install through make install-torch-stack and prove it with make verify-torch-sta
 
 - The Reddit2 dataset (~1.5 GB) downloads into `./data/` on first run. Subsequent runs reuse the cached copy.
 - GAT at hidden dim ≥ [256] hit GPU-memory ceilings on the original training hardware (M1 Max, 64GB RAM). The phase2 notebook 3 deliberately excludes GAT for that reason.
-- Phase-3 notebooks are Tier-C; their preserved Aug-2023 outputs are part of the artifact and must not be re-executed in place. Verify check E5 enforces **code-cell source** equality with the `pre-cleanup-baseline` git tag (markdown and embedded outputs are not compared, so markdown edits via `scripts/edit_notebook_markdown.py` are safe).
+- Phase-3 notebooks are Tier-C; their preserved Aug-2023 outputs are part of the artifact and must not be re-executed in place. Verify check E5 enforces **code-cell source** equality with the immutable `tier-c-public-facade-baseline-2026-08-22` git tag (markdown and embedded outputs are not compared, so markdown edits via `scripts/edit_notebook_markdown.py` are safe). The historical `pre-cleanup-baseline` remains an unchanged rollback anchor.
 - Memory-conscious sampling: PyG `NeighborLoader` with `[20, 15, 10]` neighborhood sizes per hop is used throughout phase 3.
 
 ## 7. Future work

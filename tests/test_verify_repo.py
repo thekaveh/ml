@@ -3450,6 +3450,32 @@ def test_execution_e5_baseline_missing_warns_not_errors():
             assert f["severity"] == "warning", f"E5.no_baseline must be warning, got {f}"
 
 
+def test_canonical_docs_teach_public_nnx_imports_and_current_tier_c_baseline():
+    import_guides = (
+        "README.md",
+        "CONTRIBUTING.md",
+        "docs/conventions.md",
+        "docs/nnx-library.md",
+    )
+    for relative in import_guides:
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        assert "from nnx.X import Y" not in text, relative
+        assert "from nnx import" in text, relative
+
+    baseline_guides = (
+        "CONTRIBUTING.md",
+        "docs/conventions.md",
+        "docs/env-setup.md",
+        "docs/notebooks/node_classification-reddit-gnn-pyg.md",
+    )
+    for relative in baseline_guides:
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        assert verify_repo.TIER_C_CODE_BASELINE_TAG in text, relative
+
+    conventions = (REPO_ROOT / "docs/conventions.md").read_text(encoding="utf-8")
+    assert "historical `pre-cleanup-baseline`" in conventions
+
+
 def test_runtime_available_requires_pyg_extension_stack(monkeypatch):
     """Full notebook execution needs the PyG binary extension stack, not just torch_geometric."""
     verify_repo = _load_verify_module()

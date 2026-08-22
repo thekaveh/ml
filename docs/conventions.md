@@ -35,7 +35,9 @@ The layout rules that follow from this:
   [dependency-contracts.md](dependency-contracts.md) §6.1.6). A former in-repo
   `common/` was removed during the 2026-06-14 PyPI migration;
   `scripts/verify_repo.py` enforces its absence via the `S7.forbidden_toplevel`
-  structure check. Notebooks import via `from nnx.X import Y`.
+  structure check. Notebooks import supported symbols through the public facade,
+  for example `from nnx import NNModel, NNParams`; equivalent deep package paths
+  are not notebook-facing API.
 - **Self-contained folders.** Each task folder carries its own `README.md`
   (purpose, dataset, what's in the notebook(s)) and one or more notebooks.
   Multi-notebook tasks (e.g. the reddit GNN task) keep `phase1-*` /
@@ -134,12 +136,14 @@ injected shape against papermill parser drift.
 
 ### 5.2.3 Tier-C output preservation
 
-Tier-C phase3 notebooks are locked to the `pre-cleanup-baseline` git tag for
+Tier-C phase3 notebooks are locked to the immutable
+`tier-c-public-facade-baseline-2026-08-22` git tag for
 their **code-cell source**. The execution check `E5` diffs each Tier-C
 notebook's code cells against that tag and errors on any mismatch; markdown
 cells and embedded outputs are deliberately **not** compared, so wording fixes
 are safe. Edit phase3 markdown via `scripts/edit_notebook_markdown.py` rather
-than by hand. Force-tagging `pre-cleanup-baseline` requires explicit approval.
+than by hand. The historical `pre-cleanup-baseline` remains an unchanged
+rollback anchor; never move either published baseline tag.
 
 ## 5.3 Validation gates
 
@@ -162,8 +166,9 @@ flag only affects the execution check):
   absence of placeholder text.
 - **Comments (`C`)** — comment/code invariants the repo relies on.
 - **Execution (`E`)** — in `--fast` mode this is skipped; in full mode it
-  runs the Tier-A/B/C papermill smoke. `E5` is the Tier-C `pre-cleanup-baseline`
-  code-cell equality gate described above.
+  runs the Tier-A/B/C papermill smoke. `E5` is the Tier-C
+  `tier-c-public-facade-baseline-2026-08-22` code-cell equality gate described
+  above.
 
 Exit code 0 means zero **error**-severity findings; warnings are
 informational. The verifier is the source of truth for "is the repo

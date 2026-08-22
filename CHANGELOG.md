@@ -13,6 +13,12 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **NNx public-facade notebook migration (Issue #68):** migrated all 139 supported deep imports
+  across 15 active notebooks to `from nnx import ...`, backed by released-wheel object-identity
+  and syntax-aware zero-inventory tests. No notebook output, execution count, algorithm, metric,
+  prose, or unrelated metadata changed. Tier-C source locking now uses the immutable
+  `tier-c-public-facade-baseline-2026-08-22` tag; historical `pre-cleanup-baseline` remains
+  unchanged as a rollback anchor.
 - **Machine-readable Atlas environment admission (Issue #67):** every active task now declares
   an explicit `required_env` list. The fail-closed schema links each uppercase variable name to a
   declared supplying service, rejects missing/malformed/duplicate/unexpected entries and services

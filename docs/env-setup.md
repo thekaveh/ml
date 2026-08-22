@@ -129,4 +129,5 @@ The authoritative lists are `Makefile` (`TIER_A`, `TIER_B`, and `TIER_C`) and
   quantization task runs one FP32 epoch plus one QAT epoch, reconstructs the saved shadow
   checkpoint exactly, proves final torchao conversion, and emits a verified semantic marker.
 - **Tier C:** `make smoke-tier-c` runs the expensive Reddit training pipelines in smoke mode;
-  preserved code cells remain guarded by the baseline verifier.
+  preserved code cells remain guarded by E5 against the immutable
+  `tier-c-public-facade-baseline-2026-08-22` tag.

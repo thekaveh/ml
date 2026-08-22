@@ -58,7 +58,9 @@ The flat re-export shape is what makes notebook code read top-to-bottom: a singl
 `from nnx import (...)` block names every symbol the notebook uses, and the enums
 make the contract self-describing (see
 `docs/notebooks/tabular_classification-iris-mlp-pytorch.md` §8.1.5 for the canonical
-example).
+example). Treat this top-level facade as the notebook-facing API: do not import a
+symbol from `nnx.nn`, `nnx.utils`, `nnx.vis_utils`, or `nnx.seeding` when the same
+name is exported from `nnx`.
 
 ## 7.2 Consumption
 

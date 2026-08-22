@@ -82,9 +82,12 @@ Four ways to run these notebooks, ordered from managed runtime to local executio
 
 ### 3.1. Atlas JupyterHub + local VS Code (recommended)
 
-Atlas is the direct successor to the previous infrastructure seam. This repository
-pins it as the `infra/` submodule at `61c7c5103660e2226bf107c115dae42bf46f8374` and starts the
-`ml-eng` track. The default workflow keeps notebooks and VS Code on the host while execution uses
+Atlas is the direct successor to the previous infrastructure seam. This repository consumes it as
+the pinned `infra/` submodule and starts the `ml-eng` track.
+
+Current reviewed Atlas pin: `41ba856f7cd35f0b559d6875e08443eac3e98a98`.
+
+The default workflow keeps notebooks and VS Code on the host while execution uses
 the running Atlas JupyterHub kernel. The NumPy MNIST task's `mounted-workspace` mode is
 `mounted-required`, so run it from Browser JupyterLab or VS Code attached to the JupyterHub
 container at `/home/jovyan/work/ml-eng-lab` rather than relying on a host-local notebook's

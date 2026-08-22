@@ -15,6 +15,12 @@ REPO = Path(__file__).resolve().parents[1]
 MANIFEST_NAME = "atlas.consumer.yml"
 OVERLAY_NAME = "compose/ml-eng-lab-atlas.yml"
 PINNED_ATLAS_REVISION = "41ba856f7cd35f0b559d6875e08443eac3e98a98"
+CURRENT_PIN_DOCUMENTS = (
+    "README.md",
+    "docs/env-setup.md",
+    "docs/atlas-pin-bump-runbook.md",
+    "docs/dependency-contracts.md",
+)
 ATLAS_BUILD = Path("services/jupyterhub/build")
 NLP_PROJECTIONS = {
     "requirements/nlp-assets.toml": ATLAS_BUILD / "nlp-assets.toml",
@@ -201,6 +207,19 @@ def validate_atlas_nlp_projection(
     assert dockerfile.count(EXPECTED_NLP_DOCKER_BLOCK) == 1
 
 
+def validate_current_atlas_pin_documents(documents: dict[str, str]) -> None:
+    marker = f"Current reviewed Atlas pin: `{PINNED_ATLAS_REVISION}`."
+    for relative in CURRENT_PIN_DOCUMENTS[:3]:
+        assert documents[relative].count(marker) == 1, relative
+    ledger_relative = "docs/dependency-contracts.md"
+    assert (
+        documents[ledger_relative].count(
+            f"Current Atlas `infra` gitlink SHA: `{PINNED_ATLAS_REVISION}`."
+        )
+        == 1
+    ), ledger_relative
+
+
 def test_atlas_submodule_is_detached_at_the_required_revision(tmp_path):
     gitmodules = tmp_path / ".gitmodules"
     shutil.copy(REPO / ".gitmodules", gitmodules)
@@ -211,6 +230,30 @@ def test_atlas_submodule_is_detached_at_the_required_revision(tmp_path):
         ).stdout.strip()
         == PINNED_ATLAS_REVISION
     )
+
+
+def test_current_atlas_pin_documents_match_the_required_revision() -> None:
+    validate_current_atlas_pin_documents({
+        relative: (REPO / relative).read_text(encoding="utf-8")
+        for relative in CURRENT_PIN_DOCUMENTS
+    })
+
+
+@pytest.mark.parametrize("relative", CURRENT_PIN_DOCUMENTS)
+def test_current_atlas_pin_documents_reject_independent_stale_mutations(relative) -> None:
+    documents = {
+        path: (REPO / path).read_text(encoding="utf-8")
+        for path in CURRENT_PIN_DOCUMENTS
+    }
+    assert PINNED_ATLAS_REVISION in documents[relative]
+    documents[relative] = documents[relative].replace(
+        PINNED_ATLAS_REVISION,
+        "61c7c5103660e2226bf107c115dae42bf46f8374",
+        1,
+    )
+
+    with pytest.raises(AssertionError, match=relative):
+        validate_current_atlas_pin_documents(documents)
 
 
 def test_atlas_nlp_projection_is_byte_exact_and_ordered() -> None:

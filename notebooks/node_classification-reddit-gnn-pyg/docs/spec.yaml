@@ -8,7 +8,7 @@ atlas:
   workspace_access: remote
   artifact_policy: atlas-jupyter-volume
   constraints:
-    - "Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the repository Torch 2.11 CPU stack; Atlas remains Issue #65."
+    - "Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the repository Torch 2.11 CPU stack; the remote runtime uses the completed retained Atlas pin."
 dataset: Reddit2
 model: "GraphSAGE / GAT / GraphConv (vs FFN baseline)"
 framework: "PyTorch + PyTorch Geometric (via nnx)"

@@ -1041,6 +1041,15 @@ _ATLAS_INFRA_GITLINK_SHA_RE = re.compile(
     r"^Current Atlas `infra` gitlink SHA:[ \t]*`([0-9a-f]{40})`\.[ \t]*$",
     re.MULTILINE,
 )
+_ATLAS_CURRENT_PIN_DOCUMENTS = (
+    "README.md",
+    "docs/env-setup.md",
+    "docs/atlas-pin-bump-runbook.md",
+)
+_ATLAS_CURRENT_PIN_MARKER_RE = re.compile(
+    r"^Current reviewed Atlas pin: `([0-9a-f]{40})`\.[ \t]*$",
+    re.MULTILINE,
+)
 _DEPENDENCY_CURRENT_SNAPSHOT_RE = re.compile(
     r"^###[ \t]+6[.]1[.]1[.]2[ \t]+Current[ \t]+Issue[ \t]+#63[ \t]+"
     r"locked[ \t]+four-surface[ \t]+audit[ \t]*\r?$"
@@ -1363,6 +1372,40 @@ def _dependency_input_hash_findings(repo: Path, body: str) -> list[Finding]:
     return findings
 
 
+def _atlas_current_pin_projection_findings(
+    repo: Path, *, gitlink_sha: str
+) -> list[Finding]:
+    present = [
+        relative
+        for relative in _ATLAS_CURRENT_PIN_DOCUMENTS
+        if (repo / relative).exists()
+    ]
+    if not present:
+        return []
+
+    findings: list[Finding] = []
+    for relative in _ATLAS_CURRENT_PIN_DOCUMENTS:
+        path = repo / relative
+        matches = (
+            _ATLAS_CURRENT_PIN_MARKER_RE.findall(_read_text(path))
+            if path.exists()
+            else []
+        )
+        if len(matches) != 1 or matches[0] != gitlink_sha:
+            findings.append(Finding(
+                id="D10.atlas_current_pin_projection",
+                check="docs",
+                severity="error",
+                location=relative,
+                message=(
+                    "current Atlas pin projection must occur once and equal "
+                    "the infra gitlink"
+                ),
+                detail={"matches": matches, "gitlink_sha": gitlink_sha},
+            ))
+    return findings
+
+
 def _dependency_ledger_findings(repo: Path) -> list[Finding]:
     path = repo / "docs" / "dependency-contracts.md"
     infra_exists = (repo / "infra").exists()
@@ -1616,6 +1659,9 @@ def _dependency_ledger_findings(repo: Path) -> list[Finding]:
             message="Atlas ledger SHA does not match the superproject infra gitlink",
             detail={"ledger_sha": ledger_sha, "gitlink_sha": gitlink_sha},
         ))
+    findings.extend(
+        _atlas_current_pin_projection_findings(repo, gitlink_sha=gitlink_sha)
+    )
     return findings
 
 

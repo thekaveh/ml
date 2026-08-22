@@ -96,6 +96,8 @@ ACTIVE_TASK_DIRS: tuple[str, ...] = ()
 REQUIRED_SECTIONS: dict[str, tuple[str, ...]] = {}
 TIER_A_NOTEBOOKS: tuple[str, ...] = ()
 TIER_A_CI_OUTPUT_ROOT = "/tmp/ml-tier-a"
+TIER_C_CODE_BASELINE_TAG = "tier-c-public-facade-baseline-2026-08-22"
+TIER_C_CODE_BASELINE_COMMIT = "296a7227bb2bfbb595e99aa4dbee760e867b83c7"
 _apply_config(_load_config())
 
 README_REQUIRED_H2 = (
@@ -572,13 +574,6 @@ def _active_task_path(repo: Path, task: str) -> Path:
 
 def _notebook_rel(path: Path, repo: Path) -> str:
     return str(path.relative_to(repo))
-
-
-def _baseline_notebook_rel(rel: str) -> str:
-    prefix = f"{NOTEBOOK_ROOT.as_posix()}/"
-    if rel.startswith(prefix):
-        return rel.removeprefix(prefix)
-    return rel
 
 
 def _iter_in_scope_text_files(repo: Path) -> Iterator[Path]:
@@ -3183,18 +3178,51 @@ def _atlas_hardcoded_endpoint_findings(repo: Path) -> list[Finding]:
 
 def _phase3_code_cells_unchanged(repo: Path) -> list[Finding]:
     findings: list[Finding] = []
-    rc, _, _ = _run(["git", "rev-parse", "--verify", "pre-cleanup-baseline"], repo)
+    baseline_ref = f"refs/tags/{TIER_C_CODE_BASELINE_TAG}"
+    rc, object_type, _ = _run(
+        ["git", "cat-file", "-t", baseline_ref],
+        repo,
+    )
     if rc != 0:
         findings.append(Finding(
-            id="E5.no_baseline", check="execution", severity="warning",
+            id="E5.no_baseline", check="execution", severity="error",
             location="<git>",
-            message="pre-cleanup-baseline tag missing; E5 not enforceable",
+            message=f"{baseline_ref} is missing; E5 cannot enforce Tier-C source equality",
+        ))
+        return findings
+    if object_type.strip() != "tag":
+        findings.append(Finding(
+            id="E5.baseline_not_annotated", check="execution", severity="error",
+            location="<git>",
+            message=f"{baseline_ref} must be an annotated tag object",
+            detail={"actual_object_type": object_type.strip()},
+        ))
+        return findings
+    rc, peeled_commit, err = _run(
+        ["git", "rev-parse", "--verify", f"{baseline_ref}^{{}}"],
+        repo,
+    )
+    if rc != 0:
+        findings.append(Finding(
+            id="E5.baseline_target_unreadable", check="execution", severity="error",
+            location="<git>",
+            message=f"could not resolve the annotated Tier-C baseline target: {err.strip()[:120]}",
+        ))
+        return findings
+    if peeled_commit.strip() != TIER_C_CODE_BASELINE_COMMIT:
+        findings.append(Finding(
+            id="E5.baseline_target_changed", check="execution", severity="error",
+            location="<git>",
+            message=f"{baseline_ref} no longer targets the reviewed Tier-C baseline commit",
+            detail={
+                "expected_commit": TIER_C_CODE_BASELINE_COMMIT,
+                "actual_commit": peeled_commit.strip(),
+            },
         ))
         return findings
     phase3 = list(_active_task_path(repo, "node_classification-reddit-gnn-pyg").glob("phase3-*.ipynb"))
     for nb in phase3:
         rel = str(nb.relative_to(repo))
-        baseline_rel = _baseline_notebook_rel(rel)
         try:
             head_doc = nbformat.read(nb, as_version=4)
         except Exception as e:
@@ -3205,7 +3233,8 @@ def _phase3_code_cells_unchanged(repo: Path) -> list[Finding]:
             ))
             continue
         rc, raw, err = _run(
-            ["git", "show", f"pre-cleanup-baseline:{baseline_rel}"], repo,
+            ["git", "show", f"{baseline_ref}:{rel}"],
+            repo,
         )
         if rc != 0:
             findings.append(Finding(

@@ -5,9 +5,12 @@ running JupyterHub kernel while retaining the checked-out notebooks on the host.
 
 ## 4.1.1 Atlas JupyterHub + local VS Code (recommended)
 
-Atlas is the direct successor to the previous infrastructure seam. This repository
-pins Atlas as `infra/` at `61c7c5103660e2226bf107c115dae42bf46f8374`; the lifecycle wrapper
-`scripts/atlas-up.sh` supplies `--track ml-eng`, while `atlas.consumer.yml` declares
+Atlas is the direct successor to the previous infrastructure seam. This repository consumes Atlas
+as the pinned `infra/` submodule.
+
+Current reviewed Atlas pin: `41ba856f7cd35f0b559d6875e08443eac3e98a98`.
+
+The lifecycle wrapper `scripts/atlas-up.sh` supplies `--track ml-eng`, while `atlas.consumer.yml` declares
 `BASE_PORT=auto`, a container JupyterHub, and native host Ollama. The parent-owned overlay
 bind-mounts this checkout at `/home/jovyan/work/ml-eng-lab`. That mounted path is available to
 Browser JupyterLab or an attached JupyterHub container; it is not assumed by every host-local

@@ -144,7 +144,7 @@ def test_live_policy_has_the_exact_supported_matrix_and_inventory() -> None:
 def test_live_direct_inputs_have_one_compiler_authority_and_exact_exceptions() -> None:
     assert parse_compiler_identity(REPO_ROOT) == Version("0.11.19")
     assert (REPO_ROOT / "bootstrap-requirements.txt").read_text(encoding="utf-8") == (
-        "pip==26.1.2\nsetuptools==81.0.0\nwheel==0.47.0\npackaging==26.2\n"
+        "pip==26.2.1\nsetuptools==81.0.0\nwheel==0.47.0\npackaging==26.2\n"
     )
     assert (REPO_ROOT / "compiler-requirements.txt").read_text(encoding="utf-8") == "uv==0.11.19\n"
     assert (REPO_ROOT / "nlp-model-requirements.txt").read_text(encoding="utf-8") == (

@@ -161,7 +161,7 @@ The input hashes enforced by D10 are:
 | `torch-requirements.txt` | `5ab5581cbaf6aefd0698b63e22279e799a1edd65ae003b52b65d6a3b5d64c5cb` |
 | `torch-audit-requirements.txt` | `6d544b226c6e96f296c5105a20ea00704c3e1db4bf91946392df8f3ec5236d2a` |
 | `pyg-extension-audit-requirements.txt` | `3bdf07aaf4dc3a02524d7f7e11f6127c68203403201dc32d36b356670bfff498` |
-| `docs-requirements.txt` | `3604c844c5a99c05632acb516953305c73d8ff49c78e2fa6e86900fcc7ed825a` |
+| `docs-requirements.txt` | `783e5266987bca682d92cb99348cbd6e5e24ea9b56db1241d320dac779752d34` |
 | `atlas-contract-requirements.txt` | `48591ac7488d50ef8e27ca57614f977f83cc7f6231afda63de2451c5d71d8148` |
 | `security/accepted-advisories.json` | `452ac2a787c5c13814bab63f54a97c742dd22fa8da6a6a550b8f4a416df18dbb` |
 
@@ -428,15 +428,36 @@ canonical mode and rerun `make verify-nnx-install` before recording release comp
 `infra` submodule.
 Current Atlas `infra` gitlink SHA: `41ba856f7cd35f0b559d6875e08443eac3e98a98`.
 
+### 6.1.7.1 Issue #65 Atlas pin review
+
+The 2026-08-21 review found an empty current-to-main range: the consumed gitlink
+and freshly fetched Atlas `origin/main` both resolved to
+`41ba856f7cd35f0b559d6875e08443eac3e98a98`. The repository therefore retained
+that exact pin; it did not manufacture a no-op bump or roll back to the previous
+reviewed SHA `61c7c5103660e2226bf107c115dae42bf46f8374`.
+
+The historical migration reviewed was
+`61c7c5103660e2226bf107c115dae42bf46f8374..41ba856f7cd35f0b559d6875e08443eac3e98a98`:
+30 first-parent commits and 43 total commits.
+
+| Migration area | Reviewed change | Consumer consequence |
+| --- | --- | --- |
+| JupyterHub, Torch, PyG, and NLP | Atlas moves its independent notebook image to Torch 2.13.0, torchvision 0.28.0, `pyg_lib==0.8.0`, `torch-geometric==2.7.0`, locked runtime constraints, and the exact Issue #64 NLP assets. | Live JupyterHub validation is required; Atlas versions do not alter the repository's local/CI Torch 2.11 locks. |
+| FastMCP and MCP | The image adds `fastmcp==3.4.4` and the reviewed MCP notebook/runtime surface. | The live probe must import FastMCP from the mounted repository runtime. |
+| Track synthesis | Track membership, registry checks, and explicit consumer source overrides were tightened. | `ml-eng` remains the selected track and the parent manifest's native-source policy must survive synthesis. |
+| Host processes and Ollama | Atlas adds the generic `managed-host-process` framework plus host-native Ollama parallel/residency doctor checks. | Ollama remains host-native and loopback-only; the consumer must not start a Docker Ollama service. |
+| ComfyUI | Atlas adds consumer custom-node and managed-localhost-MPS support. | ComfyUI remains disabled for this repository and no ComfyUI container or managed process is admitted. |
+
 This reviewed superproject gitlink is the active Atlas dependency contract.
-Consumer configuration is deliberately outside `infra/`: `atlas.consumer.yml`,
-`atlas.env.user.example`, and `compose/ml-eng-lab-atlas.yml` define the track,
-native-source policy, and mount. Pin changes follow
+Consumer configuration remains deliberately outside `infra/`:
+`atlas.consumer.yml`, `atlas.env.user.example`, and
+`compose/ml-eng-lab-atlas.yml` define the track, native-source policy, and
+mount. Pin changes follow
 [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
 
 ## 6.1.8 Atlas Jupyter Runtime Evidence
 
-Last verified: 2026-07-30 against the pinned `ml-eng` Atlas track. The live
+Last verified: 2026-08-21 against the pinned `ml-eng` Atlas track. The live
 runtime probe ran inside the JupyterHub container after the consumer mounted
 this checkout and reported zero failed checks. The host-native Ollama probe
 also succeeded; no Ollama or ComfyUI container was running for the consumer.
@@ -444,11 +465,18 @@ also succeeded; no Ollama or ComfyUI container was running for the consumer.
 | Surface | Observed in Atlas JupyterHub | Contract meaning |
 | --- | --- | --- |
 | Python | CPython 3.11.10 | Remote notebook interpreter |
-| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.0; `tokenizers` 0.22.2 | Atlas-owned image evidence; matches notebook imports and the `[lm]` extra at the observed version |
-| Torch | `torch` 2.11.0+cpu; `torchvision` 0.26.0+cpu; `torchaudio` 2.11.0+cpu | Atlas runtime is newer than local/CI; do not infer a local pin bump |
-| Torch extensions | `torchao` 0.17.0; `torch-geometric` 2.6.1; `python-louvain` 0.16 | Required import surfaces are present |
-| NLP | spaCy 3.8.14, `en_core_web_sm` 3.8.0; NLTK 3.10.0 with VADER | Both task assets resolve |
-| Notebook imports | 62 imports across active notebooks; zero failures | Import-level compatibility evidence |
+| NNx + language extras | `thekaveh-nnx` / `nnx` 0.2.0; `datasets` 5.0.1; `tokenizers` 0.22.2 | Atlas-owned image evidence; matches notebook imports and the `[lm]` extra at the observed version |
+| Torch | `torch` 2.13.0+cpu; `torchvision` 0.28.0+cpu | Atlas runtime is newer than local/CI; do not infer a local pin bump. Atlas intentionally omits Torchaudio, and no executable notebook imports `torchaudio`. |
+| Torch extensions | `torchao` 0.17.0; `torch-geometric` 2.7.0; `python-louvain` 0.16 | Required executable import surfaces are present. |
+| NLP | spaCy 3.8.14, `en_core_web_sm` 3.8.0; NLTK 3.10.1 with the exact VADER archive identity | Both task assets resolve; repeated entries for the same NLTK data root are one resource, while distinct duplicate resources remain rejected. |
+| Notebook imports | 61 mandatory imports across executable notebook surfaces; zero failures | Import-level compatibility evidence |
+
+The four immutable Phase-3 Reddit notebooks contain one historical unused `SparseTensor` import
+each. Their preserved code cells cannot be rewritten and
+are explicitly not re-executed; the probe excludes `torch_sparse` only when all
+four exact imports remain present and the binding remains unused. Any use in
+those notebooks or import from another executable notebook makes
+`torch_sparse` mandatory and fail-closed again.
 
 The same live check imported the NumPy MNIST sibling modules from the mounted
 checkout. This validates the consumer mount separately from package metadata.

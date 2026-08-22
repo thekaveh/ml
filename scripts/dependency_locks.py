@@ -98,7 +98,7 @@ _EXPECTED_OUTPUTS = (
     "docs-requirements.txt",
 )
 _EXPECTED_BOOTSTRAP = (
-    "pip==26.1.2",
+    "pip==26.2.1",
     "setuptools==81.0.0",
     "wheel==0.47.0",
     "packaging==26.2",

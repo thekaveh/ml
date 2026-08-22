@@ -3092,6 +3092,103 @@ def test_docs_d10_reads_atlas_sha_without_capturing_legacy_rollback_sha(tmp_path
     assert not [f for f in findings if f.id == "D10.dependency_ledger_submodule_sha"]
 
 
+_ATLAS_CURRENT_PIN_DOCS = (
+    "README.md",
+    "docs/env-setup.md",
+    "docs/atlas-pin-bump-runbook.md",
+)
+
+
+def _write_current_atlas_pin_docs(repo: Path, sha: str) -> None:
+    marker = f"Current reviewed Atlas pin: `{sha}`.\n"
+    for relative in _ATLAS_CURRENT_PIN_DOCS:
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(marker, encoding="utf-8")
+
+
+def _atlas_pin_projection_findings(repo: Path, sha: str):
+    return _load_verify_module()._atlas_current_pin_projection_findings(
+        repo, gitlink_sha=sha
+    )
+
+
+def test_atlas_current_pin_projection_matches_gitlink(tmp_path):
+    sha = "41ba856f7cd35f0b559d6875e08443eac3e98a98"
+    _write_current_atlas_pin_docs(tmp_path, sha)
+
+    assert _atlas_pin_projection_findings(tmp_path, sha) == []
+
+
+@pytest.mark.parametrize("relative", _ATLAS_CURRENT_PIN_DOCS)
+def test_atlas_current_pin_projection_rejects_one_stale_surface(tmp_path, relative):
+    sha = "41ba856f7cd35f0b559d6875e08443eac3e98a98"
+    stale = "61c7c5103660e2226bf107c115dae42bf46f8374"
+    _write_current_atlas_pin_docs(tmp_path, sha)
+    path = tmp_path / relative
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(sha, stale),
+        encoding="utf-8",
+    )
+
+    findings = _atlas_pin_projection_findings(tmp_path, sha)
+
+    assert [finding.id for finding in findings] == ["D10.atlas_current_pin_projection"]
+    assert findings[0].location == relative
+    assert findings[0].detail == {"matches": [stale], "gitlink_sha": sha}
+
+
+@pytest.mark.parametrize("mode", ("missing", "malformed", "duplicate"))
+def test_atlas_current_pin_projection_rejects_invalid_marker_shape(tmp_path, mode):
+    sha = "41ba856f7cd35f0b559d6875e08443eac3e98a98"
+    _write_current_atlas_pin_docs(tmp_path, sha)
+    path = tmp_path / "README.md"
+    marker = f"Current reviewed Atlas pin: `{sha}`.\n"
+    replacement = {
+        "missing": "Atlas is pinned.\n",
+        "malformed": "Current reviewed Atlas pin: `not-a-sha`.\n",
+        "duplicate": marker + marker,
+    }[mode]
+    path.write_text(replacement, encoding="utf-8")
+
+    findings = _atlas_pin_projection_findings(tmp_path, sha)
+
+    assert [finding.location for finding in findings] == ["README.md"]
+    assert findings[0].id == "D10.atlas_current_pin_projection"
+
+
+def test_atlas_current_pin_projection_rejects_partial_document_set(tmp_path):
+    sha = "41ba856f7cd35f0b559d6875e08443eac3e98a98"
+    (tmp_path / "README.md").write_text(
+        f"Current reviewed Atlas pin: `{sha}`.\n", encoding="utf-8"
+    )
+
+    findings = _atlas_pin_projection_findings(tmp_path, sha)
+
+    assert [finding.location for finding in findings] == [
+        "docs/env-setup.md",
+        "docs/atlas-pin-bump-runbook.md",
+    ]
+
+
+def test_atlas_current_pin_projection_ignores_unrelated_minimal_fixture(tmp_path):
+    assert _atlas_pin_projection_findings(
+        tmp_path, "41ba856f7cd35f0b559d6875e08443eac3e98a98"
+    ) == []
+
+
+def test_real_atlas_current_pin_projections_match_staged_gitlink():
+    gitlink = subprocess.run(
+        ["git", "rev-parse", ":infra"],
+        cwd=REPO_ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+
+    assert _atlas_pin_projection_findings(REPO_ROOT, gitlink) == []
+
+
 def test_docs_d10_flags_workflow_action_refs_that_are_not_sha_pinned(tmp_path):
     repo = _temp_repo(tmp_path)
     workflow = repo / ".github" / "workflows" / "ci.yml"

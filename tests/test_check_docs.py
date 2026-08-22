@@ -1481,7 +1481,7 @@ def test_issue62_notebook_specs_drive_exact_generated_rows():
     ).read_text(encoding="utf-8"))
     assert graph["atlas"]["constraints"] == [
         "Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the "
-        "repository Torch 2.11 CPU stack; Atlas remains Issue #65."
+        "repository Torch 2.11 CPU stack; the remote runtime uses the completed retained Atlas pin."
     ]
     assert quant["atlas"]["constraints"] == [
         "Manual-only under Issue #66; Issue #62 qualifies only the tiny Torch 2.11.0 + "
@@ -1492,7 +1492,10 @@ def test_issue62_notebook_specs_drive_exact_generated_rows():
     ).read_text(encoding="utf-8").splitlines()
     graph_row = next(line for line in generated if "node_classification-reddit-gnn-pyg" in line)
     quant_row = next(line for line in generated if "quantization-mnist-ffnn-pytorch" in line)
-    assert all(token in graph_row for token in ("pyg-lib", "torch-sparse", "Issue #65"))
+    assert all(
+        token in graph_row
+        for token in ("pyg-lib", "torch-sparse", "completed retained Atlas pin")
+    )
     assert all(token in quant_row for token in ("Torch 2.11.0", "torchao 0.18.0", "Issue #66"))
 
 
@@ -1921,3 +1924,114 @@ def test_issue64_current_docs_reject_asset_contract_mutations(path, old, new):
     documents[path] = documents[path].replace(old, new)
     with pytest.raises(AssertionError):
         _assert_issue64_current_docs(documents)
+
+
+_ISSUE65_CURRENT_DOC_PATHS = (
+    "README.md",
+    "CHANGELOG.md",
+    "docs/env-setup.md",
+    "docs/atlas-pin-bump-runbook.md",
+    "docs/dependency-contracts.md",
+    "docs/notebook-infrastructure.md",
+)
+_ISSUE65_CURRENT_SHA = "41ba856f7cd35f0b559d6875e08443eac3e98a98"
+_ISSUE65_ROLLBACK_SHA = "61c7c5103660e2226bf107c115dae42bf46f8374"
+
+
+def _issue65_current_documents() -> dict[str, str]:
+    return {
+        path: (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in _ISSUE65_CURRENT_DOC_PATHS
+    }
+
+
+def _assert_issue65_current_docs(documents: Mapping[str, str]) -> None:
+    marker = f"Current reviewed Atlas pin: `{_ISSUE65_CURRENT_SHA}`."
+    for path in (
+        "README.md",
+        "docs/env-setup.md",
+        "docs/atlas-pin-bump-runbook.md",
+    ):
+        assert documents[path].count(marker) == 1, path
+
+    ledger = documents["docs/dependency-contracts.md"]
+    for expected in (
+        "Issue #65 Atlas pin review",
+        "30 first-parent commits",
+        "43 total commits",
+        "empty current-to-main range",
+        "Torch 2.13.0",
+        "fastmcp==3.4.4",
+        "managed-host-process",
+        "ComfyUI remains disabled",
+        "Last verified: 2026-08-21",
+        "CPython 3.11.10",
+        "datasets` 5.0.1",
+        "tokenizers` 0.22.2",
+        "torch` 2.13.0+cpu",
+        "torchvision` 0.28.0+cpu",
+        "torchao` 0.17.0",
+        "torch-geometric` 2.7.0",
+        "NLTK 3.10.1",
+        "61 mandatory imports",
+        "unused `SparseTensor` import",
+        "no executable notebook imports `torchaudio`",
+        _ISSUE65_CURRENT_SHA,
+        _ISSUE65_ROLLBACK_SHA,
+    ):
+        assert expected in ledger, expected
+
+    unreleased = documents["CHANGELOG.md"].split("## [0.1.0]", 1)[0]
+    assert "Issue #65" in unreleased
+    assert _ISSUE65_CURRENT_SHA in unreleased
+    assert "Issue #65" not in documents["docs/notebook-infrastructure.md"]
+
+
+def test_issue65_current_docs_record_the_atlas_retain_decision() -> None:
+    _assert_issue65_current_docs(_issue65_current_documents())
+
+
+@pytest.mark.parametrize(
+    ("path", "old", "new"),
+    (
+        ("README.md", _ISSUE65_CURRENT_SHA, _ISSUE65_ROLLBACK_SHA),
+        ("docs/env-setup.md", _ISSUE65_CURRENT_SHA, _ISSUE65_ROLLBACK_SHA),
+        (
+            "docs/atlas-pin-bump-runbook.md",
+            _ISSUE65_CURRENT_SHA,
+            _ISSUE65_ROLLBACK_SHA,
+        ),
+        ("docs/dependency-contracts.md", "30 first-parent commits", "29 first-parent commits"),
+        ("docs/dependency-contracts.md", "43 total commits", "42 total commits"),
+        ("docs/dependency-contracts.md", "empty current-to-main range", "unreviewed range"),
+        ("docs/dependency-contracts.md", "Torch 2.13.0", "Torch unknown"),
+        ("docs/dependency-contracts.md", "fastmcp==3.4.4", "fastmcp unpinned"),
+        ("docs/dependency-contracts.md", "managed-host-process", "manual host process"),
+        ("docs/dependency-contracts.md", "ComfyUI remains disabled", "ComfyUI enabled"),
+        ("docs/dependency-contracts.md", "CPython 3.11.10", "CPython unknown"),
+        ("docs/dependency-contracts.md", "61 mandatory imports", "62 imports"),
+        (
+            "docs/dependency-contracts.md",
+            "unused `SparseTensor` import",
+            "required `SparseTensor` import",
+        ),
+        (
+            "docs/dependency-contracts.md",
+            "no executable notebook imports `torchaudio`",
+            "torchaudio is assumed",
+        ),
+        ("CHANGELOG.md", _ISSUE65_CURRENT_SHA, _ISSUE65_ROLLBACK_SHA),
+        (
+            "docs/notebook-infrastructure.md",
+            "completed retained Atlas pin",
+            "Atlas runtime ownership remains Issue #65",
+        ),
+    ),
+)
+def test_issue65_current_docs_reject_independent_mutations(path, old, new) -> None:
+    documents = _issue65_current_documents()
+    assert old in documents[path], path
+    documents[path] = documents[path].replace(old, new, 1)
+
+    with pytest.raises(AssertionError):
+        _assert_issue65_current_docs(documents)

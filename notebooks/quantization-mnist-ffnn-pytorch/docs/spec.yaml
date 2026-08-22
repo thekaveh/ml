@@ -38,7 +38,7 @@ code_walkthrough:
   - { anchor: "nnx.qat_train_step_factory(qat_config='8da4w')", note: "custom train step for fake-quant params" }
   - { anchor: "nnx.QATLifecycleCallback(qat_config='8da4w')", note: "on_train_begin=insert fake-quant; on_train_end=convert to truly-quantized" }
   - { anchor: "state_size_bytes / avg_latency_us", note: "pickle-dump size + timed CPU forward passes" }
-  - { anchor: "NNCheckpoint.load / NNModel.from_checkpoint", note: "reload the supported pre-conversion QAT shadow checkpoint and require exact state/metadata parity plus finite evaluation" }
+  - { anchor: "torch.load(qat_checkpoint_path, weights_only=False) / NNModel.from_checkpoint", note: "explicitly load the deterministic last.pt shadow checkpoint, then require exact state/metadata parity plus finite evaluation" }
 results:
   - { metric: "FP32 val acc", value: "53.48% (429.3 KB, 1382 us/batch)" }
   - { metric: "PTQ int8 val acc", value: "53.38% (112.6 KB, 1721 us/batch) - ~4x smaller, ~0.1pp cost" }

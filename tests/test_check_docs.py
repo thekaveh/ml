@@ -1390,6 +1390,12 @@ def test_issue66_quantization_guidance_uses_tier_b_contract() -> None:
         REPO_ROOT
         / "docs/superpowers/specs/2026-08-22-issue-66-quantization-ci-design.md"
     ).read_text(encoding="utf-8")
+    task_spec = (
+        REPO_ROOT / "notebooks/quantization-mnist-ffnn-pytorch/docs/spec.yaml"
+    ).read_text(encoding="utf-8")
+    generated_task_doc = (
+        REPO_ROOT / "docs/notebooks/quantization-mnist-ffnn-pytorch.md"
+    ).read_text(encoding="utf-8")
     task_readme = (
         REPO_ROOT / "notebooks/quantization-mnist-ffnn-pytorch/README.md"
     ).read_text(encoding="utf-8")
@@ -1421,6 +1427,9 @@ def test_issue66_quantization_guidance_uses_tier_b_contract() -> None:
     assert "Manual quantization validation" not in extending_nnx
     assert "Tier B quantization validation" in extending_nnx
     assert "artifact upload" not in design
+    for current in (task_spec, generated_task_doc):
+        assert "torch.load(qat_checkpoint_path, weights_only=False)" in current
+        assert "NNCheckpoint.load" not in current
 
 
 _ISSUE66_TIER_MATRIX_GUIDANCE = (

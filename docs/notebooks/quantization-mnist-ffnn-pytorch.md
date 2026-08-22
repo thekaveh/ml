@@ -64,7 +64,7 @@ smallest size at a measurable accuracy cost that a longer training budget would 
 | Per-channel scales | One scale per output channel; finer than per-tensor quantization |
 | int4 groupsize 32 | 4-bit weights grouped in blocks of 32; hidden widths must divide 32 |
 | `QATLifecycleCallback` | `on_train_begin` inserts fake-quant; `on_train_end` converts to truly-quantized |
-| QAT checkpoint reconstruction | `NNCheckpoint.load` + `NNModel.from_checkpoint` prove exact saved-state/metadata parity and finite evaluation |
+| QAT checkpoint reconstruction | `torch.load(qat_checkpoint_path, weights_only=False)` + `NNModel.from_checkpoint` explicitly load deterministic `last.pt`, then prove exact saved-state/metadata parity and finite evaluation |
 | Tier B semantic output | One-epoch deterministic smoke plus a machine-readable PTQ/QAT/checkpoint contract |
 
 The `nnx` surface consumed is: `NNModel`, `NNParams`, `NNModelParams`, `NNTrainParams`,

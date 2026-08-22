@@ -80,7 +80,14 @@ def _validate_quantization_contract(
         payload = json.loads(markers[0])
     except (json.JSONDecodeError, TypeError, ValueError):
         raise SmokeOutputError(tier, "semantic") from None
-    if payload != QUANTIZATION_SMOKE_CONTRACT:
+    if not isinstance(payload, Mapping) or set(payload) != set(
+        QUANTIZATION_SMOKE_CONTRACT
+    ):
+        raise SmokeOutputError(tier, "semantic")
+    if any(
+        type(payload[key]) is not type(expected) or payload[key] != expected
+        for key, expected in QUANTIZATION_SMOKE_CONTRACT.items()
+    ):
         raise SmokeOutputError(tier, "semantic")
 
 

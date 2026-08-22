@@ -168,9 +168,10 @@ NNx is not extended inside this repo. The workflow is always:
      Darwin arm64 with `torch_sparse==0.6.18`, disproving the former macOS-impossible claim. The
      same validation discipline applies as under the prior submodule-pointer-bump workflow; only
      the trigger (a version-pin diff vs. a submodule-pointer diff) has changed.
-   - **Manual quantization validation** when the change touches the
-     `quantize_int8` / `qat_train_step_factory` surface, since the quantization
-     notebook is not in the Tier-A list.
+   - **Tier B quantization validation** whenever the change touches the
+     `quantize_int8` / `qat_train_step_factory` surface. `make smoke-tier-b`
+     exercises PTQ conversion, QAT conversion, and exact shadow-checkpoint
+     reconstruction even though the notebook is intentionally not Tier A.
 
 The two non-negotiables, both learned the hard way:
 

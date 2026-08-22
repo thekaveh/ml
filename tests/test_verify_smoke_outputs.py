@@ -146,7 +146,15 @@ def test_real_tier_b_inventory_maps_quantization_to_a_unique_output(
 
 @pytest.mark.parametrize(
     "mutation",
-    ("missing", "false-field", "duplicate", "malformed", "extra-field"),
+    (
+        "missing",
+        "false-field",
+        "duplicate",
+        "malformed",
+        "extra-field",
+        "boolean-as-integer",
+        "integer-as-boolean",
+    ),
 )
 def test_quantization_output_contract_is_fail_closed(
     tmp_path: Path, mutation: str
@@ -166,6 +174,10 @@ def test_quantization_output_contract_is_fail_closed(
             payload["checkpoint_reloaded"] = False
         elif mutation == "extra-field":
             payload["unreviewed"] = True
+        elif mutation == "boolean-as-integer":
+            payload["epochs"] = True
+        elif mutation == "integer-as-boolean":
+            payload["qat_converted"] = 1
         marker = QUANTIZATION_MARKER_PREFIX + json.dumps(payload, sort_keys=True) + "\n"
         text = marker * (2 if mutation == "duplicate" else 1)
     document["cells"][0]["outputs"][0]["text"] = [text]

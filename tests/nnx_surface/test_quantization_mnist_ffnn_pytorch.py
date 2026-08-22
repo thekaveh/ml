@@ -10,6 +10,7 @@ import importlib.metadata
 import inspect
 import json
 import os
+import pickle
 import re
 import warnings
 from collections.abc import Callable, Sequence
@@ -422,8 +423,17 @@ def test_quantize_int8_predicts_with_same_output_shape(tiny_image_batch):
     quantized = nnx.quantize_int8(model)
 
     logits, classes = quantized.predict(X=tiny_image_batch.X)
+    quantized_weights = {
+        type(module.weight).__name__
+        for module in quantized.net.modules()
+        if isinstance(module, torch.nn.Linear)
+    }
     assert torchao is not None
     assert quantized is not model
+    assert quantized_weights == {"Int8Tensor"}
+    assert len(pickle.dumps(quantized.net.state_dict())) < len(
+        pickle.dumps(model.net.state_dict())
+    )
     assert logits.shape == (4, 10)
     assert classes.shape == (4,)
     assert np.issubdtype(classes.dtype, np.integer)
@@ -524,11 +534,23 @@ def test_notebook_declares_bounded_deterministic_smoke_contract() -> None:
 def test_notebook_proves_qat_checkpoint_reconstruction_and_conversion() -> None:
     source = _notebook_source()
 
-    assert "NNCheckpoint.load(run=qat_run.id, type=Checkpoints.LAST)" in source
+    assert 'Path("runs") / qat_run.id / "checkpoints" / "last.pt"' in source
+    assert "torch.load(qat_checkpoint_path, weights_only=False)" in source
+    assert "isinstance(qat_checkpoint, NNCheckpoint)" in source
     assert "NNModel.from_checkpoint(qat_checkpoint)" in source
+    assert "qat_reloaded_model.params == qat_checkpoint.model_params" in source
+    assert "qat_reloaded_model.net_params == qat_checkpoint.net_params" in source
     assert "checkpoint_state_parity" in source
     assert "checkpoint_metadata_parity" in source
     assert "checkpoint_evaluation_finite" in source
     assert "qat_cb.is_prepared and qat_cb.is_converted" in source
     assert '"Int8DynActInt4WeightLinear" in classes_after_qat' in source
     assert QUANTIZATION_MARKER_PREFIX in source
+
+
+def test_notebook_proves_ptq_conversion_independently() -> None:
+    source = _notebook_source()
+
+    assert 'ptq_weight_types == {"Int8Tensor"}' in source
+    assert "ptq_state_size < fp32_state_size" in source
+    assert "ptq_quantized_weights" in source

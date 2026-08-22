@@ -178,12 +178,11 @@ container. Its base image is pinned as an exact tag plus multi-platform index di
 - Running a notebook on a larger host without local install (the smallest Codespace machine is 2-core / 8 GB RAM — comparable to a low-end laptop, sufficient for every Tier-A notebook; bump to 4-core / 16 GB if any Tier-B sweep feels slow).
 - Short exploratory run without polluting the local Python env.
 - The `notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb` edge case (it imports sibling `.py` modules from its own folder) works natively because Codespaces clones the repo into `/workspaces/ml-eng-lab`.
+- The `quantization-mnist-ffnn-pytorch` notebook is Tier B. Its one-epoch smoke proves PTQ, QAT conversion, exact QAT checkpoint reconstruction, and a machine-readable output contract; its full path retains three epochs.
 
 **Scenarios this does NOT support**:
 - GPU workloads — GitHub deprecated GPU Codespaces 2025-08-29 (Azure NCv3 retirement). The few GPU-benefiting notebooks (heaviest is `self_supervised-fmnist-jepa-pytorch`) still run on CPU here, just slowly; for real GPU you want a separate path (Modal `function.spawn`, a self-hosted GPU box behind Jupyter Enterprise Gateway, or Vertex AI Workbench / Colab Enterprise).
 - Data persistence across Codespace deletions — anything written to `./data/` or `./runs/` is gone when the Codespace is deleted (Codespaces are intended to be cheap and disposable). Commit any results you want to keep, or use Codespaces' "prebuild" feature if dep install time becomes a bottleneck.
-- The quantization-mnist-ffnn-pytorch notebook is Tier B. Its one-epoch smoke proves PTQ, QAT conversion, exact QAT checkpoint reconstruction, and a machine-readable output contract; its full path retains three epochs.
-
 **How to use**:
 
 1. On [github.com/thekaveh/ml-eng-lab](https://github.com/thekaveh/ml-eng-lab) → green **Code** button → **Codespaces** tab → **Create codespace on main**.

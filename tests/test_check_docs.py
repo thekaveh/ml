@@ -1385,6 +1385,11 @@ def test_issue62_platform_contract_rejects_restored_pending_claim() -> None:
 def test_issue66_quantization_guidance_uses_tier_b_contract() -> None:
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     contributing = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    nnx_overview = (REPO_ROOT / "docs/nnx-library.md").read_text(encoding="utf-8")
+    design = (
+        REPO_ROOT
+        / "docs/superpowers/specs/2026-08-22-issue-66-quantization-ci-design.md"
+    ).read_text(encoding="utf-8")
     task_readme = (
         REPO_ROOT / "notebooks/quantization-mnist-ffnn-pytorch/README.md"
     ).read_text(encoding="utf-8")
@@ -1408,6 +1413,14 @@ def test_issue66_quantization_guidance_uses_tier_b_contract() -> None:
     assert "make install-torch-stack" in surfaces[
         "notebooks/quantization-mnist-ffnn-pytorch/README.md"
     ]
+    unsupported = _between(
+        readme, "**Scenarios this does NOT support**:\n", "**How to use**:\n"
+    )
+    assert "quantization-mnist-ffnn-pytorch" not in unsupported
+    extending_nnx = _same_level_section(nnx_overview, "7.4 Extending NNx")
+    assert "Manual quantization validation" not in extending_nnx
+    assert "Tier B quantization validation" in extending_nnx
+    assert "artifact upload" not in design
 
 
 _ISSUE66_TIER_MATRIX_GUIDANCE = (

@@ -40,7 +40,7 @@ Two alternatives are rejected:
    supports this exception.
 2. **Add a dedicated quantization workflow.** Isolation would be marginally
    clearer, but it would duplicate the Tier B setup, lock verification, cache,
-   artifact upload, and trigger policy for one short notebook.
+   temporary-output verification, and trigger policy for one short notebook.
 
 The tier assignment is metadata-driven. The task specification is the
 authority; the Makefile, CI inventory, generated notebook documentation, and
@@ -99,7 +99,7 @@ tests exercise the notebook contract without training MNIST:
 - the notebook declares bounded smoke parameters and the stable completion
   marker;
 - checkpoint discovery, `torch.load(..., weights_only=False)`,
-  `NNModel.from_checkpoint`, and metric-parity assertions remain present;
+  `NNModel.from_checkpoint`, and state/metadata-parity assertions remain present;
 - PTQ and QAT conversion assertions cannot be removed independently; and
 - the task specification assigns exactly Tier B and no manual exception.
 

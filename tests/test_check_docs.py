@@ -2100,3 +2100,87 @@ def test_issue65_current_docs_reject_independent_mutations(path, old, new) -> No
 
     with pytest.raises(AssertionError):
         _assert_issue65_current_docs(documents)
+
+
+def test_issue71_current_docs_publish_notebook_freshness_hash_contract() -> None:
+    documents = {
+        path: (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in (
+            "README.md",
+            "CONTRIBUTING.md",
+            "CHANGELOG.md",
+            "docs/conventions.md",
+            "docs/notebook-infrastructure.md",
+            "docs/maintenance/overnight-2026-07-04.md",
+            "docs/superpowers/specs/2026-08-22-issue-71-notebook-freshness-hashes-design.md",
+            "docs/superpowers/plans/2026-08-22-issue-71-notebook-freshness-hashes-implementation-plan.md",
+        )
+    }
+
+    contract = " ".join(documents["docs/conventions.md"].split())
+    for expected in (
+        "metadata.source_hash",
+        "bare lowercase 64-character SHA-256 digest",
+        "exact UTF-8 logical code-cell source",
+        "concatenates its string elements with no separator",
+        "Whitespace, comments, magics, line endings, and syntax are not normalized",
+        "Output bytes are never hashed",
+        "E8",
+        "active_task_dirs",
+        "missing, malformed, stale, or orphan",
+        "notebooks/archive/",
+        "outputless code cells",
+        "markdown or raw cell is `E8.source_hash_orphan`",
+        "raw nbformat-4 schema",
+        "may inherit prior source hashes",
+        "--clear",
+        "explicit notebook paths",
+        "rejects `--all-active`",
+    ):
+        assert expected in contract, expected
+
+    execution = " ".join(documents["docs/notebook-infrastructure.md"].split())
+    for expected in (
+        "run-tier-a", "smoke-tier-a", "smoke-tier-b", "smoke-tier-c",
+        "scripts/stamp_notebook_source_hashes.py", "only after success",
+        "On a nonzero Papermill exit", "atomically removes every cell's `metadata.source_hash`",
+        "artifact exists", "success stamper is not invoked",
+        "stamper failure fails the Make target",
+        "cleanup failure cannot make the target succeed",
+        "uncatchable host or process kill",
+    ):
+        assert expected in execution, expected
+
+    for path in (
+        "docs/superpowers/specs/2026-08-22-issue-71-notebook-freshness-hashes-design.md",
+        "docs/superpowers/plans/2026-08-22-issue-71-notebook-freshness-hashes-implementation-plan.md",
+    ):
+        text = " ".join(documents[path].split())
+        for expected in (
+            "Papermill inputs may carry prior hashes",
+            "failure cleanup atomically removes them from every cell",
+            "raw nbformat-4 schema",
+            "uncatchable host or process kill",
+        ):
+            assert expected in text, f"{path}: {expected}"
+
+    contributor = documents["CONTRIBUTING.md"]
+    assert "python scripts/stamp_notebook_source_hashes.py --all-active" in contributor
+    assert "maintenance/repair command" in contributor
+    assert "not a substitute for executing changed source" in contributor
+
+    readme = " ".join(documents["README.md"].split())
+    assert "retained outputs correspond to the current source" in readme
+    assert "not that nondeterministic output rendering is byte-reproducible" in readme
+
+    ledger = documents["docs/maintenance/overnight-2026-07-04.md"].lower()
+    for expected in (
+        "om-010", "resolved", "issue #71", "29 active notebooks",
+        "189 retained-output cells", "189 current markers", "byte-stable idempotence",
+        "no expensive rerun was performed solely for metadata",
+    ):
+        assert expected in ledger, expected
+
+    changelog = documents["CHANGELOG.md"].split("## [0.1.0]", 1)[0]
+    assert "Issue #71" in changelog
+    assert "every cell's `metadata.source_hash`" in changelog

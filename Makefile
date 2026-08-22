@@ -20,6 +20,8 @@
 PYTHON ?= python
 PIP ?= $(PYTHON) -m pip
 PAPERMILL ?= $(PYTHON) -m papermill
+SOURCE_HASH_STAMPER ?= $(PYTHON) scripts/stamp_notebook_source_hashes.py
+SOURCE_HASH_CLEARER ?= $(PYTHON) scripts/stamp_notebook_source_hashes.py --clear
 PAPERMILL_START_TIMEOUT ?= 300
 PAPERMILL_EXECUTION_TIMEOUT ?= 3600
 PAPERMILL_TIMEOUT_FLAGS = --start-timeout $(PAPERMILL_START_TIMEOUT) --execution-timeout $(PAPERMILL_EXECUTION_TIMEOUT)
@@ -139,7 +141,15 @@ run-tier-a:
 	@for nb in $(TIER_A); do \
 		echo "==> $$nb"; \
 		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
-		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 "$$base" "$$base") || exit 1; \
+		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 "$$base" "$$base"); \
+		papermill_status=$$?; \
+		if [ $$papermill_status -ne 0 ]; then \
+			if [ -f "$$nb" ]; then \
+				$(SOURCE_HASH_CLEARER) "$$nb" || printf 'failed to clear source hashes: %s\n' "$$nb" >&2; \
+			fi; \
+			exit $$papermill_status; \
+		fi; \
+		$(SOURCE_HASH_STAMPER) "$$nb" || exit 1; \
 	done
 
 smoke-tier-a:
@@ -148,7 +158,15 @@ smoke-tier-a:
 		echo "==> $$nb -> $$out"; \
 		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
 		mkdir -p "$$(dirname "$$out")"; \
-		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 "$$base" "$$out") || exit 1; \
+		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 "$$base" "$$out"); \
+		papermill_status=$$?; \
+		if [ $$papermill_status -ne 0 ]; then \
+			if [ -f "$$out" ]; then \
+				$(SOURCE_HASH_CLEARER) "$$out" || printf 'failed to clear source hashes: %s\n' "$$out" >&2; \
+			fi; \
+			exit $$papermill_status; \
+		fi; \
+		$(SOURCE_HASH_STAMPER) "$$out" || exit 1; \
 	done
 
 check-tier-a-artifacts:
@@ -173,7 +191,15 @@ smoke-tier-b:
 		out=$(SMOKE_OUT)/$$name; \
 		echo "==> $$nb -> $$out"; \
 		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
-		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 -p SMOKE_TEST 1 "$$base" "$$out") || exit 1; \
+		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 -p SMOKE_TEST 1 "$$base" "$$out"); \
+		papermill_status=$$?; \
+		if [ $$papermill_status -ne 0 ]; then \
+			if [ -f "$$out" ]; then \
+				$(SOURCE_HASH_CLEARER) "$$out" || printf 'failed to clear source hashes: %s\n' "$$out" >&2; \
+			fi; \
+			exit $$papermill_status; \
+		fi; \
+		$(SOURCE_HASH_STAMPER) "$$out" || exit 1; \
 	done
 
 smoke-tier-c:
@@ -182,7 +208,15 @@ smoke-tier-c:
 		out=$(SMOKE_OUT)/$$(basename "$$nb"); \
 		echo "==> $$nb -> $$out"; \
 		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
-		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 -p SMOKE_TEST 1 "$$base" "$$out") || exit 1; \
+		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 -p SMOKE_TEST 1 "$$base" "$$out"); \
+		papermill_status=$$?; \
+		if [ $$papermill_status -ne 0 ]; then \
+			if [ -f "$$out" ]; then \
+				$(SOURCE_HASH_CLEARER) "$$out" || printf 'failed to clear source hashes: %s\n' "$$out" >&2; \
+			fi; \
+			exit $$papermill_status; \
+		fi; \
+		$(SOURCE_HASH_STAMPER) "$$out" || exit 1; \
 	done
 
 test:

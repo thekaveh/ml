@@ -84,6 +84,20 @@ make nlp-assets
 make verify-nlp-assets
 ```
 
+### 5.2. Notebook output freshness
+
+The execution targets stamp `metadata.source_hash` automatically after a successful Papermill
+run. To repair already-executed active notebooks after a reviewed migration, use:
+
+```bash
+python scripts/stamp_notebook_source_hashes.py --all-active
+python scripts/verify_repo.py --check execution --fast
+```
+
+`--all-active` is a maintenance/repair command, not a substitute for executing changed source:
+run the notebook at its assigned tier so the retained output is actually refreshed. The canonical
+freshness and E8 contract is in [docs/conventions.md](docs/conventions.md#524-notebook-output-freshness).
+
 ## 6. Verification
 
 `scripts/verify_repo.py` is the repo's five-check oracle. Run before commits / PRs:

@@ -91,6 +91,24 @@ _PUBLIC_NNX_IMPORTS = {
     "nnx.vis_utils": ("VisUtils",),
 }
 
+_NNDATASET_BATCHING_CONTRACTS = {
+    "notebooks/diffusion-mnist-ddpm-pytorch/notebook.ipynb": {
+        "batch_sizes": (128, None, None),
+        "loader_aliases": {"train_loader": "train_loader"},
+    },
+    "notebooks/moe-fmnist-mixture-of-experts-pytorch/notebook.ipynb": {
+        "batch_sizes": (128, None, None),
+        "loader_aliases": {"train_loader": "train_loader"},
+    },
+    "notebooks/self_supervised-fmnist-jepa-pytorch/notebook.ipynb": {
+        "batch_sizes": (128, 128, None),
+        "loader_aliases": {
+            "train_loader": "train_loader",
+            "val_loader": "val_loader",
+        },
+    },
+}
+
 
 def _public_attrs(cls: object) -> set[str]:
     return {n for n in dir(cls) if not n.startswith("_")}
@@ -896,6 +914,118 @@ def _called_name(node: ast.Call) -> str | None:
     if isinstance(f, ast.Name):
         return f.id
     return None
+
+
+def find_nndataset_batching_violations(
+    nb: dict,
+    *,
+    expected_batch_sizes: tuple[int | None, int | None, int | None],
+    expected_loader_aliases: dict[str, str],
+) -> list[str]:
+    trees: list[tuple[int, ast.Module]] = []
+    constants: dict[str, object] = {}
+    for idx, cell in enumerate(_code_cells(nb)):
+        source = _python_cell_source(cell)
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue
+        trees.append((idx, tree))
+        for node in tree.body:
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            value = node.value
+            if value is None:
+                continue
+            for target in targets:
+                if not isinstance(target, ast.Name):
+                    continue
+                try:
+                    constants[target.id] = ast.literal_eval(value)
+                except (ValueError, TypeError):
+                    continue
+
+    def resolve_tuple(node: ast.AST) -> tuple[object, ...] | None:
+        if not isinstance(node, ast.Tuple):
+            return None
+        resolved: list[object] = []
+        for element in node.elts:
+            if isinstance(element, ast.Name) and element.id in constants:
+                resolved.append(constants[element.id])
+                continue
+            try:
+                resolved.append(ast.literal_eval(element))
+            except (ValueError, TypeError):
+                return None
+        return tuple(resolved)
+
+    violations: list[str] = []
+    dataset_calls = [
+        (idx, node)
+        for idx, tree in trees
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and _called_name(node) == "NNDataset"
+    ]
+    if len(dataset_calls) != 1:
+        violations.append(f"expected exactly one NNDataset call, found {len(dataset_calls)}")
+    else:
+        idx, call = dataset_calls[0]
+        values = [keyword.value for keyword in call.keywords if keyword.arg == "batch_sizes"]
+        actual = resolve_tuple(values[0]) if len(values) == 1 else None
+        if actual != expected_batch_sizes:
+            violations.append(
+                f"code_cell[{idx}]: expected batch_sizes={expected_batch_sizes}, got {actual}"
+            )
+
+    actual_aliases: dict[str, str] = {}
+    for idx, tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target = node.targets[0]
+                value = node.value
+                if (
+                    isinstance(target, ast.Name)
+                    and isinstance(value, ast.Attribute)
+                    and isinstance(value.value, ast.Name)
+                    and value.value.id == "ds"
+                    and value.attr in {"train_loader", "val_loader", "test_loader"}
+                ):
+                    actual_aliases[target.id] = value.attr
+            if not isinstance(node, ast.Call) or _called_name(node) != "DataLoader":
+                continue
+            for descendant in ast.walk(node):
+                if (
+                    isinstance(descendant, ast.Attribute)
+                    and descendant.attr == "dataset"
+                    and isinstance(descendant.value, ast.Attribute)
+                    and isinstance(descendant.value.value, ast.Name)
+                    and descendant.value.value.id == "ds"
+                    and descendant.value.attr in {"train_loader", "val_loader", "test_loader"}
+                ):
+                    violations.append(
+                        f"code_cell[{idx}]: rebuilds DataLoader from ds.{descendant.value.attr}.dataset"
+                    )
+    if actual_aliases != expected_loader_aliases:
+        violations.append(
+            f"expected loader aliases {expected_loader_aliases}, got {actual_aliases}"
+        )
+    return violations
+
+
+def test_issue69_notebooks_use_nndataset_batching_contract():
+    violations = []
+    for relative_path, contract in _NNDATASET_BATCHING_CONTRACTS.items():
+        notebook = json.loads((REPO_ROOT / relative_path).read_text(encoding="utf-8"))
+        violations.extend(
+            f"{relative_path}: {violation}"
+            for violation in find_nndataset_batching_violations(
+                notebook,
+                expected_batch_sizes=contract["batch_sizes"],
+                expected_loader_aliases=contract["loader_aliases"],
+            )
+        )
+    assert not violations, "\n".join(violations)
 
 
 def find_signature_violations(nb: dict, required: dict[str, set[str]]) -> list[str]:

@@ -268,12 +268,11 @@ call, one new metric to monitor (`last_aux_loss`).
 
 ## 8.9.7 Pitfalls & edge cases
 
-- **Rebuild the train loader at per-batch granularity.** `NNDataset`'s default loader packs
-  the whole 54k-sample Fashion-MNIST train set into a single batch — fine for full-batch SGD
-  on a classifier but fatal for MoE training (one batch per epoch is far too few routing
-  decisions per expert). The notebook rebuilds
-  `train_loader = DataLoader(ds.train_loader.dataset, batch_size=128, shuffle=True)` to fix
-  this. Same caveat as the diffusion and JEPA tasks.
+- **Select train mini-batches through `NNDataset`.** Its default loader packs the whole
+  54k-sample Fashion-MNIST train set into a single batch — fine for full-batch SGD on a
+  classifier but fatal for MoE training (one batch per epoch is far too few routing decisions
+  per expert). The notebook passes `batch_sizes=(128, None, None)` and consumes the
+  wrapper-owned shuffled train loader directly. Same caveat as the diffusion and JEPA tasks.
 - **Aux loss is one-sided.** It penalizes collapse but cannot push below 1.0, so a "good" run
   drives it *toward* 1.0, never below. Reading the post-training value without the floor in
   mind overstates the headroom.

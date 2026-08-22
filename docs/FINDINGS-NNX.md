@@ -14,14 +14,25 @@ Surfaced by: `diffusion-mnist-ddpm-pytorch`, `moe-fmnist-mixture-of-experts-pyto
 
 `NNDataset(ds_class=thv.datasets.MNIST, ...)`'s `train_loader` defaults to `batch_size=54000` (the whole 60k train set minus the val carve-off). For full-batch SGD on classifiers this is fine; for **diffusion / MoE / transformer / JEPA / any task that needs many noise- or routing-level samples per epoch**, one batch per epoch is far too few — the train step runs ~1 time per epoch and the loss barely budges.
 
-Each affected notebook works around this with:
+Before Issue #69, each affected notebook worked around this with:
 
 ```python
 from torch.utils.data import DataLoader
 train_loader = DataLoader(ds.train_loader.dataset, batch_size=128, shuffle=True)
 ```
 
-**Upstream fix landed (partial)**: `nnx.NNDataset` now accepts a `batch_sizes: tuple[Optional[int], Optional[int], Optional[int]] = (None, None, None)` constructor arg (`nnx/src/nnx/nn/dataset/nn_dataset.py:24`), so the cleaner form is `NNDataset(..., batch_sizes=(128, None, None))`. The three affected `NNDataset` notebooks still use the older `DataLoader(...dataset, batch_size=128)` bypass; they can be migrated to the `batch_sizes=` form at any time without changing recorded outputs (the resolved batch_size is identical). The TinyShakespeare notebook should stay on its custom language-modeling dataset unless NNx grows a sequence-window dataset helper. The default — `None` per slot → whole-split batch — is unchanged upstream, so the underlying "surprising default" critique still stands for new tasks; the workaround just has a less invasive form now.
+**Local resolution (Issue #69)**: `nnx.NNDataset` accepts a
+`batch_sizes: tuple[Optional[int], Optional[int], Optional[int]] = (None, None, None)`
+constructor argument (`nnx/src/nnx/nn/dataset/nn_dataset.py:24`). Diffusion and MoE now pass
+`batch_sizes=(128, None, None)`; JEPA passes `batch_sizes=(128, 128, None)` because its linear-probe
+path also consumes the validation loader in 128-sample batches. All three notebooks use the
+wrapper-owned loaders directly. This removes the internal `.dataset` bypass while preserving
+batch size, shuffle, worker, split, seed, batch-count, and recorded-output semantics. The
+TinyShakespeare notebook intentionally remains on its custom sequence-window dataset.
+
+The upstream default — `None` per slot means one whole-split batch — is unchanged, so the
+underlying surprising-default finding still applies to new tasks. The supported public
+`batch_sizes=` contract now fully resolves the local workaround.
 
 ### 9.1.1.2 `nnx.deepen` is function-preserving only for `Activations.RELU`
 

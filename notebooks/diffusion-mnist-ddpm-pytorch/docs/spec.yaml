@@ -35,7 +35,7 @@ results:
   - { metric: noise_prediction_loss, value: "1.0102 -> 0.9317" }
   - { metric: samples_drawn, value: "16 (mode-mixed and blurry at this budget)" }
 pitfalls:
-  - "NNDataset default loader packs the whole 54k MNIST train set into one batch; rebuild at batch_size=128."
+  - "NNDataset defaults to whole-split batches; pass batch_sizes=(128, None, None) for diffusion train mini-batches."
   - "MLP on flattened pixels loses spatial structure; real DDPM quality needs a U-Net denoiser."
   - "Normalize(mean=0.1307, std=0.3081) shifts pixel range; un-normalize samples via samples * DS_STD + DS_MEAN before clamp(0,1)."
   - "T=100 is small; production DDPMs use T=1000 (or DDIM sampling for fewer steps)."

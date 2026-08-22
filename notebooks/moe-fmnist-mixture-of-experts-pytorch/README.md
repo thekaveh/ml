@@ -19,7 +19,7 @@ The hard part is **load balancing**: without a penalty, the router collapses ont
 
 - §1 Overview — MoE intuition, load-balancing, dataset, libraries.
 - §2 Environment & Setup — imports, hyperparameters (`NUM_EXPERTS=4`, `TOP_K=2`, `AUX_LOSS_WEIGHT=0.05`, `N_EPOCHS=2`), `nnx.set_seed(0)`.
-- §3 Data — `NNDataset` on Fashion-MNIST + custom `DataLoader(batch_size=128)` (NNDataset's default packs the whole train set into one batch).
+- §3 Data — `NNDataset` on Fashion-MNIST with `batch_sizes=(128, None, None)` for 128-sample train mini-batches through the public wrapper.
 - §4 Model — `MoEClassifier` subclasses `FeedFwdNN` and swaps its first hidden Linear for `MoELinear`; parameter breakdown table; contracts.
 - §5 Training — pre-training aux-loss snapshot on a probe batch (640 samples); train via `moe_train_step_factory(aux_loss_weight=0.05)`.
 - §6 Evaluation & Results — aux-loss before/after table; expert-utilization bar chart on the probe (showing the fraction of tokens routed to each expert via the router's top-1); §6.3 discussion of why uniform isn't the goal — *useful specialization* can show up as 30/30/20/20.
@@ -52,7 +52,7 @@ All in the root `requirements.txt` + `torch-requirements.txt`.
 ## 6. Known issues
 
 - **Aux loss decreases but doesn't hit 1.0** at this budget. Recorded run: 1.2794 → 1.2218 (toward the 1.0 floor at uniform routing). Longer training + a larger `aux_loss_weight` push it closer to 1.0 at the cost of supervised-signal quality.
-- **`NNDataset` default batch_size** is the whole train set (54k for Fashion-MNIST). Same caveat as the diffusion and JEPA tasks — we rebuild the train loader at `batch_size=128` in §3.1.
+- **`NNDataset` defaults to whole-split batches.** MoE needs many routing decisions per epoch, so §3.1 passes `batch_sizes=(128, None, None)` and consumes the wrapper's shuffled train loader directly.
 - **Expert utilization is data-dependent.** On Fashion-MNIST's 10 visually-similar apparel classes, even a well-trained router lands closer to 30/30/20/20 than perfect 25/25/25/25. Perfect uniform routing is *not* the goal — specialization is.
 - **Single MoE layer.** Real MoE Transformers stack many MoE layers (one every other transformer block, typically). This notebook uses a single `MoELinear` to keep the demo's load-balancing story unambiguous. Adding more layers would amplify the aux-loss signal (summed across all `MoELinear` instances).
 - **No comparison vs dense baseline.** The pedagogical point is the *MoE recipe and its load-balancing knob*, not "MoE beats dense on Fashion-MNIST" (it usually doesn't at this scale — MoE wins show up on harder problems where genuine specialization is possible).

@@ -316,9 +316,9 @@ slow EMA. `nnx` ships the recipe as five composable primitives.
 - **Fashion-MNIST, not CIFAR or ImageNet.** The substitution keeps the recipe CPU-feasible and
   avoids a new download. Switching to CIFAR-10 means swapping the `NNDataset(ds_class=...)` to
   `CIFAR10` and bumping `image_size=32, in_channels=3` — the rest of the recipe is unchanged.
-- **Rebuild the train loader at per-batch granularity.** `NNDataset`'s default loader packs the
-  whole Fashion-MNIST train set into one batch; the notebook rebuilds at `batch_size=128`.
-  Same caveat as the MoE and diffusion tasks.
+- **Select train and validation mini-batches through `NNDataset`.** Its default loaders use
+  whole-split batches; the notebook passes `batch_sizes=(128, 128, None)` and consumes the
+  wrapper-owned loaders directly. Same caveat as the MoE and diffusion tasks.
 - **`Activations.RELU` on the placeholder is inert.** The `NNModel` shell uses a placeholder
   `FeedFwdNN` that is never executed, so the activation choice does not affect JEPA training.
   It exists only for `NNModelParams` validation.

@@ -13,6 +13,14 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Public `NNDataset` batching migration (Issue #69):** diffusion and MoE now pass
+  `batch_sizes=(128, None, None)` to `NNDataset`; JEPA passes
+  `batch_sizes=(128, 128, None)` to preserve both train and validation mini-batches.
+  The notebooks consume the wrapper-owned loaders directly, eliminating the local
+  `DataLoader(ds.<split>_loader.dataset, ...)` bypass without changing shuffle,
+  worker, seed, split, batch-count, or recorded-output semantics. Static NNx-surface
+  guards enforce the three exact contracts while leaving TinyShakespeare's intentional
+  sequence-window dataset untouched.
 - **NNx public-facade notebook migration (Issue #68):** migrated all 139 supported deep imports
   across 15 active notebooks to `from nnx import ...`, backed by released-wheel object-identity
   and syntax-aware zero-inventory tests. No notebook output, execution count, algorithm, metric,

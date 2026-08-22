@@ -242,11 +242,10 @@ the simplest possible denoiser.
 
 ## 8.10.7 Pitfalls & edge cases
 
-- **`NNDataset` default batch_size is the whole train set.** For MNIST that means 54,000
+- **`NNDataset` defaults to whole-split batches.** For MNIST that means 54,000 training
   samples per batch — roughly one iteration per epoch, which gives the denoiser far too few
-  noise-level samples to learn. The notebook rebuilds
-  `train_loader = DataLoader(ds.train_loader.dataset, batch_size=128, shuffle=True)` to fix
-  this. Same caveat as the MoE and JEPA tasks.
+  noise-level samples to learn. The notebook passes `batch_sizes=(128, None, None)` and consumes
+  the wrapper-owned shuffled train loader directly. Same caveat as the MoE and JEPA tasks.
 - **MLP on flattened pixels loses spatial structure.** Translation symmetry — the property
   that lets a U-Net share weights across pixel locations — is invisible to an MLP. Real DDPM
   generation quality needs a convolutional denoiser; the MLP demo is a pipeline smoke test.

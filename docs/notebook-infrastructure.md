@@ -58,7 +58,7 @@ unless a task explicitly documents that policy. The full admission sequence is
 | diffusion-mnist-ddpm-pytorch | A | vscode-remote | remote | jupyterhub | — | atlas-jupyter-volume | — |
 | self_supervised-fmnist-jepa-pytorch | A | vscode-remote | remote | jupyterhub | — | atlas-jupyter-volume | — |
 | peft-mnist-to-fmnist-dora-vs-lora-pytorch | A | vscode-remote | remote | jupyterhub | — | atlas-jupyter-volume | — |
-| node_classification-reddit-gnn-pyg | B/C | vscode-remote | remote | jupyterhub | — | atlas-jupyter-volume | Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the repository Torch 2.11 CPU stack; the remote runtime uses the completed retained Atlas pin. |
+| node_classification-reddit-gnn-pyg | B/C | vscode-remote | remote | jupyterhub | — | atlas-jupyter-volume | Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the repository Torch 2.11 CPU stack; the retained Atlas Torch 2.13 runtime executes through pyg-lib and intentionally has no legacy torch-sparse wheel. |
 | link_prediction-karate-graphsage-pyg | A | vscode-remote | remote | jupyterhub | — | atlas-jupyter-volume | — |
 | community_detection-karate-louvain-vs-gnn-pyg | A | vscode-remote | remote | jupyterhub | — | atlas-jupyter-volume | — |
 | text_generation-tinyshakespeare-transformer-pytorch | A | vscode-remote | remote | jupyterhub | — | atlas-jupyter-volume | — |

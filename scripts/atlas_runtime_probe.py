@@ -46,11 +46,6 @@ DEPENDENCIES = (
     ("spaCy", "spacy", "spacy"),
     ("NLTK", "nltk", "nltk"),
 )
-PRESERVED_PHASE3_NOTEBOOKS = frozenset(
-    f"notebooks/node_classification-reddit-gnn-pyg/"
-    f"phase3-main-model-training-and-eval-notebook{suffix}.ipynb"
-    for suffix in ("", "2", "3", "4")
-)
 EXTRA_IMPORTS = {"thekaveh-nnx[lm]": ("datasets", "tokenizers")}
 DEPENDENCY_BY_LABEL = {
     label: (distribution_name, module_name)
@@ -382,69 +377,13 @@ def _active_notebook_documents(
     return documents, {module: tuple(contexts) for module, contexts in local_contexts.items()}
 
 
-def _has_unused_sparse_tensor_import(document: Mapping[str, object]) -> bool:
-    exact_import_count = 0
-    other_sparse_import = False
-    loaded = False
-    cells = document.get("cells", [])
-    if not isinstance(cells, list):
-        return False
-    for cell in cells:
-        if not isinstance(cell, Mapping) or cell.get("cell_type") != "code":
-            continue
-        source = _python_cell_source(_cell_source(cell))
-        if not source:
-            continue
-        tree = ast.parse(source)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "torch_sparse":
-                if len(node.names) == 1 and node.names[0].name == "SparseTensor" and node.names[0].asname is None:
-                    exact_import_count += 1
-                else:
-                    other_sparse_import = True
-            elif isinstance(node, ast.Import) and any(
-                alias.name == "torch_sparse" for alias in node.names
-            ):
-                other_sparse_import = True
-            elif (
-                isinstance(node, ast.Name)
-                and isinstance(node.ctx, ast.Load)
-                and node.id == "SparseTensor"
-            ):
-                loaded = True
-    return exact_import_count == 1 and not other_sparse_import and not loaded
-
-
 def _runtime_notebook_imports(
     repo_root: Path,
     documents: Iterable[Mapping[str, object]],
 ) -> tuple[str, ...]:
-    """Return mandatory imports, excluding one exact immutable unused binding."""
-    modules = set(extract_notebook_imports(documents))
-    if "torch_sparse" not in modules:
-        return tuple(sorted(modules))
-
-    sparse_paths: set[str] = set()
-    preserved_are_unused = True
-    for notebook_path in sorted((repo_root / "notebooks").glob("*/*.ipynb")):
-        if "archive" in notebook_path.relative_to(repo_root / "notebooks").parts:
-            continue
-        document = json.loads(notebook_path.read_text(encoding="utf-8"))
-        if not isinstance(document, Mapping):
-            preserved_are_unused = False
-            continue
-        if "torch_sparse" not in extract_notebook_imports((document,)):
-            continue
-        relative = notebook_path.relative_to(repo_root).as_posix()
-        sparse_paths.add(relative)
-        if relative not in PRESERVED_PHASE3_NOTEBOOKS or not _has_unused_sparse_tensor_import(
-            document
-        ):
-            preserved_are_unused = False
-
-    if sparse_paths == PRESERVED_PHASE3_NOTEBOOKS and preserved_are_unused:
-        modules.remove("torch_sparse")
-    return tuple(sorted(modules))
+    """Return every direct module import required by active notebooks."""
+    del repo_root
+    return extract_notebook_imports(documents)
 
 
 def _failure_evidence(module_name: str, status: str) -> dict[str, str]:

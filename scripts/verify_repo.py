@@ -96,8 +96,8 @@ ACTIVE_TASK_DIRS: tuple[str, ...] = ()
 REQUIRED_SECTIONS: dict[str, tuple[str, ...]] = {}
 TIER_A_NOTEBOOKS: tuple[str, ...] = ()
 TIER_A_CI_OUTPUT_ROOT = "/tmp/ml-tier-a"
-TIER_C_CODE_BASELINE_TAG = "tier-c-public-facade-baseline-2026-08-22"
-TIER_C_CODE_BASELINE_COMMIT = "296a7227bb2bfbb595e99aa4dbee760e867b83c7"
+TIER_C_CODE_BASELINE_TAG = "tier-c-deterministic-seeding-atlas-baseline-2026-08-22"
+TIER_C_CODE_BASELINE_COMMIT = "35e7903afe45f60e5e30bf8fbd49f7d6463caa6a"
 _apply_config(_load_config())
 
 README_REQUIRED_H2 = (

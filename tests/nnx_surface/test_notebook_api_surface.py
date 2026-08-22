@@ -41,7 +41,7 @@ import pytest
 import yaml
 
 import nnx
-from nnx import Utils, VisUtils
+from nnx import NNGraphDataset, Utils, VisUtils, set_seed
 from scripts.verify_repo import (
     _NON_PYTHON_CELL_MAGICS,
     _cell_magic_name,
@@ -108,6 +108,17 @@ _NNDATASET_BATCHING_CONTRACTS = {
         },
     },
 }
+
+_REDDIT_GRAPH_DATASET_NOTEBOOKS = (
+    "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook1.ipynb",
+    "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook2.ipynb",
+    "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook3.ipynb",
+    "notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook4.ipynb",
+    "notebooks/node_classification-reddit-gnn-pyg/phase3-main-model-training-and-eval-notebook.ipynb",
+    "notebooks/node_classification-reddit-gnn-pyg/phase3-main-model-training-and-eval-notebook2.ipynb",
+    "notebooks/node_classification-reddit-gnn-pyg/phase3-main-model-training-and-eval-notebook3.ipynb",
+    "notebooks/node_classification-reddit-gnn-pyg/phase3-main-model-training-and-eval-notebook4.ipynb",
+)
 
 
 def _public_attrs(cls: object) -> set[str]:
@@ -217,6 +228,88 @@ def _python_cell_source(cell: dict) -> str:
         "\n" if _is_ipython_magic_or_help_line(line) else line
         for line in lines
     )
+
+
+def find_reddit_graph_dataset_seed_contract_violations(nb: dict) -> list[str]:
+    """Require the released NNx seeding boundary around graph dataset creation."""
+    findings: list[str] = []
+    imports_set_seed: list[tuple[int, int]] = []
+    seed_assignments: list[tuple[int, int, ast.Assign]] = []
+    dataset_assignments: list[tuple[int, int, ast.Assign, list[ast.stmt]]] = []
+
+    for cell_index, cell in enumerate(_code_cells(nb)):
+        tree = ast.parse(_python_cell_source(cell))
+        for statement_index, statement in enumerate(tree.body):
+            if (
+                isinstance(statement, ast.ImportFrom)
+                and statement.module == "nnx"
+                and any(alias.name == "set_seed" for alias in statement.names)
+            ):
+                imports_set_seed.append((cell_index, statement_index))
+            if (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+                and statement.targets[0].id == "SEED"
+            ):
+                seed_assignments.append((cell_index, statement_index, statement))
+            if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+                continue
+            target = statement.targets[0]
+            value = statement.value
+            if (
+                isinstance(target, ast.Name)
+                and target.id == "ds"
+                and isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Name)
+                and value.func.id == "NNGraphDataset"
+            ):
+                dataset_assignments.append((cell_index, statement_index, statement, tree.body))
+
+    if not imports_set_seed:
+        findings.append("set_seed must be imported from the public nnx facade")
+
+    if len(seed_assignments) != 1:
+        findings.append(f"expected exactly one top-level SEED assignment; found {len(seed_assignments)}")
+    elif not (
+        isinstance(seed_assignments[0][2].value, ast.Constant)
+        and seed_assignments[0][2].value.value == 0
+        and type(seed_assignments[0][2].value.value) is int
+    ):
+        findings.append("SEED must be the integer literal 0")
+
+    if len(dataset_assignments) != 1:
+        findings.append(
+            f"expected exactly one top-level ds = NNGraphDataset(...); found {len(dataset_assignments)}"
+        )
+        return findings
+
+    cell_index, statement_index, assignment, statements = dataset_assignments[0]
+    dataset_position = (cell_index, statement_index)
+    if imports_set_seed and not any(
+        import_position < dataset_position for import_position in imports_set_seed
+    ):
+        findings.append("set_seed import must precede graph dataset construction")
+    if len(seed_assignments) == 1 and seed_assignments[0][:2] >= dataset_position:
+        findings.append("SEED assignment must precede graph dataset construction")
+    if any(keyword.arg == "seed" for keyword in assignment.value.keywords):
+        findings.append("NNGraphDataset does not accept a seed keyword in NNx 0.2.0")
+    if statement_index == 0:
+        findings.append(f"code_cell[{cell_index}] must call set_seed(SEED) immediately before NNGraphDataset")
+        return findings
+    previous = statements[statement_index - 1]
+    if not (
+        isinstance(previous, ast.Expr)
+        and isinstance(previous.value, ast.Call)
+        and isinstance(previous.value.func, ast.Name)
+        and previous.value.func.id == "set_seed"
+        and len(previous.value.args) == 1
+        and isinstance(previous.value.args[0], ast.Name)
+        and previous.value.args[0].id == "SEED"
+        and not previous.value.keywords
+    ):
+        findings.append(f"code_cell[{cell_index}] must call set_seed(SEED) immediately before NNGraphDataset")
+    return findings
 
 
 def find_deep_public_nnx_imports(nb: dict) -> list[str]:
@@ -726,8 +819,80 @@ def test_public_facade_guard_ignores_non_python_cell_magic_and_ipython_help():
         "nbformat": 4,
         "nbformat_minor": 2,
     }
-
     assert not find_deep_public_nnx_imports(good)
+
+
+def test_released_nnx_graph_dataset_uses_public_global_seed_contract():
+    dataset_parameters = inspect.signature(NNGraphDataset).parameters
+    seed_parameters = inspect.signature(set_seed).parameters
+
+    assert "seed" not in dataset_parameters
+    assert seed_parameters["seed"].default is inspect.Parameter.empty
+    assert seed_parameters["strict"].default is False
+
+
+@pytest.mark.parametrize("relative", _REDDIT_GRAPH_DATASET_NOTEBOOKS)
+def test_reddit_graph_dataset_construction_is_explicitly_seeded(relative: str):
+    notebook = json.loads((REPO_ROOT / relative).read_text(encoding="utf-8"))
+
+    assert not find_reddit_graph_dataset_seed_contract_violations(notebook), relative
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "from nnx import NNGraphDataset\nSEED = 0\nset_seed(SEED)\nds = NNGraphDataset(ds_class=R, n_neighbors=[2])\n",
+            "set_seed must be imported",
+        ),
+        (
+            "from nnx import NNGraphDataset, set_seed\nSEED = 1\nset_seed(SEED)\nds = NNGraphDataset(ds_class=R, n_neighbors=[2])\n",
+            "integer literal 0",
+        ),
+        (
+            "from nnx import NNGraphDataset, set_seed\nSEED = 0\nif enabled:\n    set_seed(SEED)\nds = NNGraphDataset(ds_class=R, n_neighbors=[2])\n",
+            "immediately before",
+        ),
+        (
+            "from nnx import NNGraphDataset, set_seed\nSEED = 0\nset_seed(SEED)\nprepare()\nds = NNGraphDataset(ds_class=R, n_neighbors=[2])\n",
+            "immediately before",
+        ),
+        (
+            "from nnx import NNGraphDataset, set_seed\nSEED = 0\nset_seed(SEED)\nds = NNGraphDataset(ds_class=R, n_neighbors=[2], seed=SEED)\n",
+            "does not accept a seed keyword",
+        ),
+        (
+            "from nnx import NNGraphDataset, set_seed\nset_seed(SEED)\nds = NNGraphDataset(ds_class=R, n_neighbors=[2])\nSEED = 0\n",
+            "SEED assignment must precede",
+        ),
+        (
+            "SEED = 0\nset_seed(SEED)\nds = NNGraphDataset(ds_class=R, n_neighbors=[2])\nfrom nnx import NNGraphDataset, set_seed\n",
+            "set_seed import must precede",
+        ),
+    ],
+)
+def test_reddit_graph_dataset_seed_guard_rejects_regressions(source: str, expected: str):
+    notebook = _synthetic_nb({"cell_type": "code", "source": source, "outputs": []})
+
+    assert any(
+        expected in finding
+        for finding in find_reddit_graph_dataset_seed_contract_violations(notebook)
+    )
+
+
+def test_reddit_graph_dataset_seed_guard_accepts_public_boundary():
+    notebook = _synthetic_nb({
+        "cell_type": "code",
+        "source": (
+            "from nnx import NNGraphDataset, set_seed\n"
+            "SEED = 0\n"
+            "set_seed(SEED)\n"
+            "ds = NNGraphDataset(ds_class=R, n_neighbors=[2])\n"
+        ),
+        "outputs": [],
+    })
+
+    assert not find_reddit_graph_dataset_seed_contract_violations(notebook)
 
 
 def test_public_facade_guard_rejects_wildcard_import_from_classified_module():

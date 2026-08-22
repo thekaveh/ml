@@ -1540,7 +1540,8 @@ def test_issue62_notebook_specs_drive_exact_generated_rows():
     ).read_text(encoding="utf-8"))
     assert graph["atlas"]["constraints"] == [
         "Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the "
-        "repository Torch 2.11 CPU stack; the remote runtime uses the completed retained Atlas pin."
+        "repository Torch 2.11 CPU stack; the retained Atlas Torch 2.13 runtime executes through "
+        "pyg-lib and intentionally has no legacy torch-sparse wheel."
     ]
     assert quant["atlas"]["constraints"] == [
         "Tier-B smoke is deterministic and bounded to one epoch for FP32 plus one epoch for QAT.",
@@ -1554,7 +1555,7 @@ def test_issue62_notebook_specs_drive_exact_generated_rows():
     quant_row = next(line for line in generated if "quantization-mnist-ffnn-pytorch" in line)
     assert all(
         token in graph_row
-        for token in ("pyg-lib", "torch-sparse", "completed retained Atlas pin")
+        for token in ("pyg-lib", "torch-sparse", "retained Atlas Torch 2.13 runtime")
     )
     assert all(
         token in quant_row
@@ -2028,7 +2029,7 @@ def _assert_issue65_current_docs(documents: Mapping[str, str]) -> None:
         "fastmcp==3.4.4",
         "managed-host-process",
         "ComfyUI remains disabled",
-        "Last verified: 2026-08-21",
+        "Last verified: 2026-08-22",
         "CPython 3.11.10",
         "datasets` 5.0.1",
         "tokenizers` 0.22.2",
@@ -2037,8 +2038,8 @@ def _assert_issue65_current_docs(documents: Mapping[str, str]) -> None:
         "torchao` 0.17.0",
         "torch-geometric` 2.7.0",
         "NLTK 3.10.1",
-        "61 mandatory imports",
-        "unused `SparseTensor` import",
+        "47 mandatory imports",
+        "removed the four historical unused Phase-3 `SparseTensor` imports",
         "no executable notebook imports `torchaudio`",
         _ISSUE65_CURRENT_SHA,
         _ISSUE65_ROLLBACK_SHA,
@@ -2073,11 +2074,11 @@ def test_issue65_current_docs_record_the_atlas_retain_decision() -> None:
         ("docs/dependency-contracts.md", "managed-host-process", "manual host process"),
         ("docs/dependency-contracts.md", "ComfyUI remains disabled", "ComfyUI enabled"),
         ("docs/dependency-contracts.md", "CPython 3.11.10", "CPython unknown"),
-        ("docs/dependency-contracts.md", "61 mandatory imports", "62 imports"),
+        ("docs/dependency-contracts.md", "47 mandatory imports", "48 imports"),
         (
             "docs/dependency-contracts.md",
-            "unused `SparseTensor` import",
-            "required `SparseTensor` import",
+            "removed the four historical unused Phase-3 `SparseTensor` imports",
+            "retained the four historical unused Phase-3 `SparseTensor` imports",
         ),
         (
             "docs/dependency-contracts.md",
@@ -2087,7 +2088,7 @@ def test_issue65_current_docs_record_the_atlas_retain_decision() -> None:
         ("CHANGELOG.md", _ISSUE65_CURRENT_SHA, _ISSUE65_ROLLBACK_SHA),
         (
             "docs/notebook-infrastructure.md",
-            "completed retained Atlas pin",
+            "retained Atlas Torch 2.13 runtime",
             "Atlas runtime ownership remains Issue #65",
         ),
     ),

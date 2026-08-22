@@ -1150,7 +1150,7 @@ def _write_valid_notebook_infrastructure_fixture(tmp_path):
     (tmp_path / "notebooks/t/docs").mkdir(parents=True)
     (tmp_path / "notebooks/t/docs/spec.yaml").write_text(
         "title: Task\ntier: A\natlas:\n  executor: jupyterhub\n  default_mode: vscode-remote\n"
-        "  required_services: [jupyterhub]\n  workspace_access: remote\n"
+        "  required_services: [jupyterhub]\n  required_env: []\n  workspace_access: remote\n"
         "  artifact_policy: atlas-jupyter-volume\n  constraints: []\n",
         encoding="utf-8",
     )

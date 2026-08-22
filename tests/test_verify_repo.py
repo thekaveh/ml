@@ -647,7 +647,7 @@ def test_docs_adapter_reports_drift_for_a_real_manifest(tmp_path, monkeypatch):
     (tmp_path / "notebooks/task/docs").mkdir(parents=True)
     (tmp_path / "notebooks/task/docs/spec.yaml").write_text(
         "title: Task\ntier: A\natlas:\n  executor: jupyterhub\n  default_mode: vscode-remote\n"
-        "  required_services: [jupyterhub]\n  workspace_access: remote\n"
+        "  required_services: [jupyterhub]\n  required_env: []\n  workspace_access: remote\n"
         "  artifact_policy: atlas-jupyter-volume\n  constraints: []\n",
         encoding="utf-8",
     )
@@ -4183,6 +4183,7 @@ def test_e16_uses_shared_parser_for_invalid_active_task_metadata(tmp_path, monke
         "  executor: jupyterhub\n"
         "  default_mode: vscode-remote\n"
         "  required_services: [jupyterhub]\n"
+        "  required_env: []\n"
         "  workspace_access: local\n"
         "  artifact_policy: atlas-jupyter-volume\n"
         "  constraints: []\n",

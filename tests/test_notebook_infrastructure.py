@@ -148,6 +148,8 @@ def test_repository_declares_contracts_for_every_manifest_notebook():
         "dim_reduction-iris-autoencoder-pytorch",
         "clustering-iris-kmeans-vs-ae-pytorch",
     ]
+    assert all(contract.required_services == ("jupyterhub",) for contract in contracts)
+    assert all(contract.required_env == () for contract in contracts)
     quantization = next(
         contract
         for contract in contracts

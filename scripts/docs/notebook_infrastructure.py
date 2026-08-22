@@ -17,10 +17,17 @@ from scripts.docs.manifest import Manifest, load_manifest
 _START_MARKER = "<!-- atlas-task-contracts:start -->"
 _END_MARKER = "<!-- atlas-task-contracts:end -->"
 _SERVICE_ID_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+_ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 class NotebookInfrastructureError(ValueError):
     """Raised when an Atlas notebook-runtime contract is malformed."""
+
+
+@dataclass(frozen=True, order=True)
+class AtlasEnvironmentRequirement:
+    name: str
+    service: str
 
 
 @dataclass(frozen=True)
@@ -31,6 +38,7 @@ class AtlasTaskContract:
     executor: str
     default_mode: str
     required_services: tuple[str, ...]
+    required_env: tuple[AtlasEnvironmentRequirement, ...]
     workspace_access: str
     artifact_policy: str
     constraints: tuple[str, ...]
@@ -40,6 +48,69 @@ def _require_string(value: object, field: str, task: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise NotebookInfrastructureError(f"{task}: {field} must be a non-empty string")
     return value
+
+
+def _parse_required_env(
+    task: str,
+    atlas: dict[object, object],
+    services: Sequence[str],
+) -> tuple[AtlasEnvironmentRequirement, ...]:
+    if "required_env" not in atlas:
+        raise NotebookInfrastructureError(f"{task}: atlas.required_env is required")
+    raw_requirements = atlas["required_env"]
+    if not isinstance(raw_requirements, list):
+        raise NotebookInfrastructureError(f"{task}: atlas.required_env must be a list")
+
+    requirements: list[AtlasEnvironmentRequirement] = []
+    for index, entry in enumerate(raw_requirements, start=1):
+        field = f"atlas.required_env entry {index}"
+        if not isinstance(entry, dict):
+            raise NotebookInfrastructureError(f"{task}: {field} must be a mapping")
+        expected_keys = {"name", "service"}
+        actual_keys = set(entry)
+        missing_keys = sorted(expected_keys - actual_keys)
+        if missing_keys:
+            raise NotebookInfrastructureError(
+                f"{task}: {field} missing keys: {', '.join(missing_keys)}"
+            )
+        unexpected_keys = sorted(actual_keys - expected_keys)
+        if unexpected_keys:
+            raise NotebookInfrastructureError(
+                f"{task}: {field} unexpected keys: {', '.join(unexpected_keys)}"
+            )
+
+        name = entry["name"]
+        service = entry["service"]
+        if not isinstance(name, str) or not _ENV_NAME_RE.fullmatch(name):
+            raise NotebookInfrastructureError(
+                f"{task}: {field}.name must be a valid environment name"
+            )
+        if not isinstance(service, str) or not _SERVICE_ID_RE.fullmatch(service):
+            raise NotebookInfrastructureError(
+                f"{task}: {field}.service must be a valid service ID"
+            )
+        requirements.append(AtlasEnvironmentRequirement(name=name, service=service))
+
+    names = [requirement.name for requirement in requirements]
+    if len(set(names)) != len(names):
+        raise NotebookInfrastructureError(
+            f"{task}: atlas.required_env names must be unique"
+        )
+    undeclared_services = sorted(
+        {requirement.service for requirement in requirements} - set(services)
+    )
+    if undeclared_services:
+        raise NotebookInfrastructureError(
+            f"{task}: atlas.required_env must reference required_services; "
+            f"undeclared: {', '.join(undeclared_services)}"
+        )
+    bound_services = {requirement.service for requirement in requirements}
+    missing_services = sorted(set(services) - {"jupyterhub"} - bound_services)
+    if missing_services:
+        raise NotebookInfrastructureError(
+            f"{task}: services missing required_env bindings: {', '.join(missing_services)}"
+        )
+    return tuple(sorted(requirements))
 
 
 def _parse_contract(task: str, spec_path: Path) -> AtlasTaskContract:
@@ -72,6 +143,7 @@ def _parse_contract(task: str, spec_path: Path) -> AtlasTaskContract:
         raise NotebookInfrastructureError(f"{task}: atlas.required_services must be unique")
     if "jupyterhub" not in services:
         raise NotebookInfrastructureError(f"{task}: atlas.required_services must contain jupyterhub")
+    required_env = _parse_required_env(task, atlas, services)
 
     workspace_access = _require_string(atlas.get("workspace_access"), "atlas.workspace_access", task)
     if workspace_access not in {"remote", "mounted-required"}:
@@ -102,6 +174,7 @@ def _parse_contract(task: str, spec_path: Path) -> AtlasTaskContract:
         executor=executor,
         default_mode=default_mode,
         required_services=tuple(services),
+        required_env=required_env,
         workspace_access=workspace_access,
         artifact_policy=artifact_policy,
         constraints=tuple(constraints),

@@ -240,12 +240,20 @@ require unchanged code/markdown source, outputs, execution counts, cell IDs,
 notebook metadata, and all other cell fields. Run the stamper again and require
 zero byte changes.
 
-- [ ] **Step 4: Add the live repository inventory assertion**
+- [ ] **Step 4: Commit the metadata-only migration**
 
-The assertion must report 29 active notebooks, 189 output-bearing cells, zero
-missing/invalid/stale markers, and zero orphan markers after migration.
+Commit all and only the 29 migrated notebooks so the metadata rollback stays
+independent of implementation and test enforcement:
+`notebooks: stamp retained output source hashes`.
 
-- [ ] **Step 5: Run the inventory and verifier GREEN**
+- [ ] **Step 5: Add the live repository inventory assertion**
+
+The assertion must report 29 active notebooks, 189 output-bearing cells, 189
+current valid markers, zero missing/invalid/stale markers, and zero orphan
+markers after migration. Commit the guard separately as
+`test(execution): lock live source hash inventory`.
+
+- [ ] **Step 6: Run the inventory and verifier GREEN**
 
 Run:
 
@@ -257,9 +265,10 @@ python scripts/verify_repo.py --check execution --fast
 
 Expected: 29 notebooks, 189 valid markers, zero E8 findings.
 
-- [ ] **Step 6: Commit metadata only**
+- [ ] **Step 7: Confirm both rollback boundaries**
 
-Commit: `notebooks: stamp retained output source hashes`
+Require the migration commit to contain notebooks only and the live-inventory
+guard commit to contain tests only.
 
 ## 12.36.6 Task 5: Document the enforced refresh contract
 

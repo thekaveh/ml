@@ -5,6 +5,7 @@ atlas:
   executor: jupyterhub
   default_mode: vscode-remote
   required_services: [jupyterhub]
+  required_env: []
   workspace_access: remote
   artifact_policy: atlas-jupyter-volume
   constraints: []

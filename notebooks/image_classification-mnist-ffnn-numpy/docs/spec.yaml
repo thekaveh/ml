@@ -5,6 +5,7 @@ atlas:
   executor: jupyterhub
   default_mode: mounted-workspace
   required_services: [jupyterhub]
+  required_env: []
   workspace_access: mounted-required
   artifact_policy: task-local-ignored-paths
   constraints:

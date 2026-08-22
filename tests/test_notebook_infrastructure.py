@@ -6,6 +6,7 @@ import pytest
 
 from scripts.docs.manifest import load_manifest, parse_manifest
 from scripts.docs.notebook_infrastructure import (
+    AtlasEnvironmentRequirement,
     AtlasTaskContract,
     NotebookInfrastructureError,
     load_atlas_task_contracts,
@@ -59,12 +60,23 @@ def _write_active_tasks(repo: Path, tasks: list[str]) -> None:
 VALID_ATLAS = """  executor: jupyterhub
   default_mode: vscode-remote
   required_services: [jupyterhub, postgres]
+  required_env:
+    - {name: POSTGRES_USER, service: postgres}
+    - {name: POSTGRES_HOST, service: postgres}
   workspace_access: remote
   artifact_policy: atlas-jupyter-volume
   constraints: [\"Use a dedicated kernel\", \"Keep data private\"]"""
 
+JUPYTER_ONLY_ATLAS = """  executor: jupyterhub
+  default_mode: vscode-remote
+  required_services: [jupyterhub]
+  required_env: []
+  workspace_access: remote
+  artifact_policy: atlas-jupyter-volume
+  constraints: []"""
+
 MOUNTED_WORKSPACE_ATLAS = (
-    VALID_ATLAS.replace("default_mode: vscode-remote", "default_mode: mounted-workspace")
+    JUPYTER_ONLY_ATLAS.replace("default_mode: vscode-remote", "default_mode: mounted-workspace")
     .replace("workspace_access: remote", "workspace_access: mounted-required")
     .replace("artifact_policy: atlas-jupyter-volume", "artifact_policy: task-local-ignored-paths")
 )
@@ -78,17 +90,22 @@ def test_loads_contracts_in_manifest_order(tmp_path):
     contracts = load_atlas_task_contracts(tmp_path, _manifest(["second", "first"]))
 
     assert [contract.task for contract in contracts] == ["second", "first"]
-    assert contracts[0] == AtlasTaskContract(
-        task="second",
-        title="Example task",
-        tier="A",
-        executor="jupyterhub",
-        default_mode="vscode-remote",
-        required_services=("jupyterhub", "postgres"),
-        workspace_access="remote",
-        artifact_policy="atlas-jupyter-volume",
-        constraints=("Use a dedicated kernel", "Keep data private"),
-    )
+    contract = contracts[0]
+    assert contract.task == "second"
+    assert contract.title == "Example task"
+    assert contract.tier == "A"
+    assert contract.executor == "jupyterhub"
+    assert contract.default_mode == "vscode-remote"
+    assert contract.required_services == ("jupyterhub", "postgres")
+    assert [
+        (requirement.name, requirement.service) for requirement in contract.required_env
+    ] == [
+        ("POSTGRES_HOST", "postgres"),
+        ("POSTGRES_USER", "postgres"),
+    ]
+    assert contract.workspace_access == "remote"
+    assert contract.artifact_policy == "atlas-jupyter-volume"
+    assert contract.constraints == ("Use a dedicated kernel", "Keep data private")
 
 
 def test_loads_mounted_workspace_contracts_with_a_matching_default_mode(tmp_path):
@@ -132,6 +149,8 @@ def test_repository_declares_contracts_for_every_manifest_notebook():
         "dim_reduction-iris-autoencoder-pytorch",
         "clustering-iris-kmeans-vs-ae-pytorch",
     ]
+    assert all(contract.required_services == ("jupyterhub",) for contract in contracts)
+    assert all(contract.required_env == () for contract in contracts)
     quantization = next(
         contract
         for contract in contracts
@@ -177,18 +196,198 @@ def test_load_rejects_invalid_atlas_fields(tmp_path, atlas, message):
         load_atlas_task_contracts(tmp_path, _manifest(["task"]))
 
 
+@pytest.mark.parametrize(
+    ("atlas", "message"),
+    [
+        (
+            JUPYTER_ONLY_ATLAS.replace("  required_env: []\n", ""),
+            "required_env is required",
+        ),
+        (
+            JUPYTER_ONLY_ATLAS.replace("required_env: []", "required_env: no"),
+            "required_env must be a list",
+        ),
+        (
+            JUPYTER_ONLY_ATLAS.replace("required_env: []", "required_env: [SPARK_REMOTE]"),
+            "required_env entry 1 must be a mapping",
+        ),
+        (
+            JUPYTER_ONLY_ATLAS.replace(
+                "required_env: []", "required_env: [{service: jupyterhub}]"
+            ),
+            "required_env entry 1 missing keys: name",
+        ),
+        (
+            JUPYTER_ONLY_ATLAS.replace(
+                "required_env: []", "required_env: [{name: JUPYTER_URL}]"
+            ),
+            "required_env entry 1 missing keys: service",
+        ),
+        (
+            JUPYTER_ONLY_ATLAS.replace(
+                "required_env: []",
+                "required_env: [{name: JUPYTER_URL, service: jupyterhub, value: secret}]",
+            ),
+            "required_env entry 1 unexpected keys: value",
+        ),
+        (
+            JUPYTER_ONLY_ATLAS.replace(
+                "required_env: []",
+                "required_env: [{name: lower_name, service: jupyterhub}]",
+            ),
+            "valid environment name",
+        ),
+        (
+            JUPYTER_ONLY_ATLAS.replace(
+                "required_env: []",
+                "required_env: [{name: JUPYTER_URL, service: bad_service}]",
+            ),
+            "valid service ID",
+        ),
+        (
+            JUPYTER_ONLY_ATLAS.replace(
+                "required_env: []",
+                "required_env: [{name: JUPYTER_URL, service: jupyterhub}, {name: JUPYTER_URL, service: jupyterhub}]",
+            ),
+            "names must be unique",
+        ),
+        (
+            JUPYTER_ONLY_ATLAS.replace(
+                "required_env: []",
+                "required_env: [{name: SPARK_REMOTE, service: spark}]",
+            ),
+            "must reference required_services",
+        ),
+        (
+            JUPYTER_ONLY_ATLAS.replace(
+                "required_services: [jupyterhub]",
+                "required_services: [jupyterhub, spark]",
+            ),
+            "services missing required_env bindings: spark",
+        ),
+    ],
+)
+def test_load_rejects_invalid_required_env(tmp_path, atlas, message):
+    _write_spec(tmp_path, "task", atlas)
+    _write_active_tasks(tmp_path, ["task"])
+
+    with pytest.raises(NotebookInfrastructureError, match=message):
+        load_atlas_task_contracts(tmp_path, _manifest(["task"]))
+
+
+def test_load_rejects_non_string_required_env_keys_as_unexpected(tmp_path):
+    atlas = JUPYTER_ONLY_ATLAS.replace(
+        "required_env: []",
+        "required_env: [{name: JUPYTER_URL, service: jupyterhub, 1: bad}]",
+    )
+    _write_spec(tmp_path, "task", atlas)
+    _write_active_tasks(tmp_path, ["task"])
+
+    with pytest.raises(NotebookInfrastructureError, match="unexpected keys: 1"):
+        load_atlas_task_contracts(tmp_path, _manifest(["task"]))
+
+
+@pytest.mark.parametrize(
+    "required_env",
+    [
+        "[{name: FIRST, name: SECOND, service: jupyterhub}]",
+        "[{name: JUPYTER_URL, service: spark, service: jupyterhub}]",
+    ],
+)
+def test_load_rejects_duplicate_required_env_entry_keys(tmp_path, required_env):
+    atlas = JUPYTER_ONLY_ATLAS.replace("required_env: []", f"required_env: {required_env}")
+    _write_spec(tmp_path, "task", atlas)
+    _write_active_tasks(tmp_path, ["task"])
+
+    with pytest.raises(NotebookInfrastructureError, match="duplicate key"):
+        load_atlas_task_contracts(tmp_path, _manifest(["task"]))
+
+
+def test_load_rejects_duplicate_required_env_field(tmp_path):
+    atlas = JUPYTER_ONLY_ATLAS.replace(
+        "  required_env: []\n",
+        "  required_env: []\n  required_env: []\n",
+    )
+    _write_spec(tmp_path, "task", atlas)
+    _write_active_tasks(tmp_path, ["task"])
+
+    with pytest.raises(NotebookInfrastructureError, match="duplicate key"):
+        load_atlas_task_contracts(tmp_path, _manifest(["task"]))
+
+
+@pytest.mark.parametrize(
+    ("required_env", "message"),
+    [
+        ("[{name: true, service: jupyterhub}]", "valid environment name"),
+        ("[{name: 1, service: jupyterhub}]", "valid environment name"),
+        ("[{name: JUPYTER_URL, service: false}]", "valid service ID"),
+    ],
+)
+def test_load_rejects_coerced_required_env_scalars(tmp_path, required_env, message):
+    atlas = JUPYTER_ONLY_ATLAS.replace("required_env: []", f"required_env: {required_env}")
+    _write_spec(tmp_path, "task", atlas)
+    _write_active_tasks(tmp_path, ["task"])
+
+    with pytest.raises(NotebookInfrastructureError, match=message):
+        load_atlas_task_contracts(tmp_path, _manifest(["task"]))
+
+
+def test_load_accepts_hyphenated_future_service_identifier(tmp_path):
+    atlas = JUPYTER_ONLY_ATLAS.replace(
+        "required_services: [jupyterhub]",
+        "required_services: [jupyterhub, spark-connect]",
+    ).replace(
+        "required_env: []",
+        "required_env: [{name: SPARK_REMOTE, service: spark-connect}]",
+    )
+    _write_spec(tmp_path, "task", atlas)
+    _write_active_tasks(tmp_path, ["task"])
+
+    contract = load_atlas_task_contracts(tmp_path, _manifest(["task"]))[0]
+
+    assert contract.required_services == ("jupyterhub", "spark-connect")
+    assert contract.required_env == (
+        AtlasEnvironmentRequirement("SPARK_REMOTE", "spark-connect"),
+    )
+
+
 def test_renders_deterministic_markdown_table():
     table = render_atlas_task_table(
         [
-            AtlasTaskContract("task-b", "Task B", "B", "jupyterhub", "mounted-workspace", ("jupyterhub", "mlflow"), "mounted-required", "task-local-ignored-paths", ()),
-            AtlasTaskContract("task-a", "Task A", "A", "jupyterhub", "vscode-remote", ("jupyterhub",), "remote", "atlas-jupyter-volume", ("One", "Two")),
+            AtlasTaskContract(
+                task="task-b",
+                title="Task B",
+                tier="B",
+                executor="jupyterhub",
+                default_mode="mounted-workspace",
+                required_services=("jupyterhub", "mlflow"),
+                required_env=(
+                    AtlasEnvironmentRequirement("MLFLOW_TRACKING_URI", "mlflow"),
+                    AtlasEnvironmentRequirement("MLFLOW_EXPERIMENT_NAME", "mlflow"),
+                ),
+                workspace_access="mounted-required",
+                artifact_policy="task-local-ignored-paths",
+                constraints=(),
+            ),
+            AtlasTaskContract(
+                task="task-a",
+                title="Task A",
+                tier="A",
+                executor="jupyterhub",
+                default_mode="vscode-remote",
+                required_services=("jupyterhub",),
+                required_env=(),
+                workspace_access="remote",
+                artifact_policy="atlas-jupyter-volume",
+                constraints=("One", "Two"),
+            ),
         ]
     )
 
-    assert table == """| Task | Tier | Default mode | Workspace access | Required Atlas services | Artifact policy | Constraints |
-| --- | --- | --- | --- | --- | --- | --- |
-| task-b | B | mounted-workspace | mounted-required | jupyterhub, mlflow | task-local-ignored-paths | — |
-| task-a | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | One<br>Two |"""
+    assert table == """| Task | Tier | Default mode | Workspace access | Required Atlas services | Required environment | Artifact policy | Constraints |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| task-b | B | mounted-workspace | mounted-required | jupyterhub, mlflow | `MLFLOW_EXPERIMENT_NAME` (mlflow)<br>`MLFLOW_TRACKING_URI` (mlflow) | task-local-ignored-paths | — |
+| task-a | A | vscode-remote | remote | jupyterhub | — | atlas-jupyter-volume | One<br>Two |"""
 
 
 def test_renderer_escapes_constraint_markdown_cell_characters():
@@ -201,6 +400,7 @@ def test_renderer_escapes_constraint_markdown_cell_characters():
                 "jupyterhub",
                 "vscode-remote",
                 ("jupyterhub",),
+                (),
                 "remote",
                 "atlas-jupyter-volume",
                 ("A | B", "First line\nsecond line"),

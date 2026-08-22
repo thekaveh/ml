@@ -726,6 +726,44 @@ def test_real_user_facing_docs_match_the_atlas_runtime_contract():
     assert "Additional Atlas services stay inactive" not in infrastructure
 
 
+def test_issue67_docs_define_machine_readable_environment_admission():
+    infrastructure = (REPO_ROOT / "docs/notebook-infrastructure.md").read_text(
+        encoding="utf-8"
+    )
+    runbook = (REPO_ROOT / "docs/atlas-pin-bump-runbook.md").read_text(
+        encoding="utf-8"
+    )
+    contributing = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    normalized_infrastructure = " ".join(infrastructure.split())
+    normalized_runbook = " ".join(runbook.split())
+    normalized_contributing = " ".join(contributing.split())
+    normalized_changelog = " ".join(changelog.split())
+
+    for phrase in (
+        "`required_env`",
+        "`name` and `service`",
+        "does not authorize notebook use",
+        "does not prove that the service is enabled or healthy",
+        "must not contain environment values",
+    ):
+        assert phrase in normalized_infrastructure
+    for phrase in (
+        "`{name, service}`",
+        "targeted Atlas JupyterHub smoke",
+        "never its value",
+    ):
+        assert phrase in normalized_runbook
+    for phrase in (
+        "`required_env`",
+        "central source",
+        "targeted JupyterHub smoke",
+    ):
+        assert phrase in normalized_contributing
+    assert "Issue #67" in changelog.split("## [0.1.0]", 1)[0]
+    assert "does not admit a new Atlas service" in normalized_changelog
+
+
 def _write_project_opening(
     repo_root: Path,
     *,
@@ -1150,7 +1188,7 @@ def _write_valid_notebook_infrastructure_fixture(tmp_path):
     (tmp_path / "notebooks/t/docs").mkdir(parents=True)
     (tmp_path / "notebooks/t/docs/spec.yaml").write_text(
         "title: Task\ntier: A\natlas:\n  executor: jupyterhub\n  default_mode: vscode-remote\n"
-        "  required_services: [jupyterhub]\n  workspace_access: remote\n"
+        "  required_services: [jupyterhub]\n  required_env: []\n  workspace_access: remote\n"
         "  artifact_policy: atlas-jupyter-volume\n  constraints: []\n",
         encoding="utf-8",
     )

@@ -223,6 +223,10 @@ sections:
         number: "12.31"
         title: Issue 67 Atlas required-environment contract design
         source: docs/superpowers/specs/2026-08-22-issue-67-atlas-required-env-design.md
+      - id: issue-67-atlas-required-env-implementation
+        number: "12.32"
+        title: Issue 67 Atlas required-environment contract implementation plan
+        source: docs/superpowers/plans/2026-08-22-issue-67-atlas-required-env-implementation-plan.md
   - id: security
     number: "13"
     title: Security policy

@@ -1,7 +1,7 @@
-"""NNx-surface contracts for the manual-only quantization notebook.
+"""NNx-surface contracts for the Tier-B quantization notebook.
 
-The canonical Torch 2.11 stack makes torchao mandatory for focused PTQ and QAT
-execution. Complete notebook acceptance and tiering remain owned by Issue #66.
+The canonical Torch 2.11 stack makes torchao mandatory for complete PTQ, QAT,
+checkpoint reconstruction, and converted-inference execution.
 """
 from __future__ import annotations
 
@@ -18,12 +18,15 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 from packaging.version import InvalidVersion, Version
 
 import nnx
 from nnx import (
+    Checkpoints,
     Devices,
     Losses,
+    NNCheckpoint,
     NNModel,
     NNModelParams,
     NNParams,
@@ -38,6 +41,11 @@ QAT_WARNING_MESSAGE = (
     "(e.g. TorchAODType.INT4 -> torch.int4)"
 )
 QAT_WARNING_RECORD_PATH = "torchao/quantization/quant_primitives.py"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+NOTEBOOK_PATH = (
+    REPO_ROOT / "notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb"
+)
+QUANTIZATION_MARKER_PREFIX = "ISSUE66_QUANTIZATION_CONTRACT="
 DistributionProvider = Callable[[str], importlib.metadata.Distribution]
 
 
@@ -469,6 +477,12 @@ def test_qat_prepare_train_convert_and_inference(tiny_image_batch):
             encoding="utf-8",
         )
     logits, classes = model.predict(X=tiny_image_batch.X)
+    checkpoint = NNCheckpoint.load(run=run.id, type=Checkpoints.LAST)
+    assert checkpoint is not None
+    reconstructed = NNModel.from_checkpoint(checkpoint)
+    reconstructed_edp = reconstructed.evaluate(tiny_image_batch.val_loader)
+    final_val_edp = run.idps[-1].val_edp
+    reconstructed_state = reconstructed.net.state_dict()
 
     assert torchao is not None
     assert run is not None
@@ -477,3 +491,44 @@ def test_qat_prepare_train_convert_and_inference(tiny_image_batch):
     assert logits.shape == (4, 10)
     assert classes.shape == (4,)
     assert np.issubdtype(classes.dtype, np.integer)
+    assert tuple(reconstructed_state) == tuple(checkpoint.net_state)
+    assert all(
+        torch.equal(reconstructed_state[key], value)
+        for key, value in checkpoint.net_state.items()
+    )
+    assert checkpoint.idp == run.idps[-1]
+    assert np.isfinite(reconstructed_edp.loss)
+    assert np.isfinite(reconstructed_edp.accuracy)
+    assert final_val_edp is not None
+
+
+def _notebook_source() -> str:
+    notebook = json.loads(NOTEBOOK_PATH.read_text(encoding="utf-8"))
+    return "\n".join(
+        "".join(cell.get("source", ()))
+        for cell in notebook["cells"]
+        if cell.get("cell_type") == "code"
+    )
+
+
+def test_notebook_declares_bounded_deterministic_smoke_contract() -> None:
+    source = _notebook_source()
+
+    assert "SMOKE_TEST_EPOCHS = 1" in source
+    assert "N_EPOCHS = SMOKE_TEST_EPOCHS if SMOKE_TEST else 3" in source
+    assert "nnx.set_seed(0)" in source
+    assert '"seed": 0' in source
+    assert '"smoke_test": bool(SMOKE_TEST)' in source
+
+
+def test_notebook_proves_qat_checkpoint_reconstruction_and_conversion() -> None:
+    source = _notebook_source()
+
+    assert "NNCheckpoint.load(run=qat_run.id, type=Checkpoints.LAST)" in source
+    assert "NNModel.from_checkpoint(qat_checkpoint)" in source
+    assert "checkpoint_state_parity" in source
+    assert "checkpoint_metadata_parity" in source
+    assert "checkpoint_evaluation_finite" in source
+    assert "qat_cb.is_prepared and qat_cb.is_converted" in source
+    assert '"Int8DynActInt4WeightLinear" in classes_after_qat' in source
+    assert QUANTIZATION_MARKER_PREFIX in source

@@ -7,13 +7,16 @@ the deep-dive companion to the task notebook: it states the problem, builds the 
 dissects the PTQ vs QAT contracts, reads the code top to bottom, reports the measured
 accuracy / size / latency comparison, and catalogues the pitfalls and extensions.
 
-The notebook is **manual-only** under Issue #66 and is not in the Tier A/B/C papermill targets.
-Issue #62 qualifies only the tiny PTQ/QAT dependency surface on torch==2.11.0,
-torchvision==0.26.0, torchao==0.18.0, and thekaveh-nnx[lm]==0.2.0. The retained NNx 0.2.0 8da4w
+The notebook is **Tier B** under Issue #66 on Torch 2.11.0 (`torch==2.11.0`),
+torchvision==0.26.0, torchao 0.18.0 (`torchao==0.18.0`), and
+thekaveh-nnx[lm]==0.2.0. Its one-epoch
+smoke executes complete PTQ and QAT, proves final conversion, reconstructs the saved QAT shadow
+checkpoint exactly, and emits a fail-closed semantic marker. The retained NNx 0.2.0 8da4w
 model.train call has one exact test-local UserWarning debt at
 torchao/quantization/quant_primitives.py; zero warnings or tuple drift retires the assertion, and
-all other warnings remain fatal under -W error. Atlas remains Issue #65 and is not acceptance
-evidence. The older committed Torch 2.8.0 outputs remain historical evidence and are not rewritten.
+all other warnings remain fatal under -W error. The full three-epoch path is qualified locally and
+through the retained Atlas JupyterHub runtime. The older committed Torch 2.8.0 outputs remain
+historical evidence and are not rewritten.
 
 This notebook belongs to the "efficient/compressed MLP" family: where §8.5 edits the architecture
 and §8.7 drives the weights sparse, quantization keeps the architecture and sparsity fixed and
@@ -61,7 +64,8 @@ smallest size at a measurable accuracy cost that a longer training budget would 
 | Per-channel scales | One scale per output channel; finer than per-tensor quantization |
 | int4 groupsize 32 | 4-bit weights grouped in blocks of 32; hidden widths must divide 32 |
 | `QATLifecycleCallback` | `on_train_begin` inserts fake-quant; `on_train_end` converts to truly-quantized |
-| Manual-only (CI-excluded) | Issue #62 qualifies the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; Issue #66 owns full-notebook execution outside Tier A/B/C. |
+| QAT checkpoint reconstruction | `NNCheckpoint.load` + `NNModel.from_checkpoint` prove exact saved-state/metadata parity and finite evaluation |
+| Tier B semantic output | One-epoch deterministic smoke plus a machine-readable PTQ/QAT/checkpoint contract |
 
 The `nnx` surface consumed is: `NNModel`, `NNParams`, `NNModelParams`, `NNTrainParams`,
 `NNOptimParams`, `NNDataset`, `Activations`, `Devices`, `Losses`, `Nets`, `Optims`, `set_seed`, and
@@ -259,10 +263,10 @@ and accelerator hardware.
 
 ## 8.8.7 Pitfalls & edge cases
 
-- **Manual-only — full execution belongs to Issue #66.** Issue #62 qualifies only the tiny Torch
-  2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface. The complete notebook remains outside Tier
-  A/B/C, Atlas remains Issue #65, and the committed Torch 2.8.0 outputs remain immutable historical
-  evidence.
+- **Tier B is a correctness smoke, not an accuracy benchmark.** It bounds both FP32 and QAT to one
+  epoch, then proves PTQ/QAT conversion, exact checkpoint reconstruction, and semantic output. The
+  full three-epoch path remains the release/Atlas qualification path, while committed older outputs
+  remain immutable historical evidence.
 - **8da4w is aggressive (4-bit weights).** At the short training budget used here for CPU
   feasibility (3 epochs), QAT recovery is partial (44.53% vs FP32's 53.48%). Longer schedules
   typically close most of the gap; do not read the recorded QAT accuracy as the achievable 8da4w
@@ -313,6 +317,6 @@ and accelerator hardware.
   straight-through estimator. The `torchao` library documentation covers the `8da4w` recipe
   (`Int8DynActInt4WeightLinear`) and the `Int8WeightOnlyConfig` PTQ path. See also the task
   [`README.md`](../../notebooks/quantization-mnist-ffnn-pytorch/README.md) §4 and
-  [`docs/env-setup.md`](../env-setup.md) §4.1.6 for the manual-only execution path and the torch/torchao
-  pin rationale, and [issue #10](https://github.com/thekaveh/ml-eng-lab/issues/10) for the
-  CI-exclusion decision.
+  [`docs/env-setup.md`](../env-setup.md) §4.1.6 for the Tier B execution path and the torch/torchao
+  pin rationale, [issue #10](https://github.com/thekaveh/ml-eng-lab/issues/10) for the historical
+  reclassification, and Issue #66 for the restored automated contract.

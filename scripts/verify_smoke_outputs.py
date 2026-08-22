@@ -12,7 +12,25 @@ from typing import Literal, Protocol, cast
 
 
 Tier = Literal["a", "b", "c"]
-EXPECTED_COUNTS: Mapping[Tier, int] = {"a": 18, "b": 6, "c": 4}
+EXPECTED_COUNTS: Mapping[Tier, int] = {"a": 18, "b": 7, "c": 4}
+QUANTIZATION_SOURCE = "notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb"
+QUANTIZATION_OUTPUT_NAME = "quantization-mnist-ffnn-pytorch.ipynb"
+QUANTIZATION_MARKER_PREFIX = "ISSUE66_QUANTIZATION_CONTRACT="
+QUANTIZATION_SMOKE_CONTRACT: Mapping[str, object] = {
+    "artifacts_nonempty": True,
+    "checkpoint_evaluation_finite": True,
+    "checkpoint_metadata_parity": True,
+    "checkpoint_reloaded": True,
+    "checkpoint_state_parity": True,
+    "epochs": 1,
+    "ptq_validated": True,
+    "qat_converted": True,
+    "qat_prepared": True,
+    "qat_quantized_module": True,
+    "schema_version": 1,
+    "seed": 0,
+    "smoke_test": True,
+}
 
 
 class InventoryLoader(Protocol):
@@ -31,6 +49,39 @@ class SmokeOutputError(RuntimeError):
 
     def __init__(self, tier: Tier, category: str) -> None:
         super().__init__(f"smoke output verification failed: {tier}: {category}")
+
+
+def _validate_quantization_contract(
+    tier: Tier, source: str, code_cells: Sequence[Mapping[str, object]]
+) -> None:
+    if tier != "b" or source != QUANTIZATION_SOURCE:
+        return
+    markers: list[str] = []
+    for cell in code_cells:
+        outputs = cast(Sequence[Mapping[str, object]], cell["outputs"])
+        for output_item in outputs:
+            if output_item.get("output_type") != "stream":
+                continue
+            text = output_item.get("text")
+            chunks = (text,) if isinstance(text, str) else text
+            if not isinstance(chunks, Sequence) or isinstance(chunks, (str, bytes)):
+                continue
+            for chunk in chunks:
+                if not isinstance(chunk, str):
+                    continue
+                markers.extend(
+                    line.removeprefix(QUANTIZATION_MARKER_PREFIX)
+                    for line in chunk.splitlines()
+                    if line.startswith(QUANTIZATION_MARKER_PREFIX)
+                )
+    if len(markers) != 1:
+        raise SmokeOutputError(tier, "semantic")
+    try:
+        payload = json.loads(markers[0])
+    except (json.JSONDecodeError, TypeError, ValueError):
+        raise SmokeOutputError(tier, "semantic") from None
+    if payload != QUANTIZATION_SMOKE_CONTRACT:
+        raise SmokeOutputError(tier, "semantic")
 
 
 def _validate_notebook(tier: Tier, source: str, output: Path) -> NotebookArtifact:
@@ -70,6 +121,7 @@ def _validate_notebook(tier: Tier, source: str, output: Path) -> NotebookArtifac
         for output_item in cell["outputs"]
     ):
         raise SmokeOutputError(tier, "error")
+    _validate_quantization_contract(tier, source, code_cells)
     return NotebookArtifact(source, output, len(code_cells))
 
 
@@ -85,6 +137,14 @@ def load_make_inventory(tier: Tier) -> Sequence[str]:
     return tuple(line.strip() for line in result.stdout.splitlines() if line.strip())
 
 
+def _mapped_output(root: Path, tier: Tier, source: str) -> Path:
+    if tier == "a":
+        return root / source
+    if tier == "b" and source == QUANTIZATION_SOURCE:
+        return root / QUANTIZATION_OUTPUT_NAME
+    return root / Path(source).name
+
+
 def verify_smoke_outputs(
     tier: Tier,
     root: Path,
@@ -93,10 +153,7 @@ def verify_smoke_outputs(
     sources = tuple(inventory_loader(tier))
     if len(sources) != EXPECTED_COUNTS[tier] or len(set(sources)) != len(sources):
         raise SmokeOutputError(tier, "inventory")
-    outputs = tuple(
-        root / (source if tier == "a" else Path(source).name)
-        for source in sources
-    )
+    outputs = tuple(_mapped_output(root, tier, source) for source in sources)
     if len(set(outputs)) != len(outputs):
         raise SmokeOutputError(tier, "inventory")
     expected_outputs = {output.resolve() for output in outputs}

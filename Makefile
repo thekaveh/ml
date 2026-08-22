@@ -46,17 +46,12 @@ TIER_A := \
 
 TIER_B := \
     notebooks/image_classification-mnist-ffnn-pytorch/notebook.ipynb \
+    notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb \
     notebooks/node_classification-reddit-gnn-pyg/phase1-dataset-exploration-notebook.ipynb \
     notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook1.ipynb \
     notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook2.ipynb \
     notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook3.ipynb \
     notebooks/node_classification-reddit-gnn-pyg/phase2-model-selection-notebook4.ipynb
-
-# notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb was previously the 2nd entry
-# above. Removed 2026-06-16 after the weekly smoke-tier-b cron failed at the
-# quantization import requires Torch 2.11.0, torchvision 0.26.0, and torchao
-# 0.18.0. It remains a manual-only Issue #66 task outside Tier A/B/C; that
-# issue owns notebook execution, output refresh, thresholds, and tier promotion.
 
 TIER_C := \
     notebooks/node_classification-reddit-gnn-pyg/phase3-main-model-training-and-eval-notebook.ipynb \
@@ -171,7 +166,11 @@ check-tier-a-clean:
 smoke-tier-b:
 	@mkdir -p $(SMOKE_OUT)
 	@for nb in $(TIER_B); do \
-		out=$(SMOKE_OUT)/$$(basename "$$nb"); \
+		name=$$(basename "$$nb"); \
+		if [ "$$nb" = "notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb" ]; then \
+			name=quantization-mnist-ffnn-pytorch.ipynb; \
+		fi; \
+		out=$(SMOKE_OUT)/$$name; \
 		echo "==> $$nb -> $$out"; \
 		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
 		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 -p SMOKE_TEST 1 "$$base" "$$out") || exit 1; \

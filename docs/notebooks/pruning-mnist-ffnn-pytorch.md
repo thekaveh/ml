@@ -259,9 +259,9 @@ shape — flat through mid-sparsity, cliff past ~0.8.
   `[256, 128]` FFN on MNIST. A larger model has more redundancy and tolerates higher \(s\); a
   smaller model hits the cliff sooner. Re-sweep before deploying the "prune to 0.7" heuristic on a
   different architecture.
-- **Quantization cousin (§8.8) remains manual-only under Issue #66.** This pruning notebook is Tier A
-  and covered by the 18-output oracle. Issue #62 qualifies §8.8's tiny Torch 2.11.0 + torchao 0.18.0
-  PTQ/QAT dependency surface, but the complete quantization notebook remains outside Tier A/B/C.
+- **Quantization cousin (§8.8) is Tier B under Issue #66.** This pruning notebook remains Tier A
+  and covered by the 18-output oracle; the complete PTQ/QAT notebook runs in the bounded Tier B
+  matrix with checkpoint reconstruction and semantic output verification.
 
 ## 8.7.8 Extensions & references
 

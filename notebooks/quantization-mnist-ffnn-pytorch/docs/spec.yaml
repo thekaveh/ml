@@ -1,6 +1,6 @@
 title: "Quantization — MNIST FFN (PTQ + QAT via torchao)"
 family: mlp-compression
-tier: manual
+tier: B
 atlas:
   executor: jupyterhub
   default_mode: vscode-remote
@@ -8,7 +8,8 @@ atlas:
   workspace_access: remote
   artifact_policy: atlas-jupyter-volume
   constraints:
-    - "Manual-only under Issue #66; Issue #62 qualifies only the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface."
+    - "Tier-B smoke is deterministic and bounded to one epoch for FP32 plus one epoch for QAT."
+    - "QAT acceptance reconstructs the saved FP-shadow checkpoint with exact state/metadata parity and separately proves final torchao conversion."
 dataset: MNIST
 model: Feed-forward NN ([128,64]); PTQ int8 + QAT 8da4w
 framework: "PyTorch (via nnx) + torchao"
@@ -21,6 +22,7 @@ concepts:
   - per-channel scales
   - int4 groupsize
   - QATLifecycleCallback
+  - checkpoint reconstruction
 math:
   - id: affine-quant
     label: "Uniform affine quantization"
@@ -36,14 +38,16 @@ code_walkthrough:
   - { anchor: "nnx.qat_train_step_factory(qat_config='8da4w')", note: "custom train step for fake-quant params" }
   - { anchor: "nnx.QATLifecycleCallback(qat_config='8da4w')", note: "on_train_begin=insert fake-quant; on_train_end=convert to truly-quantized" }
   - { anchor: "state_size_bytes / avg_latency_us", note: "pickle-dump size + timed CPU forward passes" }
+  - { anchor: "NNCheckpoint.load / NNModel.from_checkpoint", note: "reload the supported pre-conversion QAT shadow checkpoint and require exact state/metadata parity plus finite evaluation" }
 results:
   - { metric: "FP32 val acc", value: "53.48% (429.3 KB, 1382 us/batch)" }
   - { metric: "PTQ int8 val acc", value: "53.38% (112.6 KB, 1721 us/batch) - ~4x smaller, ~0.1pp cost" }
   - { metric: "QAT 8da4w val acc", value: "44.53% (406.7 KB, 3512 us/batch) - aggressive 4-bit, partial recovery at 3 epochs" }
   - { metric: "QAT callback", value: "is_prepared=True, is_converted=True; Int8DynActInt4WeightLinear present" }
+  - { metric: "QAT checkpoint", value: "last checkpoint reconstructs through NNModel.from_checkpoint with exact state/metadata parity and finite evaluation" }
   - { metric: "note", value: "CPU latency dispatch-bound; quantization slower than FP32 at this scale" }
 pitfalls:
-  - "MANUAL-ONLY: Issue #62 qualifies the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT surface; Issue #66 owns complete-notebook execution, which remains outside Tier A/B/C."
+  - "Tier-B executes a one-epoch deterministic smoke on weekly, labeled-PR, and manual-dispatch triggers; full acceptance retains the three-epoch path."
   - "8da4w is aggressive (4-bit); QAT recovery partial at 3 epochs (44.53% vs FP32 53.48%)."
   - "CPU latency misleading at MNIST scale: torchao dispatch overhead makes int8/8da4w SLOWER than FP32 (win is on GPU/mobile NPU)."
   - "Hidden widths must divide int4 groupsize 32; [128,64] chosen to dodge padding_allowed."

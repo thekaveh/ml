@@ -46,6 +46,13 @@ The tier assignment is metadata-driven. The task specification is the
 authority; the Makefile, CI inventory, generated notebook documentation, and
 verification output are projections of that specification.
 
+Tier B historically flattens notebook outputs by basename, and both the image
+classification and quantization sources are named `notebook.ipynb`. The
+quantization projection therefore uses the explicit stable output name
+`quantization-mnist-ffnn-pytorch.ipynb`; all six existing Tier B output names
+remain unchanged. The verifier owns the same exact mapping and rejects any
+duplicate mapped output.
+
 ## 12.29.3 Notebook execution contract
 
 The notebook retains its full three-epoch path and its deterministic
@@ -60,9 +67,9 @@ one-epoch smoke parameter. Both paths must:
    implementation;
 6. locate the QAT `last.pt` checkpoint, load the `NNCheckpoint`, reconstruct a
    model with `NNModel.from_checkpoint`, and evaluate it;
-7. require reconstructed loss and accuracy to match the last recorded
-   pre-conversion validation data point within a documented numerical
-   tolerance; and
+7. require reconstructed state tensors and checkpoint metadata to match the
+   saved checkpoint exactly, and require reconstructed evaluation metrics to
+   be finite; and
 8. emit a stable machine-readable completion marker summarizing PTQ, QAT,
    checkpoint, and determinism status.
 
@@ -75,9 +82,14 @@ training lifecycle.
 
 The saved QAT checkpoint contains the trained floating-point shadow state
 immediately before the lifecycle callback performs final conversion. This is
-the supported NNx persistence boundary. Reload parity is checked against the
-last pre-conversion validation metrics, while the separate in-memory assertion
-proves that the post-training model was converted for quantized inference.
+the supported NNx persistence boundary. The checkpoint is written while
+fake-quant modules are active, so its recorded validation metrics describe the
+fake-quant forward path; `NNModel.from_checkpoint` reconstructs the same
+learned tensors in the plain shadow architecture and is not expected to
+reproduce those fake-quant metrics. Reload correctness is therefore exact
+tensor and checkpoint-metadata parity plus finite reconstructed evaluation.
+The separate in-memory assertion proves that the post-training model was
+converted for quantized inference.
 
 ## 12.29.4 Regression and output verification
 

@@ -17,8 +17,8 @@ torchao 0.18; NNx 0.2; pytest; YAML; GitHub Actions; Atlas JupyterHub.
 - Keep the canonical dependency locks unchanged.
 - Preserve full three-epoch execution and deterministic one-epoch smoke.
 - Exercise real NNx PTQ and QAT APIs; import-only coverage is insufficient.
-- Reconstruct the supported pre-conversion QAT shadow checkpoint and compare
-  its evaluation with the recorded final validation metrics.
+- Reconstruct the supported pre-conversion QAT shadow checkpoint, require exact
+  state/metadata parity, and require finite reconstructed evaluation.
 - Prove final in-memory QAT conversion independently from checkpoint reload.
 - Use existing Tier B triggers and artifact handling; do not add a duplicate
   workflow.
@@ -31,12 +31,12 @@ torchao 0.18; NNx 0.2; pytest; YAML; GitHub Actions; Atlas JupyterHub.
 **Files:**
 
 - Modify: `tests/nnx_surface/test_quantization_mnist_ffnn_pytorch.py`
-- Modify: `tests/test_notebook_specs.py`
+- Modify: `tests/test_notebook_infrastructure.py`
 - Modify: `tests/test_verify_smoke_outputs.py`
 
 - [ ] Add focused tests for QAT checkpoint discovery, safe explicit loading,
-  `NNModel.from_checkpoint`, metric parity, converted-module assertions, and
-  the stable completion marker.
+  `NNModel.from_checkpoint`, state/metadata parity, finite reconstructed
+  evaluation, converted-module assertions, and the stable completion marker.
 - [ ] Add task-spec tests requiring `tier: b` and rejecting a manual Issue #66
   exception.
 - [ ] Add output-verifier tests for a valid marker and mutations covering a
@@ -52,14 +52,15 @@ torchao 0.18; NNx 0.2; pytest; YAML; GitHub Actions; Atlas JupyterHub.
 
 - [ ] Add deterministic QAT checkpoint path resolution from the returned run
   identity.
-- [ ] Load the saved `NNCheckpoint` explicitly, reconstruct the model, evaluate
-  it, and assert loss/accuracy parity with the final pre-conversion validation
-  data point.
+- [ ] Load the saved `NNCheckpoint` explicitly, reconstruct the model, assert
+  exact state/metadata parity, and require finite evaluation.
 - [ ] Assert PTQ conversion, QAT callback lifecycle, converted integer-linear
   presence, finite metrics, and non-empty serialized artifacts.
 - [ ] Emit one stable JSON completion marker.
 - [ ] Teach the smoke-output verifier to validate that marker for this exact
   Tier B notebook.
+- [ ] Map the quantization smoke to a stable unique output filename so its
+  generic `notebook.ipynb` basename cannot collide with image classification.
 - [ ] Run the focused tests to GREEN and execute a one-epoch notebook smoke.
 - [ ] Commit the lifecycle slice.
 

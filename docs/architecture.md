@@ -102,9 +102,8 @@ and image checks prove external freshness.
   notebook validation.
 - `thekaveh-nnx[lm]==0.2.0` is consumed from PyPI; shared library changes land upstream in
   `thekaveh/NNx` before this repo bumps the pin.
-- The quantization notebook is active but manual-only under Issue #66. Issue #62 qualifies only the
-  tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; the full notebook remains outside
-  Tier A/B/C.
+- The quantization notebook is Tier B under Issue #66. Its bounded execution proves complete PTQ,
+  QAT conversion, exact checkpoint reconstruction, and a machine-readable semantic result.
 - `infra/` is a reviewed Atlas gitlink. Consumer configuration remains outside the submodule, and
   host-native Ollama is mandatory; a containerized Ollama service is not an approved runtime.
 - Atlas CI preserves the ownership boundary: unconditional `atlas-consumer-policy` enforces the

@@ -361,9 +361,9 @@ jobs:
     # 18 Tier-A notebooks (mnist-pytorch moved to Tier-B per issue #7; reddit
     # phase1 moved to Tier-B after the 2026-07-04 CI run showed its fresh
     # Google Drive Reddit2 download is too fragile for every-PR gating;
-    # quantization-mnist-pytorch originally moved to Tier-B per issue #10, then
-    # removed from TIER_B on 2026-06-16. Its dependency surface is now qualified,
-    # while full-notebook acceptance remains manual-only under Issue #66). Cumulative
+    # quantization-mnist-pytorch originally moved to Tier-B per issue #10, was
+    # removed on 2026-06-16, and returns to Tier-B under Issue #66 after complete
+    # canonical PTQ/QAT and checkpoint qualification. Cumulative
     # ~7 min on a macOS M-series CPU but Linux
     # GH Actions runners are ~3-4× slower for hand-coded numpy training
     # (image_classification-mnist-ffnn-numpy is the worst offender — observed
@@ -430,7 +430,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: tier-a-notebooks
-          # All 18 Tier-A notebooks; the complete quantization notebook remains manual-only under Issue #66. Issue #62 qualifies only its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface.
+          # All 18 Tier-A notebooks; quantization is covered separately by Tier-B's semantic output contract.
           path: |
             /tmp/ml-tier-a/notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb
             /tmp/ml-tier-a/notebooks/tabular_classification-iris-mlp-pytorch/notebook.ipynb

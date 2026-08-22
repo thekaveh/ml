@@ -8,9 +8,8 @@ PR follow-up to [thekaveh/NNx](https://github.com/thekaveh/NNx).
 
 ## 9.1.1 Findings
 
-### 9.1.1.0 Triage summary
-
-Last triaged against NNx releases `v0.2.0` through `v0.2.3` and upstream
+**Triage summary (last reviewed 2026-08-22):** Triaged against NNx releases
+`v0.2.0` through `v0.2.3` and upstream
 `main` on 2026-08-22. "Upstream resolved" means the behavior is available in a
 released NNx wheel; it does not imply availability under ml-eng-lab's retained
 `thekaveh-nnx[lm]==0.2.0` runtime.

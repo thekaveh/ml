@@ -1,6 +1,6 @@
-# Issue #72 NNx upstream-triage design
+# 12.37 Issue 72 NNx Upstream Triage Design
 
-## 1. Objective
+## 12.37.1 Objective
 
 Turn the five findings in `docs/FINDINGS-NNX.md` into a durable, non-duplicative
 triage record. Each finding must identify its upstream issue or an explicit
@@ -11,7 +11,7 @@ This issue changes ml-eng-lab documentation and issue metadata only. It does
 not modify the NNx repository, change the pinned NNx wheel, or execute
 notebooks.
 
-## 2. Evidence boundary
+## 12.37.2 Evidence boundary
 
 The triage uses these authoritative sources:
 
@@ -27,29 +27,29 @@ than recreated. Source behavior without an issue is not treated as proof of a
 maintainer decision unless the released documentation makes the contract
 explicit.
 
-## 3. Considered approaches
+## 12.37.3 Considered approaches
 
-### 3.1 One upstream umbrella issue
+### 12.37.3.1 One upstream umbrella issue
 
 One issue would minimize external records, but it would mix unrelated dataset,
 callback, and persistence contracts. Individual fixes could not close
 independently, and duplicate searches would be less precise.
 
-### 3.2 Five new upstream issues
+### 12.37.3.2 Five new upstream issues
 
 One issue per finding would be mechanically uniform, but it would duplicate the
 closed regression-support issue and misrepresent the ReLU-only Net2DeeperNet
 constraint as an unresolved bug even though released NNx documentation already
 defines and enforces that mathematical boundary.
 
-### 3.3 Evidence-based per-finding dispositions (selected)
+### 12.37.3.3 Evidence-based per-finding dispositions (selected)
 
 Link the existing regression issue, record the released ReLU-only contract as
 an explicit non-bug disposition, and open separate upstream issues only for the
 three actionable unresolved gaps. This gives every finding a durable result
 without manufacturing duplicate or misleading work.
 
-## 4. Per-finding disposition
+## 12.37.4 Per-finding disposition
 
 | Finding | Upstream result | Local result |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ without manufacturing duplicate or misleading work.
 | `EarlyStopping` defaults to `val_edp.error` | Open a focused upstream issue. `v0.2.3` and `main` still use the classification default; an absent monitored field silently disables stopping. The issue should ask for an explicit auto/fallback contract rather than construction-time loss guessing. | The diabetes notebook does not instantiate `EarlyStopping`; its README documents `monitor="val_edp.loss"` for future regression use. No immediate local code remains. |
 | training prints an absolute run path | Open one upstream issue covering both `NNModel.train` and `Trainer.train`. All releases through `v0.2.3` and `main` build the message from `os.getcwd()`. | Keep verifier rule `E13.stale_active_notebook_path`; committed notebook output remains normalized. No new local follow-up until an upstream release changes the message. |
 
-## 5. Upstream issue contract
+## 12.37.5 Upstream issue contract
 
 Each new upstream issue must contain:
 
@@ -73,7 +73,7 @@ Each new upstream issue must contain:
 The triage does not push branches, commits, or pull requests to NNx. Opening the
 issues is the only NNx-side mutation.
 
-## 6. Local follow-up contract
+## 12.37.6 Local follow-up contract
 
 Create exactly one ml-eng-lab follow-up issue because concrete local work
 remains for the released `NNTabularDataset.target_dtype` support. Its scope is a
@@ -85,7 +85,7 @@ normal dependency and notebook execution matrix.
 Do not create speculative local issues for findings already resolved locally or
 for upstream changes that have not shipped.
 
-## 7. Documentation shape
+## 12.37.7 Documentation shape
 
 `docs/FINDINGS-NNX.md` remains canonical. Add a compact status table before the
 detailed findings and make each detailed section use the same labels:
@@ -104,7 +104,7 @@ Update `docs/nnx-library.md` only where its summary would otherwise contradict
 the canonical triage. Preserve the documentation manifest rather than adding a
 new published page.
 
-## 8. Guardrails and tests
+## 12.37.8 Guardrails and tests
 
 Add a focused documentation contract test that fails if:
 
@@ -129,7 +129,7 @@ Then run:
 No Atlas service or notebook execution is required because no runtime code or
 notebook is changed.
 
-## 9. Rollback
+## 12.37.9 Rollback
 
 The ml-eng-lab documentation/test commit and the local follow-up issue are
 independently reversible. Upstream issues are durable coordination records and

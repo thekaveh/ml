@@ -1715,7 +1715,7 @@ def _assert_nnx_finding_triage_docs(text: str) -> None:
     for heading in headings:
         assert text.count(heading) == 1
 
-    assert text.count("### 9.1.1.0 Triage summary") == 1
+    assert text.count("**Triage summary (last reviewed 2026-08-22):**") == 1
     for row in ("| F1 |", "| F2 |", "| F3 |", "| F4 |", "| F5 |"):
         assert text.count(row) == 1
     for url in _NNX_FINDING_TRIAGE_URLS:

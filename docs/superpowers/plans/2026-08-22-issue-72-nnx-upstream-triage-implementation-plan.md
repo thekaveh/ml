@@ -1,4 +1,4 @@
-# Issue #72 NNx Upstream Triage Implementation Plan
+# 12.38 Issue 72 NNx Upstream Triage Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** GitHub CLI/API, Markdown, pytest, MkDocs Material, existing `scripts.docs` projection/check tooling, repository verifier, Ruff.
 
-## Global Constraints
+## 12.38.1 Global Constraints
 
 - Do not modify the NNx repository, push an NNx branch, or open an NNx pull request.
 - Keep ml-eng-lab pinned to `thekaveh-nnx[lm]==0.2.0` in this issue.
@@ -20,7 +20,7 @@
 
 ---
 
-### Task 1: Create the durable upstream and local triage records
+## 12.38.2 Task 1: Create the Durable Upstream and Local Triage Records
 
 **Files:**
 - No repository files modified.
@@ -97,7 +97,7 @@ Expected: all URLs resolve; titles, labels, states, backlinks, and issue bodies 
 
 ---
 
-### Task 2: Add a failing canonical-triage documentation contract
+## 12.38.3 Task 2: Add a Failing Canonical-Triage Documentation Contract
 
 **Files:**
 - Modify: `tests/test_check_docs.py`
@@ -169,7 +169,7 @@ Expected: FAIL because the status table and new upstream/local URLs do not yet e
 
 ---
 
-### Task 3: Implement the canonical documentation dispositions
+## 12.38.4 Task 3: Implement the Canonical Documentation Dispositions
 
 **Files:**
 - Modify: `docs/FINDINGS-NNX.md`
@@ -237,7 +237,7 @@ git commit -m "docs: record NNx upstream dispositions"
 
 ---
 
-### Task 4: Verify documentation, links, and the complete repository
+## 12.38.5 Task 4: Verify Documentation, Links, and the Complete Repository
 
 **Files:**
 - Modify only if verification exposes an issue: the smallest file owned by the failed contract.
@@ -287,7 +287,7 @@ Confirm a clean worktree, capture the reviewed commit SHA, and add a concise Iss
 
 ---
 
-### Task 5: Integrate and clean up through GitFlow
+## 12.38.6 Task 5: Integrate and Clean Up Through GitFlow
 
 **Files:**
 - No additional repository changes expected.

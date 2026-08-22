@@ -136,14 +136,15 @@ injected shape against papermill parser drift.
 
 ### 5.2.3 Tier-C output preservation
 
-Tier-C phase3 notebooks are locked to the immutable
-`tier-c-public-facade-baseline-2026-08-22` git tag for
-their **code-cell source**. The execution check `E5` diffs each Tier-C
-notebook's code cells against that tag and errors on any mismatch; markdown
-cells and embedded outputs are deliberately **not** compared, so wording fixes
-are safe. Edit phase3 markdown via `scripts/edit_notebook_markdown.py` rather
-than by hand. The historical `pre-cleanup-baseline` remains an unchanged
-rollback anchor; never move either published baseline tag.
+Tier-C phase3 notebooks are locked to the immutable annotated
+`tier-c-public-facade-baseline-2026-08-22` git tag at commit
+`296a7227bb2bfbb595e99aa4dbee760e867b83c7` for their **code-cell source**.
+The execution check `E5` fails closed if that fully qualified tag is missing,
+lightweight, moved, or unreadable, and diffs each Tier-C notebook's code cells
+against it; markdown cells and embedded outputs are deliberately **not**
+compared, so wording fixes are safe. Edit phase3 markdown via
+`scripts/edit_notebook_markdown.py` rather than by hand. The historical `pre-cleanup-baseline`
+remains an unchanged rollback anchor; never move either published baseline tag.
 
 ## 5.3 Validation gates
 

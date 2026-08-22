@@ -3392,7 +3392,10 @@ def test_execution_e5_uses_versioned_public_facade_baseline(
     monkeypatch: pytest.MonkeyPatch,
 ):
     expected_tag = "tier-c-public-facade-baseline-2026-08-22"
+    expected_ref = f"refs/tags/{expected_tag}"
+    expected_commit = "296a7227bb2bfbb595e99aa4dbee760e867b83c7"
     assert verify_repo.TIER_C_CODE_BASELINE_TAG == expected_tag
+    assert verify_repo.TIER_C_CODE_BASELINE_COMMIT == expected_commit
 
     repo = tmp_path / "repo"
     notebook = (
@@ -3421,8 +3424,10 @@ def test_execution_e5_uses_versioned_public_facade_baseline(
     def fake_run(cmd, cwd, timeout=None):
         del cwd, timeout
         calls.append(cmd)
-        if cmd[:3] == ["git", "rev-parse", "--verify"]:
-            return 0, f"{expected_tag}\n", ""
+        if cmd == ["git", "cat-file", "-t", expected_ref]:
+            return 0, "tag\n", ""
+        if cmd == ["git", "rev-parse", "--verify", f"{expected_ref}^{{}}"]:
+            return 0, f"{expected_commit}\n", ""
         if cmd[:2] == ["git", "show"]:
             return 0, notebook_text, ""
         raise AssertionError(f"unexpected command: {cmd}")
@@ -3431,23 +3436,64 @@ def test_execution_e5_uses_versioned_public_facade_baseline(
 
     assert verify_repo._phase3_code_cells_unchanged(repo) == []
     assert calls == [
-        ["git", "rev-parse", "--verify", expected_tag],
+        ["git", "cat-file", "-t", expected_ref],
+        ["git", "rev-parse", "--verify", f"{expected_ref}^{{}}"],
         [
             "git",
             "show",
-            f"{expected_tag}:notebooks/node_classification-reddit-gnn-pyg/phase3-example.ipynb",
+            f"{expected_ref}:notebooks/node_classification-reddit-gnn-pyg/phase3-example.ipynb",
         ],
     ]
 
 
-def test_execution_e5_baseline_missing_warns_not_errors():
-    """Before the current Tier-C baseline exists, E5 warns rather than errors."""
-    r = run_verify("--check", "execution", "--fast")
-    data = json.loads(r.stdout) if r.stdout else {"findings": []}
-    e5 = [f for f in data["findings"] if f["id"] == "E5.no_baseline"]
-    if e5:
-        for f in e5:
-            assert f["severity"] == "warning", f"E5.no_baseline must be warning, got {f}"
+def test_execution_e5_missing_baseline_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        verify_repo,
+        "_run",
+        lambda cmd, cwd, timeout=None: (128, "", "missing tag"),
+    )
+
+    findings = verify_repo._phase3_code_cells_unchanged(tmp_path)
+
+    assert [(finding.id, finding.severity) for finding in findings] == [
+        ("E5.no_baseline", "error"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("object_type", "peeled_commit", "finding_id"),
+    [
+        ("commit", "296a7227bb2bfbb595e99aa4dbee760e867b83c7", "E5.baseline_not_annotated"),
+        ("tag", "0" * 40, "E5.baseline_target_changed"),
+    ],
+)
+def test_execution_e5_rejects_non_annotated_or_moved_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    object_type: str,
+    peeled_commit: str,
+    finding_id: str,
+):
+    expected_ref = f"refs/tags/{verify_repo.TIER_C_CODE_BASELINE_TAG}"
+
+    def fake_run(cmd, cwd, timeout=None):
+        del cwd, timeout
+        if cmd == ["git", "cat-file", "-t", expected_ref]:
+            return 0, f"{object_type}\n", ""
+        if cmd == ["git", "rev-parse", "--verify", f"{expected_ref}^{{}}"]:
+            return 0, f"{peeled_commit}\n", ""
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(verify_repo, "_run", fake_run)
+
+    findings = verify_repo._phase3_code_cells_unchanged(tmp_path)
+
+    assert [(finding.id, finding.severity) for finding in findings] == [
+        (finding_id, "error"),
+    ]
 
 
 def test_canonical_docs_teach_public_nnx_imports_and_current_tier_c_baseline():
@@ -3474,6 +3520,8 @@ def test_canonical_docs_teach_public_nnx_imports_and_current_tier_c_baseline():
 
     conventions = (REPO_ROOT / "docs/conventions.md").read_text(encoding="utf-8")
     assert "historical `pre-cleanup-baseline`" in conventions
+    assert verify_repo.TIER_C_CODE_BASELINE_COMMIT in conventions
+    assert "fails closed" in conventions
 
 
 def test_runtime_available_requires_pyg_extension_stack(monkeypatch):

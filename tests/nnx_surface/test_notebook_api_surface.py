@@ -42,6 +42,11 @@ import yaml
 
 import nnx
 from nnx import Utils, VisUtils
+from scripts.verify_repo import (
+    _NON_PYTHON_CELL_MAGICS,
+    _cell_magic_name,
+    _is_ipython_magic_or_help_line,
+)
 
 # Repo root resolved from this file (the autouse conftest fixture chdirs tests
 # into a tmp_path, so cwd is NOT the repo root — never rely on it here).
@@ -182,10 +187,17 @@ def _output_text(cell: dict) -> str:
 
 
 def _python_cell_source(cell: dict) -> str:
-    """Mask IPython magics/shell escapes while preserving Python line numbers."""
+    """Return Python source while preserving line numbers around IPython syntax."""
+    lines = _source_lines(cell)
+    for line in lines:
+        if not line.strip():
+            continue
+        if _cell_magic_name(line) in _NON_PYTHON_CELL_MAGICS:
+            return ""
+        break
     return "".join(
-        "\n" if line.lstrip().startswith(("%", "!")) else line
-        for line in _source_lines(cell)
+        "\n" if _is_ipython_magic_or_help_line(line) else line
+        for line in lines
     )
 
 
@@ -204,7 +216,7 @@ def find_deep_public_nnx_imports(nb: dict) -> list[str]:
                 continue
             public_names = set(_PUBLIC_NNX_IMPORTS[node.module])
             for alias in node.names:
-                if alias.name in public_names:
+                if alias.name == "*" or alias.name in public_names:
                     findings.append(
                         f"code_cell[{cell_index}]:line[{node.lineno}] "
                         f"from {node.module} import {alias.name}"
@@ -670,6 +682,46 @@ def test_public_facade_guard_ignores_comments_strings_and_unclassified_imports()
         "outputs": [],
     })
     assert not find_deep_public_nnx_imports(good)
+
+
+def test_public_facade_guard_ignores_non_python_cell_magic_and_ipython_help():
+    good = {
+        "cells": [
+            {
+                "cell_type": "code",
+                "source": [
+                    "%%bash\n",
+                    "from nnx.seeding import set_seed\n",
+                ],
+                "outputs": [],
+            },
+            {
+                "cell_type": "code",
+                "source": [
+                    "NNModel?\n",
+                    "from nnx import NNModel\n",
+                ],
+                "outputs": [],
+            },
+        ],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 2,
+    }
+
+    assert not find_deep_public_nnx_imports(good)
+
+
+def test_public_facade_guard_rejects_wildcard_import_from_classified_module():
+    bad = _synthetic_nb({
+        "cell_type": "code",
+        "source": ["from nnx.seeding import *\n"],
+        "outputs": [],
+    })
+
+    assert find_deep_public_nnx_imports(bad) == [
+        "code_cell[0]:line[1] from nnx.seeding import *",
+    ]
 
 
 def test_migration_guard_catches_string_source_bad_call():

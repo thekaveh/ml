@@ -28,6 +28,7 @@ actually fires, so a green suite means "checked", not "vacuously passed".
 from __future__ import annotations
 
 import ast
+import importlib
 import io
 import inspect
 import json
@@ -40,8 +41,7 @@ import pytest
 import yaml
 
 import nnx
-from nnx.utils import Utils
-from nnx.vis_utils import VisUtils
+from nnx import Utils, VisUtils
 
 # Repo root resolved from this file (the autouse conftest fixture chdirs tests
 # into a tmp_path, so cwd is NOT the repo root — never rely on it here).
@@ -66,6 +66,25 @@ _ATLAS_020_DEFAULT_RUNTIME_TASKS = {
     ),
 }
 _UNSUPPORTED_ATLAS_020_TRAIN_KWARGS = {"salt", "overwrite_existing", "data_id"}
+
+_PUBLIC_NNX_IMPORTS = {
+    "nnx.nn.dataset.nn_dataset": ("NNDataset",),
+    "nnx.nn.dataset.nn_graph_dataset": ("NNGraphDataset",),
+    "nnx.nn.enum.activations": ("Activations",),
+    "nnx.nn.enum.devices": ("Devices",),
+    "nnx.nn.enum.losses": ("Losses",),
+    "nnx.nn.enum.nets": ("Nets",),
+    "nnx.nn.enum.optims": ("Optims",),
+    "nnx.nn.net.feed_fwd_nn": ("FeedFwdNN",),
+    "nnx.nn.nn_model": ("NNModel",),
+    "nnx.nn.params.nn_model_params": ("NNModelParams",),
+    "nnx.nn.params.nn_optim_params": ("NNOptimParams",),
+    "nnx.nn.params.nn_params": ("NNParams",),
+    "nnx.nn.params.nn_train_params": ("NNTrainParams",),
+    "nnx.seeding": ("set_seed",),
+    "nnx.utils": ("Utils",),
+    "nnx.vis_utils": ("VisUtils",),
+}
 
 
 def _public_attrs(cls: object) -> set[str]:
@@ -162,6 +181,37 @@ def _output_text(cell: dict) -> str:
     return "\n".join(chunks)
 
 
+def _python_cell_source(cell: dict) -> str:
+    """Mask IPython magics/shell escapes while preserving Python line numbers."""
+    return "".join(
+        "\n" if line.lstrip().startswith(("%", "!")) else line
+        for line in _source_lines(cell)
+    )
+
+
+def find_deep_public_nnx_imports(nb: dict) -> list[str]:
+    findings: list[str] = []
+    for cell_index, cell in enumerate(_code_cells(nb)):
+        source = _python_cell_source(cell)
+        try:
+            tree = ast.parse(source)
+        except SyntaxError as exc:
+            raise AssertionError(
+                f"code_cell[{cell_index}] remains unparseable after masking IPython lines: {exc}"
+            ) from exc
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.module not in _PUBLIC_NNX_IMPORTS:
+                continue
+            public_names = set(_PUBLIC_NNX_IMPORTS[node.module])
+            for alias in node.names:
+                if alias.name in public_names:
+                    findings.append(
+                        f"code_cell[{cell_index}]:line[{node.lineno}] "
+                        f"from {node.module} import {alias.name}"
+                    )
+    return findings
+
+
 def _assert_atlas_020_default_runtime_compatibility(
     requirements_text: str,
     dependency_ledger: str,
@@ -244,6 +294,38 @@ def test_active_notebooks_discovered():
     """Guard against the glob silently matching nothing (which would make every
     parametrized scan vacuously pass)."""
     assert len(_NOTEBOOKS) >= 25, f"expected the full active notebook set, found {len(_NOTEBOOKS)}"
+
+
+def test_nnx_public_facade_preserves_classified_object_identity():
+    classified_names = {
+        name
+        for names in _PUBLIC_NNX_IMPORTS.values()
+        for name in names
+    }
+    assert len(classified_names) == 16
+    for module_name, names in _PUBLIC_NNX_IMPORTS.items():
+        deep_module = importlib.import_module(module_name)
+        for name in names:
+            assert getattr(nnx, name) is getattr(deep_module, name)
+
+
+def test_active_notebooks_use_public_nnx_facade():
+    violations = []
+    affected_notebooks = 0
+    for path in _NOTEBOOKS:
+        notebook = json.loads(path.read_text(encoding="utf-8"))
+        findings = find_deep_public_nnx_imports(notebook)
+        if findings:
+            affected_notebooks += 1
+            violations.extend(
+                f"{path.relative_to(REPO_ROOT)}: {finding}"
+                for finding in findings
+            )
+    assert not violations, (
+        f"found {len(violations)} classified deep NNx imports in "
+        f"{affected_notebooks} active notebooks; use `from nnx import ...`:\n  "
+        + "\n  ".join(violations)
+    )
 
 
 def test_atlas_020_default_runtime_notebooks_use_only_supported_train_kwargs():
@@ -556,6 +638,38 @@ def test_migration_guard_catches_bad_call():
     assert "multi_line_plot" in forbidden, "fixture assumes multi_line_plot is VisUtils-only"
     bad = _synthetic_nb({"cell_type": "code", "source": ["Utils.multi_line_plot(x=[1])\n"], "outputs": []})
     assert find_misplaced_utils_attrs(bad, forbidden)
+
+
+def test_public_facade_guard_catches_single_and_parenthesized_imports():
+    bad = _synthetic_nb({
+        "cell_type": "code",
+        "source": [
+            "%matplotlib inline\n",
+            "from nnx.seeding import set_seed\n",
+            "from nnx.nn.enum.devices import (\n",
+            "    Devices,\n",
+            ")\n",
+        ],
+        "outputs": [],
+    })
+    assert find_deep_public_nnx_imports(bad) == [
+        "code_cell[0]:line[2] from nnx.seeding import set_seed",
+        "code_cell[0]:line[3] from nnx.nn.enum.devices import Devices",
+    ]
+
+
+def test_public_facade_guard_ignores_comments_strings_and_unclassified_imports():
+    good = _synthetic_nb({
+        "cell_type": "code",
+        "source": [
+            "# from nnx.seeding import set_seed\n",
+            "example = 'from nnx.utils import Utils'\n",
+            "from nnx.nn.net.graph_att_nn import GraphAttNN\n",
+            "from nnx import Devices, Utils, set_seed\n",
+        ],
+        "outputs": [],
+    })
+    assert not find_deep_public_nnx_imports(good)
 
 
 def test_migration_guard_catches_string_source_bad_call():

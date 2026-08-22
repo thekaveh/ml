@@ -55,6 +55,7 @@ the survivors to convergence.
 | Louvain community detection | Phase 1 sanity check: does the graph recover the 41 subreddits? |
 | t-SNE projection | Phase 1 feature visualization; Phase 2/3 checkpoint-logit visualization |
 | Seed-node evaluation | `model.evaluate(loader)` scores only seed nodes — sampled neighbors leak cross-split labels |
+| Deterministic graph sampling | `SEED = 0`; public `set_seed(SEED)` immediately before each `NNGraphDataset(...)` construction |
 
 The `nnx` flat re-exports consumed are: `NNGraphDataset`, `NNModel`, `NNParams`,
 `NNModelParams`, `NNTrainParams`, `NNOptimParams`, `NNRun`, `Devices`, `Losses`, `Nets`,
@@ -132,7 +133,8 @@ power-law behavior, justifying the L2-normalization in SAGE and the sampling in 
 
 **Phase 2 — model selection** (four notebooks, short budgets). All four use
 `NNGraphDataset(ds_class=pyg.datasets.Reddit2, n_neighbors=[20, 15, 10], n_workers=4,
-transform=Compose([NormalizeFeatures()]))` and `Devices.CPU`.
+transform=Compose([NormalizeFeatures()]))` and `Devices.CPU`. Each path defines `SEED = 0` and
+calls public `set_seed(SEED)` immediately before construction.
 
 - **Notebook 1** — a 16-combination grid: 4 architectures × 2 learning rates \((10^{-2}, 10^{-4})\)
   × 2 dropouts \((0.25, 0.5)\), single hidden layer `[128]`, 100 epochs, Adam with
@@ -152,7 +154,8 @@ transform=Compose([NormalizeFeatures()]))` and `Devices.CPU`.
 
 **Phase 3 — final training and evaluation** (four notebooks, Tier-C). Each takes the Phase-2 pick
 for one architecture to a long-horizon run. The shared contract: `n_neighbors=[20, 15, 10]`,
-`weight_decay=5e-4`, `momentum=(0.9, 0.999)`, Adam, cross-entropy, `Devices.CPU`, `set_seed(0)`.
+`weight_decay=5e-4`, `momentum=(0.9, 0.999)`, Adam, cross-entropy, `Devices.CPU`, and
+`set_seed(SEED)` with `SEED = 0`.
 
 | Notebook | Model | `hidden_dims` | `dropout_prob` | `max_lr` | Epochs | Role |
 |---|---|---|---|---|---|---|
@@ -189,6 +192,8 @@ subreddits.
 ### 8.13.5.2 Phase 2/3 — graph dataset plumbing
 
 ```python
+SEED = 0
+set_seed(SEED)
 ds = NNGraphDataset(
     ds_class=pyg.datasets.Reddit2,
     n_neighbors=N_NEIGHBORS,            # [20, 15, 10]
@@ -206,6 +211,12 @@ constructs three `NeighborLoader` iterators internally — one per split mask. T
 first-hop neighbors, 15 second-hop, and 10 third-hop, which bounds the receptive field so that
 full-Reddit training fits in memory on one CPU. `ds.input_dim` is 602 and `ds.output_dim` is 41,
 sourced from the dataset object.
+
+This ordering is deliberate. Released `thekaveh-nnx==0.2.0` does not accept
+`NNGraphDataset(seed=...)`; its `NeighborLoader(shuffle=True, ...)` consumes the global Torch
+RNG. The public `set_seed(SEED)` call is therefore repeated immediately at the construction
+boundary. The NNx-surface suite rejects missing, dead-code, non-adjacent, or unsupported
+constructor seeding and executes a tiny graph twice to prove that the first sampled batch repeats.
 
 ### 8.13.5.3 Phase 2 — the candidate grid
 
@@ -357,11 +368,14 @@ Four observations:
 - **Do not re-execute Phase-3 in place.** The four Tier-C notebooks carry preserved August-2023
   outputs (training curves, tqdm bars, test-accuracy prints) that are part of the experimental
   record. `make smoke-tier-c` writes to `/tmp/`; `papermill phase3-*.ipynb phase3-*.ipynb` in
-  place destroys them. The immutable `tier-c-public-facade-baseline-2026-08-22`
+  place destroys them. The immutable `tier-c-deterministic-seeding-baseline-2026-08-22`
   git tag enforces code-cell source equality (markdown and outputs are not compared,
   so markdown edits are safe). The historical `pre-cleanup-baseline` remains an
   unchanged rollback anchor.
 - **Run both graph tiers during release review.** Issue #62 requires mandatory zero-skip graph tests plus Tier B and Tier C execution on the supported Torch 2.11 CPU stack. Sampling must prove preferred pyg-lib selection and forced torch-sparse fallback; install with make install-torch-stack and prove with make verify-torch-stack.
+- **Seed through the released public API.** NNx 0.2 has no `NNGraphDataset(seed=...)` keyword.
+  Define one literal `SEED = 0` and call `set_seed(SEED)` immediately before construction; the
+  canonical graph suite permits no sampler-backend skip on the supported stack.
 - **Use a small enough learning rate for GraphSAGE.** Phase-2 pilots at `lr=1e-2` diverged for the
   deeper SAGE stacks; all Phase-3 SAGE runs use `1e-4`. GAT tolerates `1e-2` because its attention
   softmax keeps gradient magnitudes controlled — do not assume the two architectures share an

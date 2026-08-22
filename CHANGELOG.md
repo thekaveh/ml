@@ -13,6 +13,14 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Deterministic Reddit graph seeding (Issue #70):** all eight Phase-2/Phase-3
+  construction paths now define `SEED = 0` and invoke public `set_seed(SEED)`
+  immediately before `NNGraphDataset(...)`. Released `thekaveh-nnx==0.2.0`
+  exposes no constructor `seed=` keyword, so static AST guards pin the supported
+  global-RNG boundary and an executable tiny-graph regression proves identical
+  first sampled batches. Tier-C source locking advanced to the immutable annotated
+  `tier-c-deterministic-seeding-baseline-2026-08-22` tag at commit
+  `6d459f02091358f168c4eac9585e9247f375d743`; prior baseline tags remain unchanged.
 - **Public `NNDataset` batching migration (Issue #69):** diffusion and MoE now pass
   `batch_sizes=(128, None, None)` to `NNDataset`; JEPA passes
   `batch_sizes=(128, 128, None)` to preserve both train and validation mini-batches.

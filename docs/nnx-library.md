@@ -31,6 +31,8 @@ What the library provides, organized by the surfaces a notebook touches:
   `test_loader` plus `input_dim` / `output_dim` metadata. They accept a
   `batch_sizes: tuple[Optional[int], Optional[int], Optional[int]]` argument so the
   caller picks the per-split batch size without bypassing the wrapper.
+  Released `NNGraphDataset` has no `seed=` constructor keyword: call the public
+  `set_seed(SEED)` immediately before construction to pin its PyG sampler's global RNG.
 - **Model + training contract** — `NNModel`, `NNParams`, `NNModelParams`,
   `NNTrainParams`, `NNOptimParams`. Configuration objects (dataclasses) that make
   the model + training contract read as configuration over magic strings; enums
@@ -165,6 +167,9 @@ NNx is not extended inside this repo. The workflow is always:
      (`test_nnx_constructor_calls_use_known_kwargs`). This guard exists precisely
      because the Tier-A gate misses surfaces that no Tier-A notebook exercises —
      it was added after PR #26 surfaced post-hoc `NNGraphDataset(seed=)` drift.
+     The Reddit-specific guard additionally requires one literal `SEED = 0` and
+     an adjacent public `set_seed(SEED)` call before every graph dataset construction;
+     an executable tiny-graph test proves the same boundary repeats the first sample.
    - **`make smoke-tier-b` and `make smoke-tier-c`** are mandatory for every NNx release
      review, not conditional on an assumed platform boundary. Issue #61 completed both on clean
      Darwin arm64 with `torch_sparse==0.6.18`, disproving the former macOS-impossible claim. The

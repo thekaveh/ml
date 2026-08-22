@@ -1540,7 +1540,8 @@ def test_issue62_notebook_specs_drive_exact_generated_rows():
     ).read_text(encoding="utf-8"))
     assert graph["atlas"]["constraints"] == [
         "Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the "
-        "repository Torch 2.11 CPU stack; the remote runtime uses the completed retained Atlas pin."
+        "repository Torch 2.11 CPU stack; the retained Atlas Torch 2.13 runtime executes through "
+        "pyg-lib and intentionally has no legacy torch-sparse wheel."
     ]
     assert quant["atlas"]["constraints"] == [
         "Tier-B smoke is deterministic and bounded to one epoch for FP32 plus one epoch for QAT.",
@@ -1554,7 +1555,7 @@ def test_issue62_notebook_specs_drive_exact_generated_rows():
     quant_row = next(line for line in generated if "quantization-mnist-ffnn-pytorch" in line)
     assert all(
         token in graph_row
-        for token in ("pyg-lib", "torch-sparse", "completed retained Atlas pin")
+        for token in ("pyg-lib", "torch-sparse", "retained Atlas Torch 2.13 runtime")
     )
     assert all(
         token in quant_row
@@ -2087,7 +2088,7 @@ def test_issue65_current_docs_record_the_atlas_retain_decision() -> None:
         ("CHANGELOG.md", _ISSUE65_CURRENT_SHA, _ISSUE65_ROLLBACK_SHA),
         (
             "docs/notebook-infrastructure.md",
-            "completed retained Atlas pin",
+            "retained Atlas Torch 2.13 runtime",
             "Atlas runtime ownership remains Issue #65",
         ),
     ),

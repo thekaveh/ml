@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
+import re
 import stat
 import sys
 import tempfile
@@ -61,6 +63,38 @@ def _validate_output(output: object, index: int, output_index: int) -> None:
     raise NotebookStampError(f"notebook code cell {index} has invalid output type {output_type!r}")
 
 
+def _is_json_value(value: object) -> bool:
+    if value is None or isinstance(value, (str, bool, int)):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, list):
+        return all(_is_json_value(item) for item in value)
+    if isinstance(value, dict):
+        return all(isinstance(key, str) and _is_json_value(item) for key, item in value.items())
+    return False
+
+
+def _validate_attachments(attachments: object, index: int) -> None:
+    if not isinstance(attachments, dict):
+        raise NotebookStampError(f"notebook markdown cell {index} attachments must be an object")
+    for filename, bundle in attachments.items():
+        if not isinstance(filename, str) or not filename:
+            raise NotebookStampError(f"notebook markdown cell {index} attachment filename must be non-empty")
+        if not isinstance(bundle, dict) or not bundle:
+            raise NotebookStampError(f"notebook markdown cell {index} attachment bundle must be a non-empty object")
+        for mime_type, value in bundle.items():
+            if not isinstance(mime_type, str) or not mime_type:
+                raise NotebookStampError(f"notebook markdown cell {index} attachment MIME key must be non-empty")
+            if re.fullmatch(r"application/(?:.*\+)?json", mime_type):
+                if not _is_json_value(value):
+                    raise NotebookStampError(f"notebook markdown cell {index} attachment JSON value is invalid")
+            elif not isinstance(value, str) and not (
+                isinstance(value, list) and all(isinstance(part, str) for part in value)
+            ):
+                raise NotebookStampError(f"notebook markdown cell {index} attachment value must be a string or list")
+
+
 def _validate_document(document: object) -> dict[str, Any]:
     if not isinstance(document, dict):
         raise NotebookStampError("notebook JSON root must be an object")
@@ -87,6 +121,10 @@ def _validate_document(document: object) -> dict[str, Any]:
         logical_source(cell["source"])
         if "metadata" not in cell or not isinstance(cell["metadata"], dict):
             raise NotebookStampError(f"notebook cell {index} metadata must be an object")
+        if "attachments" in cell:
+            if cell_type != "markdown":
+                raise NotebookStampError(f"notebook cell {index} attachments are only valid on markdown cells")
+            _validate_attachments(cell["attachments"], index)
         if cell_type == "code":
             if "execution_count" not in cell or (
                 cell["execution_count"] is not None and not _is_integer(cell["execution_count"])

@@ -232,6 +232,41 @@ def test_malformed_versions_metadata_or_outputs_are_rejected_without_writing(
     assert path.read_bytes() == original
 
 
+@pytest.mark.parametrize(
+    "cell",
+    [
+        {"cell_type": "markdown", "metadata": {}, "source": "![x](x.png)", "attachments": []},
+        {"cell_type": "markdown", "metadata": {}, "source": "![x](x.png)", "attachments": {"": {"image/png": "x"}}},
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": "![x](x.png)",
+            "attachments": {"x.png": []},
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": "![x](x.png)",
+            "attachments": {"x.png": {"image/png": None}},
+        },
+        {
+            "cell_type": "raw",
+            "metadata": {},
+            "source": "raw",
+            "attachments": {"x.png": {"image/png": "x"}},
+        },
+    ],
+)
+def test_malformed_or_misplaced_attachments_are_rejected_without_writing(tmp_path: Path, cell: dict) -> None:
+    path = tmp_path / "bad-attachments.ipynb"
+    original = _write_json(path, _document(cell, _code("x", outputs=[_stream_output()])))
+
+    with pytest.raises(NotebookStampError, match="attachment"):
+        stamp_path(path)
+
+    assert path.read_bytes() == original
+
+
 def test_failed_replace_cleans_up_sibling_temporary_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from scripts import stamp_notebook_source_hashes as stamper
 

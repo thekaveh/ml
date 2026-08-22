@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections.abc import Hashable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -22,6 +23,33 @@ _ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 class NotebookInfrastructureError(ValueError):
     """Raised when an Atlas notebook-runtime contract is malformed."""
+
+
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    """Safe YAML loader that rejects duplicate mapping keys."""
+
+    def construct_mapping(self, node, deep=False):
+        if isinstance(node, yaml.MappingNode):
+            self.flatten_mapping(node)
+        mapping = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if not isinstance(key, Hashable):
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping",
+                    node.start_mark,
+                    "found unhashable key",
+                    key_node.start_mark,
+                )
+            if key in mapping:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping",
+                    node.start_mark,
+                    f"found duplicate key {key!r}",
+                    key_node.start_mark,
+                )
+            mapping[key] = self.construct_object(value_node, deep=deep)
+        return mapping
 
 
 @dataclass(frozen=True, order=True)
@@ -115,7 +143,10 @@ def _parse_required_env(
 
 def _parse_contract(task: str, spec_path: Path) -> AtlasTaskContract:
     try:
-        data = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+        data = yaml.load(
+            spec_path.read_text(encoding="utf-8"),
+            Loader=_UniqueKeySafeLoader,
+        )
     except yaml.YAMLError as error:
         raise NotebookInfrastructureError(f"{task}: spec is not valid YAML: {error}") from error
     if not isinstance(data, dict):

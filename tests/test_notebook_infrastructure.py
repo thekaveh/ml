@@ -287,6 +287,70 @@ def test_load_rejects_non_string_required_env_keys_as_unexpected(tmp_path):
         load_atlas_task_contracts(tmp_path, _manifest(["task"]))
 
 
+@pytest.mark.parametrize(
+    "required_env",
+    [
+        "[{name: FIRST, name: SECOND, service: jupyterhub}]",
+        "[{name: JUPYTER_URL, service: spark, service: jupyterhub}]",
+    ],
+)
+def test_load_rejects_duplicate_required_env_entry_keys(tmp_path, required_env):
+    atlas = JUPYTER_ONLY_ATLAS.replace("required_env: []", f"required_env: {required_env}")
+    _write_spec(tmp_path, "task", atlas)
+    _write_active_tasks(tmp_path, ["task"])
+
+    with pytest.raises(NotebookInfrastructureError, match="duplicate key"):
+        load_atlas_task_contracts(tmp_path, _manifest(["task"]))
+
+
+def test_load_rejects_duplicate_required_env_field(tmp_path):
+    atlas = JUPYTER_ONLY_ATLAS.replace(
+        "  required_env: []\n",
+        "  required_env: []\n  required_env: []\n",
+    )
+    _write_spec(tmp_path, "task", atlas)
+    _write_active_tasks(tmp_path, ["task"])
+
+    with pytest.raises(NotebookInfrastructureError, match="duplicate key"):
+        load_atlas_task_contracts(tmp_path, _manifest(["task"]))
+
+
+@pytest.mark.parametrize(
+    ("required_env", "message"),
+    [
+        ("[{name: true, service: jupyterhub}]", "valid environment name"),
+        ("[{name: 1, service: jupyterhub}]", "valid environment name"),
+        ("[{name: JUPYTER_URL, service: false}]", "valid service ID"),
+    ],
+)
+def test_load_rejects_coerced_required_env_scalars(tmp_path, required_env, message):
+    atlas = JUPYTER_ONLY_ATLAS.replace("required_env: []", f"required_env: {required_env}")
+    _write_spec(tmp_path, "task", atlas)
+    _write_active_tasks(tmp_path, ["task"])
+
+    with pytest.raises(NotebookInfrastructureError, match=message):
+        load_atlas_task_contracts(tmp_path, _manifest(["task"]))
+
+
+def test_load_accepts_hyphenated_future_service_identifier(tmp_path):
+    atlas = JUPYTER_ONLY_ATLAS.replace(
+        "required_services: [jupyterhub]",
+        "required_services: [jupyterhub, spark-connect]",
+    ).replace(
+        "required_env: []",
+        "required_env: [{name: SPARK_REMOTE, service: spark-connect}]",
+    )
+    _write_spec(tmp_path, "task", atlas)
+    _write_active_tasks(tmp_path, ["task"])
+
+    contract = load_atlas_task_contracts(tmp_path, _manifest(["task"]))[0]
+
+    assert contract.required_services == ("jupyterhub", "spark-connect")
+    assert contract.required_env == (
+        AtlasEnvironmentRequirement("SPARK_REMOTE", "spark-connect"),
+    )
+
+
 def test_renders_deterministic_markdown_table():
     table = render_atlas_task_table(
         [

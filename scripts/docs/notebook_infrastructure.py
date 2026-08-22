@@ -204,8 +204,8 @@ def load_atlas_task_contracts(repo_root: Path, manifest: Manifest) -> list[Atlas
 def render_atlas_task_table(contracts: Sequence[AtlasTaskContract]) -> str:
     """Render the canonical, deterministic Markdown Atlas contract table."""
     rows = [
-        "| Task | Tier | Default mode | Workspace access | Required Atlas services | Artifact policy | Constraints |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| Task | Tier | Default mode | Workspace access | Required Atlas services | Required environment | Artifact policy | Constraints |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for contract in contracts:
         constraints = "<br>".join(_markdown_cell(constraint) for constraint in contract.constraints) if contract.constraints else "—"
@@ -218,6 +218,7 @@ def render_atlas_task_table(contracts: Sequence[AtlasTaskContract]) -> str:
                     contract.default_mode,
                     contract.workspace_access,
                     ", ".join(contract.required_services),
+                    _render_required_env(contract.required_env),
                     contract.artifact_policy,
                     constraints,
                 )
@@ -225,6 +226,15 @@ def render_atlas_task_table(contracts: Sequence[AtlasTaskContract]) -> str:
             + " |"
         )
     return "\n".join(rows)
+
+
+def _render_required_env(requirements: Sequence[AtlasEnvironmentRequirement]) -> str:
+    if not requirements:
+        return "—"
+    return "<br>".join(
+        f"`{requirement.name}` ({requirement.service})"
+        for requirement in sorted(requirements)
+    )
 
 
 def _markdown_cell(value: str) -> str:

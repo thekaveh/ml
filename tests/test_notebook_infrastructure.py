@@ -6,6 +6,7 @@ import pytest
 
 from scripts.docs.manifest import load_manifest, parse_manifest
 from scripts.docs.notebook_infrastructure import (
+    AtlasEnvironmentRequirement,
     AtlasTaskContract,
     NotebookInfrastructureError,
     load_atlas_task_contracts,
@@ -277,15 +278,40 @@ def test_load_rejects_invalid_required_env(tmp_path, atlas, message):
 def test_renders_deterministic_markdown_table():
     table = render_atlas_task_table(
         [
-            AtlasTaskContract("task-b", "Task B", "B", "jupyterhub", "mounted-workspace", ("jupyterhub", "mlflow"), (), "mounted-required", "task-local-ignored-paths", ()),
-            AtlasTaskContract("task-a", "Task A", "A", "jupyterhub", "vscode-remote", ("jupyterhub",), (), "remote", "atlas-jupyter-volume", ("One", "Two")),
+            AtlasTaskContract(
+                task="task-b",
+                title="Task B",
+                tier="B",
+                executor="jupyterhub",
+                default_mode="mounted-workspace",
+                required_services=("jupyterhub", "mlflow"),
+                required_env=(
+                    AtlasEnvironmentRequirement("MLFLOW_TRACKING_URI", "mlflow"),
+                    AtlasEnvironmentRequirement("MLFLOW_EXPERIMENT_NAME", "mlflow"),
+                ),
+                workspace_access="mounted-required",
+                artifact_policy="task-local-ignored-paths",
+                constraints=(),
+            ),
+            AtlasTaskContract(
+                task="task-a",
+                title="Task A",
+                tier="A",
+                executor="jupyterhub",
+                default_mode="vscode-remote",
+                required_services=("jupyterhub",),
+                required_env=(),
+                workspace_access="remote",
+                artifact_policy="atlas-jupyter-volume",
+                constraints=("One", "Two"),
+            ),
         ]
     )
 
-    assert table == """| Task | Tier | Default mode | Workspace access | Required Atlas services | Artifact policy | Constraints |
-| --- | --- | --- | --- | --- | --- | --- |
-| task-b | B | mounted-workspace | mounted-required | jupyterhub, mlflow | task-local-ignored-paths | — |
-| task-a | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | One<br>Two |"""
+    assert table == """| Task | Tier | Default mode | Workspace access | Required Atlas services | Required environment | Artifact policy | Constraints |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| task-b | B | mounted-workspace | mounted-required | jupyterhub, mlflow | `MLFLOW_EXPERIMENT_NAME` (mlflow)<br>`MLFLOW_TRACKING_URI` (mlflow) | task-local-ignored-paths | — |
+| task-a | A | vscode-remote | remote | jupyterhub | — | atlas-jupyter-volume | One<br>Two |"""
 
 
 def test_renderer_escapes_constraint_markdown_cell_characters():

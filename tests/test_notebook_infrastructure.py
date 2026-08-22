@@ -254,16 +254,16 @@ def test_load_rejects_invalid_atlas_fields(tmp_path, atlas, message):
         (
             JUPYTER_ONLY_ATLAS.replace(
                 "required_env: []",
-                "required_env: [{name: SPARK_REMOTE, service: spark-connect}]",
+                "required_env: [{name: SPARK_REMOTE, service: spark}]",
             ),
             "must reference required_services",
         ),
         (
             JUPYTER_ONLY_ATLAS.replace(
                 "required_services: [jupyterhub]",
-                "required_services: [jupyterhub, spark-connect]",
+                "required_services: [jupyterhub, spark]",
             ),
-            "services missing required_env bindings: spark-connect",
+            "services missing required_env bindings: spark",
         ),
     ],
 )
@@ -272,6 +272,18 @@ def test_load_rejects_invalid_required_env(tmp_path, atlas, message):
     _write_active_tasks(tmp_path, ["task"])
 
     with pytest.raises(NotebookInfrastructureError, match=message):
+        load_atlas_task_contracts(tmp_path, _manifest(["task"]))
+
+
+def test_load_rejects_non_string_required_env_keys_as_unexpected(tmp_path):
+    atlas = JUPYTER_ONLY_ATLAS.replace(
+        "required_env: []",
+        "required_env: [{name: JUPYTER_URL, service: jupyterhub, 1: bad}]",
+    )
+    _write_spec(tmp_path, "task", atlas)
+    _write_active_tasks(tmp_path, ["task"])
+
+    with pytest.raises(NotebookInfrastructureError, match="unexpected keys: 1"):
         load_atlas_task_contracts(tmp_path, _manifest(["task"]))
 
 

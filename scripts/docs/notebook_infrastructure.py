@@ -73,7 +73,7 @@ def _parse_required_env(
             raise NotebookInfrastructureError(
                 f"{task}: {field} missing keys: {', '.join(missing_keys)}"
             )
-        unexpected_keys = sorted(actual_keys - expected_keys)
+        unexpected_keys = sorted(str(key) for key in actual_keys - expected_keys)
         if unexpected_keys:
             raise NotebookInfrastructureError(
                 f"{task}: {field} unexpected keys: {', '.join(unexpected_keys)}"

@@ -24,10 +24,10 @@ existing `atlas` mapping:
 atlas:
   executor: jupyterhub
   default_mode: vscode-remote
-  required_services: [jupyterhub, spark-connect]
+  required_services: [jupyterhub, spark]
   required_env:
     - name: SPARK_REMOTE
-      service: spark-connect
+      service: spark
   workspace_access: remote
   artifact_policy: atlas-jupyter-volume
   constraints: []
@@ -104,7 +104,7 @@ Non-empty requirements render in canonical order as backticked variable names
 with their supplying service, separated by `<br>`, for example:
 
 ```text
-`MLFLOW_TRACKING_URI` (mlflow)<br>`SPARK_REMOTE` (spark-connect)
+`MLFLOW_TRACKING_URI` (mlflow)<br>`SPARK_REMOTE` (spark)
 ```
 
 The projection never prints values. Existing marker validation continues to

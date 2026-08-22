@@ -94,10 +94,10 @@ Add one parameterized test whose cases independently cover:
 (VALID_ATLAS.replace("required_env: []", "required_env: [{name: lower_name, service: jupyterhub}]"), "valid environment name"),
 (VALID_ATLAS.replace("required_env: []", "required_env: [{name: JUPYTER_URL, service: bad_service}]"), "valid service ID"),
 (VALID_ATLAS.replace("required_env: []", "required_env: [{name: JUPYTER_URL, service: jupyterhub}, {name: JUPYTER_URL, service: jupyterhub}]"), "names must be unique"),
-(VALID_ATLAS.replace("required_env: []", "required_env: [{name: SPARK_REMOTE, service: spark-connect}]"), "must reference required_services"),
+(VALID_ATLAS.replace("required_env: []", "required_env: [{name: SPARK_REMOTE, service: spark}]"), "must reference required_services"),
 (
-    VALID_ATLAS.replace("required_services: [jupyterhub]", "required_services: [jupyterhub, spark-connect]"),
-    "services missing required_env bindings: spark-connect",
+    VALID_ATLAS.replace("required_services: [jupyterhub]", "required_services: [jupyterhub, spark]"),
+    "services missing required_env bindings: spark",
 ),
 ```
 

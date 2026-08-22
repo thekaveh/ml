@@ -1676,8 +1676,8 @@ def test_docs_d8_scans_manifest_declared_root_markdown(tmp_path, monkeypatch):
     infrastructure = tmp_path / "docs/notebook-infrastructure.md"
     infrastructure.write_text(
         "<!-- atlas-task-contracts:start -->\n"
-        "| Task | Tier | Default mode | Workspace access | Required Atlas services | Artifact policy | Constraints |\n"
-        "| --- | --- | --- | --- | --- | --- | --- |\n"
+        "| Task | Tier | Default mode | Workspace access | Required Atlas services | Required environment | Artifact policy | Constraints |\n"
+        "| --- | --- | --- | --- | --- | --- | --- | --- |\n"
         "<!-- atlas-task-contracts:end -->\n",
         encoding="utf-8",
     )

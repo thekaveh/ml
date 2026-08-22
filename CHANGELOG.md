@@ -13,6 +13,11 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Notebook source/output freshness hashes (Issue #71):** active retained-output code cells now
+  carry `metadata.source_hash`, a SHA-256 digest of exact logical source, and E8 fails closed for
+  missing, malformed, stale, or orphan markers. Successful Tier-A/B/C execution stamps markers
+  automatically; 29 active notebooks and 189 retained-output cells were migrated without changing
+  outputs or execution evidence.
 - **Deterministic Reddit graph seeding (Issue #70):** all eight Phase-2/Phase-3
   construction paths now define `SEED = 0` and invoke public `set_seed(SEED)`
   immediately before `NNGraphDataset(...)`. Released `thekaveh-nnx==0.2.0`

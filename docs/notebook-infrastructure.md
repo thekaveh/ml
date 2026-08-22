@@ -68,3 +68,12 @@ unless a task explicitly documents that policy. The full admission sequence is
 | dim_reduction-iris-autoencoder-pytorch | A | vscode-remote | remote | jupyterhub | — | atlas-jupyter-volume | — |
 | clustering-iris-kmeans-vs-ae-pytorch | A | vscode-remote | remote | jupyterhub | — | atlas-jupyter-volume | — |
 <!-- atlas-task-contracts:end -->
+
+## 4.4.2 Execution freshness stamping
+
+Each `run-tier-a`, `smoke-tier-a`, `smoke-tier-b`, and `smoke-tier-c` Papermill execution invokes
+`scripts/stamp_notebook_source_hashes.py` only after success. Failed, partial, or error-output
+notebooks are not stamped; stamper failure fails the Make target. The normal targets therefore
+keep execution and source-freshness evidence together without rewriting source notebooks for
+smoke runs. The exact `metadata.source_hash` algorithm, E8 scope, and repair command are
+canonicalized in [the conventions](conventions.md#524-notebook-output-freshness).

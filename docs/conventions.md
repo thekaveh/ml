@@ -146,6 +146,31 @@ compared, so wording fixes are safe. Edit phase3 markdown via
 `scripts/edit_notebook_markdown.py` rather than by hand. The historical `pre-cleanup-baseline`
 remains an unchanged rollback anchor; never move either published baseline tag.
 
+### 5.2.4 Notebook output freshness
+
+For every output-bearing code cell in a notebook enumerated by the authoritative
+`active_task_dirs` inventory, `cell.metadata.source_hash` is a bare lowercase 64-character
+SHA-256 digest of the exact UTF-8 logical code-cell source. A JSON `source` string is used as-is;
+a JSON `source` array concatenates its string elements with no separator. Whitespace, comments,
+magics, line endings, and syntax are not normalized.
+
+Output bytes are never hashed. The marker says retained outputs correspond to the source now in
+the cell; it does not say that nondeterministic output rendering is byte-reproducible. E8 reports
+error severity for missing, malformed, stale, or orphan markers across all active notebooks.
+
+The exception boundary is deliberately narrow: `notebooks/archive/` is immutable historical
+material outside the active inventory, and outputless code cells are structurally inapplicable and
+must not carry a marker. There is no tag, path, wildcard, or general exemption for an
+output-bearing active cell.
+
+`make run-tier-a`, `make smoke-tier-a`, `make smoke-tier-b`, and `make smoke-tier-c` invoke
+`scripts/stamp_notebook_source_hashes.py` only after successful Papermill execution. Failed,
+partial, or error-output notebooks are not stamped, and a stamper failure fails the Make target.
+For intentional maintenance repair, use `python scripts/stamp_notebook_source_hashes.py
+--all-active`; it is not a replacement for executing changed source. Rollback is separable:
+reverting verifier/execution enforcement does not rewrite outputs, while reverting the metadata
+migration alone makes E8 fail.
+
 ## 5.3 Validation gates
 
 A change is not ready until the repository verifier, complete pytest contract,

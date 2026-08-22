@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -304,6 +305,54 @@ def test_active_notebook_inventory_is_sorted_and_excludes_archive(tmp_path: Path
         tmp_path / "notebooks" / "task-b" / "z.ipynb",
     )
     assert all("archive" not in path.parts for path in paths)
+
+
+def test_live_active_notebook_source_hash_inventory_is_current() -> None:
+    inventory = {
+        "notebooks": 0,
+        "output_bearing_cells": 0,
+        "current_markers": 0,
+        "missing_markers": 0,
+        "invalid_markers": 0,
+        "stale_markers": 0,
+        "orphan_markers": 0,
+        "error_output_cells": 0,
+    }
+    for notebook in active_notebook_paths(REPO):
+        inventory["notebooks"] += 1
+        document = json.loads(notebook.read_text(encoding="utf-8"))
+        for cell in document["cells"]:
+            if cell.get("cell_type") != "code":
+                continue
+            metadata = cell["metadata"]
+            outputs = cell["outputs"]
+            marker = metadata.get("source_hash")
+            inventory["error_output_cells"] += sum(
+                output.get("output_type") == "error" for output in outputs
+            )
+            if not outputs:
+                inventory["orphan_markers"] += "source_hash" in metadata
+            else:
+                inventory["output_bearing_cells"] += 1
+                if marker is None:
+                    inventory["missing_markers"] += 1
+                elif not isinstance(marker, str) or re.fullmatch(r"[0-9a-f]{64}", marker) is None:
+                    inventory["invalid_markers"] += 1
+                elif marker != compute_source_hash(cell["source"]):
+                    inventory["stale_markers"] += 1
+                else:
+                    inventory["current_markers"] += 1
+
+    assert inventory == {
+        "notebooks": 29,
+        "output_bearing_cells": 189,
+        "current_markers": 189,
+        "missing_markers": 0,
+        "invalid_markers": 0,
+        "stale_markers": 0,
+        "orphan_markers": 0,
+        "error_output_cells": 0,
+    }
 
 
 def test_cli_requires_exactly_one_of_paths_or_all_active(tmp_path: Path) -> None:

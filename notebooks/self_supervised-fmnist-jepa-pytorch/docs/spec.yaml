@@ -40,7 +40,7 @@ pitfalls:
   - "~90 s runtime is the heaviest Tier-A notebook; ViT forward is slow on CPU."
   - "EMA momentum is stability-critical; 0.99 or below causes degenerate collapse."
   - "Single target block per step; the paper uses four (aggregate prediction losses)."
-  - "NNDataset default loader packs the whole train set; rebuild at batch_size=128."
+  - "NNDataset defaults to whole-split batches; pass batch_sizes=(128, 128, None) for JEPA train and validation mini-batches."
   - "Two pretrain epochs is a smoke test; real I-JEPA needs 150+ epochs to approach supervised ceiling."
   - "Activations.RELU on the placeholder FeedFwdNN is inert (never executed)."
 extensions:

@@ -35,7 +35,7 @@ results:
   - { metric: aux_loss_at_init, value: "1.2794 (random router)" }
   - { metric: aux_loss_after_training, value: "1.2218 (toward 1.0 floor)" }
 pitfalls:
-  - "NNDataset default loader packs the whole 54k Fashion-MNIST train set into one batch; rebuild at batch_size=128."
+  - "NNDataset defaults to whole-split batches; pass batch_sizes=(128, None, None) for MoE train mini-batches."
   - "Aux loss is one-sided: it penalizes collapse but cannot drop below the 1.0 uniform floor."
   - "Perfect uniform routing is not the goal; 30/30/20/20 with semantic specialization beats enforced 25/25/25/25."
   - "Single MoE layer under-illustrates the recipe; real MoE transformers stack MoE layers."

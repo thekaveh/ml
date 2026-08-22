@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stamp output-bearing notebook code cells with source SHA-256 digests."""
+"""Stamp or clear notebook source SHA-256 digests."""
 from __future__ import annotations
 
 import argparse
@@ -13,6 +13,8 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Callable
+
+from nbformat.validator import iter_validate
 
 
 class NotebookStampError(ValueError):
@@ -163,6 +165,16 @@ def _validate_document(
                 )
         if "id" in cell and not isinstance(cell["id"], str):
             raise NotebookStampError(f"notebook cell {index} id must be a string")
+    schema_error = next(
+        iter_validate(
+            document,
+            version=4,
+            version_minor=document["nbformat_minor"],
+        ),
+        None,
+    )
+    if schema_error is not None:
+        raise NotebookStampError(f"notebook violates the raw nbformat-4 schema: {schema_error.message}")
     return document
 
 
@@ -171,12 +183,13 @@ def stamp_document(document: dict[str, object]) -> int:
     validated = _validate_document(document)
     changed = 0
     for cell in validated["cells"]:
+        metadata = cell["metadata"]
         if cell["cell_type"] != "code":
+            if "source_hash" in metadata:
+                del metadata["source_hash"]
+                changed += 1
             continue
         if cell["outputs"]:
-            metadata = cell.setdefault("metadata", {})
-            if not isinstance(metadata, dict):  # guarded by _validate_document
-                raise NotebookStampError("code cell metadata must be an object")
             digest = compute_source_hash(cell["source"])
             if metadata.get("source_hash") != digest:
                 metadata["source_hash"] = digest
@@ -189,11 +202,11 @@ def stamp_document(document: dict[str, object]) -> int:
 
 
 def clear_document(document: dict[str, object]) -> int:
-    """Remove source markers from every code cell in a validated notebook mapping."""
+    """Remove source markers from every cell in a validated notebook mapping."""
     validated = _validate_document(document, allow_failed_execution=True)
     changed = 0
     for cell in validated["cells"]:
-        if cell["cell_type"] == "code" and "source_hash" in cell["metadata"]:
+        if "source_hash" in cell["metadata"]:
             del cell["metadata"]["source_hash"]
             changed += 1
     return changed

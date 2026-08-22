@@ -3304,11 +3304,20 @@ def _source_hash_findings(repo: Path) -> list[Finding]:
         except Exception:
             continue
         for cell_index, cell in enumerate(document.cells):
-            if cell.cell_type != "code":
-                continue
             location = f"{rel}:cell[{cell_index}]"
             metadata = cell.get("metadata", {})
             has_marker = "source_hash" in metadata
+            if cell.cell_type != "code":
+                if has_marker:
+                    findings.append(Finding(
+                        id="E8.source_hash_orphan", check="execution", severity="error",
+                        location=location,
+                        message=(
+                            f"{cell.cell_type} cell carries metadata.source_hash; "
+                            "remove it or re-run the source-hash stamper"
+                        ),
+                    ))
+                continue
             outputs = cell.get("outputs", [])
             if not outputs:
                 if has_marker:

@@ -7587,7 +7587,7 @@ def _write_source_hash_notebook(path: Path, cells: list) -> None:
     nbformat.write(notebook, str(path))
 
 
-def test_source_hash_findings_fail_closed_for_active_code_cells(tmp_path, monkeypatch):
+def test_source_hash_findings_fail_closed_for_all_active_cell_types(tmp_path, monkeypatch):
     import nbformat
 
     notebook_path = tmp_path / "notebooks" / "task-a" / "freshness.ipynb"
@@ -7600,9 +7600,16 @@ def test_source_hash_findings_fail_closed_for_active_code_cells(tmp_path, monkey
     stale.metadata["source_hash"] = compute_source_hash("old = 1\n")
     orphan = nbformat.v4.new_code_cell("orphan = 1\n")
     orphan.metadata["source_hash"] = "anything"
+    markdown_orphan = nbformat.v4.new_markdown_cell("# Markdown")
+    markdown_orphan.metadata["source_hash"] = "anything"
+    raw_orphan = nbformat.v4.new_raw_cell("raw")
+    raw_orphan.metadata["source_hash"] = "anything"
     current = nbformat.v4.new_code_cell("current = 1\n", outputs=[output])
     current.metadata["source_hash"] = compute_source_hash(current.source)
-    _write_source_hash_notebook(notebook_path, [missing, invalid, stale, orphan, current])
+    _write_source_hash_notebook(
+        notebook_path,
+        [missing, invalid, stale, orphan, markdown_orphan, raw_orphan, current],
+    )
     monkeypatch.setattr(verify_repo, "ACTIVE_TASK_DIRS", ("task-a",))
 
     findings = verify_repo._source_hash_findings(tmp_path)
@@ -7612,6 +7619,8 @@ def test_source_hash_findings_fail_closed_for_active_code_cells(tmp_path, monkey
         ("E8.source_hash_invalid", "notebooks/task-a/freshness.ipynb:cell[1]"),
         ("E8.stale_output", "notebooks/task-a/freshness.ipynb:cell[2]"),
         ("E8.source_hash_orphan", "notebooks/task-a/freshness.ipynb:cell[3]"),
+        ("E8.source_hash_orphan", "notebooks/task-a/freshness.ipynb:cell[4]"),
+        ("E8.source_hash_orphan", "notebooks/task-a/freshness.ipynb:cell[5]"),
     ]
     assert {finding.severity for finding in findings} == {"error"}
 

@@ -40,9 +40,18 @@ def _code(source: object, *, outputs: list[dict] | None = None, metadata: dict |
 
 
 def _document(*cells: dict) -> dict:
+    for index, cell in enumerate(cells):
+        if isinstance(cell, dict):
+            cell.setdefault("id", f"cell-{index}")
     return {
         "cells": list(cells),
-        "metadata": {"kernelspec": {"name": "python3"}},
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3",
+            }
+        },
         "nbformat": 4,
         "nbformat_minor": 5,
     }
@@ -86,23 +95,24 @@ def test_compute_source_hash_is_sha256_of_exact_utf8_source() -> None:
     assert compute_source_hash(source).islower()
 
 
-def test_stamp_document_only_marks_code_cells_with_outputs_and_removes_orphans() -> None:
+def test_stamp_document_only_marks_output_code_cells_and_removes_all_orphans() -> None:
     output = _stream_output()
     document = _document(
         _code("print('output')\n", outputs=[output], metadata={"keep": "yes"}),
         _code("print('none')\n", metadata={"source_hash": "orphan", "keep": 3}),
-        {"cell_type": "markdown", "metadata": {"source_hash": "leave"}, "source": "# hi"},
-        {"cell_type": "raw", "metadata": {}, "source": ["raw"]},
+        {"cell_type": "markdown", "metadata": {"source_hash": "remove-markdown"}, "source": "# hi"},
+        {"cell_type": "raw", "metadata": {"source_hash": "remove-raw"}, "source": ["raw"]},
     )
 
     changed = stamp_document(document)
 
-    assert changed == 2
+    assert changed == 4
     assert document["cells"][0]["metadata"]["source_hash"] == compute_source_hash("print('output')\n")
     assert document["cells"][0]["metadata"]["keep"] == "yes"
     assert "source_hash" not in document["cells"][1]["metadata"]
     assert document["cells"][1]["metadata"]["keep"] == 3
-    assert document["cells"][2]["metadata"]["source_hash"] == "leave"
+    assert "source_hash" not in document["cells"][2]["metadata"]
+    assert "source_hash" not in document["cells"][3]["metadata"]
 
 
 def test_stamp_document_is_idempotent() -> None:
@@ -125,24 +135,78 @@ def test_outputless_code_without_metadata_is_left_untouched() -> None:
     assert document["cells"][0]["metadata"] == {}
 
 
-def test_clear_document_removes_hashes_from_all_code_cells_in_failed_artifact() -> None:
+def test_clear_document_removes_hashes_from_every_cell_in_failed_artifact() -> None:
     failed = _code(
         "raise RuntimeError('boom')",
         outputs=[_error_output()],
         metadata={"source_hash": "a" * 64, "keep": {"nested": True}},
     )
     outputless = _code("x = 1", metadata={"source_hash": "b" * 64, "keep": 3})
-    markdown = {"cell_type": "markdown", "metadata": {"source_hash": "leave"}, "source": "# hi"}
-    document = _document(failed, outputless, markdown)
+    markdown = {"cell_type": "markdown", "metadata": {"source_hash": "remove"}, "source": "# hi"}
+    raw = {"cell_type": "raw", "metadata": {"source_hash": "remove"}, "source": "raw"}
+    document = _document(failed, outputless, markdown, raw)
     error_output = json.loads(json.dumps(failed["outputs"][0]))
 
-    assert clear_document(document) == 2
+    assert clear_document(document) == 4
     assert "source_hash" not in failed["metadata"]
     assert failed["metadata"]["keep"] == {"nested": True}
     assert failed["outputs"][0] == error_output
     assert "source_hash" not in outputless["metadata"]
     assert outputless["metadata"]["keep"] == 3
-    assert markdown["metadata"]["source_hash"] == "leave"
+    assert "source_hash" not in markdown["metadata"]
+    assert "source_hash" not in raw["metadata"]
+
+
+def _schema_invalid_document(case: str) -> dict:
+    cell = _code("x", outputs=[_stream_output()], metadata={"source_hash": "stale"})
+    if case == "numeric-image-payload":
+        cell["outputs"] = [
+            {"data": {"image/png": 3}, "metadata": {}, "output_type": "display_data"}
+        ]
+    elif case == "negative-cell-count":
+        cell["execution_count"] = -1
+    elif case == "negative-result-count":
+        cell["outputs"] = [
+            {
+                "data": {},
+                "execution_count": -1,
+                "metadata": {},
+                "output_type": "execute_result",
+            }
+        ]
+    elif case == "empty-id":
+        cell["id"] = ""
+    elif case == "invalid-id-characters":
+        cell["id"] = "contains spaces"
+    elif case == "overlong-id":
+        cell["id"] = "x" * 65
+    else:  # pragma: no cover - parametrization controls the cases
+        raise AssertionError(case)
+    return _document(cell)
+
+
+@pytest.mark.parametrize("operation", (stamp_path, clear_path), ids=("stamp", "clear"))
+@pytest.mark.parametrize(
+    "case",
+    (
+        "numeric-image-payload",
+        "negative-cell-count",
+        "negative-result-count",
+        "empty-id",
+        "invalid-id-characters",
+        "overlong-id",
+    ),
+)
+def test_stamp_and_clear_paths_reject_raw_nbformat_schema_violations_without_changing_bytes(
+    tmp_path: Path, operation, case: str
+) -> None:
+    path = tmp_path / f"{case}.ipynb"
+    original = _write_json(path, _schema_invalid_document(case))
+
+    with pytest.raises(NotebookStampError, match="schema"):
+        operation(path)
+
+    assert path.read_bytes() == original
 
 
 def test_clear_document_accepts_output_bearing_code_cell_with_null_execution_count() -> None:
@@ -299,6 +363,19 @@ def test_structurally_invalid_notebook_is_rejected_without_changing_bytes(tmp_pa
         ),
         ({"outputs": [_stream_output()], "execution_count": None}, "execution_count"),
         ({"outputs": [_stream_output()], "missing_execution_count": True}, "execution_count"),
+        (
+            {
+                "outputs": [
+                    {
+                        "data": {},
+                        "execution_count": None,
+                        "metadata": {},
+                        "output_type": "execute_result",
+                    }
+                ]
+            },
+            "execution_count",
+        ),
     ],
 )
 def test_failed_or_partial_output_is_rejected_before_any_mutation(cell_update: dict, message: str) -> None:
@@ -435,9 +512,10 @@ def test_live_active_notebook_source_hash_inventory_is_current() -> None:
         inventory["notebooks"] += 1
         document = json.loads(notebook.read_text(encoding="utf-8"))
         for cell in document["cells"]:
-            if cell.get("cell_type") != "code":
-                continue
             metadata = cell["metadata"]
+            if cell.get("cell_type") != "code":
+                inventory["orphan_markers"] += "source_hash" in metadata
+                continue
             outputs = cell["outputs"]
             marker = metadata.get("source_hash")
             inventory["error_output_cells"] += sum(

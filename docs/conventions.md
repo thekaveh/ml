@@ -137,8 +137,8 @@ injected shape against papermill parser drift.
 ### 5.2.3 Tier-C output preservation
 
 Tier-C phase3 notebooks are locked to the immutable annotated
-`tier-c-deterministic-seeding-baseline-2026-08-22` git tag at commit
-`6d459f02091358f168c4eac9585e9247f375d743` for their **code-cell source**.
+`tier-c-deterministic-seeding-atlas-baseline-2026-08-22` git tag at commit
+`35e7903afe45f60e5e30bf8fbd49f7d6463caa6a` for their **code-cell source**.
 The execution check `E5` fails closed if that fully qualified tag is missing,
 lightweight, moved, or unreadable, and diffs each Tier-C notebook's code cells
 against it; markdown cells and embedded outputs are deliberately **not**
@@ -168,7 +168,7 @@ flag only affects the execution check):
 - **Comments (`C`)** — comment/code invariants the repo relies on.
 - **Execution (`E`)** — in `--fast` mode this is skipped; in full mode it
   runs the Tier-A/B/C papermill smoke. `E5` is the Tier-C
-  `tier-c-deterministic-seeding-baseline-2026-08-22` code-cell equality gate described
+  `tier-c-deterministic-seeding-atlas-baseline-2026-08-22` code-cell equality gate described
   above.
 
 Exit code 0 means zero **error**-severity findings; warnings are

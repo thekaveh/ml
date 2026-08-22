@@ -76,6 +76,10 @@ All Phase-2 and Phase-3 dataset paths define `SEED = 0` and call the public
 `thekaveh-nnx==0.2.0` has no `NNGraphDataset(seed=...)` keyword; its PyG sampler consumes the
 global RNG. Static AST guards reject missing, dead-code, non-adjacent, or unsupported constructor
 seeding, while a tiny executable graph test proves the first sampled batch repeats.
+The independent Atlas Torch 2.13 runtime provides `pyg_lib` but no legacy `torch-sparse`
+wheel. Phase 3 no longer imports the previously unused `SparseTensor` binding, so all eight
+Reddit smoke notebooks execute there; forced `torch-sparse` fallback remains a mandatory
+repository-local Torch 2.11 test rather than a skipped Atlas claim.
 
 ## 5. Dependencies
 
@@ -92,7 +96,7 @@ Install through make install-torch-stack and prove it with make verify-torch-sta
 
 - The Reddit2 dataset (~1.5 GB) downloads into `./data/` on first run. Subsequent runs reuse the cached copy.
 - GAT at hidden dim ≥ [256] hit GPU-memory ceilings on the original training hardware (M1 Max, 64GB RAM). The phase2 notebook 3 deliberately excludes GAT for that reason.
-- Phase-3 notebooks are Tier-C; their preserved Aug-2023 outputs are part of the artifact and must not be re-executed in place. Verify check E5 enforces **code-cell source** equality with the immutable `tier-c-deterministic-seeding-baseline-2026-08-22` git tag (markdown and embedded outputs are not compared, so markdown edits via `scripts/edit_notebook_markdown.py` are safe). The historical `pre-cleanup-baseline` remains an unchanged rollback anchor.
+- Phase-3 notebooks are Tier-C; their preserved Aug-2023 outputs are part of the artifact and must not be re-executed in place. Verify check E5 enforces **code-cell source** equality with the immutable `tier-c-deterministic-seeding-atlas-baseline-2026-08-22` git tag (markdown and embedded outputs are not compared, so markdown edits via `scripts/edit_notebook_markdown.py` are safe). The historical `pre-cleanup-baseline` remains an unchanged rollback anchor.
 - Memory-conscious sampling: PyG `NeighborLoader` with `[20, 15, 10]` neighborhood sizes per hop is used throughout phase 3.
 
 ## 7. Future work

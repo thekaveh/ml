@@ -368,7 +368,7 @@ Four observations:
 - **Do not re-execute Phase-3 in place.** The four Tier-C notebooks carry preserved August-2023
   outputs (training curves, tqdm bars, test-accuracy prints) that are part of the experimental
   record. `make smoke-tier-c` writes to `/tmp/`; `papermill phase3-*.ipynb phase3-*.ipynb` in
-  place destroys them. The immutable `tier-c-deterministic-seeding-baseline-2026-08-22`
+  place destroys them. The immutable `tier-c-deterministic-seeding-atlas-baseline-2026-08-22`
   git tag enforces code-cell source equality (markdown and outputs are not compared,
   so markdown edits are safe). The historical `pre-cleanup-baseline` remains an
   unchanged rollback anchor.
@@ -376,6 +376,10 @@ Four observations:
 - **Seed through the released public API.** NNx 0.2 has no `NNGraphDataset(seed=...)` keyword.
   Define one literal `SEED = 0` and call `set_seed(SEED)` immediately before construction; the
   canonical graph suite permits no sampler-backend skip on the supported stack.
+- **Keep the Atlas boundary honest.** The retained Atlas Torch 2.13 runtime provides `pyg_lib`
+  but no legacy `torch-sparse` wheel. All eight smoke notebooks execute there after removing the
+  unused Phase-3 `SparseTensor` imports; the forced sparse fallback remains mandatory on the
+  repository's Torch 2.11 stack and is not represented as an Atlas skip.
 - **Use a small enough learning rate for GraphSAGE.** Phase-2 pilots at `lr=1e-2` diverged for the
   deeper SAGE stacks; all Phase-3 SAGE runs use `1e-4`. GAT tolerates `1e-2` because its attention
   softmax keeps gradient magnitudes controlled — do not assume the two architectures share an

@@ -130,4 +130,4 @@ The authoritative lists are `Makefile` (`TIER_A`, `TIER_B`, and `TIER_C`) and
   checkpoint exactly, proves final torchao conversion, and emits a verified semantic marker.
 - **Tier C:** `make smoke-tier-c` runs the expensive Reddit training pipelines in smoke mode;
   preserved code cells remain guarded by E5 against the immutable
-  `tier-c-deterministic-seeding-baseline-2026-08-22` tag.
+  `tier-c-deterministic-seeding-atlas-baseline-2026-08-22` tag.

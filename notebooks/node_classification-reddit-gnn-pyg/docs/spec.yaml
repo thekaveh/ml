@@ -9,7 +9,7 @@ atlas:
   workspace_access: remote
   artifact_policy: atlas-jupyter-volume
   constraints:
-    - "Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the repository Torch 2.11 CPU stack; the remote runtime uses the completed retained Atlas pin."
+    - "Issue #62 requires preferred pyg-lib sampling and forced torch-sparse fallback on the repository Torch 2.11 CPU stack; the retained Atlas Torch 2.13 runtime executes through pyg-lib and intentionally has no legacy torch-sparse wheel."
 dataset: Reddit2
 model: "GraphSAGE / GAT / GraphConv (vs FFN baseline)"
 framework: "PyTorch + PyTorch Geometric (via nnx)"
@@ -39,6 +39,7 @@ results:
 pitfalls:
   - "GAT hits a memory ceiling at hidden width >= 256 (excluded from Phase-2 nb3; Phase-3 GAT held at [128])."
   - "Issue #62 requires zero-skip graph tests plus Tier B/C execution with preferred pyg-lib sampling and forced torch-sparse fallback; no legacy extension canary is supported."
+  - "Atlas Torch 2.13 executes through pyg-lib only; Phase-3 must not reintroduce the removed unused torch_sparse.SparseTensor import."
   - "Do not re-execute Phase-3 notebooks in place; preserved Aug-2023 outputs are Tier-C artifacts."
   - "Released NNx 0.2 has no NNGraphDataset(seed=...) keyword; call public set_seed(SEED) immediately before every graph dataset construction."
   - "Score seed nodes only via GraphNNBase.seed_count(batch); scoring sampled neighbors leaks cross-split labels."

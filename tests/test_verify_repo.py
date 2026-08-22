@@ -22,6 +22,7 @@ import pytest
 import yaml
 
 from scripts import verify_repo
+from scripts.stamp_notebook_source_hashes import compute_source_hash
 
 REPO = Path(__file__).resolve().parent.parent
 REPO_ROOT = REPO
@@ -7576,6 +7577,71 @@ def test_iter_notebooks_reads_active_tasks_under_notebooks(tmp_path, monkeypatch
     found = [str(p.relative_to(tmp_path)) for p in verify_repo._iter_notebooks(tmp_path)]
 
     assert found == ["notebooks/task-a/notebook.ipynb"]
+
+
+def _write_source_hash_notebook(path: Path, cells: list) -> None:
+    import nbformat
+
+    notebook = nbformat.v4.new_notebook()
+    notebook.cells = cells
+    nbformat.write(notebook, str(path))
+
+
+def test_source_hash_findings_fail_closed_for_all_active_cell_types(tmp_path, monkeypatch):
+    import nbformat
+
+    notebook_path = tmp_path / "notebooks" / "task-a" / "freshness.ipynb"
+    notebook_path.parent.mkdir(parents=True)
+    output = nbformat.v4.new_output("stream", name="stdout", text="retained\n")
+    missing = nbformat.v4.new_code_cell("missing = 1\n", outputs=[output])
+    invalid = nbformat.v4.new_code_cell("invalid = 1\n", outputs=[output])
+    invalid.metadata["source_hash"] = "not-a-sha256"
+    stale = nbformat.v4.new_code_cell("current = 1\n", outputs=[output])
+    stale.metadata["source_hash"] = compute_source_hash("old = 1\n")
+    orphan = nbformat.v4.new_code_cell("orphan = 1\n")
+    orphan.metadata["source_hash"] = "anything"
+    markdown_orphan = nbformat.v4.new_markdown_cell("# Markdown")
+    markdown_orphan.metadata["source_hash"] = "anything"
+    raw_orphan = nbformat.v4.new_raw_cell("raw")
+    raw_orphan.metadata["source_hash"] = "anything"
+    current = nbformat.v4.new_code_cell("current = 1\n", outputs=[output])
+    current.metadata["source_hash"] = compute_source_hash(current.source)
+    _write_source_hash_notebook(
+        notebook_path,
+        [missing, invalid, stale, orphan, markdown_orphan, raw_orphan, current],
+    )
+    monkeypatch.setattr(verify_repo, "ACTIVE_TASK_DIRS", ("task-a",))
+
+    findings = verify_repo._source_hash_findings(tmp_path)
+
+    assert [(finding.id, finding.location) for finding in findings] == [
+        ("E8.source_hash_missing", "notebooks/task-a/freshness.ipynb:cell[0]"),
+        ("E8.source_hash_invalid", "notebooks/task-a/freshness.ipynb:cell[1]"),
+        ("E8.stale_output", "notebooks/task-a/freshness.ipynb:cell[2]"),
+        ("E8.source_hash_orphan", "notebooks/task-a/freshness.ipynb:cell[3]"),
+        ("E8.source_hash_orphan", "notebooks/task-a/freshness.ipynb:cell[4]"),
+        ("E8.source_hash_orphan", "notebooks/task-a/freshness.ipynb:cell[5]"),
+    ]
+    assert {finding.severity for finding in findings} == {"error"}
+
+
+def test_source_hash_findings_ignore_archived_invalid_marker(tmp_path, monkeypatch):
+    import nbformat
+
+    active = tmp_path / "notebooks" / "task-a" / "current.ipynb"
+    archive = tmp_path / "notebooks" / "archive" / "old-task" / "legacy.ipynb"
+    active.parent.mkdir(parents=True)
+    archive.parent.mkdir(parents=True)
+    output = nbformat.v4.new_output("stream", name="stdout", text="retained\n")
+    current = nbformat.v4.new_code_cell("current = 1\n", outputs=[output])
+    current.metadata["source_hash"] = compute_source_hash(current.source)
+    archived = nbformat.v4.new_code_cell("old = 1\n", outputs=[output])
+    archived.metadata["source_hash"] = "not-a-sha256"
+    _write_source_hash_notebook(active, [current])
+    _write_source_hash_notebook(archive, [archived])
+    monkeypatch.setattr(verify_repo, "ACTIVE_TASK_DIRS", ("task-a",))
+
+    assert verify_repo._source_hash_findings(tmp_path) == []
 
 
 def test_assignment_names_ignore_comments_and_strings():

@@ -245,6 +245,12 @@ Notebooks are tiered by execution cost:
 
 Tier-A CI writes executed notebook copies under `/tmp/ml-tier-a`; Tier-B/C smoke targets write under `/tmp/ml-smoke`. Papermill intentionally runs each notebook from its own task directory so relative paths behave like an interactive run. Training and evaluation may therefore create ignored task-local `./data/` or `./runs/` artifacts even when source notebook outputs are preserved; committed output text such as `Run saved to ./runs/...` describes that notebook-local runtime location, not files guaranteed to exist in a clean checkout.
 
+Every retained-output code cell in an active notebook also carries a source-freshness marker. The
+marker proves that retained outputs correspond to the current source, not that nondeterministic
+output rendering is byte-reproducible; output bytes are never part of that claim. Normal execution
+targets stamp successful notebooks automatically. See [the repository conventions](docs/conventions.md#524-notebook-output-freshness)
+for the exact marker and verification contract.
+
 See [docs/env-setup.md](docs/env-setup.md) for the tier mapping.
 
 ## 6. NNx library

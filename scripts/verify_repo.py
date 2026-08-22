@@ -3292,6 +3292,74 @@ def _runtime_available() -> bool:
     )
 
 
+def _source_hash_findings(repo: Path) -> list[Finding]:
+    """Require current source hashes for retained active notebook outputs."""
+    from scripts.stamp_notebook_source_hashes import compute_source_hash
+
+    findings: list[Finding] = []
+    for notebook in _iter_notebooks(repo):
+        rel = _notebook_rel(notebook, repo)
+        try:
+            document = nbformat.read(notebook, as_version=4)
+        except Exception:
+            continue
+        for cell_index, cell in enumerate(document.cells):
+            location = f"{rel}:cell[{cell_index}]"
+            metadata = cell.get("metadata", {})
+            has_marker = "source_hash" in metadata
+            if cell.cell_type != "code":
+                if has_marker:
+                    findings.append(Finding(
+                        id="E8.source_hash_orphan", check="execution", severity="error",
+                        location=location,
+                        message=(
+                            f"{cell.cell_type} cell carries metadata.source_hash; "
+                            "remove it or re-run the source-hash stamper"
+                        ),
+                    ))
+                continue
+            outputs = cell.get("outputs", [])
+            if not outputs:
+                if has_marker:
+                    findings.append(Finding(
+                        id="E8.source_hash_orphan", check="execution", severity="error",
+                        location=location,
+                        message=(
+                            "outputless code cell carries metadata.source_hash; "
+                            "remove it or re-run the source-hash stamper"
+                        ),
+                    ))
+                continue
+            if not has_marker:
+                findings.append(Finding(
+                    id="E8.source_hash_missing", check="execution", severity="error",
+                    location=location,
+                    message=(
+                        "output-bearing code cell is missing metadata.source_hash; "
+                        "re-run the notebook and stamp its outputs"
+                    ),
+                ))
+                continue
+            marker = metadata["source_hash"]
+            if not isinstance(marker, str) or re.fullmatch(r"[0-9a-f]{64}", marker) is None:
+                findings.append(Finding(
+                    id="E8.source_hash_invalid", check="execution", severity="error",
+                    location=location,
+                    message=(
+                        "metadata.source_hash must be a bare lowercase SHA-256 digest; "
+                        "re-run the notebook and stamp its outputs"
+                    ),
+                ))
+                continue
+            if marker != compute_source_hash(cell.source):
+                findings.append(Finding(
+                    id="E8.stale_output", check="execution", severity="error",
+                    location=location,
+                    message="cell source changed since last execution; re-run to refresh outputs",
+                ))
+    return findings
+
+
 def check_execution(repo: Path, fast: bool) -> CheckResult:
     result = CheckResult(name="execution")
     result.findings.extend(_atlas_manifest_findings(repo))
@@ -3465,34 +3533,7 @@ def check_execution(repo: Path, fast: bool) -> CheckResult:
             ))
         result.findings.extend(_parameter_trailing_comment_findings(doc, rel))
 
-    # V6: Tier-A notebook outputs should match the current source. Cheap check:
-    # for each code cell that has outputs, source byte-hash should match the
-    # hash recorded in the cell's `metadata.source_hash` field if present.
-    # We don't enforce — only flag drift when a freshness marker exists.
-    # (No-op if the marker is absent, which it currently always is. The marker
-    # gets written by a future post-execution hook; this check pre-positions
-    # the verifier for that.)
-    for rel in TIER_A_NOTEBOOKS:
-        nb = repo / rel
-        if not nb.exists():
-            continue
-        try:
-            doc = nbformat.read(nb, as_version=4)
-        except Exception:
-            continue
-        for ci, cell in enumerate(doc.cells):
-            if cell.cell_type != "code":
-                continue
-            recorded = cell.get("metadata", {}).get("source_hash")
-            if recorded is None:
-                continue
-            current = hashlib.sha256(cell.source.encode("utf-8")).hexdigest()
-            if recorded != current:
-                result.findings.append(Finding(
-                    id="E8.stale_output", check="execution", severity="warning",
-                    location=f"{rel}:cell[{ci}]",
-                    message="cell source changed since last execution; re-run to refresh outputs",
-                ))
+    result.findings.extend(_source_hash_findings(repo))
 
     for nb in _iter_notebooks(repo):
         rel = _notebook_rel(nb, repo)

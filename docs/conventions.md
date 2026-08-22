@@ -146,6 +146,42 @@ compared, so wording fixes are safe. Edit phase3 markdown via
 `scripts/edit_notebook_markdown.py` rather than by hand. The historical `pre-cleanup-baseline`
 remains an unchanged rollback anchor; never move either published baseline tag.
 
+### 5.2.4 Notebook output freshness
+
+For every output-bearing code cell in a notebook enumerated by the authoritative
+`active_task_dirs` inventory, `cell.metadata.source_hash` is a bare lowercase 64-character
+SHA-256 digest of the exact UTF-8 logical code-cell source. A JSON `source` string is used as-is;
+a JSON `source` array concatenates its string elements with no separator. Whitespace, comments,
+magics, line endings, and syntax are not normalized.
+
+Output bytes are never hashed. The marker says retained outputs correspond to the source now in
+the cell; it does not say that nondeterministic output rendering is byte-reproducible. E8 reports
+error severity for missing, malformed, stale, or orphan markers across all active notebooks.
+Any `metadata.source_hash` on an outputless code, markdown or raw cell is
+`E8.source_hash_orphan`; normal stamping removes all such markers.
+
+The exception boundary is deliberately narrow: `notebooks/archive/` is immutable historical
+material outside the active inventory, and outputless code cells are structurally inapplicable and
+must not carry a marker. There is no tag, path, wildcard, or general exemption for an
+output-bearing active cell.
+
+`make run-tier-a`, `make smoke-tier-a`, `make smoke-tier-b`, and `make smoke-tier-c` invoke
+`scripts/stamp_notebook_source_hashes.py` only after successful Papermill execution. Papermill
+inputs may inherit prior source hashes, so merely skipping that success stamper is not sufficient
+when execution fails. On a nonzero exit, each Make target checks whether its in-place or temporary
+artifact exists and invokes `--clear` to validate the failed/partial notebook and atomically remove
+every cell's `metadata.source_hash`; the success stamper is never invoked. The target preserves
+the execution failure even when cleanup also fails. This caught-failure boundary cannot run after
+an uncatchable host or process kill, so it does not claim crash durability beyond the atomic file
+replacement itself.
+
+Clear mode requires one or more explicit notebook paths and rejects `--all-active`. For intentional
+maintenance repair, use `python scripts/stamp_notebook_source_hashes.py --all-active`; it is not a
+replacement for executing changed source. A success-stamper failure still fails the Make target.
+Both modes validate the raw nbformat-4 schema on the parsed JSON without normalization or coercion
+before mutation. Rollback is separable: reverting verifier/execution enforcement does not rewrite
+outputs, while reverting the metadata migration alone makes E8 fail.
+
 ## 5.3 Validation gates
 
 A change is not ready until the repository verifier, complete pytest contract,

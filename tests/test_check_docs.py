@@ -1865,6 +1865,41 @@ def test_model_surgery_docs_do_not_claim_init_can_preserve_non_relu_deepening():
         assert "materially different surgery operator" in text
 
 
+_EARLY_STOPPING_REGRESSION_DOCS = (
+    "notebooks/tabular_regression-diabetes-mlp-pytorch/README.md",
+    "docs/notebooks/tabular_regression-diabetes-mlp-pytorch.md",
+    "docs/superpowers/plans/2026-08-22-issue-72-nnx-upstream-triage-implementation-plan.md",
+)
+
+
+def _assert_early_stopping_regression_field_wording(documents: Mapping[str, str]) -> None:
+    assert set(documents) == set(_EARLY_STOPPING_REGRESSION_DOCS)
+    for text in documents.values():
+        assert "no `error` field" not in text
+        assert "unset (`None`)" in text
+
+
+def test_early_stopping_regression_field_wording_is_synced_across_surfaces():
+    documents = {
+        path: (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in _EARLY_STOPPING_REGRESSION_DOCS
+    }
+    _assert_early_stopping_regression_field_wording(documents)
+
+
+@pytest.mark.parametrize("path", _EARLY_STOPPING_REGRESSION_DOCS)
+def test_early_stopping_regression_field_wording_rejects_surface_drift(path):
+    documents = {
+        candidate: (REPO_ROOT / candidate).read_text(encoding="utf-8")
+        for candidate in _EARLY_STOPPING_REGRESSION_DOCS
+    }
+    assert "unset (`None`)" in documents[path]
+    documents[path] = documents[path].replace("unset (`None`)", "absent", 1)
+
+    with pytest.raises(AssertionError):
+        _assert_early_stopping_regression_field_wording(documents)
+
+
 def test_nnx_current_pin_and_issue63_advisory_snapshot_match_restored_manifest():
     requirements = (REPO_ROOT / "requirements.txt").read_bytes()
     ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")

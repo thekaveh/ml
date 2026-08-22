@@ -116,7 +116,7 @@ def _assert_nnx_finding_triage_docs(text: str) -> None:
         "### 9.1.1.1 `NNDataset` default `batch_size` packs the whole train set into one batch",
         "### 9.1.1.2 `nnx.deepen` is function-preserving only for `Activations.RELU`",
         "### 9.1.1.3 `NNTabularDataset` coerces targets to `torch.long` (classification-only)",
-        "### 9.1.1.4 `EarlyStopping(monitor=...)` default is `\"val_edp.error\"`, doesn't exist for regression EDPs",
+        "### 9.1.1.4 `EarlyStopping(monitor=...)` default is `\"val_edp.error\"`, which is unset (`None`) for regression EDPs",
         "### 9.1.1.5 training completion messages expose absolute run paths",
     )
     for heading in headings:

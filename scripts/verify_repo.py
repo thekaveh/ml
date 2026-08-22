@@ -927,8 +927,10 @@ _STALE_ACTIVE_NOTEBOOK_PATHS: tuple[tuple[str, re.Pattern], ...] = (
     (
         "absolute NNx saved-run output",
         re.compile(
-            r"Run saved to (?:/[^\r\n\"]*?/runs/|"
-            r"[A-Za-z]:[\\/]+[^\r\n\"]*?[\\/]+runs[\\/]+)[^\\/\s\"]+"
+            r"Run saved to (?:/(?:[^\r\n\"]*?/)?runs/|"
+            r"(?:[A-Za-z]:[\\/]+|[\\/]{2,}[^\\/\s\"]+[\\/]+"
+            r"[^\\/\s\"]+[\\/]+)(?:[^\r\n\"]*?[\\/]+)?runs[\\/]+)"
+            r"[^\\/\s\"]+"
         ),
     ),
 )

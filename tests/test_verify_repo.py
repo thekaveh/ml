@@ -4057,7 +4057,9 @@ def test_e13_flags_removed_nnx_source_tree_and_host_python_paths(tmp_path, monke
     "saved_path",
     (
         "/private/tmp/worktree/runs/2026-08-22_12-00-00",
+        "/runs/2026-08-22_12-00-00",
         r"C:\Users\alice\worktree\runs\2026-08-22_12-00-00",
+        r"\\server\share\runs\2026-08-22_12-00-00",
     ),
 )
 def test_e13_flags_absolute_nnx_run_saved_paths(tmp_path, monkeypatch, saved_path):

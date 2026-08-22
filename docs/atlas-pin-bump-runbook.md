@@ -97,8 +97,10 @@ merge a pin bump straight to `main`; keep the two review boundaries visible.
 Do this before enabling any additional Atlas service for a notebook:
 
 1. **Specify the need.** Add the service to the relevant task's `docs/spec.yaml` contract,
-   including workspace access, artifact policy, required environment values, and why JupyterHub
-   alone is insufficient.
+   including workspace access, artifact policy, and a `required_env` list of exact
+   `{name, service}` bindings explaining why JupyterHub alone is insufficient. A binding records
+   the injected variable's name and supplying service, never its value, endpoint, credential,
+   token, or host path.
 2. **Select the narrowest source.** Prefer disabled until needed, then a scoped in-track or
    explicitly declared source. For AI engines, prefer a host-native source when the workstation
    owns the model runtime. Do not inherit an ambient terminal value.

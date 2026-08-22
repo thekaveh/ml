@@ -923,7 +923,6 @@ def find_nndataset_batching_violations(
     expected_loader_aliases: dict[str, str],
 ) -> list[str]:
     trees: list[tuple[int, ast.Module]] = []
-    constants: dict[str, object] = {}
     for idx, cell in enumerate(_code_cells(nb)):
         source = _python_cell_source(cell)
         try:
@@ -931,22 +930,11 @@ def find_nndataset_batching_violations(
         except SyntaxError:
             continue
         trees.append((idx, tree))
-        for node in tree.body:
-            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
-                continue
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            value = node.value
-            if value is None:
-                continue
-            for target in targets:
-                if not isinstance(target, ast.Name):
-                    continue
-                try:
-                    constants[target.id] = ast.literal_eval(value)
-                except (ValueError, TypeError):
-                    continue
 
-    def resolve_tuple(node: ast.AST) -> tuple[object, ...] | None:
+    def resolve_tuple(
+        node: ast.AST,
+        constants: dict[str, object],
+    ) -> tuple[object, ...] | None:
         if not isinstance(node, ast.Tuple):
             return None
         resolved: list[object] = []
@@ -961,55 +949,127 @@ def find_nndataset_batching_violations(
         return tuple(resolved)
 
     violations: list[str] = []
-    dataset_calls = [
-        (idx, node)
-        for idx, tree in trees
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and _called_name(node) == "NNDataset"
-    ]
+    constants: dict[str, object] = {}
+    dataset_calls: list[tuple[int, ast.Call, bool, tuple[object, ...] | None]] = []
+    for idx, tree in trees:
+        for statement in tree.body:
+            for node in ast.walk(statement):
+                if not isinstance(node, ast.Call) or _called_name(node) != "NNDataset":
+                    continue
+                values = [
+                    keyword.value for keyword in node.keywords
+                    if keyword.arg == "batch_sizes"
+                ]
+                actual = (
+                    resolve_tuple(values[0], constants)
+                    if len(values) == 1
+                    else None
+                )
+                is_direct_ds_assignment = (
+                    isinstance(statement, ast.Assign)
+                    and len(statement.targets) == 1
+                    and isinstance(statement.targets[0], ast.Name)
+                    and statement.targets[0].id == "ds"
+                    and statement.value is node
+                )
+                dataset_calls.append((idx, node, is_direct_ds_assignment, actual))
+
+            if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = (
+                statement.targets
+                if isinstance(statement, ast.Assign)
+                else [statement.target]
+            )
+            value = statement.value
+            for target in targets:
+                if not isinstance(target, ast.Name):
+                    continue
+                if value is None:
+                    constants.pop(target.id, None)
+                    continue
+                try:
+                    constants[target.id] = ast.literal_eval(value)
+                except (ValueError, TypeError):
+                    constants.pop(target.id, None)
+
     if len(dataset_calls) != 1:
         violations.append(f"expected exactly one NNDataset call, found {len(dataset_calls)}")
     else:
-        idx, call = dataset_calls[0]
-        values = [keyword.value for keyword in call.keywords if keyword.arg == "batch_sizes"]
-        actual = resolve_tuple(values[0]) if len(values) == 1 else None
+        idx, _call, is_direct_ds_assignment, actual = dataset_calls[0]
+        if not is_direct_ds_assignment:
+            violations.append(
+                f"code_cell[{idx}]: NNDataset call must be assigned directly to ds at top level"
+            )
         if actual != expected_batch_sizes:
             violations.append(
                 f"code_cell[{idx}]: expected batch_sizes={expected_batch_sizes}, got {actual}"
             )
 
-    actual_aliases: dict[str, str] = {}
+    top_level_node_ids = {
+        id(statement)
+        for _idx, tree in trees
+        for statement in tree.body
+    }
+    alias_assignments: dict[str, list[tuple[int, ast.AST, bool]]] = {
+        alias: [] for alias in expected_loader_aliases
+    }
     for idx, tree in trees:
         for node in ast.walk(tree):
-            if isinstance(node, ast.Assign) and len(node.targets) == 1:
-                target = node.targets[0]
-                value = node.value
-                if (
-                    isinstance(target, ast.Name)
-                    and isinstance(value, ast.Attribute)
-                    and isinstance(value.value, ast.Name)
-                    and value.value.id == "ds"
-                    and value.attr in {"train_loader", "val_loader", "test_loader"}
-                ):
-                    actual_aliases[target.id] = value.attr
-            if not isinstance(node, ast.Call) or _called_name(node) != "DataLoader":
-                continue
-            for descendant in ast.walk(node):
-                if (
-                    isinstance(descendant, ast.Attribute)
-                    and descendant.attr == "dataset"
-                    and isinstance(descendant.value, ast.Attribute)
-                    and isinstance(descendant.value.value, ast.Name)
-                    and descendant.value.value.id == "ds"
-                    and descendant.value.attr in {"train_loader", "val_loader", "test_loader"}
-                ):
-                    violations.append(
-                        f"code_cell[{idx}]: rebuilds DataLoader from ds.{descendant.value.attr}.dataset"
-                    )
-    if actual_aliases != expected_loader_aliases:
-        violations.append(
-            f"expected loader aliases {expected_loader_aliases}, got {actual_aliases}"
-        )
+            targets: list[ast.AST] = []
+            if isinstance(node, ast.Assign):
+                targets = list(node.targets)
+            elif isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+                targets = [node.target]
+            for target in targets:
+                for descendant in ast.walk(target):
+                    if (
+                        isinstance(descendant, ast.Name)
+                        and descendant.id in alias_assignments
+                    ):
+                        alias_assignments[descendant.id].append(
+                            (idx, node, id(node) in top_level_node_ids)
+                        )
+
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == "dataset"
+                and isinstance(node.value, ast.Attribute)
+                and isinstance(node.value.value, ast.Name)
+                and node.value.value.id == "ds"
+                and node.value.attr in {"train_loader", "val_loader", "test_loader"}
+            ):
+                violations.append(
+                    f"code_cell[{idx}]: accesses ds.{node.value.attr}.dataset"
+                )
+
+    for alias, expected_loader in expected_loader_aliases.items():
+        assignments = alias_assignments[alias]
+        top_level_assignments = [item for item in assignments if item[2]]
+        if assignments and not top_level_assignments:
+            violations.append(
+                f"code_cell[{assignments[0][0]}]: {alias} must be a top-level assignment"
+            )
+            continue
+        if len(assignments) != 1 or len(top_level_assignments) != 1:
+            violations.append(
+                f"expected exactly one top-level assignment to {alias}, "
+                f"found {len(top_level_assignments)} top-level and {len(assignments)} total"
+            )
+            continue
+        idx, assignment, _is_top_level = assignments[0]
+        if not (
+            isinstance(assignment, ast.Assign)
+            and len(assignment.targets) == 1
+            and isinstance(assignment.targets[0], ast.Name)
+            and isinstance(assignment.value, ast.Attribute)
+            and isinstance(assignment.value.value, ast.Name)
+            and assignment.value.value.id == "ds"
+            and assignment.value.attr == expected_loader
+        ):
+            violations.append(
+                f"code_cell[{idx}]: expected {alias} = ds.{expected_loader}"
+            )
     return violations
 
 
@@ -1026,6 +1086,91 @@ def test_issue69_notebooks_use_nndataset_batching_contract():
             )
         )
     assert not violations, "\n".join(violations)
+
+
+def _issue69_batching_violations(source: str) -> list[str]:
+    return find_nndataset_batching_violations(
+        _synthetic_nb({
+            "cell_type": "code",
+            "source": source.splitlines(keepends=True),
+            "outputs": [],
+        }),
+        expected_batch_sizes=(128, None, None),
+        expected_loader_aliases={"train_loader": "train_loader"},
+    )
+
+
+def test_issue69_batching_guard_allows_direct_dataset_loader_alias():
+    source = """\
+BATCH_SIZE = 128
+ds = NNDataset(batch_sizes=(BATCH_SIZE, None, None))
+train_loader = ds.train_loader
+"""
+    assert not _issue69_batching_violations(source)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_fragment"),
+    [
+        (
+            """\
+BATCH_SIZE = 128
+ds = NNDataset(batch_sizes=(BATCH_SIZE, None, None))
+raw_dataset = ds.train_loader.dataset
+train_loader = DataLoader(raw_dataset, batch_size=64)
+""",
+            "accesses ds.train_loader.dataset",
+        ),
+        (
+            """\
+BATCH_SIZE = 128
+ds = NNDataset(batch_sizes=(BATCH_SIZE, None, None))
+train_loader = ds.train_loader
+train_loader = DataLoader(other_dataset, batch_size=64)
+""",
+            "expected exactly one top-level assignment to train_loader",
+        ),
+        (
+            """\
+BATCH_SIZE = 128
+ds = NNDataset(batch_sizes=(BATCH_SIZE, None, None))
+if False:
+    train_loader = ds.train_loader
+""",
+            "must be a top-level assignment",
+        ),
+        (
+            """\
+BATCH_SIZE = 64
+ds = NNDataset(batch_sizes=(BATCH_SIZE, None, None))
+BATCH_SIZE = 128
+train_loader = ds.train_loader
+""",
+            "expected batch_sizes=(128, None, None), got (64, None, None)",
+        ),
+        (
+            """\
+BATCH_SIZE = 128
+ds = NNDataset(batch_sizes=(64, None, None))
+train_loader = ds.train_loader
+""",
+            "expected batch_sizes=(128, None, None), got (64, None, None)",
+        ),
+    ],
+    ids=(
+        "indirect-loader-rebuild",
+        "loader-alias-overwrite",
+        "dead-code-loader-alias",
+        "late-batch-size-rebind",
+        "wrong-batch-size-tuple",
+    ),
+)
+def test_issue69_batching_guard_rejects_contract_bypasses(
+    source: str,
+    expected_fragment: str,
+):
+    violations = _issue69_batching_violations(source)
+    assert any(expected_fragment in violation for violation in violations), violations
 
 
 def find_signature_violations(nb: dict, required: dict[str, set[str]]) -> list[str]:

@@ -2,7 +2,7 @@
 # policy-sha256: 12a543381ea499d0c8938715d5f008624c62a89b59b0ac818b87191b46e9f441
 # target: supported-matrix
 # input-sha256: requirements.txt=6e86caa5a287e9566e15bdffbb6628249397307783dee3b6e98e728ef06275b9
-# input-sha256: bootstrap-requirements.txt=a90b006bfad1e62f91cdcfbf46955fc8df06bfbdd908941335488c292dae7a73
+# input-sha256: bootstrap-requirements.txt=b1338d34c580fa41a380e2e06b21f1bbaeea9ade52068ca7595e55bed25170ea
 # input-sha256: compiler-requirements.txt=38b2bfcddf48e3ff6af319f0e2fffdb97ca1b68a8f629b776c244ec38a9c60a9
 # input-sha256: nlp-model-requirements.txt=e1d95001e456e45c62dc74aa240cd7370e80b89f5e607a26bb0df30711a99e80
 # input-sha256: torch-core-requirements.txt=28b09abee07d1c3551b47f28938a546bf1dd712f18e34bea9b40e3d49410810b

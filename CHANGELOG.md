@@ -13,6 +13,10 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Bootstrap pip security refresh:** advanced the universal bootstrap and all generated
+  platform/tool locks from `pip==26.1.2` to fixed `pip==26.2.1` after the advisory feed began
+  reporting `PYSEC-2026-3721`. The advisory affects pip versions before 26.2; no exception was
+  added to the accepted-advisory policy.
 - **Atlas pin review (Issue #65):** retained the exact reviewed `infra/` gitlink
   `41ba856f7cd35f0b559d6875e08443eac3e98a98` after a fresh fetch proved Atlas
   `origin/main` was identical. The historical 30-first-parent/43-total-commit

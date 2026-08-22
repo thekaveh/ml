@@ -15,7 +15,7 @@ platform locks. An offline verifier proves repository coherence, while explicitl
 and image checks prove registry truth. Advisory observations are derived from exact locks rather
 than re-resolving source manifests.
 
-**Tech stack:** Python 3.11, pip 26.1.2, setuptools 81.0.0, wheel 0.47.0, packaging 26.2,
+**Tech stack:** Python 3.11, pip 26.2.1, setuptools 81.0.0, wheel 0.47.0, packaging 26.2,
 uv 0.11.19, TOML, JSON, GNU Make, GitHub Actions, Docker Buildx, pip-audit 2.10.0, pytest, Ruff,
 MkDocs, papermill, and the exact Issue #62 Torch/PyG/NNx matrix.
 
@@ -69,7 +69,7 @@ MkDocs, papermill, and the exact Issue #62 Torch/PyG/NNx matrix.
 
 ### 12.24.2.1 Human-authored inputs
 
-- `bootstrap-requirements.txt`: `pip==26.1.2`, `setuptools==81.0.0`, `wheel==0.47.0`,
+- `bootstrap-requirements.txt`: `pip==26.2.1`, `setuptools==81.0.0`, `wheel==0.47.0`,
   `packaging==26.2`.
 - `compiler-requirements.txt`: exactly `uv==0.11.19`.
 - `nlp-model-requirements.txt`: exact official spaCy model wheel URL plus SHA-256

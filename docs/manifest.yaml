@@ -239,6 +239,10 @@ sections:
         number: "12.35"
         title: Issue 71 notebook source/output freshness hashes design
         source: docs/superpowers/specs/2026-08-22-issue-71-notebook-freshness-hashes-design.md
+      - id: issue-71-notebook-freshness-hashes-implementation
+        number: "12.36"
+        title: Issue 71 notebook source/output freshness hashes implementation plan
+        source: docs/superpowers/plans/2026-08-22-issue-71-notebook-freshness-hashes-implementation-plan.md
   - id: security
     number: "13"
     title: Security policy

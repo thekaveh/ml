@@ -84,8 +84,9 @@ rounding, not bit-exact).
 identity: \(W_{\text{new}} = I\), \(b_{\text{new}} = 0\). For a ReLU activation the composition
 \(\text{ReLU}(I\,h + 0) = \text{ReLU}(h)\) is exactly the original, so the inserted layer is a
 literal no-op at step 0 — bit-exact, drift \(0.00\). For sigmoid/tanh/GELU the identity-init does
-not compose through the activation, so a different post-insertion init would be needed; the notebook
-pins the baseline to `Activations.RELU` to honor this.
+not compose through the activation; exact preservation would require a materially different surgery
+operator, not a different constant initialization. The notebook pins the baseline to
+`Activations.RELU` to honor this.
 
 The training objective is cross-entropy on the MNIST logits,
 
@@ -254,9 +255,10 @@ real effect, not a bug). Extending the budget is the first item in §8.5.8.
 ## 8.5.7 Pitfalls & edge cases
 
 - **`nnx.deepen` is function-preserving only for ReLU.** The identity-initialized inserted layer
-  composes through ReLU exactly; for sigmoid/tanh/GELU it does not, and a different post-insertion
-  init would be needed. The notebook pins `Activations.RELU` to honor the contract — if you swap
-  the activation, the `deepen_drift < 1e-5` assertion will fail.
+  composes through ReLU exactly; for sigmoid/tanh/GELU it does not. Exact preservation would require
+  a materially different surgery operator, not another constant initialization. The notebook pins
+  `Activations.RELU` to honor the contract — if you swap the activation, the
+  `deepen_drift < 1e-5` assertion will fail.
 - **`nnx.widen` is not bit-exact.** Its drift is \(\sim 10^{-6}\) (floating-point rounding from the
   shared-donor row scaling), not `0.00`. The `1e-5` tolerance accommodates this; do not tighten it
   to `0` or the widen assertion will fire on a correct primitive.

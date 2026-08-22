@@ -332,7 +332,8 @@ the differences are pure variance.
   reproducibility instead.
 - **`EarlyStopping`'s default monitor is the wrong one for regression.** The default monitor is
   `val_edp.error` — for *classification* (lower error = better, `mode="min"`). For regression
-  there is no `error` field on the evaluation data point; the right monitor is `val_edp.loss`.
+  the optional `error` field on the evaluation data point is unset (`None`); the right monitor is
+  `val_edp.loss`.
   The notebook does not use `EarlyStopping` (to keep the budget predictable), but downstream
   regression notebooks should pass `monitor="val_edp.loss"` explicitly if they do.
 - **Fit the scaler on train only.** Applying `fit_transform` to val or test leaks their feature

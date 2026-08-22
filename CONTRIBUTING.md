@@ -5,7 +5,7 @@ A short guide for adding new notebook experiment folders and modifying shared co
 ## 1. Conventions
 
 - This is a notebook-driven ML lab. Each active task is a self-contained directory under `notebooks/` using the `[task]-[dataset]-[model]-[framework]` naming convention. Do not introduce a `tasks/` subdirectory or family-prefixed dirs (`vision/`, `nlp/`, ...).
-- Shared library code lives in **`thekaveh-nnx`** — the PyTorch toolkit installed from PyPI ([source: `thekaveh/NNx`](https://github.com/thekaveh/NNx)), pinned in `requirements.txt` to `thekaveh-nnx[lm]==0.2.0` for compatibility with the recommended Atlas JupyterHub runtime. Notebooks import via `from nnx.X import Y`. Do not reintroduce a local `common/` directory — `scripts/verify_repo.py` enforces this via `S7.forbidden_toplevel`.
+- Shared library code lives in **`thekaveh-nnx`** — the PyTorch toolkit installed from PyPI ([source: `thekaveh/NNx`](https://github.com/thekaveh/NNx)), pinned in `requirements.txt` to `thekaveh-nnx[lm]==0.2.0` for compatibility with the recommended Atlas JupyterHub runtime. Import supported symbols through the public facade (`from nnx import NNModel, NNParams`), not equivalent deep package paths. Do not reintroduce a local `common/` directory — `scripts/verify_repo.py` enforces this via `S7.forbidden_toplevel`.
 - The `notebooks/archive/` directory holds preserved-as-is experiments. Read-only.
 - New notebooks should include a top markdown cell stating purpose and dataset, plus the canonical §1–§6 hierarchy (Overview / Setup / Data / Model / Training / Evaluation & Results). Phase-1 exploration notebooks use a variant: §1, §2, §3 Dataset deep-dive.
 
@@ -26,7 +26,7 @@ discussion, or pull request containing an undisclosed vulnerability or sensitive
 5. Run `make test` (wraps `pytest tests/`) locally. CI runs the same complete contract on every PR as the required `pytest-repository` job; `pytest-nnx-surface` remains the faster focused NNx/PyPI compatibility and Ruff signal.
 6. Before a PR that changes the parent-owned Atlas consumer policy, run `make test-atlas-consumer`. `atlas-consumer-policy` is unconditional on every pull request and is intended to be a required gate. `atlas-contract` remains a separate, path-scoped, non-required direct validator of the recursive `infra/` submodule.
 7. Before a PR that changes an audited dependency manifest or the accepted-advisory policy, run `make audit-advisories`. The isolated `dependency-audit` job validates the resolver-safe and pre-resolved PyG audit projections against the runtime manifest, then merges their strict results into the same four logical surfaces. After the controller updates the GitHub ruleset, it is required alongside `pytest-repository` and `atlas-consumer-policy`.
-8. If you touched a notebook, re-run it at its tier (Tier-A: `make run-tier-a` only when deliberately refreshing a committed snapshot; `make smoke-tier-a` is the non-mutating CI-equivalent target; Tier-B: `make smoke-tier-b`; Tier-C: `make smoke-tier-c`). Tier-C **code cells** must remain identical to the `pre-cleanup-baseline` tag — verify check E5 enforces this (markdown and embedded outputs are not compared).
+8. If you touched a notebook, re-run it at its tier (Tier-A: `make run-tier-a` only when deliberately refreshing a committed snapshot; `make smoke-tier-a` is the non-mutating CI-equivalent target; Tier-B: `make smoke-tier-b`; Tier-C: `make smoke-tier-c`). Tier-C **code cells** must remain identical to the immutable annotated `tier-c-public-facade-baseline-2026-08-22` tag at commit `296a7227bb2bfbb595e99aa4dbee760e867b83c7` — verify check E5 fails closed if the tag is missing, lightweight, moved, or source-divergent (markdown and embedded outputs are not compared).
 9. Open a PR. CI runs complete pytest, Atlas consumer policy, dependency audit, and Tier-A automatically; Tier-B runs on schedule, on `workflow_dispatch`, and on PRs labeled `tier-b-smoke`; Tier-C runs on schedule and on `workflow_dispatch`.
 
 ## 3. Adding a new task folder
@@ -91,7 +91,7 @@ make verify-nlp-assets
 - `python scripts/verify_repo.py --check all --fast` — structure, docs, comments, env-limited execution. Fast (<30s).
 - `python scripts/verify_repo.py --check all` — adds the full Tier-A/B/C papermill smoke. Requires the Atlas JupyterHub runtime or an equivalent fully-provisioned environment.
 
-Exit code 0 iff zero error-severity findings; warnings are informational. Tier-C **code-cell source** equality with the `pre-cleanup-baseline` git tag is enforced by check E5 (markdown / outputs are not compared). Edits to phase3 markdown cells should still use `scripts/edit_notebook_markdown.py` for safety.
+Exit code 0 iff zero error-severity findings; warnings are informational. Tier-C **code-cell source** equality with the immutable annotated `tier-c-public-facade-baseline-2026-08-22` git tag at commit `296a7227bb2bfbb595e99aa4dbee760e867b83c7` is enforced fail-closed by check E5 (markdown / outputs are not compared). Edits to phase3 markdown cells should still use `scripts/edit_notebook_markdown.py` for safety.
 
 After the last package or data install, run `python -m pip check`, `make verify-torch-stack`, and
 `make verify-nnx-install`; never mutate the environment between those gates and the workload. Keep

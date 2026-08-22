@@ -19,7 +19,7 @@ The model is *intentionally tiny* — a 3-layer MLP denoiser on flattened 784-D 
 
 - §1 Overview — DDPM recipe, the four `nnx` pieces, libraries.
 - §2 Environment & Setup — imports, hyperparameters (`T=100`, `DENOISER_HIDDEN=[256, 256]`, `TIME_EMBED_DIM=32`, `N_EPOCHS=3`, `BATCH_SIZE=128`), `nnx.set_seed(0)`.
-- §3 Data — `NNDataset` on MNIST + custom `DataLoader(batch_size=128)` (NNDataset's default packs the whole 54k train set into one batch — too few noise-level samples per epoch for diffusion to learn).
+- §3 Data — `NNDataset` on MNIST with `batch_sizes=(128, None, None)` so diffusion receives 128-sample train mini-batches through the public wrapper.
 - §4 Model — `NNModel` shell with a placeholder `FeedFwdNN` swapped for `DiffusionMLP` (`.net` substitution); noise schedule + train step contract.
 - §5 Training — `diffusion_train_step_factory(schedule)` + `model.train(..., train_step_fn=step_fn)`. The recorded run does 1,266 iterations (3 epochs × 422 batches), noise-prediction loss 1.0102 → 0.9317.
 - §6 Evaluation & Results — `sample(model, schedule, shape=(16, 784))` draws 16 samples via the reverse-diffusion loop, reshaped to 28×28 and rendered as a 4×4 grid; §6.3 discussion of capacity bottlenecks + scale levers.
@@ -51,6 +51,6 @@ All in the root `requirements.txt` + `torch-requirements.txt`.
 ## 6. Known issues
 
 - **Generated digits are blurry / mode-mixed.** Expected at this scale + budget (3 epochs × MLP denoiser on flat pixels × T=100). The §6.3 prose owns this; scaling levers are U-Net denoiser, larger T, more training, DDIM sampling.
-- **`NNDataset` default batch_size is the whole train set** (54,000 for MNIST). For diffusion this gives ~1 iteration per epoch — far too few noise-level samples for the denoiser to learn. The notebook rebuilds `train_loader = DataLoader(ds.train_loader.dataset, batch_size=128, shuffle=True)` in §3.1 to fix this.
+- **`NNDataset` defaults to whole-split batches** (54,000 training samples for MNIST). For diffusion this would give ~1 iteration per epoch, so §3.1 passes `batch_sizes=(128, None, None)` to retain 128-sample shuffled train batches while leaving validation and test at their defaults.
 - **MLP on flattened pixels loses spatial structure.** A U-Net would let the denoiser exploit translation symmetries; the MLP doesn't and so over-fits the input distribution's global pixel statistics rather than the local stroke geometry.
 - **`Normalize(mean=0.1307, std=0.3081)` shifts the pixel range.** Samples are un-normalized via `samples * DS_STD + DS_MEAN` in §6.1 before clamping to `[0, 1]` for display. If you'd skipped normalization, the diffusion math would be the same but the samples would be in `[0, 1]` directly.

@@ -20,6 +20,7 @@
 PYTHON ?= python
 PIP ?= $(PYTHON) -m pip
 PAPERMILL ?= $(PYTHON) -m papermill
+SOURCE_HASH_STAMPER ?= $(PYTHON) scripts/stamp_notebook_source_hashes.py
 PAPERMILL_START_TIMEOUT ?= 300
 PAPERMILL_EXECUTION_TIMEOUT ?= 3600
 PAPERMILL_TIMEOUT_FLAGS = --start-timeout $(PAPERMILL_START_TIMEOUT) --execution-timeout $(PAPERMILL_EXECUTION_TIMEOUT)
@@ -140,6 +141,7 @@ run-tier-a:
 		echo "==> $$nb"; \
 		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
 		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 "$$base" "$$base") || exit 1; \
+		$(SOURCE_HASH_STAMPER) "$$nb" || exit 1; \
 	done
 
 smoke-tier-a:
@@ -149,6 +151,7 @@ smoke-tier-a:
 		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
 		mkdir -p "$$(dirname "$$out")"; \
 		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 "$$base" "$$out") || exit 1; \
+		$(SOURCE_HASH_STAMPER) "$$out" || exit 1; \
 	done
 
 check-tier-a-artifacts:
@@ -174,6 +177,7 @@ smoke-tier-b:
 		echo "==> $$nb -> $$out"; \
 		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
 		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 -p SMOKE_TEST 1 "$$base" "$$out") || exit 1; \
+		$(SOURCE_HASH_STAMPER) "$$out" || exit 1; \
 	done
 
 smoke-tier-c:
@@ -183,6 +187,7 @@ smoke-tier-c:
 		echo "==> $$nb -> $$out"; \
 		dir=$$(dirname "$$nb"); base=$$(basename "$$nb"); \
 		(cd "$$dir" && $(PAPERMILL) $(PAPERMILL_TIMEOUT_FLAGS) --kernel python3 -p SMOKE_TEST 1 "$$base" "$$out") || exit 1; \
+		$(SOURCE_HASH_STAMPER) "$$out" || exit 1; \
 	done
 
 test:

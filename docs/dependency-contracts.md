@@ -161,7 +161,7 @@ The input hashes enforced by D10 are:
 | `torch-requirements.txt` | `5ab5581cbaf6aefd0698b63e22279e799a1edd65ae003b52b65d6a3b5d64c5cb` |
 | `torch-audit-requirements.txt` | `6d544b226c6e96f296c5105a20ea00704c3e1db4bf91946392df8f3ec5236d2a` |
 | `pyg-extension-audit-requirements.txt` | `3bdf07aaf4dc3a02524d7f7e11f6127c68203403201dc32d36b356670bfff498` |
-| `docs-requirements.txt` | `3604c844c5a99c05632acb516953305c73d8ff49c78e2fa6e86900fcc7ed825a` |
+| `docs-requirements.txt` | `783e5266987bca682d92cb99348cbd6e5e24ea9b56db1241d320dac779752d34` |
 | `atlas-contract-requirements.txt` | `48591ac7488d50ef8e27ca57614f977f83cc7f6231afda63de2451c5d71d8148` |
 | `security/accepted-advisories.json` | `452ac2a787c5c13814bab63f54a97c742dd22fa8da6a6a550b8f4a416df18dbb` |
 

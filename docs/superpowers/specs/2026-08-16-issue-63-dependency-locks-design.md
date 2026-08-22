@@ -215,7 +215,8 @@ fails before installation.
 `--upgrade pip`; it installs the generated `bootstrap.txt` with
 `--require-hashes`, containing exact wheel hashes for:
 
-- `pip==26.1.2`;
+- `pip==26.2.1` (the fixed release selected after `PYSEC-2026-3721` made the prior
+  `26.1.2` bootstrap pin unacceptable);
 - `setuptools==81.0.0`; and
 - `wheel==0.47.0`; and
 - `packaging==26.2`, required by wheel 0.47.0.

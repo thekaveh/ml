@@ -2,7 +2,7 @@
 # policy-sha256: 12a543381ea499d0c8938715d5f008624c62a89b59b0ac818b87191b46e9f441
 # target: linux-aarch64
 # input-sha256: requirements.txt=6e86caa5a287e9566e15bdffbb6628249397307783dee3b6e98e728ef06275b9
-# input-sha256: bootstrap-requirements.txt=a90b006bfad1e62f91cdcfbf46955fc8df06bfbdd908941335488c292dae7a73
+# input-sha256: bootstrap-requirements.txt=b1338d34c580fa41a380e2e06b21f1bbaeea9ade52068ca7595e55bed25170ea
 # input-sha256: compiler-requirements.txt=38b2bfcddf48e3ff6af319f0e2fffdb97ca1b68a8f629b776c244ec38a9c60a9
 # input-sha256: nlp-model-requirements.txt=e1d95001e456e45c62dc74aa240cd7370e80b89f5e607a26bb0df30711a99e80
 # input-sha256: torch-core-requirements.txt=28b09abee07d1c3551b47f28938a546bf1dd712f18e34bea9b40e3d49410810b
@@ -282,9 +282,9 @@ pillow==12.3.0 \
     --hash=sha256:fdafc9cce40277e0f7a0feabce0ee50dd2fa1800f3b38015e51296b5e814048d \
     --hash=sha256:fe3cca2e4e8a592be0f269a1ca4835c25199d9f3ce815c8491048f785b0a0198 \
     --hash=sha256:ffd0c5368496f41b0944be820fcb7a838aa6e623d250b01acf2643939c3f99d7
-pip==26.1.2 \
-    --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab \
-    --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
+pip==26.2.1 \
+    --hash=sha256:71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e \
+    --hash=sha256:f6ad667e89a1fe78046c8f13232b247200f5258d7828f3f7883d660878e0813f
 setuptools==81.0.0 \
     --hash=sha256:487b53915f52501f0a79ccfd0c02c165ffe06631443a886740b91af4b7a5845a \
     --hash=sha256:fdd925d5c5d9f62e4b74b30d6dd7828ce236fd6ed998a08d81de62ce5a6310d6

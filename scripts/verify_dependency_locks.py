@@ -574,7 +574,7 @@ def verify_dependency_locks(repo: Path) -> tuple[LockFinding, ...]:
     compiler = _requirements_by_name(parsed[Path("requirements/locks/compiler.txt")])
     atlas = _requirements_by_name(parsed[Path("requirements/locks/atlas-contract.txt")])
     expected_bootstrap = {
-        "pip": Version("26.1.2"),
+        "pip": Version("26.2.1"),
         "setuptools": Version("81.0.0"),
         "wheel": Version("0.47.0"),
         "packaging": Version("26.2"),

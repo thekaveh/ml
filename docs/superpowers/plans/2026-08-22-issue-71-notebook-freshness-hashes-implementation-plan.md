@@ -11,7 +11,8 @@ malformed, stale, or orphaned.
 
 **Architecture:** A standard-library JSON stamper owns source canonicalization
 and atomic notebook updates. Papermill targets call it only after successful
-execution, while E8 imports the same digest helper and enforces the contract
+execution, while a separate clear-mode boundary removes inherited markers from
+failed artifacts. E8 imports the same digest helper and enforces the contract
 over the authoritative active-notebook inventory.
 
 **Tech Stack:** Python 3.11, JSON, SHA-256, argparse, pytest, Make, Papermill,
@@ -29,6 +30,9 @@ nbformat, MkDocs.
 - Store a bare 64-character lowercase hexadecimal digest in
   `cell.metadata.source_hash` only when a code cell has non-empty outputs.
 - Never hash output bytes and never stamp a failed or partial execution.
+- Papermill inputs may carry prior hashes, so failure cleanup atomically removes
+  them from every code cell in an existing failed artifact before the target
+  exits nonzero. The handler cannot run after an uncatchable host or process kill.
 - Enforce all active notebooks; exclude only archives and outputless code cells.
 - Preserve code, prose, outputs, execution counts, cell IDs, notebook metadata,
   and unrelated cell metadata during the one-time migration.
@@ -49,8 +53,11 @@ nbformat, MkDocs.
 - Produces: `compute_source_hash(source: object) -> str`
 - Produces: `stamp_document(document: dict[str, object]) -> int`
 - Produces: `stamp_path(notebook: pathlib.Path) -> int`
+- Produces: `clear_document(document: dict[str, object]) -> int`
+- Produces: `clear_path(notebook: pathlib.Path) -> int`
 - Produces: `active_notebook_paths(repo: pathlib.Path) -> tuple[pathlib.Path, ...]`
-- Produces: CLI accepting one or more paths or `--all-active`.
+- Produces: CLI accepting one or more paths or `--all-active` for stamping, and
+  `--clear` with one or more explicit paths only.
 
 - [ ] **Step 1: Write source and stamping tests first**
 
@@ -177,6 +184,9 @@ Commit the enforcement and its unit tests separately from notebook metadata:
 - Consumes CLI: `python scripts/stamp_notebook_source_hashes.py NOTEBOOK...`
 - Produces: post-success stamping in `run-tier-a`, `smoke-tier-a`,
   `smoke-tier-b`, and `smoke-tier-c`.
+- Consumes clear CLI: `python scripts/stamp_notebook_source_hashes.py --clear NOTEBOOK...`
+- Produces: best-effort marker cleanup for a failed artifact while preserving
+  the nonzero Papermill result even if cleanup also fails.
 
 - [ ] **Step 1: Add failing recipe and behavioral tests**
 
@@ -207,6 +217,16 @@ Run: `pytest -q tests/test_makefile_contract.py`
 Expected: all Makefile contract tests pass.
 
 Commit: `build(notebooks): stamp source hashes after execution`
+
+Qualification later established that a failed Papermill artifact can inherit
+markers from its input. The follow-up regression strengthens this task: each of
+the four recipes records the Papermill status, invokes the separately
+configurable `SOURCE_HASH_CLEARER` on an existing failed artifact, never invokes
+the success stamper, and exits nonzero. Behavioral tests cover both the in-place
+and temporary-output recipe shapes with a schema-valid error output; static
+tests cover all four targets. Papermill inputs may carry prior hashes, and
+failure cleanup atomically removes them. The boundary cannot handle an
+uncatchable host or process kill.
 
 ## 12.36.5 Task 4: Migrate all retained active outputs
 

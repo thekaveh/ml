@@ -17,7 +17,11 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
   carry `metadata.source_hash`, a SHA-256 digest of exact logical source, and E8 fails closed for
   missing, malformed, stale, or orphan markers. Successful Tier-A/B/C execution stamps markers
   automatically; 29 active notebooks and 189 retained-output cells were migrated without changing
-  outputs or execution evidence.
+  outputs or execution evidence. Because Papermill inputs can carry prior markers, a caught
+  execution failure now atomically clears every code-cell marker from an existing in-place or
+  temporary failed artifact before the target exits nonzero, without invoking the success stamper.
+  Cleanup failure cannot make execution succeed; the shell handler makes no claim that cleanup can
+  survive an uncatchable host or process kill.
 - **Deterministic Reddit graph seeding (Issue #70):** all eight Phase-2/Phase-3
   construction paths now define `SEED = 0` and invoke public `set_seed(SEED)`
   immediately before `NNGraphDataset(...)`. Released `thekaveh-nnx==0.2.0`

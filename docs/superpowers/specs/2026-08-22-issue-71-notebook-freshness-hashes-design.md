@@ -61,8 +61,18 @@ replacement. Repeated stamping is byte-identical.
 
 All Papermill targets invoke the stamper only after Papermill exits
 successfully. `run-tier-a` stamps the deliberately refreshed in-place source;
-Tier A/B/C smoke targets stamp only their temporary output notebooks. Failed
-or partial execution never receives a current marker.
+Tier A/B/C smoke targets stamp only their temporary output notebooks. Papermill
+inputs may carry prior hashes, so failure cleanup atomically removes them from
+every code cell in an existing in-place or temporary artifact before the Make
+target returns the Papermill failure. Clear mode accepts valid failed/partial
+nbformat-4 artifacts, including error outputs and output-bearing cells with a
+null execution count, but still rejects malformed structure without replacing
+the file. It requires explicit notebook paths and rejects `--all-active`.
+
+The success stamper is never called on this failure path, and a cleanup error
+cannot turn the failed execution green. This shell boundary handles catchable
+Papermill exits; it cannot run after an uncatchable host or process kill and
+therefore makes no stronger crash-survival claim.
 
 The one-time migration stamps the 189 retained-output cells in all 29 active
 notebooks without changing output bytes, execution counts, code, prose, cell
@@ -74,8 +84,9 @@ execution-time hook and current runtime contract.
 ## 12.35.5 Testing, documentation, and release
 
 Red/green tests cover string/list canonicalization, output-bearing stamping,
-orphan removal, idempotence, atomic failure, archive exclusion, and Makefile
-post-execution ordering. Verifier tests cover missing, malformed, stale,
+orphan removal, failed-artifact clearing, null execution counts, idempotence,
+atomic failure, permission preservation, archive exclusion, and Makefile
+success/failure ordering. Verifier tests cover missing, malformed, stale,
 current, orphaned, and archived markers. A repository inventory assertion
 requires every active output-bearing cell to be valid after migration.
 

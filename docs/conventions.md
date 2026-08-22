@@ -164,12 +164,20 @@ must not carry a marker. There is no tag, path, wildcard, or general exemption f
 output-bearing active cell.
 
 `make run-tier-a`, `make smoke-tier-a`, `make smoke-tier-b`, and `make smoke-tier-c` invoke
-`scripts/stamp_notebook_source_hashes.py` only after successful Papermill execution. Failed,
-partial, or error-output notebooks are not stamped, and a stamper failure fails the Make target.
-For intentional maintenance repair, use `python scripts/stamp_notebook_source_hashes.py
---all-active`; it is not a replacement for executing changed source. Rollback is separable:
-reverting verifier/execution enforcement does not rewrite outputs, while reverting the metadata
-migration alone makes E8 fail.
+`scripts/stamp_notebook_source_hashes.py` only after successful Papermill execution. Papermill
+inputs may inherit prior source hashes, so merely skipping that success stamper is not sufficient
+when execution fails. On a nonzero exit, each Make target checks whether its in-place or temporary
+artifact exists and invokes `--clear` to validate the failed/partial notebook and atomically remove
+every code-cell `metadata.source_hash`; the success stamper is never invoked. The target preserves
+the execution failure even when cleanup also fails. This caught-failure boundary cannot run after
+an uncatchable host or process kill, so it does not claim crash durability beyond the atomic file
+replacement itself.
+
+Clear mode requires one or more explicit notebook paths and rejects `--all-active`. For intentional
+maintenance repair, use `python scripts/stamp_notebook_source_hashes.py --all-active`; it is not a
+replacement for executing changed source. A success-stamper failure still fails the Make target.
+Rollback is separable: reverting verifier/execution enforcement does not rewrite outputs, while
+reverting the metadata migration alone makes E8 fail.
 
 ## 5.3 Validation gates
 

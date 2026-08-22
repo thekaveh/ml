@@ -2112,6 +2112,8 @@ def test_issue71_current_docs_publish_notebook_freshness_hash_contract() -> None
             "docs/conventions.md",
             "docs/notebook-infrastructure.md",
             "docs/maintenance/overnight-2026-07-04.md",
+            "docs/superpowers/specs/2026-08-22-issue-71-notebook-freshness-hashes-design.md",
+            "docs/superpowers/plans/2026-08-22-issue-71-notebook-freshness-hashes-implementation-plan.md",
         )
     }
 
@@ -2128,6 +2130,10 @@ def test_issue71_current_docs_publish_notebook_freshness_hash_contract() -> None
         "missing, malformed, stale, or orphan",
         "notebooks/archive/",
         "outputless code cells",
+        "may inherit prior source hashes",
+        "--clear",
+        "explicit notebook paths",
+        "rejects `--all-active`",
     ):
         assert expected in contract, expected
 
@@ -2135,10 +2141,25 @@ def test_issue71_current_docs_publish_notebook_freshness_hash_contract() -> None
     for expected in (
         "run-tier-a", "smoke-tier-a", "smoke-tier-b", "smoke-tier-c",
         "scripts/stamp_notebook_source_hashes.py", "only after success",
-        "Failed, partial, or error-output notebooks are not stamped",
+        "On a nonzero Papermill exit", "atomically removes every code-cell `metadata.source_hash`",
+        "artifact exists", "success stamper is not invoked",
         "stamper failure fails the Make target",
+        "cleanup failure cannot make the target succeed",
+        "uncatchable host or process kill",
     ):
         assert expected in execution, expected
+
+    for path in (
+        "docs/superpowers/specs/2026-08-22-issue-71-notebook-freshness-hashes-design.md",
+        "docs/superpowers/plans/2026-08-22-issue-71-notebook-freshness-hashes-implementation-plan.md",
+    ):
+        text = " ".join(documents[path].split())
+        for expected in (
+            "Papermill inputs may carry prior hashes",
+            "failure cleanup atomically removes them",
+            "uncatchable host or process kill",
+        ):
+            assert expected in text, f"{path}: {expected}"
 
     contributor = documents["CONTRIBUTING.md"]
     assert "python scripts/stamp_notebook_source_hashes.py --all-active" in contributor

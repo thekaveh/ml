@@ -66,9 +66,12 @@ def _validate_output(
             raise NotebookStampError(f"notebook code cell {index} output data must be an object")
         if not isinstance(output.get("metadata"), dict):
             raise NotebookStampError(f"notebook code cell {index} output metadata must be an object")
-        if output_type == "execute_result" and not (
-            _is_integer(output.get("execution_count"))
-            or (allow_failed_execution and output.get("execution_count") is None)
+        if output_type == "execute_result" and (
+            "execution_count" not in output
+            or not (
+                _is_integer(output["execution_count"])
+                or (allow_failed_execution and output["execution_count"] is None)
+            )
         ):
             raise NotebookStampError(
                 f"notebook code cell {index} execute_result execution_count must be an integer"

@@ -154,6 +154,32 @@ def test_clear_document_accepts_output_bearing_code_cell_with_null_execution_cou
     assert "source_hash" not in cell["metadata"]
 
 
+def test_clear_path_accepts_execute_result_with_explicit_null_execution_count(tmp_path: Path) -> None:
+    output = {"data": {}, "execution_count": None, "metadata": {}, "output_type": "execute_result"}
+    cell = _code("x", outputs=[output], metadata={"source_hash": "a" * 64})
+    cell["execution_count"] = None
+    path = tmp_path / "failed.ipynb"
+    _write_json(path, _document(cell))
+
+    assert clear_path(path) == 1
+    assert "source_hash" not in json.loads(path.read_text(encoding="utf-8"))["cells"][0]["metadata"]
+
+
+def test_clear_path_rejects_execute_result_missing_execution_count_without_changing_bytes(
+    tmp_path: Path,
+) -> None:
+    output = {"data": {}, "metadata": {}, "output_type": "execute_result"}
+    cell = _code("x", outputs=[output], metadata={"source_hash": "a" * 64})
+    cell["execution_count"] = None
+    path = tmp_path / "malformed.ipynb"
+    original = _write_json(path, _document(cell))
+
+    with pytest.raises(NotebookStampError, match="execute_result execution_count"):
+        clear_path(path)
+
+    assert path.read_bytes() == original
+
+
 def test_clear_path_preserves_unrelated_fields_permissions_and_is_byte_idempotent(tmp_path: Path) -> None:
     cell = _code(
         "raise RuntimeError('boom')",

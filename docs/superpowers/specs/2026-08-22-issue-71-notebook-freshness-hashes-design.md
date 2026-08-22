@@ -45,6 +45,10 @@ missing, is not a 64-character lowercase hexadecimal string, or differs from
 the current source digest. A code cell without outputs fails if it retains an
 orphan marker. Markdown and raw cells never carry source hashes.
 
+Any marker found on a markdown or raw cell is an `E8.source_hash_orphan`, just
+like a marker on an outputless code cell. Normal stamping removes these
+orphans; they are not additional scope exceptions.
+
 The only exceptions are structural and explicit: notebooks under
 `notebooks/archive/` are outside the active inventory, and active code cells
 without outputs have nothing to qualify. There is no tag, wildcard, or
@@ -57,13 +61,15 @@ post-execution use and `--all-active` for the one-time repository migration.
 It reads notebook JSON without `nbformat` coercion, updates only
 `cell.metadata.source_hash`, and writes atomically with the repository's
 existing one-space JSON indentation. Invalid notebook structure fails before
-replacement. Repeated stamping is byte-identical.
+replacement. Both modes run complete raw nbformat-4 schema validation against
+the parsed JSON without normalization or coercion before mutation. Repeated
+stamping is byte-identical.
 
 All Papermill targets invoke the stamper only after Papermill exits
 successfully. `run-tier-a` stamps the deliberately refreshed in-place source;
 Tier A/B/C smoke targets stamp only their temporary output notebooks. Papermill
 inputs may carry prior hashes, so failure cleanup atomically removes them from
-every code cell in an existing in-place or temporary artifact before the Make
+every cell in an existing in-place or temporary artifact before the Make
 target returns the Papermill failure. Clear mode accepts valid failed/partial
 nbformat-4 artifacts, including error outputs and output-bearing cells with a
 null execution count, but still rejects malformed structure without replacing

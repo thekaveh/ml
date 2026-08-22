@@ -2130,6 +2130,8 @@ def test_issue71_current_docs_publish_notebook_freshness_hash_contract() -> None
         "missing, malformed, stale, or orphan",
         "notebooks/archive/",
         "outputless code cells",
+        "markdown or raw cell is `E8.source_hash_orphan`",
+        "raw nbformat-4 schema",
         "may inherit prior source hashes",
         "--clear",
         "explicit notebook paths",
@@ -2141,7 +2143,7 @@ def test_issue71_current_docs_publish_notebook_freshness_hash_contract() -> None
     for expected in (
         "run-tier-a", "smoke-tier-a", "smoke-tier-b", "smoke-tier-c",
         "scripts/stamp_notebook_source_hashes.py", "only after success",
-        "On a nonzero Papermill exit", "atomically removes every code-cell `metadata.source_hash`",
+        "On a nonzero Papermill exit", "atomically removes every cell's `metadata.source_hash`",
         "artifact exists", "success stamper is not invoked",
         "stamper failure fails the Make target",
         "cleanup failure cannot make the target succeed",
@@ -2156,7 +2158,8 @@ def test_issue71_current_docs_publish_notebook_freshness_hash_contract() -> None
         text = " ".join(documents[path].split())
         for expected in (
             "Papermill inputs may carry prior hashes",
-            "failure cleanup atomically removes them",
+            "failure cleanup atomically removes them from every cell",
+            "raw nbformat-4 schema",
             "uncatchable host or process kill",
         ):
             assert expected in text, f"{path}: {expected}"
@@ -2180,3 +2183,4 @@ def test_issue71_current_docs_publish_notebook_freshness_hash_contract() -> None
 
     changelog = documents["CHANGELOG.md"].split("## [0.1.0]", 1)[0]
     assert "Issue #71" in changelog
+    assert "every cell's `metadata.source_hash`" in changelog

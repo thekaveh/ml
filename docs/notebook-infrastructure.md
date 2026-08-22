@@ -74,11 +74,12 @@ unless a task explicitly documents that policy. The full admission sequence is
 Each `run-tier-a`, `smoke-tier-a`, `smoke-tier-b`, and `smoke-tier-c` Papermill execution invokes
 `scripts/stamp_notebook_source_hashes.py` only after success. Inputs can already contain freshness
 markers from an earlier qualified run. On a nonzero Papermill exit, the failure boundary checks
-whether the in-place or temporary artifact exists and atomically removes every code-cell
+whether the in-place or temporary artifact exists and atomically removes every cell's
 `metadata.source_hash`; the success stamper is not invoked, cleanup failure cannot make the target
 succeed, and a post-success stamper failure fails the Make target. This shell handler runs for
 catchable Papermill exits but cannot run after an uncatchable host or process kill. The normal
 targets therefore keep execution and source-freshness evidence together without rewriting source
-notebooks for smoke runs. The exact marker algorithm, clear-mode CLI, E8 scope, and repair command
-are canonicalized in
+notebooks for smoke runs. Stamp and clear modes validate the raw nbformat-4 schema without
+normalizing or coercing the parsed JSON. The exact marker algorithm, clear-mode CLI, E8 scope, and
+repair command are canonicalized in
 [the conventions](conventions.md#524-notebook-output-freshness).

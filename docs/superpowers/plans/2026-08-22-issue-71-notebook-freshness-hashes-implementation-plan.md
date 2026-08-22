@@ -9,11 +9,12 @@
 and fail repository verification when active output/source pairs are missing,
 malformed, stale, or orphaned.
 
-**Architecture:** A standard-library JSON stamper owns source canonicalization
-and atomic notebook updates. Papermill targets call it only after successful
-execution, while a separate clear-mode boundary removes inherited markers from
-failed artifacts. E8 imports the same digest helper and enforces the contract
-over the authoritative active-notebook inventory.
+**Architecture:** A raw-JSON stamper uses the official nbformat schema validator
+without coercion, owns source canonicalization and atomic notebook updates, and
+keeps stricter success/failure policy checks separate. Papermill targets call it
+only after successful execution, while a clear-mode boundary removes inherited
+markers from failed artifacts. E8 imports the same digest helper and enforces
+the contract over the authoritative active-notebook inventory.
 
 **Tech Stack:** Python 3.11, JSON, SHA-256, argparse, pytest, Make, Papermill,
 nbformat, MkDocs.
@@ -31,7 +32,7 @@ nbformat, MkDocs.
   `cell.metadata.source_hash` only when a code cell has non-empty outputs.
 - Never hash output bytes and never stamp a failed or partial execution.
 - Papermill inputs may carry prior hashes, so failure cleanup atomically removes
-  them from every code cell in an existing failed artifact before the target
+  them from every cell in an existing failed artifact before the target
   exits nonzero. The handler cannot run after an uncatchable host or process kill.
 - Enforce all active notebooks; exclude only archives and outputless code cells.
 - Preserve code, prose, outputs, execution counts, cell IDs, notebook metadata,
@@ -105,6 +106,11 @@ def compute_source_hash(source: object) -> str:
 `stamp_path` must parse and validate before creating a sibling temporary file,
 copy the original permission bits, `os.replace` only after a complete write,
 and skip writing when no bytes changed.
+
+Stamp and clear candidates must pass the complete raw nbformat-4 schema without
+normalization or coercion before mutation. Keep the custom policy layer stricter:
+normal stamping rejects failed/incomplete execution, while clear mode accepts
+schema-valid failed artifacts.
 
 - [ ] **Step 4: Add idempotence, preservation, invalid-input, and inventory tests**
 
@@ -225,7 +231,7 @@ configurable `SOURCE_HASH_CLEARER` on an existing failed artifact, never invokes
 the success stamper, and exits nonzero. Behavioral tests cover both the in-place
 and temporary-output recipe shapes with a schema-valid error output; static
 tests cover all four targets. Papermill inputs may carry prior hashes, and
-failure cleanup atomically removes them. The boundary cannot handle an
+failure cleanup atomically removes them from every cell. The boundary cannot handle an
 uncatchable host or process kill.
 
 ## 12.36.5 Task 4: Migrate all retained active outputs

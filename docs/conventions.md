@@ -157,6 +157,8 @@ magics, line endings, and syntax are not normalized.
 Output bytes are never hashed. The marker says retained outputs correspond to the source now in
 the cell; it does not say that nondeterministic output rendering is byte-reproducible. E8 reports
 error severity for missing, malformed, stale, or orphan markers across all active notebooks.
+Any `metadata.source_hash` on an outputless code, markdown or raw cell is
+`E8.source_hash_orphan`; normal stamping removes all such markers.
 
 The exception boundary is deliberately narrow: `notebooks/archive/` is immutable historical
 material outside the active inventory, and outputless code cells are structurally inapplicable and
@@ -168,7 +170,7 @@ output-bearing active cell.
 inputs may inherit prior source hashes, so merely skipping that success stamper is not sufficient
 when execution fails. On a nonzero exit, each Make target checks whether its in-place or temporary
 artifact exists and invokes `--clear` to validate the failed/partial notebook and atomically remove
-every code-cell `metadata.source_hash`; the success stamper is never invoked. The target preserves
+every cell's `metadata.source_hash`; the success stamper is never invoked. The target preserves
 the execution failure even when cleanup also fails. This caught-failure boundary cannot run after
 an uncatchable host or process kill, so it does not claim crash durability beyond the atomic file
 replacement itself.
@@ -176,8 +178,9 @@ replacement itself.
 Clear mode requires one or more explicit notebook paths and rejects `--all-active`. For intentional
 maintenance repair, use `python scripts/stamp_notebook_source_hashes.py --all-active`; it is not a
 replacement for executing changed source. A success-stamper failure still fails the Make target.
-Rollback is separable: reverting verifier/execution enforcement does not rewrite outputs, while
-reverting the metadata migration alone makes E8 fail.
+Both modes validate the raw nbformat-4 schema on the parsed JSON without normalization or coercion
+before mutation. Rollback is separable: reverting verifier/execution enforcement does not rewrite
+outputs, while reverting the metadata migration alone makes E8 fail.
 
 ## 5.3 Validation gates
 

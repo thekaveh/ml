@@ -31,15 +31,50 @@ def compute_source_hash(source: object) -> str:
     return hashlib.sha256(logical_source(source).encode("utf-8")).hexdigest()
 
 
+def _is_integer(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _validate_output(output: object, index: int, output_index: int) -> None:
+    if not isinstance(output, dict):
+        raise NotebookStampError(f"notebook code cell {index} output {output_index} must be an object")
+    output_type = output.get("output_type")
+    if output_type == "error":
+        raise NotebookStampError(f"notebook code cell {index} contains an error output")
+    if output_type == "stream":
+        if output.get("name") not in {"stdout", "stderr"}:
+            raise NotebookStampError(f"notebook code cell {index} stream output has invalid name")
+        text = output.get("text")
+        if not isinstance(text, str) and not (
+            isinstance(text, list) and all(isinstance(part, str) for part in text)
+        ):
+            raise NotebookStampError(f"notebook code cell {index} stream output text must be a string or list")
+        return
+    if output_type in {"display_data", "execute_result"}:
+        if not isinstance(output.get("data"), dict):
+            raise NotebookStampError(f"notebook code cell {index} output data must be an object")
+        if not isinstance(output.get("metadata"), dict):
+            raise NotebookStampError(f"notebook code cell {index} output metadata must be an object")
+        if output_type == "execute_result" and not _is_integer(output.get("execution_count")):
+            raise NotebookStampError(f"notebook code cell {index} execute_result execution_count must be an integer")
+        return
+    raise NotebookStampError(f"notebook code cell {index} has invalid output type {output_type!r}")
+
+
 def _validate_document(document: object) -> dict[str, Any]:
     if not isinstance(document, dict):
         raise NotebookStampError("notebook JSON root must be an object")
+    if "nbformat" not in document or not _is_integer(document["nbformat"]) or document["nbformat"] != 4:
+        raise NotebookStampError("notebook nbformat must be integer version 4")
+    if "nbformat_minor" not in document or not _is_integer(document["nbformat_minor"]):
+        raise NotebookStampError("notebook nbformat_minor must be a non-negative integer")
+    if document["nbformat_minor"] < 0:
+        raise NotebookStampError("notebook nbformat_minor must be a non-negative integer")
+    if "metadata" not in document or not isinstance(document["metadata"], dict):
+        raise NotebookStampError("notebook metadata must be an object")
     cells = document.get("cells")
     if not isinstance(cells, list):
         raise NotebookStampError("notebook cells must be a list")
-    metadata = document.get("metadata")
-    if metadata is not None and not isinstance(metadata, dict):
-        raise NotebookStampError("notebook metadata must be an object")
 
     for index, cell in enumerate(cells):
         if not isinstance(cell, dict):
@@ -50,19 +85,20 @@ def _validate_document(document: object) -> dict[str, Any]:
         if "source" not in cell:
             raise NotebookStampError(f"notebook cell {index} is missing source")
         logical_source(cell["source"])
-        cell_metadata = cell.get("metadata")
-        if cell_metadata is not None and not isinstance(cell_metadata, dict):
+        if "metadata" not in cell or not isinstance(cell["metadata"], dict):
             raise NotebookStampError(f"notebook cell {index} metadata must be an object")
         if cell_type == "code":
+            if "execution_count" not in cell or (
+                cell["execution_count"] is not None and not _is_integer(cell["execution_count"])
+            ):
+                raise NotebookStampError(f"notebook code cell {index} execution_count must be an integer or null")
             outputs = cell.get("outputs")
             if not isinstance(outputs, list):
                 raise NotebookStampError(f"notebook code cell {index} outputs must be a list")
-            if not all(isinstance(output, dict) for output in outputs):
-                raise NotebookStampError(f"notebook code cell {index} outputs must contain objects")
-            if "execution_count" in cell and cell["execution_count"] is not None and not isinstance(
-                cell["execution_count"], int
-            ):
-                raise NotebookStampError(f"notebook code cell {index} execution_count must be an integer or null")
+            if outputs and cell["execution_count"] is None:
+                raise NotebookStampError(f"notebook code cell {index} output-bearing execution_count must be an integer")
+            for output_index, output in enumerate(outputs):
+                _validate_output(output, index, output_index)
         if "id" in cell and not isinstance(cell["id"], str):
             raise NotebookStampError(f"notebook cell {index} id must be a string")
     return document

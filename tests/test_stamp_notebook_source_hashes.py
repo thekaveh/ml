@@ -45,6 +45,10 @@ def _document(*cells: dict) -> dict:
     }
 
 
+def _stream_output(text: str = "ok\n") -> dict:
+    return {"name": "stdout", "output_type": "stream", "text": text}
+
+
 def _write_json(path: Path, document: dict) -> bytes:
     encoded = (json.dumps(document, indent=1, ensure_ascii=False) + "\n").encode("utf-8")
     path.write_bytes(encoded)
@@ -71,7 +75,7 @@ def test_compute_source_hash_is_sha256_of_exact_utf8_source() -> None:
 
 
 def test_stamp_document_only_marks_code_cells_with_outputs_and_removes_orphans() -> None:
-    output = {"name": "stdout", "output_type": "stream", "text": "ok\n"}
+    output = _stream_output()
     document = _document(
         _code("print('output')\n", outputs=[output], metadata={"keep": "yes"}),
         _code("print('none')\n", metadata={"source_hash": "orphan", "keep": 3}),
@@ -90,21 +94,28 @@ def test_stamp_document_only_marks_code_cells_with_outputs_and_removes_orphans()
 
 
 def test_stamp_document_is_idempotent() -> None:
-    document = _document(_code("x = 1", outputs=[{"output_type": "execute_result", "data": {}}]))
+    document = _document(
+        _code(
+            "x = 1",
+            outputs=[{"output_type": "execute_result", "data": {}, "metadata": {}, "execution_count": 1}],
+        )
+    )
     assert stamp_document(document) == 1
     assert stamp_document(document) == 0
 
 
 def test_outputless_code_without_metadata_is_left_untouched() -> None:
-    document = _document({"cell_type": "code", "source": "x = 1", "outputs": []})
+    document = _document(
+        {"cell_type": "code", "execution_count": None, "metadata": {}, "source": "x = 1", "outputs": []}
+    )
 
     assert stamp_document(document) == 0
-    assert "metadata" not in document["cells"][0]
+    assert document["cells"][0]["metadata"] == {}
 
 
 def test_stamp_path_preserves_unrelated_fields_and_is_byte_stable_on_repeat(tmp_path: Path) -> None:
     document = _document(
-        _code("x = 1", outputs=[{"output_type": "stream", "name": "stdout", "text": "x\n"}], metadata={"custom": [1]}),
+        _code("x = 1", outputs=[_stream_output("x\n")], metadata={"custom": [1]}),
         {"cell_type": "markdown", "metadata": {"custom": "markdown"}, "source": "hello"},
     )
     path = tmp_path / "notebook.ipynb"
@@ -123,7 +134,7 @@ def test_stamp_path_preserves_unrelated_fields_and_is_byte_stable_on_repeat(tmp_
 
 def test_stamp_path_preserves_permission_bits(tmp_path: Path) -> None:
     path = tmp_path / "notebook.ipynb"
-    _write_json(path, _document(_code("x", outputs=[{"output_type": "stream"}])))
+    _write_json(path, _document(_code("x", outputs=[_stream_output()])))
     os.chmod(path, 0o640)
 
     stamp_path(path)
@@ -147,10 +158,75 @@ def test_structurally_invalid_notebook_is_rejected_without_changing_bytes(tmp_pa
     original = _write_json(path, {"cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 5})
     # A code cell without its required outputs field is not a valid notebook.
     bad = json.loads(original)
-    bad["cells"] = [{"cell_type": "code", "metadata": {}, "source": "x"}]
+    bad["cells"] = [{"cell_type": "code", "execution_count": None, "metadata": {}, "source": "x"}]
     original = _write_json(path, bad)
 
     with pytest.raises(NotebookStampError, match="outputs"):
+        stamp_path(path)
+
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "cell_update, message",
+    [
+        (
+            {
+                "outputs": [
+                    {
+                        "output_type": "error",
+                        "ename": "RuntimeError",
+                        "evalue": "boom",
+                        "traceback": [],
+                    }
+                ]
+            },
+            "error",
+        ),
+        ({"outputs": [_stream_output()], "execution_count": None}, "execution_count"),
+        ({"outputs": [_stream_output()], "missing_execution_count": True}, "execution_count"),
+    ],
+)
+def test_failed_or_partial_output_is_rejected_before_any_mutation(cell_update: dict, message: str) -> None:
+    cell = _code("x = 1", outputs=[_stream_output()])
+    cell.update(cell_update)
+    if cell.pop("missing_execution_count", False):
+        cell.pop("execution_count")
+    document = _document(cell)
+    before = json.loads(json.dumps(document))
+
+    with pytest.raises(NotebookStampError, match=message):
+        stamp_document(document)
+
+    assert document == before
+
+
+@pytest.mark.parametrize(
+    "document_update, message",
+    [
+        ({"nbformat": None}, "nbformat"),
+        ({"nbformat_minor": "5"}, "nbformat_minor"),
+        ({"metadata": None}, "metadata"),
+        (
+            {"cells": [{"cell_type": "code", "source": "x", "outputs": [], "metadata": None}]},
+            "metadata",
+        ),
+        ({"cells": [{**_code("x", outputs=[_stream_output()]), "outputs": [{}]}]}, "output"),
+        (
+            {"cells": [{**_code("x", outputs=[_stream_output()]), "outputs": [{"output_type": "mystery"}]}]},
+            "output",
+        ),
+    ],
+)
+def test_malformed_versions_metadata_or_outputs_are_rejected_without_writing(
+    tmp_path: Path, document_update: dict, message: str
+) -> None:
+    document = _document(_code("x", outputs=[_stream_output()]))
+    document.update(document_update)
+    path = tmp_path / "bad.ipynb"
+    original = _write_json(path, document)
+
+    with pytest.raises(NotebookStampError, match=message):
         stamp_path(path)
 
     assert path.read_bytes() == original
@@ -160,7 +236,7 @@ def test_failed_replace_cleans_up_sibling_temporary_file(tmp_path: Path, monkeyp
     from scripts import stamp_notebook_source_hashes as stamper
 
     path = tmp_path / "notebook.ipynb"
-    _write_json(path, _document(_code("x", outputs=[{"output_type": "stream"}])))
+    _write_json(path, _document(_code("x", outputs=[_stream_output()])))
     original_replace = stamper.os.replace
 
     def fail_replace(src: str, dst: str) -> None:
@@ -208,7 +284,7 @@ def test_cli_requires_exactly_one_of_paths_or_all_active(tmp_path: Path) -> None
 
 def test_cli_stamps_explicit_path(tmp_path: Path) -> None:
     path = tmp_path / "notebook.ipynb"
-    _write_json(path, _document(_code("x", outputs=[{"output_type": "stream"}])))
+    _write_json(path, _document(_code("x", outputs=[_stream_output()])))
 
     result = subprocess.run([sys.executable, str(SCRIPT), str(path)], capture_output=True, text=True, timeout=30)
 

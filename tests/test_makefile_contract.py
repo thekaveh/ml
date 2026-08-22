@@ -79,7 +79,7 @@ def _assert_tier_inventory_contract(makefile: Path, cwd: Path) -> None:
         if line.startswith(".PHONY:")
         for member in line.removeprefix(".PHONY:").split()
     ]
-    expected_counts = {"a": 18, "b": 6, "c": 4}
+    expected_counts = {"a": 18, "b": 7, "c": 4}
     for tier, count in expected_counts.items():
         target = f"print-tier-{tier}"
         variable = f"TIER_{tier.upper()}"

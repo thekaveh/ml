@@ -132,6 +132,15 @@ def test_repository_declares_contracts_for_every_manifest_notebook():
         "dim_reduction-iris-autoencoder-pytorch",
         "clustering-iris-kmeans-vs-ae-pytorch",
     ]
+    quantization = next(
+        contract
+        for contract in contracts
+        if contract.task == "quantization-mnist-ffnn-pytorch"
+    )
+    assert quantization.tier.lower() == "b"
+    assert all("Issue #66" not in constraint for constraint in quantization.constraints)
+    assert any("one epoch" in constraint for constraint in quantization.constraints)
+    assert any("checkpoint" in constraint for constraint in quantization.constraints)
 
 
 def test_load_rejects_manifest_tasks_that_drift_from_active_task_config(tmp_path):

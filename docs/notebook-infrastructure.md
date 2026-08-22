@@ -5,8 +5,9 @@ Every notebook environment is installed from the target selected by
 hash-required root lock includes notebook tooling and the exact spaCy model wheel; `make nlp-assets`
 adds only the official size- and SHA-256-verified VADER ZIP, and `make verify-nlp-assets` verifies
 the installed asset offline before a workload. These locks make a run reproducible for the
-qualified platform lock. Issue #64 owns the completed VADER integrity contract, the completed retained Atlas pin
-defines the remote runtime boundary, and the complete quantization notebook remains manual-only under Issue #66.
+qualified platform lock. Issue #64 owns the completed VADER integrity contract, the completed
+retained Atlas pin defines the remote runtime boundary, and Issue #66 restores the complete
+quantization notebook to Tier B with explicit checkpoint and output semantics.
 
 Atlas tasks use a remote JupyterHub kernel from VS Code by default. Open the
 repository in VS Code, connect to the Atlas JupyterHub server, and select the
@@ -41,7 +42,7 @@ admission sequence is [atlas-pin-bump-runbook.md](atlas-pin-bump-runbook.md).
 | model_surgery-mnist-ffnn-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | knowledge_distillation-mnist-ffnn-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | pruning-mnist-ffnn-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
-| quantization-mnist-ffnn-pytorch | manual | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | Manual-only under Issue #66; Issue #62 qualifies only the tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface. |
+| quantization-mnist-ffnn-pytorch | B | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | Tier-B smoke is deterministic and bounded to one epoch for FP32 plus one epoch for QAT.<br>QAT acceptance reconstructs the saved FP-shadow checkpoint with exact state/metadata parity and separately proves final torchao conversion. |
 | moe-fmnist-mixture-of-experts-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | diffusion-mnist-ddpm-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |
 | self_supervised-fmnist-jepa-pytorch | A | vscode-remote | remote | jupyterhub | atlas-jupyter-volume | — |

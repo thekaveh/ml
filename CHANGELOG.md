@@ -13,6 +13,14 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
 
 ### Changed
 
+- **Quantization execution and Tier B restoration (Issue #66):** the active MNIST notebook now
+  completes FP32, PTQ, and QAT on the canonical Torch 2.11/torchao 0.18/NNx 0.2 stack; proves
+  final torchao conversion; reloads the supported pre-conversion QAT shadow checkpoint with exact
+  state/metadata parity and finite evaluation; and emits a fail-closed semantic output marker.
+  Tier B now covers 7 notebooks on weekly, labeled-PR, and manual-dispatch triggers. The full
+  three-epoch path is qualified locally and through Atlas JupyterHub with normal
+  volume-preserving shutdown; its explicit quantization output name prevents the two Tier B
+  `notebook.ipynb` sources from colliding.
 - **Bootstrap pip security refresh:** advanced the universal bootstrap and all generated
   platform/tool locks from `pip==26.1.2` to fixed `pip==26.2.1` after the advisory feed began
   reporting `PYSEC-2026-3721`. The advisory affects pip versions before 26.2; no exception was
@@ -40,10 +48,10 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
   download. Lock regeneration now uses the reviewed policy-owned resolver cutoff, preventing
   packages published after the release snapshot from changing lock bytes implicitly.
   Reproducibility is scoped to each qualified platform lock, with Issues #64/#65/#66
-  retaining asset integrity, Atlas runtime, and full quantization-notebook ownership respectively.
+  completing asset integrity, retained Atlas runtime, and full quantization execution respectively.
 - Coordinated the supported CPU Torch stack at Torch 2.11/PyG 2.8.0.post1/torchao 0.18 with
-  binary-only pyg-lib, torch-scatter, and torch-sparse wheels, NNx 0.2.0 verification, and
-  manual-only Issue #66 quantization ownership.
+  binary-only pyg-lib, torch-scatter, and torch-sparse wheels, NNx 0.2.0 verification, and the
+  Issue #66 Tier B quantization contract.
 - **NNx 0.2.2 release review and 0.2.0 retention:** canonical binary-wheel validation of the
   immutable 0.2.2 release passed the complete repository suite (`1,350 passed`), Tier A (`18/18`),
   Tier B (`6/6`), Tier C (`4/4`), and an isolated QAT checkpoint round trip.
@@ -52,7 +60,8 @@ This repo follows [Keep a Changelog](https://keepachangelog.com/). Date format: 
   image independently
   pins 0.2.0 and cannot execute 0.2.2-only consumer calls. The trial used no service or container.
   QAT evidence used the compatible side pair Torch 2.11.0, torchvision 0.26.0, and torchao 0.18.0;
-  the root Torch 2.4.1 stack and quantization's manual-only status are unchanged.
+  that historical trial preceded the repository-wide Torch upgrade and Issue #66 Tier B
+  restoration recorded above.
 - **Machine-readable advisory baseline gate:** added the reviewed
   `security/accepted-advisories.json` policy, fail-closed four-surface `make audit-advisories`
   comparison, JSON-to-current-ledger verification, and isolated `dependency-audit` CI job. New

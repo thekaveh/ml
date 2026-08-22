@@ -107,8 +107,8 @@ identity are governed by `requirements/lock-policy.toml` and `requirements/image
 browser VS Code or JupyterLab as appropriate.
 
 Codespaces is CPU-only and disposable: data/ and runs/ are lost when a codespace is deleted. The
-full quantization notebook remains manual-only under Issue #66; Issue #62 qualifies only the tiny
-Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface, not an Atlas or Tier A/B/C notebook run.
+quantization notebook uses the same canonical stack and its bounded PTQ/QAT plus checkpoint
+contract runs through Tier B.
 
 ## 4.1.5 GPU notes
 
@@ -125,7 +125,8 @@ The authoritative lists are `Makefile` (`TIER_A`, `TIER_B`, and `TIER_C`) and
 - **Tier A:** `make run-tier-a` intentionally refreshes an in-place snapshot. CI instead runs
   `make smoke-tier-a`, writes generated copies to `/tmp/ml-tier-a`, verifies every expected copy,
   checks that tracked source notebooks remain unchanged, and uploads those copies as an artifact.
-- **Tier B:** `make smoke-tier-b` writes parameterized smoke outputs to `/tmp/ml-smoke`.
+- **Tier B:** `make smoke-tier-b` writes parameterized smoke outputs to `/tmp/ml-smoke`. The
+  quantization task runs one FP32 epoch plus one QAT epoch, reconstructs the saved shadow
+  checkpoint exactly, proves final torchao conversion, and emits a verified semantic marker.
 - **Tier C:** `make smoke-tier-c` runs the expensive Reddit training pipelines in smoke mode;
   preserved code cells remain guarded by the baseline verifier.
-- **Manual-only:** notebooks/quantization-mnist-ffnn-pytorch/notebook.ipynb stays outside the automated tiers under Issue #66. Issue #62 qualifies only its tiny Torch 2.11.0 + torchao 0.18.0 PTQ/QAT dependency surface; Atlas remains Issue #65 and cannot reclassify it.

@@ -233,8 +233,8 @@ def _python_cell_source(cell: dict) -> str:
 def find_reddit_graph_dataset_seed_contract_violations(nb: dict) -> list[str]:
     """Require the released NNx seeding boundary around graph dataset creation."""
     findings: list[str] = []
-    imports_set_seed = False
-    seed_assignments: list[tuple[int, ast.Assign]] = []
+    imports_set_seed: list[tuple[int, int]] = []
+    seed_assignments: list[tuple[int, int, ast.Assign]] = []
     dataset_assignments: list[tuple[int, int, ast.Assign, list[ast.stmt]]] = []
 
     for cell_index, cell in enumerate(_code_cells(nb)):
@@ -245,14 +245,14 @@ def find_reddit_graph_dataset_seed_contract_violations(nb: dict) -> list[str]:
                 and statement.module == "nnx"
                 and any(alias.name == "set_seed" for alias in statement.names)
             ):
-                imports_set_seed = True
+                imports_set_seed.append((cell_index, statement_index))
             if (
                 isinstance(statement, ast.Assign)
                 and len(statement.targets) == 1
                 and isinstance(statement.targets[0], ast.Name)
                 and statement.targets[0].id == "SEED"
             ):
-                seed_assignments.append((cell_index, statement))
+                seed_assignments.append((cell_index, statement_index, statement))
             if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
                 continue
             target = statement.targets[0]
@@ -272,9 +272,9 @@ def find_reddit_graph_dataset_seed_contract_violations(nb: dict) -> list[str]:
     if len(seed_assignments) != 1:
         findings.append(f"expected exactly one top-level SEED assignment; found {len(seed_assignments)}")
     elif not (
-        isinstance(seed_assignments[0][1].value, ast.Constant)
-        and seed_assignments[0][1].value.value == 0
-        and type(seed_assignments[0][1].value.value) is int
+        isinstance(seed_assignments[0][2].value, ast.Constant)
+        and seed_assignments[0][2].value.value == 0
+        and type(seed_assignments[0][2].value.value) is int
     ):
         findings.append("SEED must be the integer literal 0")
 
@@ -285,6 +285,13 @@ def find_reddit_graph_dataset_seed_contract_violations(nb: dict) -> list[str]:
         return findings
 
     cell_index, statement_index, assignment, statements = dataset_assignments[0]
+    dataset_position = (cell_index, statement_index)
+    if imports_set_seed and not any(
+        import_position < dataset_position for import_position in imports_set_seed
+    ):
+        findings.append("set_seed import must precede graph dataset construction")
+    if len(seed_assignments) == 1 and seed_assignments[0][:2] >= dataset_position:
+        findings.append("SEED assignment must precede graph dataset construction")
     if any(keyword.arg == "seed" for keyword in assignment.value.keywords):
         findings.append("NNGraphDataset does not accept a seed keyword in NNx 0.2.0")
     if statement_index == 0:
@@ -853,6 +860,14 @@ def test_reddit_graph_dataset_construction_is_explicitly_seeded(relative: str):
         (
             "from nnx import NNGraphDataset, set_seed\nSEED = 0\nset_seed(SEED)\nds = NNGraphDataset(ds_class=R, n_neighbors=[2], seed=SEED)\n",
             "does not accept a seed keyword",
+        ),
+        (
+            "from nnx import NNGraphDataset, set_seed\nset_seed(SEED)\nds = NNGraphDataset(ds_class=R, n_neighbors=[2])\nSEED = 0\n",
+            "SEED assignment must precede",
+        ),
+        (
+            "SEED = 0\nset_seed(SEED)\nds = NNGraphDataset(ds_class=R, n_neighbors=[2])\nfrom nnx import NNGraphDataset, set_seed\n",
+            "set_seed import must precede",
         ),
     ],
 )

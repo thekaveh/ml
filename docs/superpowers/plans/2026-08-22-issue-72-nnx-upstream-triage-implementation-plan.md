@@ -174,6 +174,7 @@ Expected: FAIL because the status table and new upstream/local URLs do not yet e
 **Files:**
 - Modify: `docs/FINDINGS-NNX.md`
 - Modify: `docs/nnx-library.md`
+- Modify: `docs/manifest.yaml`
 - Test: `tests/test_check_docs.py`
 
 **Interfaces:**
@@ -208,7 +209,13 @@ For F3, separate upstream resolution in `v0.2.2` from unavailability under the r
 
 Update `docs/nnx-library.md` §7.5 to summarize each disposition and link readers to the canonical table. Correct the F5 attribution and describe F3 as upstream-resolved/local-pending instead of classification-only without qualification.
 
-- [ ] **Step 4: Run the focused green tests**
+- [ ] **Step 4: Declare the design and plan in the documentation manifest**
+
+Append the Issue #72 design and implementation plan to the manifest's
+`design-records` children as entries `12.37` and `12.38`, preserving the
+existing order and making both records available to the generated site/wiki.
+
+- [ ] **Step 5: Run the focused green tests**
 
 Run:
 
@@ -220,10 +227,11 @@ Run:
 
 Expected: all focused triage tests pass.
 
-- [ ] **Step 5: Commit the triage documentation and guard**
+- [ ] **Step 6: Commit the triage documentation and guard**
 
 ```bash
-git add docs/FINDINGS-NNX.md docs/nnx-library.md tests/test_check_docs.py
+git add docs/FINDINGS-NNX.md docs/nnx-library.md docs/manifest.yaml tests/test_check_docs.py \
+  docs/superpowers/plans/2026-08-22-issue-72-nnx-upstream-triage-implementation-plan.md
 git commit -m "docs: record NNx upstream dispositions"
 ```
 

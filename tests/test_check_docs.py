@@ -1695,6 +1695,69 @@ def test_nnx_retain_decision_docs_reject_mutations(path, old, new):
         _assert_nnx_retain_decision_docs(documents)
 
 
+_NNX_FINDING_TRIAGE_URLS = (
+    "https://github.com/thekaveh/NNx/issues/188",
+    "https://github.com/thekaveh/NNx/issues/81",
+    "https://github.com/thekaveh/NNx/issues/189",
+    "https://github.com/thekaveh/NNx/issues/190",
+    "https://github.com/thekaveh/ml-eng-lab/issues/146",
+)
+
+
+def _assert_nnx_finding_triage_docs(text: str) -> None:
+    headings = (
+        "### 9.1.1.1 `NNDataset` default `batch_size` packs the whole train set into one batch",
+        "### 9.1.1.2 `nnx.deepen` is function-preserving only for `Activations.RELU`",
+        "### 9.1.1.3 `NNTabularDataset` coerces targets to `torch.long` (classification-only)",
+        '### 9.1.1.4 `EarlyStopping(monitor=...)` default is `"val_edp.error"`, doesn\'t exist for regression EDPs',
+        "### 9.1.1.5 training completion messages expose absolute run paths",
+    )
+    for heading in headings:
+        assert text.count(heading) == 1
+
+    assert text.count("### 9.1.1.0 Triage summary") == 1
+    for row in ("| F1 |", "| F2 |", "| F3 |", "| F4 |", "| F5 |"):
+        assert text.count(row) == 1
+    for url in _NNX_FINDING_TRIAGE_URLS:
+        assert url in text
+
+    assert "v0.2.2" in text
+    assert "documented design constraint" in text
+    assert "not an open upstream bug" in text
+    assert "`NNModel.train()` and `Trainer.train()`" in text
+    assert "`NNRun.save()` prints an absolute path" not in text
+    for notebook in (
+        "diffusion-mnist-ddpm-pytorch",
+        "moe-fmnist-mixture-of-experts-pytorch",
+        "self_supervised-fmnist-jepa-pytorch",
+        "model_surgery-mnist-ffnn-pytorch",
+        "tabular_regression-diabetes-mlp-pytorch",
+    ):
+        assert notebook in text
+
+
+def test_nnx_findings_have_durable_upstream_triage():
+    text = (REPO_ROOT / "docs/FINDINGS-NNX.md").read_text(encoding="utf-8")
+    _assert_nnx_finding_triage_docs(text)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        ("| F1 |", "| missing-F1 |"),
+        ("https://github.com/thekaveh/NNx/issues/81", "https://github.com/thekaveh/NNx/issues/999999"),
+        ("v0.2.2", "unreleased"),
+        ("documented design constraint", "unresolved bug"),
+        ("`NNModel.train()` and `Trainer.train()`", "`NNRun.save()`"),
+    ),
+)
+def test_nnx_finding_triage_docs_reject_mutations(old, new):
+    text = (REPO_ROOT / "docs/FINDINGS-NNX.md").read_text(encoding="utf-8")
+    assert old in text
+    with pytest.raises(AssertionError):
+        _assert_nnx_finding_triage_docs(text.replace(old, new))
+
+
 def test_nnx_current_pin_and_issue63_advisory_snapshot_match_restored_manifest():
     requirements = (REPO_ROOT / "requirements.txt").read_bytes()
     ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")

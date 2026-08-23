@@ -21,7 +21,7 @@ import sys
 import tempfile
 import tokenize
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -100,6 +100,18 @@ TIER_C_CODE_BASELINE_TAG = "tier-c-deterministic-seeding-atlas-baseline-2026-08-
 TIER_C_CODE_BASELINE_COMMIT = "35e7903afe45f60e5e30bf8fbd49f7d6463caa6a"
 _apply_config(_load_config())
 
+if not _HELP_REQUESTED:
+    from scripts.repo_verifier import common as _common
+    from scripts.repo_verifier.models import CheckResult, Finding, VerifierConfig
+
+
+def _config_snapshot() -> VerifierConfig:
+    return VerifierConfig(
+        active_task_dirs=tuple(ACTIVE_TASK_DIRS),
+        required_sections={key: tuple(value) for key, value in REQUIRED_SECTIONS.items()},
+        tier_a_notebooks=tuple(TIER_A_NOTEBOOKS),
+    )
+
 README_REQUIRED_H2 = (
     "1. Task summary", "2. Why this exists", "3. What's in the notebook",
     "4. How to run", "5. Dependencies", "6. Known issues",
@@ -117,24 +129,6 @@ TERMINOLOGY_CANONICALS = {
     "PyTorch": ("Pytorch", "PYTORCH", "Py-Torch"),
     "PyG": ("PYG", "Pyg"),
 }
-
-
-@dataclass
-class Finding:
-    id: str
-    check: str
-    severity: str
-    location: str
-    message: str
-    detail: dict = field(default_factory=dict)
-
-
-@dataclass
-class CheckResult:
-    name: str
-    findings: list[Finding] = field(default_factory=list)
-    skipped: bool = False
-    skip_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -553,9 +547,7 @@ def _split_markdown_link_target(target: str) -> tuple[str, str]:
 
 
 def _iter_notebooks(repo: Path) -> Iterator[Path]:
-    for d in ACTIVE_TASK_DIRS:
-        for nb_path in _active_task_path(repo, d).glob("*.ipynb"):
-            yield nb_path
+    yield from _common.iter_notebooks(repo, _config_snapshot(), NOTEBOOK_ROOT)
 
 
 def _iter_notebook_schema_files(repo: Path) -> Iterator[Path]:
@@ -577,57 +569,15 @@ def _notebook_rel(path: Path, repo: Path) -> str:
 
 
 def _iter_in_scope_text_files(repo: Path) -> Iterator[Path]:
-    candidates = [
-        repo / "README.md",
-        repo / "CONTRIBUTING.md",
-        repo / "CHANGELOG.md",
-    ]
-    manifest_path = repo / "docs" / "manifest.yaml"
-    if manifest_path.exists():
-        from scripts.docs.check_docs import manifest_markdown_sources
-        from scripts.docs.manifest import load_manifest
-
-        try:
-            manifest = load_manifest(manifest_path, repo)
-        except (OSError, ValueError):
-            manifest = None
-        if manifest is not None:
-            candidates.extend(
-                repo / source
-                for source in sorted(manifest_markdown_sources(manifest))
-                if Path(source).parent == Path(".")
-                and Path(source).suffix.lower() == ".md"
-            )
-    candidates.extend(
-        p
-        for p in sorted((repo / "docs").rglob("*.md"))
-        if not p.relative_to(repo).as_posix().startswith("docs/superpowers/")
+    yield from _common.iter_in_scope_text_files(
+        repo, _config_snapshot(), NOTEBOOK_ROOT, _read_text
     )
-    candidates.extend(
-        p
-        for d in ACTIVE_TASK_DIRS
-        for p in _active_task_path(repo, d).glob("*.md")
-    )
-    seen: set[Path] = set()
-    for path in candidates:
-        if path in seen:
-            continue
-        seen.add(path)
-        yield path
 
 
 def _iter_in_scope_markdown_documents(repo: Path) -> Iterator[tuple[Path, Path, str]]:
-    for md in _iter_in_scope_text_files(repo):
-        yield md, md.parent, _read_text(md)
-    for nb_path in _iter_notebooks(repo):
-        try:
-            doc = nbformat.read(nb_path, as_version=4)
-        except Exception:
-            continue
-        text = "\n\n".join(
-            cell.source for cell in doc.cells if cell.cell_type == "markdown"
-        )
-        yield nb_path, nb_path.parent, text
+    yield from _common.iter_in_scope_markdown_documents(
+        repo, _config_snapshot(), NOTEBOOK_ROOT, _read_text
+    )
 
 
 def _required_shellcheck_targets(repo: Path) -> tuple[Path, ...]:
@@ -2748,12 +2698,8 @@ def export_phase_b_candidates(repo: Path, out_path: Path) -> int:
     return len(candidates)
 
 
-def _subprocess_text(value: str | bytes | None) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value
+if not _HELP_REQUESTED:
+    _subprocess_text = _common._subprocess_text
 
 
 def _cell_tags(cell) -> set[str]:
@@ -2871,19 +2817,8 @@ def _ci_tier_a_artifact_paths(repo: Path) -> tuple[str, ...]:
     return ()
 
 
-def _run(
-    cmd: list[str], cwd: Path, timeout: int | None = DEFAULT_SUBPROCESS_TIMEOUT
-) -> tuple[int, str, str]:
-    try:
-        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired as e:
-        # rc=124 mirrors GNU `timeout(1)`: callers already branch on rc != 0
-        # to surface a Finding, so a hung make target produces a clean
-        # error rather than crashing the verifier.
-        stdout = _subprocess_text(e.stdout)
-        stderr = _subprocess_text(e.stderr)
-        return 124, stdout, stderr + f"\n[verify_repo] timed out after {timeout}s"
-    return proc.returncode, proc.stdout, proc.stderr
+if not _HELP_REQUESTED:
+    _run = _common.run_command
 
 
 _ATLAS_MANIFEST_CONTRACT = {

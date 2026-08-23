@@ -161,3 +161,34 @@ def test_comments_facade_iter_wrapper_uses_current_config(monkeypatch, tmp_path)
     assert list(facade._iter_in_scope_code(tmp_path)) == []
     assert seen["repo"] == tmp_path
     assert seen["config"].active_task_dirs == ("changed",)
+
+
+def test_execution_facade_injects_current_runtime_hooks(monkeypatch, tmp_path):
+    facade = load_facade()
+    run = lambda cmd, cwd, timeout=None: (0, "", "")
+    runtime = lambda: True
+    phase3 = lambda repo: []
+    monkeypatch.setattr(facade, "_run", run)
+    monkeypatch.setattr(facade, "_runtime_available", runtime)
+    monkeypatch.setattr(facade, "_phase3_code_cells_unchanged", phase3)
+    seen = {}
+    monkeypatch.setattr(
+        facade._execution_validator,
+        "check_execution",
+        lambda repo, fast, config, run, runtime_available, phase3_check: (
+            seen.update(run=run, runtime=runtime_available, phase3=phase3_check)
+            or facade.CheckResult("execution")
+        ),
+    )
+
+    facade.check_execution(tmp_path, fast=True)
+
+    assert (seen["run"], seen["runtime"], seen["phase3"]) == (run, runtime, phase3)
+
+
+def test_execution_facade_preserves_execution_helper_aliases():
+    facade = load_facade()
+
+    assert facade._cell_tags is facade._execution_validator._cell_tags
+    assert facade._assignment_names is facade._execution_validator._assignment_names
+    assert facade._atlas_manifest_findings is facade._execution_validator._atlas_manifest_findings

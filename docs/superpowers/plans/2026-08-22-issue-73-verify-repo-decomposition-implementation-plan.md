@@ -1,4 +1,4 @@
-# Repository Verifier Decomposition Implementation Plan
+# 12.40 Issue 73 Repository Verifier Decomposition Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11, argparse, dataclasses, pathlib, nbformat, PyYAML, pytest, Ruff, Git/GitHub Actions.
 
-## Global Constraints
+## 12.40.1 Global Constraints
 
 - Preserve CLI arguments, help text, check choices/order, JSON schema, finding identifiers, severities, messages, output routing, diagnostics, and exit codes.
 - Preserve `DEFAULT_SUBPROCESS_TIMEOUT = 120` and timeout return code `124`, including partial byte-stream normalization.
@@ -19,7 +19,7 @@
 
 ---
 
-### Task 1: Characterize the Existing Facade
+## 12.40.2 Task 1: Characterize the Existing Facade
 
 **Files:**
 - Create: `tests/test_verify_repo_facade.py`
@@ -113,7 +113,7 @@ git commit -m "test: characterize verifier facade contract"
 
 ---
 
-### Task 2: Establish Models, Shared Primitives, and the Architecture Contract
+## 12.40.3 Task 2: Establish Models, Shared Primitives, and the Architecture Contract
 
 **Files:**
 - Create: `scripts/repo_verifier/__init__.py`
@@ -200,7 +200,7 @@ git commit -m "refactor(verifier): add explicit shared context"
 
 ---
 
-### Task 3: Extract Structure and Asset Validators
+## 12.40.4 Task 3: Extract Structure and Asset Validators
 
 **Files:**
 - Create: `scripts/repo_verifier/structure.py`
@@ -266,7 +266,7 @@ git commit -m "refactor(verifier): extract structure and asset checks"
 
 ---
 
-### Task 4: Extract the Documentation Validator
+## 12.40.5 Task 4: Extract the Documentation Validator
 
 **Files:**
 - Create: `scripts/repo_verifier/docs.py`
@@ -332,7 +332,7 @@ git commit -m "refactor(verifier): extract documentation checks"
 
 ---
 
-### Task 5: Extract Comment Hygiene and Phase-B Export
+## 12.40.6 Task 5: Extract Comment Hygiene and Phase-B Export
 
 **Files:**
 - Create: `scripts/repo_verifier/comments.py`
@@ -375,7 +375,7 @@ git commit -m "refactor(verifier): extract comment hygiene checks"
 
 ---
 
-### Task 6: Extract the Execution Validator and Runtime Hooks
+## 12.40.7 Task 6: Extract the Execution Validator and Runtime Hooks
 
 **Files:**
 - Create: `scripts/repo_verifier/execution.py`
@@ -461,7 +461,7 @@ git commit -m "refactor(verifier): extract execution checks"
 
 ---
 
-### Task 7: Finalize the Facade, Record Metrics, and Qualify
+## 12.40.8 Task 7: Finalize the Facade, Record Metrics, and Qualify
 
 **Files:**
 - Modify: `scripts/verify_repo.py`

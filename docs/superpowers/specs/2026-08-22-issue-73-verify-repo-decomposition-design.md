@@ -1,6 +1,6 @@
-# 12.38 Issue 73 Repository Verifier Decomposition Design
+# 12.39 Issue 73 Repository Verifier Decomposition Design
 
-## 12.38.1 Objective and measured starting point
+## 12.39.1 Objective and measured starting point
 
 Decompose `scripts/verify_repo.py` into cohesive, directly testable validators
 without changing verifier behavior. The script remains the public command-line
@@ -16,9 +16,9 @@ branch nodes), `_dependency_ledger_findings` (257/36), `check_structure`
 `tests/test_verify_repo.py` module is 8,045 lines. These measurements supersede
 the older 2,455-line figure in the issue description.
 
-## 12.38.2 Considered approaches
+## 12.39.2 Considered approaches
 
-### 12.38.2.1 Mechanical moves with facade re-exports
+### 12.39.2.1 Mechanical moves with facade re-exports
 
 Move functions to modules, import them into `verify_repo.py`, and otherwise
 leave their globals unchanged. This minimizes edits, but imported functions
@@ -27,14 +27,14 @@ that monkeypatch facade-level `_run`, `_runtime_available`,
 `_phase3_code_cells_unchanged`, or task inventories would silently stop
 controlling validator behavior.
 
-### 12.38.2.2 Validator class or plugin framework
+### 12.39.2.2 Validator class or plugin framework
 
 Introduce a base validator class, registration decorators, and lifecycle
 objects. This could support future third-party checks, but no such extension
 contract is requested. It would combine a new framework with the extraction,
 make rollback harder, and violate the issue's no-wholesale-rewrite constraint.
 
-### 12.38.2.3 Compatibility facade with explicit context and hooks (selected)
+### 12.39.2.3 Compatibility facade with explicit context and hooks (selected)
 
 Keep configuration and CLI serialization in `verify_repo.py`. Extract data
 models, shared primitives, and the five validator responsibilities into a
@@ -43,7 +43,7 @@ context and pass the currently bound runtime hooks to validators that execute
 commands. This makes dependencies explicit while retaining current import and
 monkeypatch behavior.
 
-## 12.38.3 Module responsibilities and interfaces
+## 12.39.3 Module responsibilities and interfaces
 
 Create `scripts/repo_verifier/` with these ownership boundaries:
 
@@ -76,7 +76,7 @@ behavior depends on config or runtime hooks remain thin wrappers so changing a
 facade global or monkeypatch still affects the next call. `CHECKS` retains the
 current insertion order: structure, assets, docs, comments, execution.
 
-## 12.38.4 CLI and configuration compatibility
+## 12.39.4 CLI and configuration compatibility
 
 `scripts/verify_repo.py` continues to own:
 
@@ -94,7 +94,7 @@ Argument parsing must be able to exit for help before importing the extracted
 package, so copying only `verify_repo.py` to a directory without config or
 package files still returns help successfully.
 
-## 12.38.5 Characterization and red/green contract
+## 12.39.5 Characterization and red/green contract
 
 Before extraction, add characterization tests for the current facade:
 
@@ -117,7 +117,7 @@ No golden copy of the 3,788-line legacy implementation is retained. Behavior
 is characterized at public and injected seams rather than by duplicating
 production source into fixtures.
 
-## 12.38.6 Extraction and rollback sequence
+## 12.39.6 Extraction and rollback sequence
 
 Use independently revertible commits in dependency order:
 
@@ -135,7 +135,7 @@ tests needed for that boundary, and leaves the complete focused suite green.
 Reverting the latest extraction restores the previous facade-owned
 implementation without requiring a feature rollback or config migration.
 
-## 12.38.7 Complexity and size evidence
+## 12.39.7 Complexity and size evidence
 
 Record before/after metrics generated from the Python AST and line counts. The
 completed change must demonstrate:
@@ -152,7 +152,7 @@ These are maintainability measurements, not new runtime gates on arbitrary
 future rule growth. Document the measured result in
 `docs/maintenance/overnight-2026-07-04.md` beside issue #73's disposition.
 
-## 12.38.8 Verification
+## 12.39.8 Verification
 
 Qualification runs in this order:
 
@@ -171,7 +171,7 @@ No Atlas service starts. The verifier may inspect the initialized `infra`
 submodule exactly as it already does; completion leaves no ml-eng-lab Atlas
 containers.
 
-## 12.38.9 Non-goals
+## 12.39.9 Non-goals
 
 This issue does not add finding types, change finding severity, alter notebook
 or dependency policy, rename checks, parallelize checks, change timeout values,

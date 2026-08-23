@@ -101,3 +101,14 @@ def test_docs_helpers_are_preserved_as_facade_aliases():
     assert facade._mask_dependency_raw_html is facade._docs_validator._mask_dependency_raw_html
     assert facade._strip_markdown_code is facade._docs_validator._strip_markdown_code
     assert facade._DEPENDENCY_HASH_INPUTS is facade._docs_validator._DEPENDENCY_HASH_INPUTS
+
+
+def test_docs_validator_owns_dependency_helpers_through_internal_module():
+    from scripts.repo_verifier import docs as docs_validator
+    from scripts.repo_verifier import docs_dependencies
+
+    assert (
+        docs_validator.dependency_ledger_findings
+        is docs_dependencies.dependency_ledger_findings
+    )
+    assert docs_validator._strip_markdown_code is docs_dependencies._strip_markdown_code

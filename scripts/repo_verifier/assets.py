@@ -72,7 +72,7 @@ def _notebook_nlp_asset_contract(code_cells: list[str]) -> bool:
     return find_calls == 1 and has_guidance
 
 
-def nlp_asset_contract_findings(repo: Path) -> list[Finding]:
+def _nlp_asset_contract_findings(repo: Path) -> list[Finding]:
     """Validate current NLP asset consumers without network access."""
 
     def failed(location: str, message: str) -> list[Finding]:
@@ -176,5 +176,5 @@ def nlp_asset_contract_findings(repo: Path) -> list[Finding]:
 
 def check_assets(repo: Path, config: VerifierConfig) -> CheckResult:
     result = CheckResult(name="assets")
-    result.findings.extend(nlp_asset_contract_findings(repo))
+    result.findings.extend(_nlp_asset_contract_findings(repo))
     return result

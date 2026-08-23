@@ -68,3 +68,12 @@ def test_assets_facade_delegates_to_asset_validator(monkeypatch, tmp_path):
 
     assert seen["repo"] == tmp_path
     assert seen["config"] == facade._config_snapshot()
+
+
+def test_assets_internal_helper_is_preserved_as_a_facade_alias():
+    facade = load_facade()
+
+    assert (
+        facade._nlp_asset_contract_findings
+        is facade._assets_validator._nlp_asset_contract_findings
+    )

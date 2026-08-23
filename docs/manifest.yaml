@@ -251,6 +251,14 @@ sections:
         number: "12.38"
         title: Issue 72 NNx upstream triage implementation plan
         source: docs/superpowers/plans/2026-08-22-issue-72-nnx-upstream-triage-implementation-plan.md
+      - id: issue-73-verify-repo-decomposition-design
+        number: "12.39"
+        title: Issue 73 repository verifier decomposition design
+        source: docs/superpowers/specs/2026-08-22-issue-73-verify-repo-decomposition-design.md
+      - id: issue-73-verify-repo-decomposition-implementation
+        number: "12.40"
+        title: Issue 73 repository verifier decomposition implementation plan
+        source: docs/superpowers/plans/2026-08-22-issue-73-verify-repo-decomposition-implementation-plan.md
   - id: security
     number: "13"
     title: Security policy

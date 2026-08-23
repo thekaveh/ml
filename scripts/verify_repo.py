@@ -97,6 +97,7 @@ _apply_config(_load_config())
 
 if not _HELP_REQUESTED:
     from scripts.repo_verifier import assets as _assets_validator
+    from scripts.repo_verifier import comments as _comments_validator
     from scripts.repo_verifier import common as _common
     from scripts.repo_verifier import docs as _docs_validator
     from scripts.repo_verifier.models import CheckResult, Finding, VerifierConfig
@@ -176,6 +177,12 @@ if not _HELP_REQUESTED:
     _atlas_current_pin_projection_findings = (
         _docs_validator._atlas_current_pin_projection_findings
     )
+    _STATE_THE_WHAT_PATTERNS = _comments_validator._STATE_THE_WHAT_PATTERNS
+    _scan_source_for_comments = _comments_validator._scan_source_for_comments
+
+
+def _iter_in_scope_code(repo: Path):
+    yield from _comments_validator._iter_in_scope_code(repo, _config_snapshot())
 
 
 def _dependency_ledger_findings(repo: Path) -> list[Finding]:
@@ -203,169 +210,14 @@ def check_docs(repo: Path) -> CheckResult:
 
 
 
-_STATE_THE_WHAT_PATTERNS: tuple[tuple[re.Pattern, re.Pattern], ...] = (
-    (re.compile(r"^\s*#\s*import\s+\S", re.IGNORECASE),
-     re.compile(r"^\s*(?:from\s+\S+\s+)?import\s+\S")),
-    (re.compile(r"^\s*#\s*loop\s+(over|through|across)\b", re.IGNORECASE),
-     re.compile(r"^\s*(?:for|while)\s+")),
-    (re.compile(r"^\s*#\s*return\b", re.IGNORECASE),
-     re.compile(r"^\s*return\b")),
-    (re.compile(r"^\s*#\s*(define|create|define the|declare)\b", re.IGNORECASE),
-     re.compile(r"^\s*def\s+|^\s*class\s+|^\s*\w+\s*=")),
-    (re.compile(r"^\s*#\s*(initialize|init|set|assign)\b", re.IGNORECASE),
-     re.compile(r"^\s*\w+\s*=")),
-    (re.compile(r"^\s*#\s*print\b", re.IGNORECASE),
-     re.compile(r"^\s*print\s*\(")),
-    (re.compile(r"^\s*#\s*(call|invoke|run)\s+\w+", re.IGNORECASE),
-     re.compile(r"^\s*\w+\s*\(")),
-)
-
-
-def _scan_source_for_comments(source: str, location_prefix: str) -> list[Finding]:
-    findings: list[Finding] = []
-    lines = source.splitlines()
-    for i, line in enumerate(lines):
-        stripped = line.lstrip()
-        if not stripped.startswith("#"):
-            continue
-        j = i + 1
-        while j < len(lines):
-            nxt = lines[j].strip()
-            if nxt and not nxt.startswith("#"):
-                break
-            j += 1
-        if j >= len(lines):
-            continue
-        nxt_line = lines[j]
-        for comment_pat, code_pat in _STATE_THE_WHAT_PATTERNS:
-            if comment_pat.match(line) and code_pat.match(nxt_line):
-                findings.append(Finding(
-                    id="C.state_the_what", check="comments", severity="warning",
-                    location=f"{location_prefix}:{i+1}",
-                    message=f"comment restates the next code line: {stripped[:80]!r}",
-                    detail={"next_code": nxt_line.strip()[:80]},
-                ))
-                break
-    return findings
-
-
-def _iter_in_scope_code(repo: Path):
-    # verify_repo.py is the scanner itself; scanning its own source produces
-    # spurious C.state_the_what hits on its rule-matching helpers. The other
-    # scripts under scripts/ are in scope.
-    for p in (repo / "scripts").glob("*.py"):
-        if p.name == "verify_repo.py":
-            continue
-        yield p, _read_text(p)
-    for d in ACTIVE_TASK_DIRS:
-        for p in _active_task_path(repo, d).glob("*.py"):
-            yield p, _read_text(p)
-    for nb in _iter_notebooks(repo):
-        try:
-            doc = nbformat.read(nb, as_version=4)
-        except Exception:
-            continue
-        for ci, cell in enumerate(doc.cells):
-            if cell.cell_type != "code":
-                continue
-            # Papermill `parameters`-tagged cells carry convention-bound
-            # boilerplate (see scripts/inject_smoke_test_cell.py). Their
-            # leading comments document the papermill -p invocation
-            # contract — they're documentation, not state-the-what hits.
-            # Same self-exclusion principle as the verify_repo.py skip
-            # above.
-            tags = cell.get("metadata", {}).get("tags") or []
-            if "parameters" in tags:
-                continue
-            marker = nb.with_name(f"{nb.name}#cell[{ci}]")
-            yield marker, cell.source
-
-
 def check_comments(repo: Path) -> CheckResult:
-    result = CheckResult(name="comments")
-    for path_marker, source in _iter_in_scope_code(repo):
-        try:
-            rel = path_marker.relative_to(repo)
-            location_prefix = str(rel)
-        except (ValueError, AttributeError):
-            location_prefix = str(path_marker)
-        for f in _scan_source_for_comments(source, location_prefix):
-            result.findings.append(f)
-    return result
+    return _comments_validator.check_comments(repo, _config_snapshot())
 
 
 def export_phase_b_candidates(repo: Path, out_path: Path) -> int:
-    """Phase-B LLM judge input.
-
-    Phase A (the deterministic heuristic above) catches obvious state-the-what
-    comments. Phase B is meant to send the *survivors* — comments that look
-    plausible but might still be redundant — to an LLM judge.
-
-    This function exports the candidates: for each comment line that survived
-    Phase A, the 5 lines before, the comment line, and the 5 lines after.
-    A calling agent (or the /goal loop) reads this JSON, dispatches a subagent
-    per file with the prompt below, and applies the verdict.
-
-    Judge prompt template:
-
-        You are reviewing a Python source snippet to enforce a strict
-        comment-hygiene rule: comments are allowed ONLY if they explain WHY
-        (a non-obvious choice), note a hidden CONSTRAINT or workaround, or
-        cite an external reference. Comments that merely restate WHAT the
-        code does must be removed.
-
-        Source path: <path>
-        Context (5 before, comment, 5 after; comment marked ▶):
-        <snippet>
-
-        Respond with: "KEEP" or "DELETE", a colon, then a 12-word-max
-        justification.
-
-    Returns the candidate count.
-    """
-    candidates = []
-    for path_marker, source in _iter_in_scope_code(repo):
-        try:
-            rel = path_marker.relative_to(repo)
-            location_prefix = str(rel)
-        except (ValueError, AttributeError):
-            location_prefix = str(path_marker)
-        # Phase A scanner reports state-the-what — opposite filter wanted here:
-        # comments that DIDN'T match the heuristic but exist anyway.
-        a_flagged_lines = {
-            int(f.location.rsplit(":", 1)[-1])
-            for f in _scan_source_for_comments(source, location_prefix)
-        }
-        lines = source.splitlines()
-        for i, line in enumerate(lines):
-            stripped = line.lstrip()
-            if not stripped.startswith("#"):
-                continue
-            if (i + 1) in a_flagged_lines:
-                continue  # already flagged by Phase A
-            # 5 lines of context on each side.
-            start = max(0, i - 5)
-            end = min(len(lines), i + 6)
-            snippet = "\n".join(
-                ("▶ " if j == i else "  ") + lines[j]
-                for j in range(start, end)
-            )
-            candidates.append({
-                "location": f"{location_prefix}:{i+1}",
-                "comment": stripped,
-                "snippet": snippet,
-            })
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(
-        json.dumps({
-            "schema_version": 1,
-            "candidate_count": len(candidates),
-            "candidates": candidates,
-        }, indent=2),
-        encoding="utf-8",
+    return _comments_validator.export_phase_b_candidates(
+        repo, out_path, _config_snapshot()
     )
-    return len(candidates)
 
 
 if not _HELP_REQUESTED:

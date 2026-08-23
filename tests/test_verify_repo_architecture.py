@@ -112,3 +112,52 @@ def test_docs_validator_owns_dependency_helpers_through_internal_module():
         is docs_dependencies.dependency_ledger_findings
     )
     assert docs_validator._strip_markdown_code is docs_dependencies._strip_markdown_code
+
+
+def test_comments_facade_delegates_with_current_config(monkeypatch, tmp_path):
+    facade = load_facade()
+    monkeypatch.setattr(facade, "ACTIVE_TASK_DIRS", ("changed",))
+    seen = {}
+    monkeypatch.setattr(
+        facade._comments_validator,
+        "check_comments",
+        lambda repo, config: seen.update(repo=repo, config=config)
+        or facade.CheckResult("comments"),
+    )
+    monkeypatch.setattr(
+        facade._comments_validator,
+        "export_phase_b_candidates",
+        lambda repo, out_path, config: seen.update(
+            export_repo=repo, out_path=out_path, config=config
+        )
+        or 7,
+    )
+
+    facade.check_comments(tmp_path)
+
+    assert seen["repo"] == tmp_path
+    assert seen["config"].active_task_dirs == ("changed",)
+    assert facade.export_phase_b_candidates(tmp_path, tmp_path / "out.json") == 7
+    assert seen["config"].active_task_dirs == ("changed",)
+
+
+def test_comments_facade_preserves_comment_helper_aliases():
+    facade = load_facade()
+
+    assert facade._STATE_THE_WHAT_PATTERNS is facade._comments_validator._STATE_THE_WHAT_PATTERNS
+    assert facade._scan_source_for_comments is facade._comments_validator._scan_source_for_comments
+
+
+def test_comments_facade_iter_wrapper_uses_current_config(monkeypatch, tmp_path):
+    facade = load_facade()
+    monkeypatch.setattr(facade, "ACTIVE_TASK_DIRS", ("changed",))
+    seen = {}
+    monkeypatch.setattr(
+        facade._comments_validator,
+        "_iter_in_scope_code",
+        lambda repo, config: seen.update(repo=repo, config=config) or iter(()),
+    )
+
+    assert list(facade._iter_in_scope_code(tmp_path)) == []
+    assert seen["repo"] == tmp_path
+    assert seen["config"].active_task_dirs == ("changed",)

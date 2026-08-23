@@ -50,6 +50,6 @@ All in the root `requirements.txt` + `torch-requirements.txt`.
 
 ## 6. Known issues
 
-- `nnx.deepen` is function-preserving only for **ReLU**. Sigmoid/tanh/GELU networks would need a different post-insertion init (different bias / weight strategy) to preserve the forward output. The notebook pins the baseline to `Activations.RELU` to honor this contract.
+- `nnx.deepen` is function-preserving only for **ReLU**. Exact preservation for sigmoid/tanh/GELU would require a materially different surgery operator, not a different constant bias or weight initialization. The notebook pins the baseline to `Activations.RELU` to honor this contract.
 - The "warm-start vs cold-start" comparison is **budget-dependent**: at the very short training budgets used here for CPU feasibility (3 baseline epochs + 5 resume epochs), the cold-start model can sometimes match or beat the warm-start. The Net2Net advantage shows up clearest at *longer* schedules where the cold-start has to spend epochs reaching the warm-start's step-0 loss. The §6.3 cell discusses this directly.
 - `nnx.widen` (Net2WiderNet) preserves the forward to numerical precision (`~1e-6`), not bit-exact. `nnx.deepen` (Net2DeeperNet identity-init) IS bit-exact (`0.00`).

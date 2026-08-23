@@ -209,27 +209,38 @@ file's header note also pins the 2026-06-14 migration context, so source paths i
 cites (e.g. `nnx/src/nnx/nn/dataset/nn_dataset.py:24`) refer to the upstream repo,
 not a local submodule.
 
-The current findings, summarized — see `docs/FINDINGS-NNX.md` for the full text
-and the suggested upstream fixes:
+The current findings, summarized — see `docs/FINDINGS-NNX.md` for the canonical
+five-row triage table, release evidence, affected notebooks, local workarounds,
+and remaining work:
 
 - **§9.1.1.1 — `NNDataset` default `batch_size` packs the whole train set into one
   batch.** Surprising for diffusion / MoE / transformer / JEPA tasks; the
   upstream `batch_sizes=` constructor argument now owns diffusion, MoE, and JEPA
   mini-batching locally. TinyShakespeare intentionally retains its custom
-  sequence-window dataset; the whole-split default remains an upstream caveat.
+  sequence-window dataset. The unchanged whole-split default is tracked by
+  [`thekaveh/NNx#188`](https://github.com/thekaveh/NNx/issues/188); Issue #69
+  resolved the local loader bypass.
 - **§9.1.1.2 — `nnx.deepen` is function-preserving only for `Activations.RELU`.**
-  Identity-init insertion only preserves the forward for ReLU; the construction-
-  time `ValueError` is clear, the constraint just isn't a one-liner to discover.
+  Identity-init insertion only preserves the forward for ReLU. NNx has enforced
+  and documented that mathematical design constraint since `v0.2.0`; the model-
+  surgery notebook deliberately uses ReLU, so this is not an open upstream bug.
 - **§9.1.1.3 — `NNTabularDataset` coerces targets to `torch.long` (classification-
-  only).** Documented in the docstring; regression notebooks build the DataLoaders
-  manually.
-- **§9.1.1.4 — `EarlyStopping(monitor=...)` default is `"val_edp.error"`, which does
-  not exist for regression EDPs.** Regression callers must pass
-  `monitor="val_edp.loss"` explicitly.
-- **§9.1.1.5 — `NNRun.save()` prints an absolute path, leaking the execution
-  environment layout.** Active notebook outputs can carry machine-local paths;
-  the `E13.stale_active_notebook_path` verifier rule keeps them clean in-repo, and
-  the upstream fix is to print a `cwd`-relative run path.
+  only) in the retained 0.2.0 runtime.** Upstream
+  [`thekaveh/NNx#81`](https://github.com/thekaveh/NNx/issues/81) shipped
+  `target_dtype=torch.float32` in `v0.2.2`. ml-eng-lab keeps the manual loader
+  until the coordinated root/Atlas upgrade in
+  [Issue #146](https://github.com/thekaveh/ml-eng-lab/issues/146).
+- **§9.1.1.4 — `EarlyStopping(monitor=...)` default is `"val_edp.error"`, which is
+  unset (`None`) for regression EDPs.** Regression callers must pass
+  `monitor="val_edp.loss"` explicitly; the default silently skips updates when
+  error is absent. The upstream callback contract is tracked by
+  [`thekaveh/NNx#189`](https://github.com/thekaveh/NNx/issues/189).
+- **§9.1.1.5 — `NNModel.train()` and `Trainer.train()` print an absolute run
+  path.** Active notebook outputs can carry machine-local paths; the
+  `E13.stale_active_notebook_path` verifier keeps them clean in-repo while
+  [`thekaveh/NNx#190`](https://github.com/thekaveh/NNx/issues/190) tracks a
+  portable shared completion-message contract. `NNRun.save()` performs
+  persistence but is not the message emitter.
 
 When you trip over a new NNx behavior during notebook authoring or a re-execution
 pass, the right move is to add a finding to `docs/FINDINGS-NNX.md` (with the

@@ -1695,6 +1695,211 @@ def test_nnx_retain_decision_docs_reject_mutations(path, old, new):
         _assert_nnx_retain_decision_docs(documents)
 
 
+_NNX_FINDING_TRIAGE_URLS = (
+    "https://github.com/thekaveh/NNx/issues/188",
+    "https://github.com/thekaveh/NNx/issues/81",
+    "https://github.com/thekaveh/NNx/issues/189",
+    "https://github.com/thekaveh/NNx/issues/190",
+    "https://github.com/thekaveh/ml-eng-lab/issues/146",
+)
+
+
+def _assert_nnx_finding_triage_docs(text: str) -> None:
+    headings = (
+        "### 9.1.1.1 `NNDataset` default `batch_size` packs the whole train set into one batch",
+        "### 9.1.1.2 `nnx.deepen` is function-preserving only for `Activations.RELU`",
+        "### 9.1.1.3 `NNTabularDataset` coerces targets to `torch.long` (classification-only)",
+        '### 9.1.1.4 `EarlyStopping(monitor=...)` default is `"val_edp.error"`, which is unset (`None`) for regression EDPs',
+        "### 9.1.1.5 training completion messages expose absolute run paths",
+    )
+    for heading in headings:
+        assert text.count(heading) == 1
+
+    assert text.count("**Triage summary (last reviewed 2026-08-22):**") == 1
+    assert "surfaced here for an upstream PR follow-up" not in text
+
+    row_matches = re.findall(r"^\| (F[1-5]) \| (.+)$", text, re.MULTILINE)
+    rows = {finding_id: row for finding_id, row in row_matches}
+    assert set(rows) == {"F1", "F2", "F3", "F4", "F5"}
+
+    section_matches = list(
+        re.finditer(r"^### 9\.1\.1\.([1-5]) .+$", text, re.MULTILINE)
+    )
+    assert len(section_matches) == 5
+    sections = {}
+    for index, match in enumerate(section_matches):
+        end = section_matches[index + 1].start() if index + 1 < len(section_matches) else len(text)
+        sections[f"F{match.group(1)}"] = text[match.start():end]
+
+    expected_tokens = {
+        "F1": (
+            "https://github.com/thekaveh/NNx/issues/188",
+            "diffusion-mnist-ddpm-pytorch",
+            "Issue #69",
+            "no follow-up",
+        ),
+        "F2": (
+            "documented design constraint",
+            "not an open upstream bug",
+            "model_surgery-mnist-ffnn-pytorch",
+            "no follow-up",
+        ),
+        "F3": (
+            "https://github.com/thekaveh/NNx/issues/81",
+            "v0.2.2",
+            "tabular_regression-diabetes-mlp-pytorch",
+            "https://github.com/thekaveh/ml-eng-lab/issues/146",
+        ),
+        "F4": (
+            "https://github.com/thekaveh/NNx/issues/189",
+            "tabular_regression-diabetes-mlp-pytorch",
+            '`monitor="val_edp.loss"`',
+            "no local code follow-up",
+        ),
+        "F5": (
+            "https://github.com/thekaveh/NNx/issues/190",
+            "Any notebook that captures NNx training output",
+            "E13.stale_active_notebook_path",
+            "no local follow-up",
+        ),
+    }
+    detail_tokens = {
+        "F1": ("https://github.com/thekaveh/NNx/issues/188", "Issue #69"),
+        "F2": ("not an open upstream bug", "model_surgery-mnist-ffnn-pytorch"),
+        "F3": (
+            "https://github.com/thekaveh/NNx/issues/81",
+            "https://github.com/thekaveh/ml-eng-lab/issues/146",
+        ),
+        "F4": ("https://github.com/thekaveh/NNx/issues/189", '`monitor="val_edp.loss"`'),
+        "F5": (
+            "https://github.com/thekaveh/NNx/issues/190",
+            "E13.stale_active_notebook_path",
+        ),
+    }
+    standard_labels = (
+        "**Upstream disposition:**",
+        "**Release evidence:**",
+        "**Affected notebooks:**",
+        "**Local workaround/status:**",
+        "**Remaining work:**",
+    )
+    for finding_id, tokens in expected_tokens.items():
+        assert all(token in rows[finding_id] for token in tokens)
+        assert all(label in sections[finding_id] for label in standard_labels)
+        normalized_section = re.sub(r"\s+", " ", sections[finding_id])
+        assert all(token in normalized_section for token in detail_tokens[finding_id])
+
+    for url in _NNX_FINDING_TRIAGE_URLS:
+        assert url in text
+
+    assert "v0.2.2" in text
+    assert "documented design constraint" in text
+    assert "not an open upstream bug" in text
+    assert "`NNModel.train()` and `Trainer.train()`" in text
+    assert "`NNRun.save()` prints an absolute path" not in text
+    for notebook in (
+        "diffusion-mnist-ddpm-pytorch",
+        "moe-fmnist-mixture-of-experts-pytorch",
+        "self_supervised-fmnist-jepa-pytorch",
+        "model_surgery-mnist-ffnn-pytorch",
+        "tabular_regression-diabetes-mlp-pytorch",
+    ):
+        assert notebook in text
+
+
+def test_nnx_findings_have_durable_upstream_triage():
+    text = (REPO_ROOT / "docs/FINDINGS-NNX.md").read_text(encoding="utf-8")
+    _assert_nnx_finding_triage_docs(text)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        ("| F1 |", "| missing-F1 |"),
+        ("https://github.com/thekaveh/NNx/issues/81", "https://github.com/thekaveh/NNx/issues/999999"),
+        ("v0.2.2", "unreleased"),
+        ("documented design constraint", "unresolved bug"),
+        ("`NNModel.train()` and `Trainer.train()`", "`NNRun.save()`"),
+    ),
+)
+def test_nnx_finding_triage_docs_reject_mutations(old, new):
+    text = (REPO_ROOT / "docs/FINDINGS-NNX.md").read_text(encoding="utf-8")
+    assert old in text
+    with pytest.raises(AssertionError):
+        _assert_nnx_finding_triage_docs(text.replace(old, new))
+
+
+def test_nnx_finding_triage_docs_reject_cross_associated_issue_links():
+    text = (REPO_ROOT / "docs/FINDINGS-NNX.md").read_text(encoding="utf-8")
+    swapped = (
+        text.replace("/NNx/issues/188", "/NNx/issues/swap")
+        .replace("/NNx/issues/189", "/NNx/issues/188")
+        .replace("/NNx/issues/swap", "/NNx/issues/189")
+    )
+
+    with pytest.raises(AssertionError):
+        _assert_nnx_finding_triage_docs(swapped)
+
+
+def test_nnx_finding_triage_docs_require_standard_labels_per_finding():
+    text = (REPO_ROOT / "docs/FINDINGS-NNX.md").read_text(encoding="utf-8")
+    f3_start = text.index("### 9.1.1.3")
+    f4_start = text.index("### 9.1.1.4")
+    f3 = text[f3_start:f4_start].replace("**Release evidence:**", "**Evidence:**", 1)
+    mutated = text[:f3_start] + f3 + text[f4_start:]
+
+    with pytest.raises(AssertionError):
+        _assert_nnx_finding_triage_docs(mutated)
+
+
+def test_model_surgery_docs_do_not_claim_init_can_preserve_non_relu_deepening():
+    paths = (
+        "notebooks/model_surgery-mnist-ffnn-pytorch/README.md",
+        "notebooks/model_surgery-mnist-ffnn-pytorch/notebook.ipynb",
+        "docs/notebooks/model_surgery-mnist-ffnn-pytorch.md",
+    )
+    for path in paths:
+        text = (REPO_ROOT / path).read_text(encoding="utf-8")
+        assert "different post-insertion init" not in text
+        assert "different post-insertion bias init" not in text
+        assert "materially different surgery operator" in text
+
+
+_EARLY_STOPPING_REGRESSION_DOCS = (
+    "notebooks/tabular_regression-diabetes-mlp-pytorch/README.md",
+    "docs/notebooks/tabular_regression-diabetes-mlp-pytorch.md",
+    "docs/superpowers/plans/2026-08-22-issue-72-nnx-upstream-triage-implementation-plan.md",
+)
+
+
+def _assert_early_stopping_regression_field_wording(documents: Mapping[str, str]) -> None:
+    assert set(documents) == set(_EARLY_STOPPING_REGRESSION_DOCS)
+    for text in documents.values():
+        assert "no `error` field" not in text
+        assert "unset (`None`)" in text
+
+
+def test_early_stopping_regression_field_wording_is_synced_across_surfaces():
+    documents = {
+        path: (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in _EARLY_STOPPING_REGRESSION_DOCS
+    }
+    _assert_early_stopping_regression_field_wording(documents)
+
+
+@pytest.mark.parametrize("path", _EARLY_STOPPING_REGRESSION_DOCS)
+def test_early_stopping_regression_field_wording_rejects_surface_drift(path):
+    documents = {
+        candidate: (REPO_ROOT / candidate).read_text(encoding="utf-8")
+        for candidate in _EARLY_STOPPING_REGRESSION_DOCS
+    }
+    assert "unset (`None`)" in documents[path]
+    documents[path] = documents[path].replace("unset (`None`)", "absent", 1)
+
+    with pytest.raises(AssertionError):
+        _assert_early_stopping_regression_field_wording(documents)
+
+
 def test_nnx_current_pin_and_issue63_advisory_snapshot_match_restored_manifest():
     requirements = (REPO_ROOT / "requirements.txt").read_bytes()
     ledger = (REPO_ROOT / "docs/dependency-contracts.md").read_text(encoding="utf-8")

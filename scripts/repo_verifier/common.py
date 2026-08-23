@@ -13,6 +13,13 @@ from .models import VerifierConfig
 DEFAULT_SUBPROCESS_TIMEOUT = 120
 
 
+def read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, FileNotFoundError):
+        return ""
+
+
 def _subprocess_text(value: str | bytes | None) -> str:
     if value is None:
         return ""

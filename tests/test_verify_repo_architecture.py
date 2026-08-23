@@ -205,6 +205,14 @@ def test_validator_modules_own_the_five_check_implementations():
     assert facade._execution_validator.check_execution.__module__ == "scripts.repo_verifier.execution"
 
 
+def test_common_module_owns_shared_text_reading():
+    from scripts.repo_verifier import comments, common, docs_dependencies, structure
+
+    assert structure._read_text is common.read_text
+    assert docs_dependencies._read_text is common.read_text
+    assert comments._read_text is common.read_text
+
+
 def test_verifier_modules_stay_within_decomposition_boundaries():
     facade = REPO / "scripts" / "verify_repo.py"
     modules = sorted((REPO / "scripts" / "repo_verifier").glob("*.py"))

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import nbformat
 
+from .common import read_text as _read_text
 from .models import CheckResult, Finding, VerifierConfig
 
 
@@ -28,13 +29,6 @@ _STATE_THE_WHAT_PATTERNS: tuple[tuple[re.Pattern, re.Pattern], ...] = (
     (re.compile(r"^\s*#\s*(call|invoke|run)\s+\w+", re.IGNORECASE),
      re.compile(r"^\s*\w+\s*\(")),
 )
-
-
-def _read_text(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, FileNotFoundError):
-        return ""
 
 
 def _scan_source_for_comments(source: str, location_prefix: str) -> list[Finding]:

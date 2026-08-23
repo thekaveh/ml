@@ -16,6 +16,7 @@ from urllib.parse import unquote
 import nbformat
 
 from . import common as _common
+from .common import read_text as _read_text
 from .docs import _strip_markdown_code
 from .models import CheckResult, Finding, VerifierConfig
 
@@ -293,13 +294,6 @@ def _is_allowed_tracked_superpowers_doc(path: str) -> bool:
         if path.startswith(prefix) and "/" not in path.removeprefix(prefix):
             return True
     return False
-
-
-def _read_text(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, FileNotFoundError):
-        return ""
 
 
 def _github_markdown_slug(heading: str) -> str:

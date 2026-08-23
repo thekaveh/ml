@@ -11,12 +11,10 @@ try:
     import yaml as _yaml
 except ImportError:
     _yaml = None
+from .common import read_text as _read_text
 from .models import Finding, RunCommand
-def _read_text(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, FileNotFoundError):
-        return ""
+
+
 def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
     def code_fragment(value: str, *, crosses_lines: bool = False) -> str:
         return " " * len(value) if strip_inline or crosses_lines else value

@@ -1,1 +1,1 @@
-"""Shared implementation modules for :mod:`scripts.verify_repo`."""
+"""Validator implementations owned by the :mod:`scripts.verify_repo` facade."""

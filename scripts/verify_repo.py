@@ -16,16 +16,18 @@ from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from pathlib import Path
 
-try:
-    import yaml as _yaml  # PyYAML
-except ImportError:
-    _yaml = None
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 CONFIG_PATH = Path(__file__).resolve().parent / "verify_repo_config.yaml"
 _HELP_REQUESTED = any(arg in ("-h", "--help") for arg in sys.argv[1:])
+
+_yaml = None
+if not _HELP_REQUESTED:
+    try:
+        import yaml as _yaml  # PyYAML
+    except ImportError:
+        pass
 
 
 def _load_config(config_path: Path = CONFIG_PATH) -> dict:
@@ -87,7 +89,8 @@ TIER_A_NOTEBOOKS: tuple[str, ...] = ()
 TIER_A_CI_OUTPUT_ROOT = "/tmp/ml-tier-a"
 TIER_C_CODE_BASELINE_TAG = "tier-c-deterministic-seeding-atlas-baseline-2026-08-22"
 TIER_C_CODE_BASELINE_COMMIT = "35e7903afe45f60e5e30bf8fbd49f7d6463caa6a"
-_apply_config(_load_config())
+if not _HELP_REQUESTED:
+    _apply_config(_load_config())
 
 if not _HELP_REQUESTED:
     from scripts.repo_verifier import assets as _assets_validator
@@ -283,6 +286,8 @@ def check_execution(repo: Path, fast: bool) -> CheckResult:
 
 CHECKS: dict[str, Callable[..., CheckResult]] = {
     "structure": check_structure,
+    # D11.nlp_asset_contract remains a public assets-check contract; its
+    # implementation is owned by repo_verifier.assets.
     "assets": check_assets,
     "docs": check_docs,
     "comments": check_comments,

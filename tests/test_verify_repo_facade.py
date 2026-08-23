@@ -1,6 +1,7 @@
 """Characterization coverage for the verify_repo command-line facade."""
 from __future__ import annotations
 
+import builtins
 import importlib.util
 import json
 import sys
@@ -20,6 +21,23 @@ def _load_facade():
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def test_help_defers_config_and_validator_imports(monkeypatch):
+    """A copied facade must render help without its runtime dependencies."""
+    original_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name == "yaml" or name.startswith("scripts.repo_verifier"):
+            raise AssertionError(f"help path imported runtime dependency: {name}")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--help"])
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    facade = _load_facade()
+    with pytest.raises(SystemExit, match="0"):
+        facade.main(["--help"])
 
 
 def test_all_dispatch_preserves_order_and_forwards_fast_only_to_execution(

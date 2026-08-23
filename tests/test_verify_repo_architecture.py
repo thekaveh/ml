@@ -11,6 +11,7 @@ import pytest
 
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "verify_repo.py"
+REPO = SCRIPT.parent.parent
 
 
 def load_facade():
@@ -192,3 +193,24 @@ def test_execution_facade_preserves_execution_helper_aliases():
     assert facade._cell_tags is facade._execution_validator._cell_tags
     assert facade._assignment_names is facade._execution_validator._assignment_names
     assert facade._atlas_manifest_findings is facade._execution_validator._atlas_manifest_findings
+
+
+def test_validator_modules_own_the_five_check_implementations():
+    facade = load_facade()
+
+    assert facade._structure_validator.check_structure.__module__ == "scripts.repo_verifier.structure"
+    assert facade._assets_validator.check_assets.__module__ == "scripts.repo_verifier.assets"
+    assert facade._docs_validator.check_docs.__module__ == "scripts.repo_verifier.docs"
+    assert facade._comments_validator.check_comments.__module__ == "scripts.repo_verifier.comments"
+    assert facade._execution_validator.check_execution.__module__ == "scripts.repo_verifier.execution"
+
+
+def test_verifier_modules_stay_within_decomposition_boundaries():
+    facade = REPO / "scripts" / "verify_repo.py"
+    modules = sorted((REPO / "scripts" / "repo_verifier").glob("*.py"))
+
+    assert len(facade.read_text(encoding="utf-8").splitlines()) <= 450
+    assert max(len(path.read_text(encoding="utf-8").splitlines()) for path in modules) <= 1200
+    assert tuple(load_facade().CHECKS) == (
+        "structure", "assets", "docs", "comments", "execution"
+    )

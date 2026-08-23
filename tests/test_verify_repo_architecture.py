@@ -77,3 +77,27 @@ def test_assets_internal_helper_is_preserved_as_a_facade_alias():
         facade._nlp_asset_contract_findings
         is facade._assets_validator._nlp_asset_contract_findings
     )
+
+
+def test_docs_facade_injects_current_run_hook(monkeypatch, tmp_path):
+    facade = load_facade()
+    sentinel = lambda cmd, cwd, timeout=None: (0, "sentinel", "")
+    monkeypatch.setattr(facade, "_run", sentinel)
+    seen = {}
+    monkeypatch.setattr(
+        facade._docs_validator,
+        "check_docs",
+        lambda repo, config, run: seen.update(run=run) or facade.CheckResult("docs"),
+    )
+
+    facade.check_docs(tmp_path)
+
+    assert seen["run"] is sentinel
+
+
+def test_docs_helpers_are_preserved_as_facade_aliases():
+    facade = load_facade()
+
+    assert facade._mask_dependency_raw_html is facade._docs_validator._mask_dependency_raw_html
+    assert facade._strip_markdown_code is facade._docs_validator._strip_markdown_code
+    assert facade._DEPENDENCY_HASH_INPUTS is facade._docs_validator._DEPENDENCY_HASH_INPUTS

@@ -16,6 +16,7 @@ from urllib.parse import unquote
 import nbformat
 
 from . import common as _common
+from .docs import _strip_markdown_code
 from .models import CheckResult, Finding, VerifierConfig
 
 NOTEBOOK_ROOT = Path("notebooks")
@@ -299,108 +300,6 @@ def _read_text(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, FileNotFoundError):
         return ""
-
-
-def _strip_markdown_code(text: str, *, strip_inline: bool = True) -> str:
-    def code_fragment(value: str, *, crosses_lines: bool = False) -> str:
-        return " " * len(value) if strip_inline or crosses_lines else value
-
-    def mask_html_comments(
-        line: str, in_comment: bool, inline_marker: str | None
-    ) -> tuple[str, bool, str | None]:
-        masked: list[str] = []
-        index = 0
-        crosses_lines = inline_marker is not None
-        while index < len(line):
-            if in_comment:
-                close = line.find("-->", index)
-                if close == -1:
-                    masked.append(" " * (len(line) - index))
-                    return "".join(masked), True, inline_marker
-                masked.append(" " * (close + 3 - index))
-                index = close + 3
-                in_comment = False
-                continue
-            if inline_marker is not None:
-                code_span = re.search(r"`+", line[index:])
-                if code_span is None:
-                    masked.append(code_fragment(line[index:], crosses_lines=crosses_lines))
-                    return "".join(masked), in_comment, inline_marker
-                end = index + code_span.end()
-                masked.append(code_fragment(line[index:end], crosses_lines=crosses_lines))
-                index = end
-                if len(code_span.group(0)) == len(inline_marker):
-                    inline_marker = None
-                continue
-            code_span = re.match(r"`+", line[index:])
-            if code_span:
-                inline_marker = code_span.group(0)
-                end = index + len(inline_marker)
-                masked.append(code_fragment(line[index:end]))
-                index = end
-                continue
-            if line.startswith("<!--", index):
-                in_comment = True
-                continue
-            masked.append(line[index])
-            index += 1
-        return "".join(masked), in_comment, inline_marker
-
-    stripped: list[str] = []
-    fence: tuple[str, int] | None = None
-    raw_html_block: str | None = None
-    in_comment = False
-    inline_marker: str | None = None
-    for line in text.splitlines():
-        opener = re.match(r"^ {0,3}(?P<marker>`{3,}|~{3,})", line)
-        invalid_backtick_fence = bool(
-            not in_comment
-            and inline_marker is None
-            and opener
-            and opener["marker"].startswith("`")
-            and "`" in line[opener.end():]
-        )
-        if (
-            fence is None
-            and not in_comment
-            and inline_marker is None
-            and opener
-            and not invalid_backtick_fence
-        ):
-            marker = opener["marker"]
-            fence = (marker[0], len(marker))
-            stripped.append(" " * len(line))
-            continue
-        if fence is not None:
-            marker, minimum_length = fence
-            if re.fullmatch(rf" {{0,3}}{re.escape(marker)}{{{minimum_length},}}\s*", line):
-                fence = None
-            stripped.append(" " * len(line))
-            continue
-        if raw_html_block is not None:
-            if re.search(rf"</{raw_html_block}\s*>", line, re.IGNORECASE):
-                raw_html_block = None
-            stripped.append(" " * len(line))
-            continue
-        if line.startswith("    "):
-            stripped.append(" " * len(line))
-            continue
-        line, in_comment, inline_marker = mask_html_comments(
-            line, in_comment, inline_marker
-        )
-        raw_html_opener = re.match(
-            r"^ {0,3}<(script|style|pre|textarea)(?=\s|>|$)",
-            line,
-            re.IGNORECASE,
-        )
-        if raw_html_opener is not None:
-            raw_html_block = raw_html_opener.group(1).lower()
-            if re.search(rf"</{raw_html_block}\s*>", line[raw_html_opener.end():], re.IGNORECASE):
-                raw_html_block = None
-            stripped.append(" " * len(line))
-            continue
-        stripped.append(line)
-    return "\n".join(stripped)
 
 
 def _github_markdown_slug(heading: str) -> str:

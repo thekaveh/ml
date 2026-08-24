@@ -136,6 +136,7 @@ def test_model_diagram_masters_match_pinned_runtime_contracts():
     )
 
     assert "Pre-Norm RMSNorm" in transformer
+    assert "input = RMSNorm(x)" in transformer
     assert "SwiGLU" in transformer
     assert "Final RMSNorm" in transformer
     assert "LayerNorm" not in transformer
@@ -143,7 +144,7 @@ def test_model_diagram_masters_match_pinned_runtime_contracts():
 
     assert "GraphConvNN / PyG GCNConv" in gnn
     assert "AGG = normalized add (+ self-loop)" in gnn
-    assert "h_v' = Θᵀ · Σ h_u / √(d̂_u d̂_v)" in gnn
+    assert "h_v' = Theta^T · sum h_u / sqrt(d_u d_v)" in gnn
     assert "Kipf &amp; Welling, 2017" in gnn
     assert "AGG = mean" not in gnn
     assert "transductive" not in gnn
@@ -174,6 +175,22 @@ def test_shared_model_diagram_masters_are_consumer_safe():
     assert "MNIST" in ddpm
     assert "FMNIST" not in ddpm
     assert "garment" not in ddpm
+
+
+def test_shared_mlp_dimension_note_does_not_share_equation_rows():
+    root = _svg_root(REPO_ROOT / "docs/diagrams/ml-eng-lab-mlp.html")
+    notes = {
+        "".join(element.itertext()): element
+        for element in root.iter()
+        if element.tag.endswith("text")
+    }
+
+    dimension_note = notes["dimensions vary by consumer"]
+    dimension_sequence = notes["d_in → h₁ → h₂ → … → d_out"]
+    assert float(dimension_note.get("y", "0")) >= 490
+    assert float(dimension_sequence.get("y", "0")) > float(
+        dimension_note.get("y", "0")
+    )
 
 
 def test_documentation_sync_master_encodes_the_actual_directed_flow():

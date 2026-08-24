@@ -1,4 +1,4 @@
-# Three-Surface Audit Remediation Implementation Plan
+# 12.41 Three-Surface Audit Remediation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** HTML/SVG, Markdown, Python 3.11, pytest, CairoSVG, MkDocs Material, repository documentation scripts.
 
-## Global Constraints
+## 12.41.1 Global Constraints
 
 - Treat `docs/manifest.yaml` and committed canonical Markdown/HTML as the only hand-edited documentation sources.
 - Keep generated site/wiki trees and root `mkdocs.yml` untracked.
@@ -18,7 +18,7 @@
 
 ---
 
-### Task 1: Lock diagram and prose accuracy with regression tests
+## 12.41.2 Task 1: Lock diagram and prose accuracy with regression tests
 
 **Files:**
 - Modify: `tests/test_render_diagrams.py`
@@ -28,23 +28,23 @@
 - Consumes: canonical diagram masters and published Markdown.
 - Produces: content assertions that reject each audited stale or ungrounded claim.
 
-- [ ] **Step 1: Add assertions for the corrected architecture vocabulary**
+- [x] **Step 1: Add assertions for the corrected architecture vocabulary**
 
-Assert that the transformer master names RMSNorm, pre-normalization, and SwiGLU; GraphConv names additive aggregation and the Weisfeiler-Leman operator; the MLP master uses symbolic dimensions and a generic optimizer update; and the DDPM master names MNIST only.
+Assert that the transformer master names RMSNorm, pre-normalization, and SwiGLU; GraphConvNN identifies its PyG GCNConv implementation and symmetric normalization; the MLP master uses symbolic dimensions and a generic optimizer update; and the DDPM master names MNIST only.
 
-- [ ] **Step 2: Add assertions for clinical, evidence-based prose**
+- [x] **Step 2: Add assertions for clinical, evidence-based prose**
 
 Assert that the README does not promise a fixed Codespaces setup duration and the opener visual record does not publish the production image prompt.
 
-- [ ] **Step 3: Run the focused tests and observe the audited claims fail**
+- [x] **Step 3: Run the focused tests and observe the audited claims fail**
 
 ```bash
-.venv/bin/pytest tests/test_render_diagrams.py tests/test_check_docs.py -q
+python -m pytest tests/test_render_diagrams.py tests/test_check_docs.py -q
 ```
 
 Expected: the new assertions fail on the stale diagram labels, fixed-duration promise, and published production prompt.
 
-### Task 2: Correct canonical diagram masters and prose
+## 12.41.3 Task 2: Correct canonical diagram masters and prose
 
 **Files:**
 - Modify: `docs/diagrams/ml-eng-lab-transformer.html`
@@ -58,31 +58,31 @@ Expected: the new assertions fail on the stale diagram labels, fixed-duration pr
 - Consumes: the pinned NNx and PyG runtime contracts.
 - Produces: accurate canonical content for every published surface.
 
-- [ ] **Step 1: Update the transformer master**
+- [x] **Step 1: Update the transformer master**
 
 Represent pre-normalized RMSNorm attention and SwiGLU feed-forward blocks, plus the final RMSNorm used by the pinned NNx transformer.
 
-- [ ] **Step 2: Update the GraphConv master**
+- [x] **Step 2: Update the GraphConv master**
 
-Represent `W_self h_v + W_neighbor sum(h_u)` with additive aggregation and the Morris et al. Weisfeiler-Leman attribution.
+Represent NNx `GraphConvNN` as its actual `pyg.nn.GCNConv` implementation: self-loops, an additive neighborhood sum, symmetric degree normalization, and Kipf-Welling attribution. Do not describe PyG's separate `GraphConv` operator.
 
-- [ ] **Step 3: Generalize the shared MLP master**
+- [x] **Step 3: Generalize the shared MLP master**
 
 Use symbolic input/output dimensions, task-dependent objective text, and a generic parameter update so the diagram remains true for classification, regression, NLP, PyTorch, and NumPy consumers.
 
-- [ ] **Step 4: Correct DDPM and prose claims**
+- [x] **Step 4: Correct DDPM and prose claims**
 
 Remove Fashion-MNIST from the MNIST-only DDPM master, remove the unbenchmarked Codespaces duration, and replace the historical production prompt with concise artifact provenance.
 
-- [ ] **Step 5: Run focused tests until green**
+- [x] **Step 5: Run focused tests until green**
 
 ```bash
-.venv/bin/pytest tests/test_render_diagrams.py tests/test_check_docs.py -q
+python -m pytest tests/test_render_diagrams.py tests/test_check_docs.py -q
 ```
 
 Expected: all focused tests pass.
 
-### Task 3: Regenerate and verify all three surfaces
+## 12.41.4 Task 3: Regenerate and verify all three surfaces
 
 **Files:**
 - Regenerate: `docs/diagrams/img/*.png`
@@ -92,7 +92,7 @@ Expected: all focused tests pass.
 - Consumes: corrected canonical sources.
 - Produces: matching repository PNGs, site SVGs, wiki PNGs, and deterministic generated trees.
 
-- [ ] **Step 1: Run the complete documentation builds**
+- [x] **Step 1: Run the complete documentation builds**
 
 ```bash
 make docs-check
@@ -101,7 +101,7 @@ make docs-wiki
 
 Expected: strict MkDocs build and wiki dry-run pass without warnings.
 
-- [ ] **Step 2: Run repository verification**
+- [x] **Step 2: Run repository verification**
 
 ```bash
 make verify
@@ -109,7 +109,7 @@ make verify
 
 Expected: repository structure and documentation checks return zero findings.
 
-- [ ] **Step 3: Inspect the final diff and worktree**
+- [x] **Step 3: Inspect the final diff and worktree**
 
 ```bash
 git diff --check

@@ -164,7 +164,7 @@ See [docs/env-setup.md](docs/env-setup.md) for environment details.
 
 ### 3.4. GitHub Codespaces (zero-click cloud dev)
 
-Click **Code → Codespaces → Create codespace on main** on [github.com/thekaveh/ml-eng-lab](https://github.com/thekaveh/ml-eng-lab). After ~2-3 minutes of one-time dep install you have a browser-based VS Code (or JupyterLab — see below) with the 21 active task folders available and all 29 active notebooks runnable under the pinned environment.
+Click **Code → Codespaces → Create codespace on main** on [github.com/thekaveh/ml-eng-lab](https://github.com/thekaveh/ml-eng-lab). After the one-time dependency installation completes, you have browser-based VS Code (or JupyterLab — see below) with the 21 active task folders available and all 29 active notebooks runnable under the pinned environment. Setup time varies with image-cache and network state.
 
 **Why this path was added.** The §3.1 / §3.2 / §3.3 paths each require local services or
 dependency setup. Codespaces avoids that setup: the `.devcontainer/devcontainer.json`
@@ -174,7 +174,7 @@ declaratively bakes the install recipe (so the dep set is synchronized to `requi
 container. Its base image is pinned as an exact tag plus multi-platform index digest.
 
 **Scenarios this supports**:
-- Onboarding a new contributor — they click "Create codespace" and have a working env in ~2-3 minutes, no local install at all.
+- Onboarding a new contributor — they click "Create codespace" and receive a working environment after the one-time dependency install, with no local installation.
 - Running a notebook on a larger host without local install (the smallest Codespace machine is 2-core / 8 GB RAM — comparable to a low-end laptop, sufficient for every Tier-A notebook; bump to 4-core / 16 GB if any Tier-B sweep feels slow).
 - Short exploratory run without polluting the local Python env.
 - The `notebooks/image_classification-mnist-ffnn-numpy/notebook.ipynb` edge case (it imports sibling `.py` modules from its own folder) works natively because Codespaces clones the repo into `/workspaces/ml-eng-lab`.
@@ -186,7 +186,7 @@ container. Its base image is pinned as an exact tag plus multi-platform index di
 **How to use**:
 
 1. On [github.com/thekaveh/ml-eng-lab](https://github.com/thekaveh/ml-eng-lab) → green **Code** button → **Codespaces** tab → **Create codespace on main**.
-2. Wait ~2-3 min for `postCreateCommand` to run `make codespace-setup` (= Torch-first dependency install + `make nlp-assets`). Progress is visible in the terminal panel.
+2. Wait for `postCreateCommand` to run `make codespace-setup` (= Torch-first dependency install + `make nlp-assets`). Progress is visible in the terminal panel.
 3. Open any notebook. You can either:
    - **Stay in VS Code (browser)** — the Jupyter / Python extensions are preinstalled per the devcontainer config and work for all 29 active notebooks. Use `make smoke-tier-b` for the bounded quantization execution contract.
    - **Switch to JupyterLab** — click the dropdown next to "Open" on github.com → choose JupyterLab. To make JupyterLab the single-click default for all your codespaces, go to [github.com/settings/codespaces → Editor preference → JupyterLab](https://github.com/settings/codespaces).

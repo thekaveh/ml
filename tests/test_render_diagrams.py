@@ -127,6 +127,55 @@ def test_documentation_pipeline_masters_avoid_unsupported_status_glyphs():
         assert unsupported_glyphs.isdisjoint(visible_text)
 
 
+def test_model_diagram_masters_match_pinned_runtime_contracts():
+    transformer = (
+        REPO_ROOT / "docs/diagrams/ml-eng-lab-transformer.html"
+    ).read_text(encoding="utf-8")
+    gnn = (REPO_ROOT / "docs/diagrams/ml-eng-lab-gnn.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Pre-Norm RMSNorm" in transformer
+    assert "SwiGLU" in transformer
+    assert "Final RMSNorm" in transformer
+    assert "LayerNorm" not in transformer
+    assert "GELU" not in transformer
+
+    assert "GraphConvNN / PyG GCNConv" in gnn
+    assert "AGG = normalized add (+ self-loop)" in gnn
+    assert "h_v' = Θᵀ · Σ h_u / √(d̂_u d̂_v)" in gnn
+    assert "Kipf &amp; Welling, 2017" in gnn
+    assert "AGG = mean" not in gnn
+    assert "transductive" not in gnn
+    assert "spectral mean" not in gnn
+
+
+def test_shared_model_diagram_masters_are_consumer_safe():
+    mlp = (REPO_ROOT / "docs/diagrams/ml-eng-lab-mlp.html").read_text(
+        encoding="utf-8"
+    )
+    ddpm = (REPO_ROOT / "docs/diagrams/ml-eng-lab-ddpm.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "[B, d_in]" in mlp
+    assert "[B, d_out]" in mlp
+    assert "task-specific objective" in mlp
+    assert "optimizer updates parameters from gradients" in mlp
+    for task_specific_claim in (
+        "Iris",
+        "MNIST",
+        "softmax + CE",
+        "CrossEntropyLoss",
+        "Adam step",
+    ):
+        assert task_specific_claim not in mlp
+
+    assert "MNIST" in ddpm
+    assert "FMNIST" not in ddpm
+    assert "garment" not in ddpm
+
+
 def test_documentation_sync_master_encodes_the_actual_directed_flow():
     root = _svg_root(REPO_ROOT / "docs/diagrams/ml-eng-lab-docs-sync.html")
     elements = {element.get("id"): element for element in root.iter() if element.get("id")}

@@ -126,21 +126,10 @@ git commit -m "feat(docs): project opener assets to every surface"
 
 - [x] **Step 1: Generate the project poster with the built-in image tool**
 
-Use this production prompt:
-
-```text
-Use case: ads-marketing
-Asset type: GitHub repository and documentation hero poster
-Primary request: Create a panoramic branded poster for an engineering repository named ML ENG LAB.
-Scene/backdrop: Near-black technical laboratory space with subtle notebook-cell grids, neural-network traces, graph nodes, and one restrained cyan remote-runtime beam suggesting Atlas infrastructure.
-Subject: The exact large centered wordmark "ML ENG LAB" is dominant; the exact smaller descriptor "NOTEBOOKS · SYSTEMS · REPRODUCIBILITY" sits beneath it.
-Style/medium: Premium technical editorial illustration; crisp, minimal, sophisticated, dark-first.
-Composition/framing: Wide panoramic composition targeting 2.4:1; generous safe margins; readable when reduced to GitHub README width.
-Lighting/mood: Controlled cyan and violet glow with small emerald and amber accents; confident and precise, not cinematic fantasy.
-Text (verbatim): "ML ENG LAB" and "NOTEBOOKS · SYSTEMS · REPRODUCIBILITY"
-Constraints: exact spelling; no other text; no people; no vendor logos; no architecture boxes; no terminal screenshot; no watermark.
-Avoid: busy dashboard composition, tiny labels, photorealistic server rooms, stock-photo aesthetics, Atlas mythology, illegible decorative glyphs.
-```
+Artifact provenance: `docs/assets/ml-eng-lab-poster.png` was generated once from the approved
+visual requirements in design section 12.5.6, then reviewed for exact wordmark text, safe margins,
+README-width legibility, and absence of vendor marks or watermarks. The accepted raster is the
+canonical poster artifact; documentation consumers do not regenerate it.
 
 - [x] **Step 2: Inspect and iterate once if necessary**
 

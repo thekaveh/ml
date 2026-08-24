@@ -30,7 +30,7 @@
     <div class="panel">
       <svg viewBox="0 0 1220 680" role="img" aria-labelledby="title desc">
         <title id="title">ml-eng-lab decoder-only transformer block</title>
-        <desc id="desc">Forward data flow through a decoder-only transformer: token ids feed token embedding and rotary positional encoding into a stack of N identical blocks, each performing masked multi-head self-attention with a causal mask and scaled-dot-product attention, followed by add+norm, a feed-forward network, and a second add+norm with residual skip connections; the stack output passes through a final layer norm, a linear LM head, and a softmax to produce next-token logits.</desc>
+        <desc id="desc">Forward data flow through the NNx decoder-only transformer: token ids feed token embeddings into N pre-normalized blocks. Each block applies RMSNorm before causal multi-head attention, adds the residual, applies RMSNorm before a SwiGLU feed-forward network, and adds the second residual. The stack output passes through final RMSNorm and a linear LM head to produce next-token logits.</desc>
         <defs>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
             <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
@@ -113,28 +113,28 @@
         <text x="525" y="360" fill="#94a3b8" font-size="8" text-anchor="middle">h heads, d_head = d/h</text>
         <text x="525" y="374" fill="#94a3b8" font-size="8" text-anchor="middle">Q, K, V &larr; x &middot; W</text>
 
-        <!-- add & norm 1 -->
+        <!-- residual add 1; RMSNorm is applied before attention -->
         <rect x="620" y="295" width="80" height="70" rx="6" fill="#0f172a"/>
         <rect x="620" y="295" width="80" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="660" y="320" fill="#fff" font-size="10" font-weight="600" text-anchor="middle">Add &amp; Norm</text>
-        <text x="660" y="338" fill="#94a3b8" font-size="8" text-anchor="middle">residual +</text>
-        <text x="660" y="352" fill="#94a3b8" font-size="8" text-anchor="middle">LayerNorm</text>
+        <text x="660" y="320" fill="#fff" font-size="10" font-weight="600" text-anchor="middle">Residual Add</text>
+        <text x="660" y="338" fill="#94a3b8" font-size="8" text-anchor="middle">x + attention</text>
+        <text x="660" y="352" fill="#94a3b8" font-size="8" text-anchor="middle">dropout optional</text>
 
         <!-- feed-forward -->
         <rect x="720" y="275" width="130" height="110" rx="6" fill="#0f172a"/>
         <rect x="720" y="275" width="130" height="110" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="785" y="298" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Feed-Forward</text>
-        <text x="785" y="314" fill="#94a3b8" font-size="8" text-anchor="middle">(FFN / MLP)</text>
-        <text x="785" y="335" fill="#94a3b8" font-size="8" text-anchor="middle">Linear &rarr; GELU</text>
-        <text x="785" y="351" fill="#94a3b8" font-size="8" text-anchor="middle">&rarr; Linear</text>
-        <text x="785" y="368" fill="#94a3b8" font-size="8" text-anchor="middle">d &rarr; 4d &rarr; d</text>
+        <text x="785" y="298" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">SwiGLU FFN</text>
+        <text x="785" y="314" fill="#94a3b8" font-size="8" text-anchor="middle">Pre-Norm RMSNorm</text>
+        <text x="785" y="335" fill="#94a3b8" font-size="8" text-anchor="middle">SiLU(w1(x))</text>
+        <text x="785" y="351" fill="#94a3b8" font-size="8" text-anchor="middle">&times; w3(x) &rarr; w2</text>
+        <text x="785" y="368" fill="#94a3b8" font-size="8" text-anchor="middle">gated, bias-free</text>
 
-        <!-- add & norm 2 -->
+        <!-- residual add 2; RMSNorm is applied before SwiGLU -->
         <rect x="870" y="295" width="80" height="70" rx="6" fill="#0f172a"/>
         <rect x="870" y="295" width="80" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="910" y="320" fill="#fff" font-size="10" font-weight="600" text-anchor="middle">Add &amp; Norm</text>
-        <text x="910" y="338" fill="#94a3b8" font-size="8" text-anchor="middle">residual +</text>
-        <text x="910" y="352" fill="#94a3b8" font-size="8" text-anchor="middle">LayerNorm</text>
+        <text x="910" y="320" fill="#fff" font-size="10" font-weight="600" text-anchor="middle">Residual Add</text>
+        <text x="910" y="338" fill="#94a3b8" font-size="8" text-anchor="middle">x + SwiGLU</text>
+        <text x="910" y="352" fill="#94a3b8" font-size="8" text-anchor="middle">dropout optional</text>
 
         <!-- residual junction dots (drawn on top) -->
         <circle cx="440" cy="330" r="2.6" fill="#fbbf24"/>
@@ -143,7 +143,7 @@
         <!-- ============ OUTPUT HEAD (right column) ============ -->
         <rect x="1000" y="298" width="170" height="64" rx="6" fill="#0f172a"/>
         <rect x="1000" y="298" width="170" height="64" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="1085" y="320" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Final LayerNorm</text>
+        <text x="1085" y="320" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Final RMSNorm</text>
         <text x="1085" y="338" fill="#94a3b8" font-size="8" text-anchor="middle">[B, T, d_model]</text>
         <text x="1085" y="352" fill="#94a3b8" font-size="8" text-anchor="middle">after N blocks</text>
 
@@ -188,15 +188,15 @@
       <div class="card">
         <h2>Transformer block &times;N</h2>
         <ul>
-          <li>Masked MHSA: softmax(QK&#7488;/&#8730;d)&middot;V under a lower-triangular causal mask.</li>
-          <li>Residual + LayerNorm wraps both attention and the feed-forward network.</li>
-          <li>FFN: Linear(d, 4d) &rarr; GELU &rarr; Linear(4d, d); repeated N times.</li>
+          <li>Pre-Norm RMSNorm feeds masked MHSA under an additive causal mask.</li>
+          <li>The attention result is added to the residual stream before the second RMSNorm.</li>
+          <li>SwiGLU computes w2(SiLU(w1(x)) &times; w3(x)); its result joins the second residual.</li>
         </ul>
       </div>
       <div class="card">
         <h2>Output head</h2>
         <ul>
-          <li>Final LayerNorm &rarr; linear LM head projects hidden state to vocab logits.</li>
+          <li>Final RMSNorm &rarr; linear LM head projects hidden state to vocab logits.</li>
           <li>Softmax yields the next-token distribution; sample id_{t+1}.</li>
           <li>Sampled token appends to the sequence; repeat for generation.</li>
         </ul>

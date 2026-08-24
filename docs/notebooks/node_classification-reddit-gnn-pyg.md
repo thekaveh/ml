@@ -62,6 +62,8 @@ The `nnx` flat re-exports consumed are: `NNGraphDataset`, `NNModel`, `NNParams`,
 `Optims`, `VisUtils`, `Utils`, `set_seed`. The graph-aware enums (`Nets.GRAPH_CONV`,
 `Nets.GRAPH_SAGE`, `Nets.GRAPH_ATT`) are paired with `NNParams(hidden_dims=...,
 dropout_prob=..., n_heads=...)`; only `GRAPH_ATT` consumes `n_heads`.
+`GraphConvNN` wraps `pyg.nn.GCNConv`; the collection name does not refer to PyG's separate
+`pyg.nn.GraphConv` operator.
 
 ## 8.13.3 Math
 
@@ -76,8 +78,8 @@ h_v^{(k)} = \phi\!\left(W^{(k)} h_v^{(k-1)} \;\oplus\; \bigoplus_{u \in \mathcal
 with \(h_v^{(0)} = x_v\) (the 602-dim input feature) and the readout on layer \(K\) producing 41
 logits consumed by softmax + cross-entropy (same objective as the Iris task in §8.1).
 
-**GraphConv** (Kipf & Welling) uses the symmetrically-normalized mean over the closed
-neighborhood, where the normalization is the inverse square root of the endpoint degrees:
+**GraphConv** (Kipf & Welling) uses a symmetrically normalized sum over the closed neighborhood,
+where the normalization is the inverse square root of the endpoint degrees:
 
 \[
 h_v^{(k)} = \sigma\!\left(\sum_{u \in \mathcal{N}(v) \cup \{v\}} \frac{1}{\sqrt{d_u\, d_v}}\, W^{(k)} h_u^{(k-1)}\right).

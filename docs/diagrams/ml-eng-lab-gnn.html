@@ -174,10 +174,10 @@
         <!-- GraphConv -->
         <rect x="948" y="112" width="288" height="168" rx="6" fill="#0f172a"/>
         <rect x="948" y="112" width="288" height="168" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-        <text x="966" y="136" fill="#67e8f9" font-size="12" font-weight="600">GraphConv</text>
-        <text x="966" y="160" fill="#cbd5e1" font-size="9">AGG = mean (+ self)</text>
-        <text x="966" y="180" fill="#cbd5e1" font-size="9">h_v' = σ(W h_v + W̄ · mean h_u)</text>
-        <text x="966" y="200" fill="#94a3b8" font-size="9">spectral-derived; transductive</text>
+        <text x="966" y="136" fill="#67e8f9" font-size="11" font-weight="600">GraphConvNN / PyG GCNConv</text>
+        <text x="966" y="160" fill="#cbd5e1" font-size="9">AGG = normalized add (+ self-loop)</text>
+        <text x="966" y="180" fill="#cbd5e1" font-size="9">h_v' = Θᵀ · Σ h_u / √(d̂_u d̂_v)</text>
+        <text x="966" y="200" fill="#94a3b8" font-size="9">symmetric degree normalization</text>
         <text x="966" y="262" fill="#64748b" font-size="8">Kipf &amp; Welling, 2017</text>
 
         <!-- GraphSAGE -->
@@ -229,7 +229,7 @@
       <div class="card">
         <h2>Three collection variants</h2>
         <ul>
-          <li>GraphConv — spectral mean aggregation.</li>
+          <li>GraphConvNN — PyG GCNConv with symmetric normalization.</li>
           <li>GraphSAGE — sampled, inductive aggregator.</li>
           <li>GAT — attention-weighted neighbor sum.</li>
         </ul>

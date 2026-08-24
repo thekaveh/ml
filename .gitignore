@@ -204,3 +204,4 @@ audit-*.md
 .trunk/
 .vscode/
 .pytest_cache/
+.worktrees/

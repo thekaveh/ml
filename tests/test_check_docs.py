@@ -1470,6 +1470,36 @@ def test_issue66_quantization_guidance_uses_tier_b_contract() -> None:
         assert "NNCheckpoint.load" not in current
 
 
+def test_codespaces_guidance_avoids_unbenchmarked_setup_duration() -> None:
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "Setup time varies with image-cache and network state." in readme
+    assert "~2-3 minutes" not in readme
+    assert "~2–3 minutes" not in readme
+
+
+def test_graphconv_guidance_matches_nnx_gcnconv_wrapper() -> None:
+    task_doc = (
+        REPO_ROOT / "docs/notebooks/node_classification-reddit-gnn-pyg.md"
+    ).read_text(encoding="utf-8")
+
+    assert "`GraphConvNN` wraps `pyg.nn.GCNConv`" in task_doc
+    assert "symmetrically normalized sum" in task_doc
+    assert "symmetrically-normalized mean" not in task_doc
+
+
+def test_published_opener_record_uses_clinical_artifact_provenance() -> None:
+    record = (
+        REPO_ROOT
+        / "docs/superpowers/plans/2026-08-01-opener-visual-remediation-implementation-plan.md"
+    ).read_text(encoding="utf-8")
+
+    assert "Artifact provenance:" in record
+    assert "Use this production prompt:" not in record
+    assert "Scene/backdrop:" not in record
+    assert "Lighting/mood:" not in record
+
+
 _ISSUE66_TIER_MATRIX_GUIDANCE = (
     "Every NNx release review must run the complete Tier A, Tier B, and Tier C matrix in a "
     "fresh canonical environment installed by `make install-torch-stack`"

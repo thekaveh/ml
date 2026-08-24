@@ -259,6 +259,10 @@ sections:
         number: "12.40"
         title: Issue 73 repository verifier decomposition implementation plan
         source: docs/superpowers/plans/2026-08-22-issue-73-verify-repo-decomposition-implementation-plan.md
+      - id: three-surface-audit-remediation-implementation
+        number: "12.41"
+        title: Three-surface audit remediation implementation plan
+        source: docs/superpowers/plans/2026-08-24-three-surface-audit-remediation-implementation-plan.md
   - id: security
     number: "13"
     title: Security policy
